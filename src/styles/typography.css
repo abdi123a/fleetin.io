@@ -1,0 +1,117 @@
+/**
+ * FLEETIN — Typography scale
+ * ---------------------------------------------------------------------------
+ * Named type levels, composed from the primitive typography tokens.
+ *
+ * Phase 1 exposed the raw scale (`text-sm`, `text-2xl`, ...). These utilities
+ * add the semantic layer on top: a heading is `type-h2`, not a hand-assembled
+ * `text-xl font-semibold leading-snug tracking-tight`. That keeps size, weight,
+ * line height and tracking locked together, so the same level can never render
+ * two different ways in two different modules.
+ *
+ * Usage:
+ *   <h2 className="type-h2">Shipment overview</h2>
+ *   <p className="type-body-sm text-muted-foreground">Updated 2 hours ago</p>
+ *
+ * Colour is deliberately NOT part of a type level — pair these with a text
+ * colour token (`text-foreground`, `text-muted-foreground`) at the call site.
+ */
+
+@utility type-display-xl {
+  font-size: var(--fl-text-4xl);
+  line-height: var(--fl-leading-tight);
+  font-weight: var(--fl-weight-bold);
+  letter-spacing: -0.02em;
+  font-feature-settings: "tnum" on;
+  font-variant-numeric: tabular-nums;
+}
+
+@utility type-display {
+  font-size: var(--fl-text-3xl);
+  line-height: var(--fl-leading-tight);
+  font-weight: var(--fl-weight-bold);
+  letter-spacing: -0.015em;
+  font-feature-settings: "tnum" on;
+  font-variant-numeric: tabular-nums;
+}
+
+@utility type-h1 {
+  font-size: var(--fl-text-2xl);
+  line-height: var(--fl-leading-tight);
+  font-weight: var(--fl-weight-semibold);
+}
+
+@utility type-h2 {
+  font-size: var(--fl-text-xl);
+  line-height: var(--fl-leading-snug);
+  font-weight: var(--fl-weight-semibold);
+}
+
+@utility type-h3 {
+  font-size: var(--fl-text-lg);
+  line-height: var(--fl-leading-snug);
+  font-weight: var(--fl-weight-semibold);
+}
+
+@utility type-h4 {
+  font-size: var(--fl-text-md);
+  line-height: var(--fl-leading-normal);
+  font-weight: var(--fl-weight-semibold);
+}
+
+@utility type-body-lg {
+  font-size: var(--fl-text-md);
+  line-height: var(--fl-leading-relaxed);
+  font-weight: var(--fl-weight-normal);
+}
+
+@utility type-body {
+  font-size: var(--fl-text-base);
+  line-height: var(--fl-leading-normal);
+  font-weight: var(--fl-weight-normal);
+}
+
+/** Card and panel titles — one step above body, tighter than body-lg. */
+@utility type-body-md {
+  font-size: var(--fl-text-md);
+  line-height: var(--fl-leading-normal);
+  font-weight: var(--fl-weight-normal);
+}
+
+@utility type-body-sm {
+  font-size: var(--fl-text-sm);
+  line-height: var(--fl-leading-normal);
+  font-weight: var(--fl-weight-normal);
+}
+
+/** Sub-labels under a value — the muted key in a key/value pair. */
+@utility type-body-xs {
+  font-size: var(--fl-text-xs);
+  line-height: var(--fl-leading-normal);
+  font-weight: var(--fl-weight-normal);
+}
+
+@utility type-caption {
+  font-size: var(--fl-text-xs);
+  line-height: var(--fl-leading-normal);
+  font-weight: var(--fl-weight-normal);
+}
+
+/** Field labels, table headers, section captions. Always uppercase. */
+@utility type-label {
+  font-size: var(--fl-text-2xs);
+  line-height: var(--fl-leading-normal);
+  font-weight: var(--fl-weight-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/** Monospace variant for IDs, codes and token values. */
+@utility type-mono {
+  font-family: var(--fl-font-mono);
+  font-size: var(--fl-text-xs);
+  line-height: var(--fl-leading-normal);
+  font-weight: var(--fl-weight-normal);
+  font-feature-settings: "tnum" on;
+  font-variant-numeric: tabular-nums;
+}

@@ -1,0 +1,518 @@
+/**
+ * FLEETIN — Stylesheet entry point
+ * ---------------------------------------------------------------------------
+ * Import order matters:
+ *   1. Tailwind engine
+ *   2. Primitive tokens   (raw values)
+ *   3. Semantic tokens    (light/dark role mapping)
+ *   4. @theme bridge      (exposes tokens as Tailwind utilities)
+ *   5. Base + animations  (element defaults, keyframes)
+ *
+ * The `@theme inline` block is the single place where design tokens become
+ * Tailwind utilities. Because the values are `inline` var() references rather
+ * than resolved colours, `bg-primary` re-evaluates under `.dark` automatically.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+/* Self-hosted, not a CDN — `type-mono` is load-bearing for container IDs and
+ * booking refs, so it must not depend on a third-party request resolving. */
+@import '@fontsource-variable/jetbrains-mono';
+
+@import './tokens.primitives.css';
+@import './tokens.semantic.css';
+@import './animations.css';
+@import './base.css';
+@import './typography.css';
+
+/* Class-based dark mode (driven by the theme store, not the media query). */
+@custom-variant dark (&:is(.dark *));
+
+/* ===========================================================================
+ * Drop Tailwind's built-in palette.
+ *
+ * `@theme` EXTENDS the default theme rather than replacing it, so without this
+ * reset `bg-emerald-500`, `text-rose-400` and `bg-slate-900` all still compile
+ * happily alongside the semantic roles below. That is how 831 raw-palette
+ * classes reached production across 56 files — including a second green
+ * (emerald #10B981 beside `--success` #2E7D32) and a second red (rose #F43F5E
+ * beside `--destructive` #D32F2F) shipping side by side.
+ *
+ * Clearing the namespace turns every one of them into a build error instead of
+ * a silent second palette. Do not remove this block: the comment at the top of
+ * the `@theme inline` section below is only true while it is here.
+ *
+ * `white` and `black` survive as genuine primitives — fixed surfaces and
+ * overlays that must not follow the theme — not as palette steps.
+ * ========================================================================= */
+@theme {
+  --color-*: initial;
+  --color-white: #ffffff;
+  --color-black: #000000;
+
+  /* Same extend-vs-replace trap as the palette: dropping a rung from the bridge
+   * below does NOT remove the utility, because Tailwind's own radius scale is
+   * still in play. Without this reset the extra rungs keep compiling from the
+   * defaults and the four-step ladder is a suggestion rather than a rule.
+   * `rounded-none` and `rounded-full` are static utilities and survive it. */
+  --radius-*: initial;
+}
+
+@theme inline {
+  /* =========================================================================
+   * COLORS — semantic roles only. Primitives stay out of the utility surface
+   * on purpose: `bg-fl-teal-500` must not be reachable from feature code.
+   * ======================================================================= */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-foreground: var(--surface-foreground);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-subtle: var(--primary-subtle);
+  --color-primary-subtle-foreground: var(--primary-subtle-foreground);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-hover: var(--secondary-hover);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-active: var(--accent-active);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-subtle-foreground: var(--accent-subtle-foreground);
+
+  --color-primary-bold: var(--primary-bold);
+  --color-primary-bold-foreground: var(--primary-bold-foreground);
+  --color-accent-bold: var(--accent-bold);
+  --color-accent-bold-foreground: var(--accent-bold-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-success: var(--success);
+  --color-success-hover: var(--success-hover);
+  --color-success-active: var(--success-active);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-subtle: var(--success-subtle);
+  --color-success-subtle-foreground: var(--success-subtle-foreground);
+
+  --color-warning: var(--warning);
+  --color-warning-hover: var(--warning-hover);
+  --color-warning-active: var(--warning-active);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-warning-subtle-foreground: var(--warning-subtle-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-hover: var(--destructive-hover);
+  --color-destructive-active: var(--destructive-active);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-subtle: var(--destructive-subtle);
+  --color-destructive-subtle-foreground: var(--destructive-subtle-foreground);
+
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-subtle: var(--info-subtle);
+  --color-info-subtle-foreground: var(--info-subtle-foreground);
+
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-border-subtle: var(--border-subtle);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-focus-ring: var(--ring);
+  --color-overlay: var(--overlay);
+
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted-foreground: var(--sidebar-muted-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-item-hover: var(--sidebar-item-hover);
+  --color-sidebar-item-hover-foreground: var(--sidebar-item-hover-foreground);
+  --color-sidebar-item-active: var(--sidebar-item-active);
+  --color-sidebar-item-active-foreground: var(--sidebar-item-active-foreground);
+  --color-sidebar-item-marker: var(--sidebar-item-marker);
+  --color-header: var(--header);
+  --color-header-foreground: var(--header-foreground);
+  --color-header-border: var(--header-border);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-chart-7: var(--chart-7);
+  --color-chart-other: var(--chart-other);
+
+  --color-chart-step-1: var(--chart-step-1);
+  --color-chart-step-2: var(--chart-step-2);
+  --color-chart-step-3: var(--chart-step-3);
+  --color-chart-step-4: var(--chart-step-4);
+  --color-chart-step-5: var(--chart-step-5);
+
+  --color-chart-grid: var(--chart-grid);
+  --color-chart-axis: var(--chart-axis);
+
+  --color-tile-teal: var(--tile-teal);
+  --color-tile-teal-foreground: var(--tile-teal-foreground);
+  --color-tile-pink: var(--tile-pink);
+  --color-tile-peach: var(--tile-peach);
+  --color-tile-sky: var(--tile-sky);
+  --color-tile-foreground: var(--tile-foreground);
+
+  /* Urgency scale (empty-return control tower + any triage list) */
+  --color-urgency-overdue-bg: var(--urgency-overdue-bg);
+  --color-urgency-overdue-fg: var(--urgency-overdue-fg);
+  --color-urgency-overdue-border: var(--urgency-overdue-border);
+  --color-urgency-overdue-solid: var(--urgency-overdue-solid);
+  --color-urgency-at-risk-bg: var(--urgency-at-risk-bg);
+  --color-urgency-at-risk-fg: var(--urgency-at-risk-fg);
+  --color-urgency-at-risk-border: var(--urgency-at-risk-border);
+  --color-urgency-at-risk-solid: var(--urgency-at-risk-solid);
+  --color-urgency-critical-bg: var(--urgency-critical-bg);
+  --color-urgency-critical-fg: var(--urgency-critical-fg);
+  --color-urgency-critical-border: var(--urgency-critical-border);
+  --color-urgency-critical-solid: var(--urgency-critical-solid);
+  --color-urgency-watch-bg: var(--urgency-watch-bg);
+  --color-urgency-watch-fg: var(--urgency-watch-fg);
+  --color-urgency-watch-border: var(--urgency-watch-border);
+  --color-urgency-watch-solid: var(--urgency-watch-solid);
+  --color-urgency-safe-bg: var(--urgency-safe-bg);
+  --color-urgency-safe-fg: var(--urgency-safe-fg);
+  --color-urgency-safe-border: var(--urgency-safe-border);
+  --color-urgency-safe-solid: var(--urgency-safe-solid);
+  --color-urgency-protected-bg: var(--urgency-protected-bg);
+  --color-urgency-protected-fg: var(--urgency-protected-fg);
+  --color-urgency-protected-border: var(--urgency-protected-border);
+  --color-urgency-protected-solid: var(--urgency-protected-solid);
+  --color-urgency-overdue-row: var(--urgency-overdue-row);
+
+  /* =========================================================================
+   * TYPOGRAPHY
+   * ======================================================================= */
+  --font-sans: var(--fl-font-sans);
+  --font-mono: var(--fl-font-mono);
+
+  --text-2xs: var(--fl-text-2xs);
+  --text-2xs--line-height: var(--fl-leading-normal);
+  --text-xs: var(--fl-text-xs);
+  --text-xs--line-height: var(--fl-leading-normal);
+  --text-sm: var(--fl-text-sm);
+  --text-sm--line-height: var(--fl-leading-normal);
+  --text-base: var(--fl-text-base);
+  --text-base--line-height: var(--fl-leading-normal);
+  --text-md: var(--fl-text-md);
+  --text-md--line-height: var(--fl-leading-normal);
+  --text-lg: var(--fl-text-lg);
+  --text-lg--line-height: var(--fl-leading-snug);
+  --text-xl: var(--fl-text-xl);
+  --text-xl--line-height: var(--fl-leading-snug);
+  --text-2xl: var(--fl-text-2xl);
+  --text-2xl--line-height: var(--fl-leading-tight);
+  --text-3xl: var(--fl-text-3xl);
+  --text-3xl--line-height: var(--fl-leading-tight);
+  --text-4xl: var(--fl-text-4xl);
+  --text-4xl--line-height: var(--fl-leading-tight);
+
+  --font-weight-normal: var(--fl-weight-normal);
+  --font-weight-medium: var(--fl-weight-medium);
+  --font-weight-semibold: var(--fl-weight-semibold);
+  --font-weight-bold: var(--fl-weight-bold);
+
+  --leading-none: var(--fl-leading-none);
+  --leading-tight: var(--fl-leading-tight);
+  --leading-snug: var(--fl-leading-snug);
+  --leading-normal: var(--fl-leading-normal);
+  --leading-relaxed: var(--fl-leading-relaxed);
+
+  --tracking-tighter: var(--fl-tracking-tighter);
+  --tracking-tight: var(--fl-tracking-tight);
+  --tracking-normal: var(--fl-tracking-normal);
+  --tracking-wide: var(--fl-tracking-wide);
+  --tracking-wider: var(--fl-tracking-wider);
+  --tracking-widest: var(--fl-tracking-widest);
+
+  /* =========================================================================
+   * RADIUS / SHADOW
+   * ======================================================================= */
+  /* Only these four are exposed. The extra-large and extra-small rungs are gone
+   * on purpose — leaving them bridged is what let twelve radii accumulate.
+   * (Deliberately not naming those utilities here: Tailwind scans this file for
+   * class candidates, so writing them out would resurrect them.) */
+  --radius-none: var(--fl-radius-none);
+  --radius-sm: var(--fl-radius-sm);
+  --radius-md: var(--fl-radius-md);
+  --radius-lg: var(--fl-radius-lg);
+  --radius-full: var(--fl-radius-full);
+
+  /* Named card radii. Two rungs, deliberately: an outer panel is `rounded-card`
+   * and anything nested inside one is `rounded-card-nested`. Nesting equal radii
+   * reads as a mistake, so the inner rung is always the smaller of the two. */
+  --radius-card: var(--fl-radius-lg);
+  --radius-card-nested: var(--fl-radius-md);
+
+  --shadow-xs: var(--elevation-xs);
+  --shadow-sm: var(--elevation-sm);
+  --shadow-md: var(--elevation-md);
+  --shadow-lg: var(--elevation-lg);
+  --shadow-xl: var(--elevation-xl);
+  --shadow-card: var(--elevation-card);
+
+  /* =========================================================================
+   * MOTION
+   * ======================================================================= */
+  --ease-linear: var(--fl-ease-linear);
+  --ease-in: var(--fl-ease-in);
+  --ease-out: var(--fl-ease-out);
+  --ease-in-out: var(--fl-ease-in-out);
+  --ease-emphasized: var(--fl-ease-emphasized);
+  --ease-spring: var(--fl-ease-spring);
+
+  --animate-fade-in: fl-fade-in var(--fl-duration-normal) var(--fl-ease-out);
+  --animate-fade-out: fl-fade-out var(--fl-duration-fast) var(--fl-ease-in);
+  --animate-zoom-in: fl-zoom-in var(--fl-duration-fast) var(--fl-ease-out);
+  --animate-zoom-out: fl-zoom-out var(--fl-duration-fast) var(--fl-ease-in);
+  --animate-slide-in-left: fl-slide-in-from-left var(--fl-duration-slow) var(--fl-ease-emphasized);
+  --animate-slide-out-left: fl-slide-out-to-left var(--fl-duration-normal) var(--fl-ease-in);
+  --animate-slide-in-top: fl-slide-in-from-top var(--fl-duration-normal) var(--fl-ease-out);
+  --animate-collapsible-down: fl-collapsible-down var(--fl-duration-normal) var(--fl-ease-emphasized);
+  --animate-collapsible-up: fl-collapsible-up var(--fl-duration-normal) var(--fl-ease-emphasized);
+  --animate-shimmer: fl-shimmer 1.6s var(--fl-ease-linear) infinite;
+  --animate-spin: fl-spin 0.7s var(--fl-ease-linear) infinite;
+
+  /* =========================================================================
+   * LAYOUT
+   * ======================================================================= */
+  --spacing-sidebar: var(--fl-sidebar-width);
+  --spacing-sidebar-collapsed: var(--fl-sidebar-width-collapsed);
+  --spacing-header: var(--fl-header-height);
+  --container-content: var(--fl-content-max-width);
+}
+
+/* ===========================================================================
+ * Z-INDEX UTILITIES
+ * Tailwind has no z-index theme namespace, so the scale is exposed as named
+ * utilities. Use `z-modal`, never `z-[600]`.
+ * ========================================================================= */
+@utility z-hide {
+  z-index: var(--fl-z-hide);
+}
+@utility z-base {
+  z-index: var(--fl-z-base);
+}
+@utility z-raised {
+  z-index: var(--fl-z-raised);
+}
+@utility z-sticky {
+  z-index: var(--fl-z-sticky);
+}
+@utility z-sidebar {
+  z-index: var(--fl-z-sidebar);
+}
+@utility z-header {
+  z-index: var(--fl-z-header);
+}
+@utility z-overlay {
+  z-index: var(--fl-z-overlay);
+}
+@utility z-drawer {
+  z-index: var(--fl-z-drawer);
+}
+@utility z-modal {
+  z-index: var(--fl-z-modal);
+}
+@utility z-popover {
+  z-index: var(--fl-z-popover);
+}
+@utility z-toast {
+  z-index: var(--fl-z-toast);
+}
+@utility z-tooltip {
+  z-index: var(--fl-z-tooltip);
+}
+
+/* ===========================================================================
+ * DURATION UTILITIES — named transition speeds from the animation tokens.
+ * ========================================================================= */
+@utility duration-instant {
+  transition-duration: var(--fl-duration-instant);
+}
+@utility duration-fast {
+  transition-duration: var(--fl-duration-fast);
+}
+@utility duration-normal {
+  transition-duration: var(--fl-duration-normal);
+}
+@utility duration-slow {
+  transition-duration: var(--fl-duration-slow);
+}
+@utility duration-slower {
+  transition-duration: var(--fl-duration-slower);
+}
+
+/* ===========================================================================
+ * TRACKING MAP — markers and popups.
+ *
+ * MapLibre builds its markers as raw DOM outside React, so these cannot be
+ * Tailwind classes on a component. They are written against the semantic
+ * tokens so the map still follows the theme, and the marker's own colour
+ * arrives per-element as `--marker-color` from the shipment's risk score.
+ * ========================================================================= */
+.fl-map-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 2px solid var(--surface);
+  border-radius: var(--fl-radius-full);
+  background: var(--marker-color, var(--primary));
+  color: var(--primary-foreground);
+  cursor: pointer;
+  box-shadow: var(--elevation-sm);
+  transition: transform var(--fl-duration-fast) var(--fl-ease-out);
+}
+
+.fl-map-marker:hover,
+.fl-map-marker:focus-visible {
+  transform: scale(1.15);
+  outline: none;
+}
+
+.fl-map-marker:focus-visible {
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+.fl-map-marker svg {
+  width: 16px;
+  height: 16px;
+}
+
+.fl-map-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--foreground);
+}
+
+.fl-map-popup strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.fl-map-popup span {
+  color: var(--muted-foreground);
+}
+
+/* MapLibre's own chrome, re-pointed at the design tokens. */
+.maplibregl-popup-content {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--fl-radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--elevation-md);
+}
+
+.maplibregl-popup-tip {
+  border-top-color: var(--surface-raised);
+  border-bottom-color: var(--surface-raised);
+}
+
+.maplibregl-ctrl-attrib {
+  font-size: 10px;
+  border-radius: var(--fl-radius-sm) 0 0 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Printed documents
+ *
+ * The invoice sheet is a piece of A4, on screen and on paper alike. It sizes
+ * itself in millimetres, so the only thing print has to do is remove the app
+ * around it — no separate print layout exists to drift out of sync.
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+.invoice-sheet {
+  /*
+   * A paper palette, deliberately NOT the app's semantic tokens.
+   *
+   * An invoice is the same object in a dark-mode browser, on a client's
+   * screen and in a laser printer's tray — it does not follow the viewer's
+   * theme, because paper does not. These are the only fixed colours in the
+   * app and they live here rather than scattered through the component.
+   * `--invoice-brand` is the house #60969D.
+   */
+  --invoice-paper: #ffffff;
+  --invoice-ink: #1a1a1a;
+  --invoice-muted: #5b6b6d;
+  --invoice-faint: #8a9a9c;
+  --invoice-rule: #c8d8da;
+  --invoice-rule-soft: #e4ecee;
+  --invoice-wash: #eef4f5;
+  --invoice-brand: #60969d;
+  --invoice-settled: #3f7a5e;
+
+  width: 210mm;
+  max-width: 100%;
+  /* Fills a sheet even when the invoice is short, so the footer sits at the
+     bottom of the page rather than floating under the last line. */
+  min-height: 297mm;
+  display: flex;
+  flex-direction: column;
+  background: var(--invoice-paper);
+  color: var(--invoice-ink);
+  color-scheme: light;
+}
+
+/* The footer is the last child and takes the slack. */
+.invoice-sheet > footer {
+  margin-top: auto;
+}
+
+@page {
+  size: A4;
+  margin: 0;
+}
+
+@media print {
+  /* Nothing but the sheet survives: no sidebar, no topbar, no toolbar. */
+  body * {
+    visibility: hidden;
+  }
+
+  .invoice-sheet,
+  .invoice-sheet * {
+    visibility: visible;
+  }
+
+  .invoice-sheet {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 210mm;
+    margin: 0;
+    box-shadow: none;
+  }
+
+  /* Backgrounds and rules are content on an invoice, not decoration. */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

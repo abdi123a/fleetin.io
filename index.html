@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en" class="light">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="description" content="FLEETIN Internal Management System" />
+    <title>FLEETIN Internal Management System</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
+
+    <script>
+      /**
+       * Applies the persisted theme before first paint.
+       *
+       * Without this the document renders light and then flips once React
+       * hydrates the theme store — a visible flash for every dark-mode user.
+       * Kept inline and dependency-free so it runs before any bundle loads.
+       */
+      (function () {
+        try {
+          var stored = localStorage.getItem('fleetin.theme');
+          var mode = stored ? JSON.parse(stored).state.mode : 'system';
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var resolved = mode === 'system' ? (prefersDark ? 'dark' : 'light') : mode;
+
+          document.documentElement.classList.remove('light', 'dark');
+          document.documentElement.classList.add(resolved);
+          document.documentElement.style.colorScheme = resolved;
+        } catch (error) {
+          /* Storage unavailable or malformed — fall back to the light default. */
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

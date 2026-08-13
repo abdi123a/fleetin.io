@@ -1,0 +1,324 @@
+/**
+ * FLEETIN — Base layer
+ * ---------------------------------------------------------------------------
+ * Element-level defaults expressed entirely through semantic tokens. Anything
+ * that needs a literal value belongs in `tokens.primitives.css`.
+ */
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    border-color: var(--border);
+    font-family: var(--fl-font-sans);
+  }
+
+  button,
+  input,
+  textarea,
+  select,
+  optgroup {
+    font-family: inherit;
+    outline: none;
+  }
+
+  input:focus,
+  textarea:focus,
+  select:focus,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline: none;
+    border-color: var(--primary);
+  }
+
+  /* Prevent ugly default focus outlines on charts / SVG */
+  svg,
+  svg *,
+  svg path,
+  svg circle,
+  svg rect,
+  svg polygon,
+  svg polyline,
+  svg g,
+  svg text,
+  canvas,
+  .apexcharts-canvas,
+  .apexcharts-canvas *,
+  .apexcharts-svg,
+  .apexcharts-svg *,
+  .apexcharts-series,
+  .apexcharts-series path,
+  .apexcharts-bar-area,
+  .apexcharts-pie-area,
+  .apexcharts-datalabel,
+  .apexcharts-tooltip {
+    outline: none !important;
+    box-shadow: none !important;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Modern, subtle column indicator for chart tooltips (soft translucent highlight with rounded corners) */
+  .recharts-tooltip-cursor {
+    fill: var(--muted) !important;
+    opacity: 0.25 !important;
+    rx: 6px;
+    ry: 6px;
+  }
+
+  /* Interactive pointer — Recharts only. Bare svg path/g :active brightens
+   * the entire Apex series because parent <g> matches while a child is pressed. */
+  .recharts-sector,
+  .recharts-pie-sector,
+  .recharts-bar-rectangle,
+  .recharts-bar-rectangle path,
+  .recharts-bar-rectangle rect,
+  .recharts-active-shape,
+  .recharts-dot,
+  .recharts-active-dot,
+  .recharts-symbols,
+  .recharts-curve {
+    cursor: pointer;
+  }
+
+  /* Recharts-only click feedback — never apply brightness to global svg/g */
+  .recharts-sector:focus,
+  .recharts-sector:focus-visible,
+  .recharts-sector:active,
+  .recharts-sector.recharts-active-shape,
+  .recharts-pie-sector:focus,
+  .recharts-pie-sector:focus-visible,
+  .recharts-pie-sector:active,
+  .recharts-bar-rectangle:focus path,
+  .recharts-bar-rectangle:active path,
+  .recharts-bar-rectangle:focus rect,
+  .recharts-bar-rectangle:active rect,
+  .recharts-dot:focus,
+  .recharts-dot:active,
+  .recharts-symbols:focus,
+  .recharts-symbols:active,
+  .recharts-curve:focus,
+  .recharts-curve:active {
+    outline: none !important;
+    box-shadow: none !important;
+    filter: brightness(1.08);
+    opacity: 1 !important;
+  }
+
+  .recharts-sector:hover,
+  .recharts-pie-sector:hover,
+  .recharts-bar-rectangle path:hover,
+  .recharts-bar-rectangle rect:hover,
+  .recharts-dot:hover,
+  .recharts-symbols:hover,
+  .recharts-curve:hover {
+    filter: brightness(1.05);
+    opacity: 0.96;
+  }
+
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
+    overscroll-behavior-y: auto;
+  }
+
+  body {
+    min-height: 100vh;
+    min-height: 100dvh;
+    overscroll-behavior-y: auto;
+    -webkit-overflow-scrolling: touch;
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--fl-font-sans);
+    font-size: var(--fl-text-base);
+    line-height: var(--fl-leading-normal);
+    font-weight: var(--fl-weight-normal);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Headings inherit weight/size from the components that use them; the base
+   * layer only guarantees a sane rhythm. */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-weight: var(--fl-weight-semibold);
+    line-height: var(--fl-leading-tight);
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /* Numeric columns must align — tabular figures everywhere it matters. */
+  [data-numeric='true'],
+  time,
+  code,
+  kbd,
+  samp,
+  pre {
+    font-variant-numeric: tabular-nums;
+  }
+
+  code,
+  kbd,
+  samp,
+  pre {
+    font-family: var(--fl-font-mono);
+  }
+
+  /* The `-subtle` wash (teal-50) was too close to a white page to read as a
+     highlight at all. The solid `--primary` / `--primary-foreground` pair is
+     already the app's proven-accessible button contrast, reused here so a
+     selection is unmistakably a selection in both themes. */
+  ::selection {
+    background-color: var(--primary);
+    color: var(--primary-foreground);
+  }
+
+  /* Scrollbars — themed, thin, unobtrusive */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: var(--fl-space-2);
+    height: var(--fl-space-2);
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--border-strong);
+    border-radius: var(--fl-radius-full);
+    border: var(--fl-border-width-thick) solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+    background-clip: content-box;
+  }
+
+  /* Respect the OS reduced-motion preference across every animation source. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* ApexCharts — premium interactions: tooltip + soft crosshair only.
+     Tooltips mount inside the chart wrap (not a body portal), so hosts must
+     allow overflow and stack above sibling overlays (tabs, donut centers). */
+  .apex-chart-host,
+  .apex-chart-host .apexcharts-canvas,
+  .apex-chart-host .apexcharts-svg {
+    overflow: visible !important;
+  }
+
+  .apexcharts-svg foreignObject,
+  .apexcharts-tooltip,
+  .apexcharts-tooltip * {
+    pointer-events: none !important;
+  }
+
+  .apexcharts-tooltip {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    z-index: var(--fl-z-tooltip) !important;
+  }
+
+  .apexcharts-tooltip.apexcharts-theme-light,
+  .apexcharts-tooltip.apexcharts-theme-dark {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .apexcharts-xaxistooltip,
+  .apexcharts-yaxistooltip {
+    display: none !important;
+  }
+
+  /* Never brightness-wash Apex series / selection / active */
+  .apexcharts-canvas,
+  .apexcharts-canvas *,
+  .apexcharts-svg,
+  .apexcharts-svg *,
+  .apexcharts-series,
+  .apexcharts-series path,
+  .apexcharts-bar-area,
+  .apexcharts-pie-area,
+  .apexcharts-active,
+  .apexcharts-selected,
+  .apexcharts-selected path,
+  .apexcharts-series:hover path,
+  .apexcharts-series path:hover,
+  .apexcharts-bar-area:hover,
+  .apexcharts-pie-area:hover,
+  .apexcharts-bar-area:active,
+  .apexcharts-pie-area:active,
+  .apexcharts-series path:active,
+  .apexcharts-series:active path {
+    filter: none !important;
+  }
+
+  .apexcharts-bar-area,
+  .apexcharts-pie-area {
+    cursor: pointer;
+  }
+
+  .apexcharts-bar-area:focus,
+  .apexcharts-pie-area:focus,
+  .apexcharts-series path:focus {
+    outline: none !important;
+  }
+
+  /* Soft category wash behind hovered column (Apex crosshair fill) */
+  .apexcharts-xcrosshairs {
+    fill: var(--surface-sunken) !important;
+    stroke: none !important;
+    opacity: 1 !important;
+    pointer-events: none !important;
+  }
+
+  /* Keep category wash behind bars so clicks still hit series paths */
+  .apexcharts-inner,
+  .apexcharts-graphical {
+    pointer-events: none;
+  }
+
+  .apexcharts-series,
+  .apexcharts-series path,
+  .apexcharts-bar-area,
+  .apexcharts-pie-area,
+  .apexcharts-slices,
+  .apexcharts-slices path {
+    pointer-events: auto !important;
+  }
+}
+
+@layer utilities {
+  /* Suppresses the theme transition while the theme is actually swapping, so
+   * the change reads as instant instead of as a slow colour crossfade. */
+  .fl-theme-transition-suppressed,
+  .fl-theme-transition-suppressed * {
+    transition: none !important;
+  }
+}

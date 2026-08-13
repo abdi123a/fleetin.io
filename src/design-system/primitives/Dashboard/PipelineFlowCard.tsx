@@ -1,0 +1,238 @@
+import { AlertTriangle, ChevronRight, Timer } from 'lucide-react';
+import { pipelineStages as defaultPipelineStages } from '@/data/dashboardData';
+import { Skeleton } from './DashboardSkeleton';
+
+const rampFills = [
+  'bg-primary/30',
+  'bg-primary/45',
+  'bg-primary/60',
+  'bg-primary/75',
+  'bg-primary/90',
+  'bg-primary',
+];
+
+export interface PipelineBookingItem {
+  id: string;
+  bookingNumber: string;
+  driverName?: string;
+  driverPhone?: string;
+  driverVerified?: boolean;
+  vehicleNumber?: string;
+  vehicleType?: string;
+  vehicleVerified?: boolean;
+  status: string;
+  statusIntent?: 'green' | 'orange' | 'blue' | 'slate';
+  step?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface PipelineFlowCardProps<T extends PipelineBookingItem = PipelineBookingItem> {
+  ready?: boolean;
+  bookings?: T[];
+  onBookingClick?: (booking: T) => void;
+}
+
+const STAGE_NAMES = [
+  'Dispatched',
+  'Port Entry',
+  'Free Zone Delivered',
+  'Pending Empty Return',
+  'Empty Returned',
+  'Payment Released',
+];
+
+export function getStageIndex(status?: string): number {
+  const s = (status || '').toLowerCase();
+  if (s.includes('payment') || s.includes('paid')) return 5;
+  if (s.includes('empty returned') || s.includes('trip completed') || s.includes('returned')) return 4;
+  if (s.includes('pending empty') || s.includes('waiting return')) return 3;
+  if (s.includes('free zone') || s.includes('arrived') || s.includes('delivered')) return 2;
+  if (s.includes('port') || s.includes('transit')) return 1;
+  if (s.includes('dispatch') || s.includes('assign')) return 0;
+  return 0;
+}
+
+export function PipelineFlowCard<T extends PipelineBookingItem = PipelineBookingItem>({
+  ready = true,
+  bookings,
+}: PipelineFlowCardProps<T>) {
+  const isDynamic = Boolean(bookings && bookings.length >= 0);
+
+  // Calculate cumulative sequential pipeline stages (each stage includes all bookings that reached or passed it)
+  const dynamicStages = STAGE_NAMES.map((stageName, stageIdx) => {
+    const passedBookings = (bookings || []).filter((b) => getStageIndex(b.status) >= stageIdx);
+    const activeBookings = (bookings || []).filter((b) => getStageIndex(b.status) === stageIdx);
+
+    return {
+      stage: stageName,
+      stageIdx,
+      count: passedBookings.length,
+      activeCount: activeBookings.length,
+      passedBookings,
+      activeBookings,
+      avgHours: stageName === 'Pending Empty Return' ? 47 : 12,
+    };
+  });
+
+  const stagesToRender = isDynamic
+    ? dynamicStages
+    : defaultPipelineStages.map((s, idx) => ({
+        stage: STAGE_NAMES[idx] || s.stage,
+        stageIdx: idx,
+        count: s.count,
+        activeCount: s.count,
+        passedBookings: [] as T[],
+        activeBookings: [] as T[],
+        avgHours: s.avgHours,
+      }));
+
+  const totalCount = isDynamic
+    ? (bookings || []).length
+    : stagesToRender.reduce((sum, s) => sum + s.count, 0);
+
+  const maxHours = Math.max(...stagesToRender.map((s) => s.avgHours));
+  const slowest = stagesToRender.reduce((a, b) => (b.avgHours > a.avgHours ? b : a));
+
+  return (
+    <section className="rounded-lg border border-border bg-card p-4 shadow-xs sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="type-h3 text-foreground">Shipment Pipeline</h2>
+          <p className="mt-0.5 type-body-xs text-muted-foreground">
+            {isDynamic ? (
+              <span>Cumulative Progress Lifecycle • {totalCount} total bookings in shipment</span>
+            ) : (
+              <span>Booking lifecycle · {totalCount.toLocaleString()} in flight</span>
+            )}
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 rounded-md bg-warning-subtle px-2 py-1 type-caption font-medium text-warning-subtle-foreground">
+          <Timer className="h-3.5 w-3.5 text-warning-active" strokeWidth={2} />
+          {slowest.stage} is the slowest stage — {slowest.avgHours}h avg
+        </div>
+      </div>
+
+      {/* Progress Bar — each segment width = % of bookings that passed through that stage */}
+      <div className="mt-4 flex h-2.5 gap-px overflow-hidden rounded-full bg-muted/40">
+        {stagesToRender.map((stage, i) => {
+          // Each segment represents the ADDITIONAL bookings that reached exactly this stage
+          // (i.e. passed[i] - passed[i+1]) to form a funnel waterfall visual
+          const nextCount = i < stagesToRender.length - 1 ? (stagesToRender[i + 1]?.count ?? 0) : 0;
+          const stageOnlyCount = stage.count - nextCount;
+          const widthPct = totalCount > 0
+            ? isDynamic
+              ? Math.max((stageOnlyCount / totalCount) * 100, stage.count > 0 ? 2 : 0)
+              : 16.66
+            : 16.66;
+
+          return ready ? (
+            <div
+              key={stage.stage}
+              className={`animate-grow-x h-full ${rampFills[i]} ${i === 0 ? 'rounded-l-full' : ''} ${
+                i === stagesToRender.length - 1 ? 'rounded-r-full' : ''
+              }`}
+              style={{
+                width: `${widthPct}%`,
+                ['--d' as string]: `${i * 80}ms`,
+              }}
+              title={`${stage.stage}: ${stage.count} bookings passed through (${totalCount > 0 ? ((stage.count / totalCount) * 100).toFixed(0) : 0}%)`}
+            />
+          ) : (
+            <Skeleton
+              key={stage.stage}
+              className="h-full rounded-none"
+              style={{ width: `${widthPct}%` }}
+            />
+          );
+        })}
+      </div>
+
+      {/* 6 Stage Cards Grid */}
+      <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6 xl:gap-2">
+        {stagesToRender.map((stage, i) => {
+          const pct = totalCount > 0 ? (stage.count / totalCount) * 100 : 0;
+          const isSlowest = stage.stage === slowest.stage;
+          const isLast = i === stagesToRender.length - 1;
+
+          return (
+            <div key={stage.stage} className="relative flex flex-col">
+              {!isLast && (
+                <ChevronRight
+                  className="absolute -right-[7px] top-1/2 z-10 hidden h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/40 xl:block"
+                  strokeWidth={2.5}
+                />
+              )}
+
+              <div
+                className={`h-full flex flex-col justify-between rounded-md border bg-card p-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card ${
+                  isSlowest
+                    ? 'border-warning/40 bg-warning-subtle/30'
+                    : 'border-border hover:border-border-strong'
+                }`}
+              >
+                <div>
+                  {/* Stage Header */}
+                  <div className="flex items-start gap-1.5 min-h-[32px]">
+                    <span className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${rampFills[i]}`} />
+                    <span className="type-caption text-foreground leading-tight">
+                      {stage.stage}
+                    </span>
+                    {isSlowest && (
+                      <AlertTriangle
+                        className="ml-auto mt-[3px] h-3 w-3 shrink-0 text-warning-active"
+                        strokeWidth={2.5}
+                      />
+                    )}
+                  </div>
+
+                  {ready ? (
+                    <div className="mt-1">
+                      <div className="flex items-baseline justify-between">
+                        <span className="type-h2 tabular-nums text-foreground font-extrabold">
+                          {stage.count}
+                        </span>
+                        <span className="type-caption tabular-nums text-muted-foreground">
+                          {pct.toFixed(0)}%
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-2 space-y-1.5">
+                      <Skeleton className="h-4 w-10" />
+                      <Skeleton className="h-2 w-16" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Stage Footer Bar */}
+                <div className="mt-3 border-t border-border pt-2">
+                  <div className="h-1 overflow-hidden rounded-full bg-muted">
+                    {ready && (
+                      <div
+                        className={`animate-grow-x h-full rounded-full ${
+                          isSlowest ? 'bg-warning' : 'bg-primary'
+                        }`}
+                        style={{
+                          width: `${(stage.avgHours / maxHours) * 100}%`,
+                          ['--d' as string]: `${250 + i * 80}ms`,
+                        }}
+                      />
+                    )}
+                  </div>
+                  <div
+                    className={`mt-1.5 type-caption tabular-nums font-medium ${
+                      isSlowest ? 'text-warning-subtle-foreground' : 'text-muted-foreground'
+                    }`}
+                  >
+                    {stage.avgHours}h avg dwell
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}

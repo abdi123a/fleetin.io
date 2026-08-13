@@ -1,0 +1,11 @@
+/**
+ * Standalone stylesheet for the demo entries under `demos/`.
+ *
+ * Deliberately NOT `src/styles/index.css`: these demos are self-contained
+ * mockups written against stock Tailwind utilities (slate/teal/sky), so they
+ * must not inherit the design system's base layer or semantic token bridge.
+ */
+
+@import 'tailwindcss';
+
+@source './';

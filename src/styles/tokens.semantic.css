@@ -1,0 +1,523 @@
+/**
+ * FLEETIN — Semantic Design Tokens
+ * ---------------------------------------------------------------------------
+ * Tier 2 of the token pipeline. Every value here is an alias onto a primitive
+ * from `tokens.primitives.css`. These are the ONLY colour tokens components
+ * are allowed to consume, which is what makes theming a single-layer swap:
+ * `.dark` re-points the same role names at different primitives and the whole
+ * application follows.
+ *
+ * Role naming is shadcn/ui compatible (`--background`, `--primary`, `--ring`,
+ * ...) so any upstream shadcn component drops in without modification, and is
+ * extended with the FLEETIN status and sidebar roles.
+ */
+
+/* ===========================================================================
+ * LIGHT THEME (default)
+ * ========================================================================= */
+:root,
+.light {
+  color-scheme: light;
+
+  /* Canvas & surfaces
+   * `--background` is deliberately pointed at neutral-0 (#ffffff) so the page
+   * canvas is the *same* clean white as the cards/surfaces. This collapses the
+   * old two-tone (soft #f8fbfb canvas vs #fff surfaces) that read as "not white"
+   * — the user asked for one clean white across the system on 2026-08-11. Cards
+   * are delineated by their border (Card default is border-only), not by a
+   * lightness gap, so nothing loses definition. Do NOT step this back to
+   * neutral-50: that reintroduces the mismatch. (Dark theme keeps its own
+   * two-tone elevation on purpose — see the .dark block below.) */
+  --background: var(--fl-neutral-0);
+  --foreground: var(--fl-neutral-900);
+  --surface: var(--fl-neutral-0);
+  --surface-foreground: var(--fl-neutral-900);
+  --surface-raised: var(--fl-neutral-0);
+  --surface-sunken: var(--fl-neutral-100);
+
+  /* Cards & popovers (shadcn roles) */
+  --card: var(--fl-neutral-0);
+  --card-foreground: var(--fl-neutral-900);
+  --popover: var(--fl-neutral-0);
+  --popover-foreground: var(--fl-neutral-900);
+
+  /* Brand
+   * ---------------------------------------------------------------------------
+   * `--primary` is teal-500, #60969D. This is *the* FLEETIN brand colour, set by
+   * the user and reaffirmed on 2026-08-09. It is not a derived or tuned value —
+   * treat it as fixed and do not step it up or down the ramp to win contrast.
+   *
+   * The trade this carries, stated plainly so nobody rediscovers it: #60969D is
+   * a light, low-chroma hue (L 0.638, chroma 0.058), and it measures 3.3:1
+   * against both white and the app canvas. That clears the 3:1 floor for borders,
+   * rules, marks and other non-text chrome, which is what this role is for. It
+   * does *not* clear the 4.5:1 floor for body text, in either direction — so
+   * neither `text-primary` on the canvas nor white on `bg-primary` is an
+   * accessible pairing at small sizes.
+   *
+   * Where a filled surface has to hold text, the system already has the answer:
+   * `--primary-bold` (teal-700) carries white at 5.6:1. That is the whole reason
+   * it exists — see the note below it. */
+  --primary: var(--fl-teal-500); /* #60969D — the brand colour */
+  --primary-hover: var(--fl-teal-600);
+  --primary-active: var(--fl-teal-700);
+  --primary-foreground: var(--fl-neutral-0);
+  --primary-subtle: var(--fl-teal-50);
+  /* Two steps down, for text that has to be readable on `--primary-subtle`.
+   * 5.2:1 on teal-50 — this is the token to reach for instead of `text-primary`
+   * when the text is small. */
+  --primary-subtle-foreground: var(--fl-teal-700);
+
+  --secondary: var(--fl-neutral-100);
+  --secondary-hover: var(--fl-neutral-200);
+  --secondary-foreground: var(--fl-neutral-800);
+
+  --accent: var(--fl-orange-500);
+  --accent-hover: var(--fl-orange-600);
+  --accent-active: var(--fl-orange-700);
+  /* Near-black, not white. Orange-500 is a light hue (L 0.799) and carries white
+   * at 1.9:1 — the worst pair in the system. The near-black reads at 10.3:1 and
+   * matches what `--accent-bold-foreground` and the dark theme already do. */
+  --accent-foreground: var(--fl-neutral-950);
+  --accent-subtle: var(--fl-orange-50);
+  --accent-subtle-foreground: var(--fl-orange-700);
+
+  /* Bold brand blocks — the two brand hues used as *surfaces*, not as accents.
+   *
+   * `--primary` and `--accent` are the brand values themselves, and both are
+   * tuned for text and 1px chrome rather than for backing a filled panel:
+   * #60969D carries white at only 3.3:1 and orange-500 at 1.9:1. These two can,
+   * each paired with the foreground that clears AA on it — teal takes white at
+   * 5.6:1, orange takes the near-black at 10.3:1, which is why orange keeps its
+   * full brand saturation here.
+   *
+   * So the rule is: a coloured block that has to hold a caption uses `-bold`;
+   * `--primary` itself stays the brand value. Do not "simplify" these away by
+   * pointing them at `--primary`/`--accent` — that is precisely the pairing
+   * they exist to avoid.
+   *
+   * They hold the same value in both themes, like `--tile-*`: a colour block is
+   * a deliberate mark on the page, not a surface that should recede with it. */
+  --primary-bold: var(--fl-teal-700);
+  --primary-bold-foreground: var(--fl-neutral-0);
+  --accent-bold: var(--fl-orange-500);
+  --accent-bold-foreground: var(--fl-neutral-950);
+
+  /* Muted / de-emphasised */
+  --muted: var(--fl-neutral-100);
+  --muted-foreground: var(--fl-neutral-600);
+
+  /* Status — each interactive role carries its own hover/active step so a
+   * component never has to reach for an opacity modifier to express a state. */
+  --success: var(--fl-green-500);
+  --success-hover: var(--fl-green-600);
+  --success-active: var(--fl-green-700);
+  --success-foreground: var(--fl-neutral-0);
+  --success-subtle: var(--fl-green-50);
+  --success-subtle-foreground: var(--fl-green-700);
+
+  /* Warning rides the same ramp as `--accent`. The system used to ship two
+   * yellows — orange-500 #F9AC17 and amber-500 #FFB502 — that are 3.2° apart in
+   * OKLCH hue and 0.023 apart in lightness, i.e. the same colour twice. The
+   * amber ramp is gone and both roles now resolve to orange.
+   *
+   * The roles stay separate on purpose: `--accent` is the brand's second hue
+   * ("this account needs a person"), `--warning` is a status. They resolve alike
+   * today, and component code must keep asking for the one it means. */
+  --warning: var(--fl-orange-500);
+  --warning-hover: var(--fl-orange-600);
+  --warning-active: var(--fl-orange-700);
+  --warning-foreground: var(--fl-neutral-900); /* 9.3:1 — white would be 1.8:1 */
+  --warning-subtle: var(--fl-orange-50);
+  --warning-subtle-foreground: var(--fl-orange-800); /* 5.1:1 on orange-50 */
+
+  --destructive: var(--fl-red-500);
+  --destructive-hover: var(--fl-red-600);
+  --destructive-active: var(--fl-red-700);
+  --destructive-foreground: var(--fl-neutral-0);
+  --destructive-subtle: var(--fl-red-50);
+  --destructive-subtle-foreground: var(--fl-red-700);
+
+  --info: var(--fl-blue-500);
+  --info-foreground: var(--fl-neutral-0);
+  --info-subtle: var(--fl-blue-50);
+  --info-subtle-foreground: var(--fl-blue-700);
+
+  /* Lines & focus */
+  --border: var(--fl-neutral-200);
+  --border-strong: var(--fl-neutral-300);
+  --border-subtle: var(--fl-neutral-100);
+  --input: var(--fl-neutral-300);
+  /* One step darker than `--primary`. A focus ring is a non-text indicator, so
+   * it wants to be *seen* against the canvas rather than to clear the body-text
+   * floor: teal-600 measures 4.1:1 on the app background, up from the brand
+   * teal's 3.2:1, and stays distinct from the #60969D fill it usually rings. */
+  --ring: var(--fl-teal-600);
+
+  /* Application shell
+   * ---------------------------------------------------------------------------
+   * The sidebar carries the brand colour outright: it is `--primary` itself,
+   * #60969D. Aliased, not pinned to a ramp step — the panel is meant to *be* the
+   * brand, so if the brand role moves the panel moves with it. Set by the user
+   * on 2026-08-08 across three corrections ("make the color my main color",
+   * "use only the teal clean teal color", "it has to be a clean color and the
+   * main primary color and the text should be white") and reaffirmed 2026-08-09.
+   *
+   * White on #60969D measures 3.3:1, under the 4.5:1 body floor. That has been
+   * raised and chosen three times — it is a settled trade, not an oversight.
+   * Do not "fix" it by stepping the panel down the ramp. What the design does
+   * instead is buy contrast everywhere it is free: labels at 14px semibold,
+   * hover deepening to teal-700 at 5.6:1, and the active row inverting onto a
+   * cream pill at 9.2:1, so the two states a user actually navigates by are both
+   * comfortably legible even though the resting panel is not.
+   *
+   * It is teal and white and nothing else; every role below is a solid value,
+   * never a gradient and never an alpha wash. That matters more here than
+   * anywhere else in the app: a flat panel shows up any fill that is even one
+   * step off, and a lighter block low down (the theme control was one) reads as
+   * the whole panel fading rather than as a control.
+   *
+   * The panel is mid-tone, so the states run the way a light surface expects:
+   * fills go *darker* than the panel, rules go *lighter*. Every value below is
+   * derived against #60969D specifically — re-derive them all if the panel
+   * ever changes, because a step tuned for a dark panel will not survive here
+   * (teal-200 captions, for one, collapse from 5.4:1 to 2.3:1). */
+  --sidebar: var(--primary); /* #60969D — the brand colour itself */
+  --sidebar-foreground: var(--fl-neutral-0); /* 3.31:1 — the settled trade */
+  /* Section captions. On a mid-tone panel there is very little headroom to rank
+   * these by colour: teal-200 was tuned for the dark panel and manages only
+   * 2.3:1 here, so captions take the lightest step instead and lean on size and
+   * letter-spacing to recede rather than on colour. teal-50 holds 3.1:1. */
+  --sidebar-muted-foreground: var(--fl-teal-50);
+  /* Rules run lighter than the panel: under white type a darker divider reads
+   * as grime, a lighter one reads as a line. teal-700 would be darker here. */
+  --sidebar-border: var(--fl-teal-300);
+  /* Hover deepens. The panel is mid-tone, so a row that lightens drifts toward
+   * the cream active pill and reads as half-selected; going darker also buys
+   * real contrast back — white on teal-700 is 5.6:1 against the panel's 3.3:1. */
+  --sidebar-item-hover: var(--fl-teal-700);
+  --sidebar-item-hover-foreground: var(--fl-neutral-0);
+  /* Active inverts rather than tints: on a coloured panel a slightly different
+   * teal is a guess, a cream pill is unmistakable. The lightest step of the
+   * teal ramp rather than flat white, so the panel stays one hue throughout. */
+  --sidebar-item-active: var(--fl-teal-50); /* 3.1:1 against the panel */
+  --sidebar-item-active-foreground: var(--fl-teal-900); /* 9.2:1 on the pill */
+  /* The you-are-here bar riding the left edge of the active pill — teal-800
+   * rather than the panel teal, which only reaches 3.1:1 on the cream. */
+  --sidebar-item-marker: var(--fl-teal-800);
+  --header: var(--fl-neutral-0);
+  --header-foreground: var(--fl-neutral-900);
+  --header-border: var(--fl-neutral-200);
+
+  /* Overlay scrim */
+  --overlay: rgb(33 33 33 / 0.45);
+
+  /* ---------------------------------------------------------------------------
+   * Data visualisation
+   * ---------------------------------------------------------------------------
+   * CATEGORICAL — seven slots encoding *identity* (which series). Assigned in
+   * order and never cycled; an eighth category folds into `--chart-other`.
+   *
+   * These steps are not hand-picked. They were snapped to the nearest step of
+   * each ramp that clears the OKLCH lightness band, the chroma floor, adjacent
+   * CVD separation (protan/deutan, Machado 2009 @ 1.0) and 3:1 contrast against
+   * the chart surface — then the slot order was chosen by enumeration to
+   * maximise the worst adjacent pair. Worst adjacent ΔE 14.1 (deutan),
+   * normal-vision 22.2, every slot >= 3:1, in BOTH modes.
+   *
+   * The previous palette failed those checks: teal-500 sits at chroma 0.058 and
+   * reads gray, and dark-mode green-400 vs red-400 collapsed to ΔE 2.1 under
+   * deuteranopia. Teal remains the brand and the ordinal ramp below, but it
+   * cannot carry series identity.
+   *
+   * Re-step or re-order only with the validator, never by eye.
+   * ------------------------------------------------------------------------ */
+  --chart-1: var(--fl-cyan-500);
+  --chart-2: var(--fl-orange-700);
+  --chart-3: var(--fl-blue-500);
+  --chart-4: var(--fl-green-400);
+  --chart-5: var(--fl-violet-500);
+  --chart-6: var(--fl-lime-500);
+  --chart-7: var(--fl-magenta-600);
+  /* Everything past slot seven, and any explicit "Other" bucket. */
+  --chart-other: var(--fl-neutral-400);
+
+  /* ORDINAL — one hue, light -> dark, for values with an inherent order
+   * (pipeline stages, tiers, buckets). Lightness carries the order, so the
+   * low-chroma brand teal is the right hue here. */
+  --chart-step-1: var(--fl-teal-400);
+  --chart-step-2: var(--fl-teal-600);
+  --chart-step-3: var(--fl-teal-700);
+  --chart-step-4: var(--fl-teal-800);
+  --chart-step-5: var(--fl-teal-900);
+
+  /* Recessive chart furniture — grid lines, axes, reference lines. */
+  --chart-grid: var(--fl-neutral-200);
+  --chart-axis: var(--fl-neutral-400);
+
+  /* Metric tile fills — dashboard KPI blocks are solid colour, not outlined.
+   * `tile-foreground` is the near-black that rides on all three pastels; the
+   * teal tile is dark enough to need its own inverted foreground. */
+  --tile-teal: var(--fl-fill-teal);
+  --tile-teal-foreground: var(--fl-neutral-0);
+  --tile-pink: var(--fl-fill-pink);
+  --tile-peach: var(--fl-fill-peach);
+  --tile-sky: var(--fl-fill-sky);
+  --tile-foreground: var(--fl-neutral-950);
+
+  /* Elevation — light theme uses the neutral-tinted shadow ramp */
+  --elevation-card: 0 3px 3px 0 rgb(17 36 53 / 0.086);
+  --elevation-xs: var(--fl-shadow-xs);
+  --elevation-sm: var(--fl-shadow-sm);
+  --elevation-md: var(--fl-shadow-md);
+  --elevation-lg: var(--fl-shadow-lg);
+  --elevation-xl: var(--fl-shadow-xl);
+
+  /* ---------------------------------------------------------------------------
+   * Urgency scale — the only place saturated colour is allowed on list rows.
+   * Brand anchors: primary #60969d (teal), secondary #f9ac17 (orange/accent).
+   * Rule: one saturated colour per row, and urgency owns it. Only `overdue`
+   * may use a solid fill; every other level is a tinted surface.
+   * ------------------------------------------------------------------------ */
+  --urgency-overdue-bg: var(--destructive);
+  --urgency-overdue-fg: var(--destructive-foreground);
+  --urgency-overdue-border: var(--destructive);
+  --urgency-overdue-solid: var(--destructive);
+
+  --urgency-at-risk-bg: color-mix(in srgb, var(--destructive) 10%, transparent);
+  --urgency-at-risk-fg: var(--destructive-subtle-foreground);
+  --urgency-at-risk-border: color-mix(in srgb, var(--destructive) 32%, transparent);
+  --urgency-at-risk-solid: var(--destructive);
+
+  --urgency-critical-bg: color-mix(in srgb, var(--accent) 10%, transparent);
+  --urgency-critical-fg: var(--accent-subtle-foreground);
+  --urgency-critical-border: color-mix(in srgb, var(--accent) 32%, transparent);
+  --urgency-critical-solid: var(--accent);
+
+  --urgency-watch-bg: color-mix(in srgb, var(--warning) 10%, transparent);
+  --urgency-watch-fg: var(--warning-subtle-foreground);
+  --urgency-watch-border: transparent;
+  --urgency-watch-solid: var(--warning);
+
+  --urgency-safe-bg: color-mix(in srgb, var(--success) 8%, transparent);
+  --urgency-safe-fg: var(--success-subtle-foreground);
+  --urgency-safe-border: transparent;
+  --urgency-safe-solid: var(--success);
+
+  --urgency-protected-bg: color-mix(in srgb, var(--primary) 10%, transparent);
+  --urgency-protected-fg: var(--primary-subtle-foreground);
+  --urgency-protected-border: transparent;
+  --urgency-protected-solid: var(--primary);
+
+  /* Overdue row wash — ~4% so the rail stays the loud signal */
+  --urgency-overdue-row: color-mix(in srgb, var(--destructive) 4%, transparent);
+
+  /* Table density — fixed row heights regardless of alert presence */
+  --row-height-comfortable: 64px;
+  --row-height-compact: 44px;
+}
+
+/* ===========================================================================
+ * DARK THEME
+ * ---------------------------------------------------------------------------
+ * Brand hues are stepped one or two rungs lighter so they keep AA contrast on
+ * a dark canvas, and elevation switches from shadow-based to surface-based.
+ * ========================================================================= */
+.dark {
+  color-scheme: dark;
+
+  --background: var(--fl-slate-950);
+  --foreground: var(--fl-neutral-100);
+  --surface: var(--fl-slate-900);
+  --surface-foreground: var(--fl-neutral-100);
+  --surface-raised: var(--fl-slate-850);
+  --surface-sunken: var(--fl-slate-1000);
+
+  --card: var(--fl-slate-900);
+  --card-foreground: var(--fl-neutral-100);
+  --popover: var(--fl-slate-850);
+  --popover-foreground: var(--fl-neutral-100);
+
+  --primary: var(--fl-teal-400);
+  --primary-hover: var(--fl-teal-300);
+  --primary-active: var(--fl-teal-200);
+  --primary-foreground: var(--fl-teal-950);
+  --primary-subtle: color-mix(in srgb, var(--fl-teal-400) 12%, transparent);
+  --primary-subtle-foreground: var(--fl-teal-300);
+
+  --secondary: var(--fl-slate-800);
+  --secondary-hover: var(--fl-slate-700);
+  --secondary-foreground: var(--fl-neutral-100);
+
+  --accent: var(--fl-orange-400);
+  --accent-hover: var(--fl-orange-300);
+  --accent-active: var(--fl-orange-200);
+  --accent-foreground: var(--fl-orange-950);
+  --accent-subtle: color-mix(in srgb, var(--fl-orange-400) 14%, transparent);
+  --accent-subtle-foreground: var(--fl-orange-300);
+
+  /* Unchanged across themes — see the light-theme note. */
+  --primary-bold: var(--fl-teal-700);
+  --primary-bold-foreground: var(--fl-neutral-0);
+  --accent-bold: var(--fl-orange-500);
+  --accent-bold-foreground: var(--fl-neutral-950);
+
+  --muted: var(--fl-slate-850);
+  --muted-foreground: var(--fl-neutral-400);
+
+  /* On dark, hover/active step *lighter* rather than darker — the same
+   * direction of travel as primary, so every intent behaves consistently. */
+  --success: var(--fl-green-400);
+  --success-hover: var(--fl-green-300);
+  --success-active: var(--fl-green-200);
+  --success-foreground: var(--fl-green-950);
+  --success-subtle: color-mix(in srgb, var(--fl-green-400) 14%, transparent);
+  --success-subtle-foreground: var(--fl-green-300);
+
+  /* Same ramp as `--accent` — see the light-theme note on the yellow dedupe. */
+  --warning: var(--fl-orange-400);
+  --warning-hover: var(--fl-orange-300);
+  --warning-active: var(--fl-orange-200);
+  --warning-foreground: var(--fl-orange-950);
+  --warning-subtle: color-mix(in srgb, var(--fl-orange-400) 14%, transparent);
+  --warning-subtle-foreground: var(--fl-orange-300);
+
+  --destructive: var(--fl-red-400);
+  --destructive-hover: var(--fl-red-300);
+  --destructive-active: var(--fl-red-200);
+  --destructive-foreground: var(--fl-red-950);
+  --destructive-subtle: color-mix(in srgb, var(--fl-red-400) 14%, transparent);
+  --destructive-subtle-foreground: var(--fl-red-300);
+
+  --info: var(--fl-blue-400);
+  --info-foreground: var(--fl-blue-950);
+  --info-subtle: color-mix(in srgb, var(--fl-blue-400) 14%, transparent);
+  --info-subtle-foreground: var(--fl-blue-300);
+
+  /* Raised one rung each. On a near-black canvas the old ladder was effectively
+   * invisible — `--border` measured 1.3:1 against the card and `--input` 1.1:1,
+   * so cards had no edge and form fields had no boundary. `--input` now clears
+   * the 3:1 non-text floor, which is the one that actually applies to a control
+   * whose border is its only affordance. */
+  --border: var(--fl-slate-600); /* 1.8:1 on card — a visible card edge */
+  --border-strong: var(--fl-slate-500); /* 3.1:1 */
+  --border-subtle: var(--fl-slate-700); /* deliberately faint */
+  --input: var(--fl-slate-500); /* 3.1:1 — clears the control floor */
+  --ring: var(--fl-teal-400);
+
+  /* Dark keeps the brand cast rather than reverting to neutral charcoal, but it
+   * cannot take `--primary` the way light does: #60969D against a near-black
+   * canvas is a lit panel, not a surface. So it drops to the darkest step of
+   * the same ramp — still unmistakably the brand beside slate — and the whole
+   * light/dark relationship flips: the panel is dark, the type is light, and
+   * the active pill lightens to teal-400 instead of inverting to cream.
+   *
+   * Measured: labels 10.6:1, captions 6.0:1, hover 9.2:1, active on pill 6.0:1,
+   * marker on pill 6.0:1. The marker has to be dark here for the same reason it
+   * is dark in light mode — it rides the pill, not the panel. */
+  --sidebar: var(--fl-teal-950);
+  --sidebar-foreground: var(--fl-teal-200);
+  --sidebar-muted-foreground: var(--fl-teal-400);
+  --sidebar-border: var(--fl-teal-900);
+  --sidebar-item-hover: var(--fl-teal-900);
+  --sidebar-item-hover-foreground: var(--fl-teal-50);
+  --sidebar-item-active: var(--fl-teal-400);
+  --sidebar-item-active-foreground: var(--fl-teal-950);
+  --sidebar-item-marker: var(--fl-teal-950);
+  --header: var(--fl-slate-900);
+  --header-foreground: var(--fl-neutral-100);
+  --header-border: var(--fl-slate-700);
+
+  --overlay: rgba(0, 0, 0, 0.85);
+
+  /* Dark mode is a *selected* palette, not an automatic flip: these seven steps
+   * were validated against the dark chart surface independently and happen to be
+   * the same steps that pass on light — each sits inside the tighter dark
+   * lightness band (0.48–0.67) and clears 3:1 against `--card`. Do not lighten
+   * them "for dark" without re-running the validator. */
+  --chart-1: var(--fl-cyan-500);
+  --chart-2: var(--fl-orange-700);
+  --chart-3: var(--fl-blue-500);
+  --chart-4: var(--fl-green-400);
+  --chart-5: var(--fl-violet-500);
+  --chart-6: var(--fl-lime-500);
+  --chart-7: var(--fl-magenta-600);
+  --chart-other: var(--fl-slate-600);
+
+  /* Ordinal ramp flips its anchor: on a dark surface the sequence has to run
+   * from the light end of the teal ramp for the steps to stay separable. */
+  --chart-step-1: var(--fl-teal-200);
+  --chart-step-2: var(--fl-teal-300);
+  --chart-step-3: var(--fl-teal-400);
+  --chart-step-4: var(--fl-teal-600);
+  --chart-step-5: var(--fl-teal-800);
+
+  --chart-grid: var(--fl-slate-700);
+  --chart-axis: var(--fl-slate-600);
+
+  /* Metric tiles stay saturated on dark — they are deliberate colour blocks,
+   * not surfaces, so they keep their light-theme fill and dark foreground
+   * rather than being re-pointed at a dark primitive. */
+  --tile-teal: var(--fl-fill-teal);
+  --tile-teal-foreground: var(--fl-neutral-0);
+  --tile-pink: var(--fl-fill-pink);
+  --tile-peach: var(--fl-fill-peach);
+  --tile-sky: var(--fl-fill-sky);
+  --tile-foreground: var(--fl-neutral-950);
+
+  /* Elevation — dark
+   * ---------------------------------------------------------------------------
+   * The old ramp ran to rgba(0,0,0,0.9) at 56px blur. A shadow darker than a
+   * near-black surface does not read as a shadow; it reads as murk, and it
+   * softens every edge it touches. Alphas are roughly halved and the blurs
+   * pulled in, so these lift a surface instead of smudging around it.
+   *
+   * The ramp splits on purpose. `xs`/`sm` land on cards that already draw their
+   * own `border-border` — 54 call sites pair a border with a shadow — so a ring
+   * there would render a double edge. They stay purely soft. `md`/`lg`/`xl` are
+   * for floating surfaces (menus, popovers, modals) that have no border of their
+   * own, so those are ring-led: on dark, an edge defines a floating panel far
+   * better than a shadow can. */
+  --elevation-card: 0 4px 20px -4px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border);
+  --elevation-xs: 0 1px 2px 0 rgb(0 0 0 / 0.30);
+  --elevation-sm: 0 2px 4px -1px rgb(0 0 0 / 0.35);
+  --elevation-md: 0 0 0 1px var(--border), 0 2px 6px -2px rgb(0 0 0 / 0.45);
+  --elevation-lg: 0 0 0 1px var(--border), 0 8px 24px -8px rgb(0 0 0 / 0.50);
+  --elevation-xl: 0 0 0 1px var(--border), 0 16px 40px -12px rgb(0 0 0 / 0.55);
+
+  /* Urgency scale — slightly higher tint alpha on dark (15–20%) for legibility */
+  --urgency-overdue-bg: var(--destructive);
+  --urgency-overdue-fg: var(--destructive-foreground);
+  --urgency-overdue-border: var(--destructive);
+  --urgency-overdue-solid: var(--destructive);
+
+  --urgency-at-risk-bg: color-mix(in srgb, var(--destructive) 18%, transparent);
+  --urgency-at-risk-fg: var(--destructive-subtle-foreground);
+  --urgency-at-risk-border: color-mix(in srgb, var(--destructive) 40%, transparent);
+  --urgency-at-risk-solid: var(--destructive);
+
+  --urgency-critical-bg: color-mix(in srgb, var(--accent) 18%, transparent);
+  --urgency-critical-fg: var(--accent-subtle-foreground);
+  --urgency-critical-border: color-mix(in srgb, var(--accent) 40%, transparent);
+  --urgency-critical-solid: var(--accent);
+
+  --urgency-watch-bg: color-mix(in srgb, var(--warning) 16%, transparent);
+  --urgency-watch-fg: var(--warning-subtle-foreground);
+  --urgency-watch-border: transparent;
+  --urgency-watch-solid: var(--warning);
+
+  --urgency-safe-bg: color-mix(in srgb, var(--success) 14%, transparent);
+  --urgency-safe-fg: var(--success-subtle-foreground);
+  --urgency-safe-border: transparent;
+  --urgency-safe-solid: var(--success);
+
+  --urgency-protected-bg: color-mix(in srgb, var(--primary) 16%, transparent);
+  --urgency-protected-fg: var(--primary-subtle-foreground);
+  --urgency-protected-border: transparent;
+  --urgency-protected-solid: var(--primary);
+
+  --urgency-overdue-row: color-mix(in srgb, var(--destructive) 6%, transparent);
+
+  --row-height-comfortable: 64px;
+  --row-height-compact: 44px;
+}

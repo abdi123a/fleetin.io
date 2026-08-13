@@ -1,0 +1,353 @@
+/**
+ * FLEETIN — Primitive Design Tokens
+ * ---------------------------------------------------------------------------
+ * Tier 1 of the token pipeline: raw, theme-agnostic values.
+ *
+ *   primitives  ->  semantic roles  ->  component styles
+ *
+ * Nothing in the application may reference these directly. Components consume
+ * the semantic tokens in `tokens.semantic.css`, which are the only tokens that
+ * change between light and dark themes.
+ *
+ * Palette sampled from the production FLEETIN shipment platform.
+ */
+
+:root {
+  /* ===========================================================================
+   * COLOR — Brand: Teal (primary action, active navigation, headings)
+   * ========================================================================= */
+  /* COLOR — Brand: Main / Primary (#60969D) */
+  --fl-teal-50: #f2f7f8;
+  --fl-teal-100: #e3eff1;
+  --fl-teal-200: #c5dede;
+  --fl-teal-300: #9fc2c7;
+  --fl-teal-400: #7badb4;
+  --fl-teal-500: #60969d;
+  --fl-teal-600: #52838a;
+  --fl-teal-700: #436e74;
+  --fl-teal-800: #37595e;
+  --fl-teal-900: #2c474b;
+  --fl-teal-950: #192a2d;
+
+  /* COLOR — Brand: Secondary / Accent (#f9ac17) */
+  --fl-orange-50: #fffbf0;
+  --fl-orange-100: #feefc7;
+  --fl-orange-200: #fddb8a;
+  --fl-orange-300: #fcc54d;
+  --fl-orange-400: #fbb626;
+  --fl-orange-500: #f9ac17;
+  --fl-orange-600: #e29b10;
+  --fl-orange-700: #b97c0a;
+  --fl-orange-800: #93610b;
+  --fl-orange-900: #78500c;
+  --fl-orange-950: #452b02;
+
+
+  /* COLOR — Status: Green (verified, delivered, fulfilled) */
+  --fl-green-50: #edf7ee;
+  --fl-green-100: #d3ebd5;
+  --fl-green-200: #a9d7ad;
+  --fl-green-300: #7bbf80;
+  --fl-green-400: #52a458;
+  --fl-green-500: #2e7d32;
+  --fl-green-600: #29702c;
+  --fl-green-700: #215b24;
+  --fl-green-800: #1b491d;
+  --fl-green-900: #163c18;
+  --fl-green-950: #0a200c;
+
+  /* COLOR — Status: Red (destructive, failed, rejected) */
+  --fl-red-50: #fdeeee;
+  --fl-red-100: #f9d2d2;
+  --fl-red-200: #f2a6a6;
+  --fl-red-300: #e87878;
+  --fl-red-400: #de4f4f;
+  --fl-red-500: #d32f2f;
+  --fl-red-600: #bc2a2a;
+  --fl-red-700: #9a2222;
+  --fl-red-800: #7c1c1c;
+  --fl-red-900: #661818;
+  --fl-red-950: #390d0d;
+
+  /* COLOR — Status: Amber. Deleted; `--warning` rides the orange ramp above.
+   * amber-500 was #FFB502 against orange-500 #F9AC17 — 3.2° apart in OKLCH hue
+   * and 0.023 in lightness. Two ramps rendering the same colour meant "needs a
+   * person" and "warning" were never actually distinguishable, so the system
+   * now ships one yellow and the distinction lives in the role name. */
+
+  /* COLOR — Status: Blue (informational, links, tracking) */
+  --fl-blue-50: #edf3fc;
+  --fl-blue-100: #d2e1f8;
+  --fl-blue-200: #a6c3f0;
+  --fl-blue-300: #79a5e9;
+  --fl-blue-400: #5494e4;
+  --fl-blue-500: #3983de;
+  --fl-blue-600: #2a6abb;
+  --fl-blue-700: #245b9f;
+  --fl-blue-800: #1d4a81;
+  --fl-blue-900: #183d6b;
+  --fl-blue-950: #0d2139;
+
+  /* ===========================================================================
+   * COLOR — Chart-only hue families
+   * ---------------------------------------------------------------------------
+   * The brand ramps supply four usable series hues (orange, blue, green, red),
+   * and three of those are already spoken for by the status scale. These four
+   * families exist so a categorical palette can reach seven slots without a
+   * series colour impersonating "good" or "critical".
+   *
+   * Authored to the same lightness profile as `--fl-blue-*`, with each hue's
+   * chroma scaled from its 500 step. Only the steps referenced by `--chart-*`
+   * are load-bearing; the rest of each ramp is there for consistency.
+   * ========================================================================= */
+  /* COLOR — Chart: Cyan (series 1) */
+  --fl-cyan-50: #ecf4f6;
+  --fl-cyan-100: #cee5e9;
+  --fl-cyan-200: #9ccbd3;
+  --fl-cyan-300: #65b2be;
+  --fl-cyan-400: #39a2b2;
+  --fl-cyan-500: #0094a6;
+  --fl-cyan-600: #007a8a;
+  --fl-cyan-700: #006875;
+  --fl-cyan-800: #00545f;
+  --fl-cyan-900: #00464f;
+  --fl-cyan-950: #05252a;
+
+  /* COLOR — Chart: Violet (series 5) */
+  --fl-violet-50: #f2f1fd;
+  --fl-violet-100: #dedcfa;
+  --fl-violet-200: #bfb9f4;
+  --fl-violet-300: #a295ef;
+  --fl-violet-400: #917eed;
+  --fl-violet-500: #836ae7;
+  --fl-violet-600: #6b54c3;
+  --fl-violet-700: #5b48a6;
+  --fl-violet-800: #4a3b87;
+  --fl-violet-900: #3d3070;
+  --fl-violet-950: #201a3c;
+
+  /* COLOR — Chart: Lime (series 6) */
+  --fl-lime-50: #f1f4ec;
+  --fl-lime-100: #dce3ce;
+  --fl-lime-200: #bbc89e;
+  --fl-lime-300: #9aad6c;
+  --fl-lime-400: #879d4a;
+  --fl-lime-500: #768e29;
+  --fl-lime-600: #607517;
+  --fl-lime-700: #526417;
+  --fl-lime-800: #425113;
+  --fl-lime-900: #364310;
+  --fl-lime-950: #1d240a;
+
+  /* COLOR — Chart: Magenta (series 7) */
+  --fl-magenta-50: #fceef4;
+  --fl-magenta-100: #f7d5e3;
+  --fl-magenta-200: #edabc8;
+  --fl-magenta-300: #e17fae;
+  --fl-magenta-400: #d9629e;
+  --fl-magenta-500: #d04790;
+  --fl-magenta-600: #ae3476;
+  --fl-magenta-700: #942e65;
+  --fl-magenta-800: #792652;
+  --fl-magenta-900: #641f43;
+  --fl-magenta-950: #361224;
+
+  /* COLOR — Neutral (surfaces, borders, text)
+   * ---------------------------------------------------------------------------
+   * Tinted toward the brand hue (204deg) at chroma 0.006. This ramp used to be
+   * chroma 0.000 — literally dead gray — while the dark canvas ramp below was
+   * tinted 286deg, i.e. violet, the opposite side of the wheel from a 204deg
+   * teal. Light and dark therefore felt like two different products.
+   *
+   * Both ramps now share the brand hue at the same low chroma. The tint is
+   * deliberately near the threshold of perception: it should read as "warm to
+   * the brand" beside teal, never as a blue-gray in isolation.
+   *
+   * Lightness is preserved to within 0.001 at every step, so this is a pure
+   * hue/chroma change — no contrast pair anywhere in the system moved. */
+  --fl-neutral-0: #ffffff; /* pure white stays pure */
+  --fl-neutral-50: #f8fbfb;
+  --fl-neutral-100: #f0f3f3;
+  --fl-neutral-200: #dce1e2;
+  --fl-neutral-300: #c0c5c6;
+  --fl-neutral-400: #9a9fa0;
+  --fl-neutral-500: #717677;
+  --fl-neutral-600: #626768;
+  --fl-neutral-700: #3f4344;
+  --fl-neutral-800: #292d2d;
+  --fl-neutral-900: #1e2222;
+  --fl-neutral-950: #111515;
+
+  /* COLOR — KPI tile fills
+   * Solid pastel washes used behind dashboard metric tiles. Sampled from the
+   * production app so a metric tile reads identically here and there. Each is
+   * light enough to carry `--fl-neutral-950` text at AA; the teal tile is the
+   * one exception and pairs with `--fl-neutral-0`. */
+  --fl-fill-teal: #4f8a94;
+  --fl-fill-pink: #ffd0d1;
+  --fl-fill-peach: #ffd8b1;
+  --fl-fill-sky: #cde7ff;
+
+  /* COLOR — Dark-theme canvas ramp (True Charcoal / Pitch Black scale)
+   * Tinted to the same 204deg brand hue as the neutral ramp above — it was
+   * 286deg (violet). Lightness preserved to within 0.001 at every step. */
+  /* The lightest rung exists for control boundaries. A form field whose border
+   * is the only thing identifying it needs 3:1 against the surface behind it;
+   * slate-600 manages 1.8:1 and slate-800 (the previous `--input`) just 1.1:1,
+   * which left inputs with no visible edge at all on dark. */
+  --fl-slate-500: #5f6465; /* 3.14:1 on slate-900 */
+  --fl-slate-600: #3c4141;
+  --fl-slate-700: #242829;
+  --fl-slate-800: #15191a;
+  --fl-slate-850: #111516;
+  --fl-slate-900: #0e1212;
+  --fl-slate-950: #080b0b;
+  --fl-slate-1000: #030606;
+
+  /* ===========================================================================
+   * TYPOGRAPHY
+   * ========================================================================= */
+  --fl-font-sans:
+    'Inter', 'Inter Variable', system-ui, -apple-system, sans-serif;
+  /* A real monospace face. This was aliased to Inter, which meant the product
+   * shipped no mono at all — `type-mono` rendered proportional. That matters
+   * more here than in most products: container IDs (MSKU7070707), booking refs
+   * and location codes are the primary scan targets in every table, and in a
+   * proportional face they neither align into columns nor disambiguate 0/O and
+   * 1/l. JetBrains Mono has a tall x-height and disambiguated glyphs. */
+  --fl-font-mono:
+    'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono',
+    'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+
+  /* Type scale — 1.125 minor third, 14px base (dense enterprise UI) */
+  --fl-text-2xs: 0.6875rem; /* 11px */
+  --fl-text-xs: 0.75rem; /*    12px */
+  --fl-text-sm: 0.8125rem; /*  13px */
+  --fl-text-base: 0.875rem; /* 14px — application default */
+  --fl-text-md: 0.9375rem; /*  15px */
+  --fl-text-lg: 1rem; /*       16px */
+  --fl-text-xl: 1.125rem; /*   18px */
+  --fl-text-2xl: 1.375rem; /*  22px */
+  --fl-text-3xl: 1.75rem; /*   28px */
+  --fl-text-4xl: 2.125rem; /*  34px */
+
+  --fl-leading-none: 1;
+  --fl-leading-tight: 1.25;
+  --fl-leading-snug: 1.375;
+  --fl-leading-normal: 1.5;
+  --fl-leading-relaxed: 1.625;
+
+  --fl-weight-normal: 400;
+  --fl-weight-medium: 500;
+  --fl-weight-semibold: 600;
+  --fl-weight-bold: 700;
+
+  --fl-tracking-tighter: -0.02em;
+  --fl-tracking-tight: -0.01em;
+  --fl-tracking-normal: 0em;
+  --fl-tracking-wide: 0.01em;
+  --fl-tracking-wider: 0.04em;
+  --fl-tracking-widest: 0.08em;
+
+  /* ===========================================================================
+   * SPACING — 4px base grid
+   * ========================================================================= */
+  --fl-space-0: 0rem;
+  --fl-space-px: 0.0625rem;
+  --fl-space-0-5: 0.125rem;
+  --fl-space-1: 0.25rem;
+  --fl-space-1-5: 0.375rem;
+  --fl-space-2: 0.5rem;
+  --fl-space-2-5: 0.625rem;
+  --fl-space-3: 0.75rem;
+  --fl-space-4: 1rem;
+  --fl-space-5: 1.25rem;
+  --fl-space-6: 1.5rem;
+  --fl-space-8: 2rem;
+  --fl-space-10: 2.5rem;
+  --fl-space-12: 3rem;
+  --fl-space-16: 4rem;
+  --fl-space-20: 5rem;
+  --fl-space-24: 6rem;
+
+  /* ===========================================================================
+   * RADIUS
+   * ========================================================================= */
+  /* Four rungs, deliberately. Twelve different radii were in active use across
+   * the product (`xl` 244, `lg` 194, `md` 130, `2xl` 103, bare `rounded` 100,
+   * `sm` 21, `3xl` 17, `xs` 4 …), which is more variation than any reader can
+   * perceive as intentional — it just reads as inconsistency.
+   *
+   * The steps are chosen so the collapse is nearly invisible: the dominant card
+   * radius (`--radius-card`, previously 16px) does not move at all, and nothing
+   * else shifts by more than 2px except the very-round 20/24px corners, which
+   * pulling in is the entire point.
+   *
+   * `full` is for pills, badges and avatars only. `none` is the absence of a
+   * radius, not a step on the ladder. */
+  --fl-radius-none: 0px;
+  --fl-radius-sm: 0.375rem; /*  6px — chips, inputs, small controls */
+  --fl-radius-md: 0.625rem; /* 10px — buttons, default control radius */
+  --fl-radius-lg: 1rem; /*     16px — cards, panels, sheets */
+  --fl-radius-full: 9999px; /*      — pills, badges, avatars */
+
+  /* ===========================================================================
+   * BORDER
+   * ========================================================================= */
+  --fl-border-width-0: 0px;
+  --fl-border-width-hairline: 1px;
+  --fl-border-width-thick: 2px;
+  --fl-border-width-heavy: 4px;
+
+  /* ===========================================================================
+   * SHADOW — low-elevation, matching the platform's flat card treatment
+   * ========================================================================= */
+  --fl-shadow-none: 0 0 #0000;
+  --fl-shadow-xs: 0 1px 2px 0 rgb(33 33 33 / 0.04);
+  --fl-shadow-sm: 0 1px 3px 0 rgb(33 33 33 / 0.06), 0 1px 2px -1px rgb(33 33 33 / 0.04);
+  --fl-shadow-md: 0 4px 8px -2px rgb(33 33 33 / 0.08), 0 2px 4px -2px rgb(33 33 33 / 0.04);
+  --fl-shadow-lg: 0 12px 20px -6px rgb(33 33 33 / 0.10), 0 4px 8px -4px rgb(33 33 33 / 0.05);
+  --fl-shadow-xl: 0 24px 40px -12px rgb(33 33 33 / 0.16);
+  --fl-shadow-inner: inset 0 1px 2px 0 rgb(33 33 33 / 0.05);
+
+  /* ===========================================================================
+   * Z-INDEX — single ordered scale; never hardcode a z-index anywhere else
+   * ========================================================================= */
+  --fl-z-hide: -1;
+  --fl-z-base: 0;
+  --fl-z-raised: 10;
+  --fl-z-sticky: 100;
+  --fl-z-sidebar: 200;
+  --fl-z-header: 300;
+  --fl-z-overlay: 400;
+  --fl-z-drawer: 500;
+  --fl-z-modal: 600;
+  --fl-z-popover: 700;
+  --fl-z-toast: 800;
+  --fl-z-tooltip: 900;
+  --fl-z-max: 9999;
+
+  /* ===========================================================================
+   * ANIMATION
+   * ========================================================================= */
+  --fl-duration-instant: 75ms;
+  --fl-duration-fast: 120ms;
+  --fl-duration-normal: 200ms;
+  --fl-duration-slow: 320ms;
+  --fl-duration-slower: 480ms;
+
+  --fl-ease-linear: linear;
+  --fl-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --fl-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --fl-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --fl-ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --fl-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ===========================================================================
+   * LAYOUT — application shell metrics
+   * ========================================================================= */
+  --fl-sidebar-width: 16.5rem; /*  264px expanded */
+  --fl-sidebar-width-collapsed: 4.5rem; /* 72px rail */
+  --fl-header-height: 3.75rem; /*   60px */
+  --fl-content-max-width: 100rem; /* 1600px */
+}

@@ -1,0 +1,341 @@
+import {
+  Activity,
+  AlertCircle,
+  AlertTriangle,
+  ArrowDownLeft,
+  ArrowDownRight,
+  ArrowLeft,
+  ArrowLeftRight,
+  ArrowRight,
+  ArrowUpRight,
+  BadgeCheck,
+  Banknote,
+  BarChart3,
+  Bell,
+  Building2,
+  Calendar,
+  CalendarDays,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Circle,
+  CircleCheck,
+  ClipboardList,
+  Clock,
+  Clock3,
+  Coins,
+  Compass,
+  Construction,
+  Container,
+  Copy,
+  CornerDownLeft,
+  DollarSign,
+  Download,
+  ExternalLink,
+  Eye,
+  File,
+  FileCheck,
+  FileText,
+  Filter,
+  FolderOpen,
+  Gauge,
+  GitCompare,
+  Globe,
+  Hourglass,
+  Info,
+  Landmark,
+  Layers,
+  LayoutDashboard,
+  Leaf,
+  Link,
+  Link2,
+  List,
+  Lock,
+  LogOut,
+  Mail,
+  MapPin,
+  Maximize,
+  Menu,
+  MessageSquare,
+  Minimize,
+  Minus,
+  Monitor,
+  Moon,
+  MoreHorizontal,
+  MoreVertical,
+  Navigation,
+  Package,
+  Palette,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Paperclip,
+  PauseCircle,
+  Pencil,
+  Phone,
+  Plus,
+  Printer,
+  Receipt,
+  RefreshCw,
+  Repeat,
+  RotateCcw,
+  Route,
+  Rows3,
+  Search,
+  Send,
+  Settings,
+  ShieldAlert,
+  ShieldCheck,
+  SlidersHorizontal,
+  Star,
+  Sun,
+  Table2,
+  Timer,
+  Trash2,
+  TrendingDown,
+  TrendingUp,
+  Truck,
+  Upload,
+  User,
+  UserCheck,
+  UserPlus,
+  UserRound,
+  Users,
+  Wallet,
+  Wrench,
+  X,
+  XCircle,
+  Zap,
+  type LucideIcon,
+} from '@/design-system/icons';
+
+/**
+ * The icons the application actually renders.
+ *
+ * Lucide ships thousands; the registry under `design-system/icons` re-exports a
+ * few hundred. This catalogue is narrower still and deliberately so — it is the
+ * set with at least one live call site in the product, grouped by the job the
+ * icon does, so two developers reaching for "the delete icon" land on the same
+ * one.
+ *
+ * It is pruned against real usage rather than curated by taste. Icons for modes
+ * FLEETIN does not operate (air, rail, sea vessels, buses) and glyphs that never
+ * found a call site were removed; nothing here is aspirational.
+ *
+ * Extending: add to the relevant category when you give an icon its first call
+ * site, rather than importing an off-catalogue icon directly.
+ */
+
+export interface IconEntry {
+  name: string;
+  icon: LucideIcon;
+  /** Second exported name for the same glyph, where the registry ships one. */
+  alias?: string;
+  /** Why this icon rather than its near-twin. Only where the choice is not obvious. */
+  note?: string;
+}
+
+export interface IconCategory {
+  id: string;
+  title: string;
+  description: string;
+  icons: IconEntry[];
+}
+
+export const ICON_CATEGORIES: IconCategory[] = [
+  {
+    id: 'navigation',
+    title: 'Navigation',
+    description: 'Wayfinding, disclosure and movement between screens.',
+    icons: [
+      { name: 'LayoutDashboard', icon: LayoutDashboard, note: 'The sidebar home entry — not House' },
+      { name: 'Compass', icon: Compass },
+      { name: 'Menu', icon: Menu },
+      { name: 'PanelLeftClose', icon: PanelLeftClose },
+      { name: 'PanelLeftOpen', icon: PanelLeftOpen },
+      { name: 'ChevronRight', icon: ChevronRight },
+      { name: 'ChevronLeft', icon: ChevronLeft },
+      { name: 'ChevronDown', icon: ChevronDown },
+      { name: 'ArrowRight', icon: ArrowRight },
+      { name: 'ArrowLeft', icon: ArrowLeft },
+      { name: 'CornerDownLeft', icon: CornerDownLeft },
+      { name: 'ExternalLink', icon: ExternalLink },
+      { name: 'MoreHorizontal', icon: MoreHorizontal, alias: 'Ellipsis' },
+      { name: 'MoreVertical', icon: MoreVertical, alias: 'EllipsisVertical' },
+      { name: 'LogOut', icon: LogOut },
+    ],
+  },
+  {
+    id: 'status',
+    title: 'Status',
+    description:
+      'State reporting. Pair with the matching status colour intent. Where lucide ships two names for one glyph the product has settled on one — the alternates are listed so nobody re-litigates the choice at a call site.',
+    icons: [
+      { name: 'CheckCircle2', icon: CheckCircle2, note: 'The success glyph — the most-drawn icon in the product' },
+      { name: 'AlertTriangle', icon: AlertTriangle, alias: 'TriangleAlert', note: 'The warning glyph' },
+      { name: 'AlertCircle', icon: AlertCircle, alias: 'CircleAlert', note: 'Form and field errors' },
+      { name: 'XCircle', icon: XCircle, note: 'Failed, rejected, cancelled' },
+      { name: 'CircleCheck', icon: CircleCheck },
+      { name: 'BadgeCheck', icon: BadgeCheck, note: 'Verified identity, not a completed task' },
+      { name: 'ShieldCheck', icon: ShieldCheck },
+      { name: 'ShieldAlert', icon: ShieldAlert },
+      { name: 'Info', icon: Info },
+      { name: 'Circle', icon: Circle },
+      { name: 'Construction', icon: Construction },
+    ],
+  },
+  {
+    id: 'time',
+    title: 'Time & Deadlines',
+    description:
+      'The clock family. Deadlines and free-time windows are a first-class concept in this product, so these carry meaning rather than decoration.',
+    icons: [
+      { name: 'Clock', icon: Clock },
+      { name: 'Clock3', icon: Clock3, note: 'The shipper console standardises on this one' },
+      { name: 'Timer', icon: Timer, note: 'A running countdown — payout clocks, free time' },
+      { name: 'Hourglass', icon: Hourglass, note: 'Waiting on someone else' },
+      { name: 'PauseCircle', icon: PauseCircle },
+      { name: 'Calendar', icon: Calendar },
+      { name: 'CalendarDays', icon: CalendarDays },
+      { name: 'Zap', icon: Zap, note: 'Instant match, urgent' },
+    ],
+  },
+  {
+    id: 'operations',
+    title: 'Operations',
+    description: 'Fleet, cargo, routing and the physical movement of goods.',
+    icons: [
+      { name: 'Truck', icon: Truck, note: 'FLEETIN is road freight — there is no ship, plane or rail glyph' },
+      { name: 'Container', icon: Container, alias: 'ContainerIcon' },
+      { name: 'Package', icon: Package },
+      { name: 'Layers', icon: Layers },
+      { name: 'MapPin', icon: MapPin },
+      { name: 'Route', icon: Route },
+      { name: 'Navigation', icon: Navigation },
+      { name: 'Repeat', icon: Repeat, note: 'Empty-return cycles — the module signature' },
+      { name: 'Gauge', icon: Gauge },
+      { name: 'Wrench', icon: Wrench },
+      { name: 'Leaf', icon: Leaf },
+      { name: 'ClipboardList', icon: ClipboardList },
+      { name: 'Building2', icon: Building2, note: 'Shippers, transporters, any company' },
+    ],
+  },
+  {
+    id: 'users',
+    title: 'People',
+    description: 'Drivers, employees, accounts and roles.',
+    icons: [
+      { name: 'User', icon: User },
+      { name: 'UserRound', icon: UserRound },
+      { name: 'Users', icon: Users },
+      { name: 'UserPlus', icon: UserPlus },
+      { name: 'UserCheck', icon: UserCheck },
+      { name: 'Star', icon: Star, note: 'Driver and transporter ratings' },
+    ],
+  },
+  {
+    id: 'communication',
+    title: 'Communication',
+    description: 'Contact details and messaging. Every contact block in the product is built from these.',
+    icons: [
+      { name: 'Mail', icon: Mail },
+      { name: 'Phone', icon: Phone },
+      { name: 'MessageSquare', icon: MessageSquare },
+      { name: 'Send', icon: Send },
+      { name: 'Bell', icon: Bell },
+    ],
+  },
+  {
+    id: 'files',
+    title: 'Documents',
+    description: 'Files, attachments and transfer.',
+    icons: [
+      { name: 'FileText', icon: FileText },
+      { name: 'File', icon: File },
+      { name: 'FileCheck', icon: FileCheck },
+      { name: 'FolderOpen', icon: FolderOpen },
+      { name: 'Paperclip', icon: Paperclip },
+      { name: 'Upload', icon: Upload },
+      { name: 'Download', icon: Download },
+      { name: 'Printer', icon: Printer },
+    ],
+  },
+  {
+    id: 'finance',
+    title: 'Finance',
+    description:
+      'Billing, payments, rates and movement of money. Direction is a convention: out is up-and-away, in is down-and-toward.',
+    icons: [
+      { name: 'Wallet', icon: Wallet },
+      { name: 'DollarSign', icon: DollarSign },
+      { name: 'Receipt', icon: Receipt },
+      { name: 'Banknote', icon: Banknote },
+      { name: 'Coins', icon: Coins },
+      { name: 'Landmark', icon: Landmark },
+      { name: 'ArrowUpRight', icon: ArrowUpRight, note: 'Money out, or a positive delta' },
+      { name: 'ArrowDownRight', icon: ArrowDownRight, note: 'The down-delta counterpart' },
+      { name: 'ArrowDownLeft', icon: ArrowDownLeft, note: 'Money in' },
+      { name: 'ArrowLeftRight', icon: ArrowLeftRight },
+      { name: 'TrendingUp', icon: TrendingUp },
+      { name: 'TrendingDown', icon: TrendingDown },
+    ],
+  },
+  {
+    id: 'data',
+    title: 'Data & Reporting',
+    description: 'Analytics surfaces, list/table view modes and the controls that filter them.',
+    icons: [
+      { name: 'BarChart3', icon: BarChart3 },
+      { name: 'Activity', icon: Activity },
+      { name: 'Table2', icon: Table2 },
+      { name: 'List', icon: List, note: 'Half of the list/grid view toggle on every index page' },
+      { name: 'Rows3', icon: Rows3 },
+      { name: 'Filter', icon: Filter },
+      { name: 'SlidersHorizontal', icon: SlidersHorizontal },
+      { name: 'Search', icon: Search },
+      { name: 'GitCompare', icon: GitCompare },
+    ],
+  },
+  {
+    id: 'actions',
+    title: 'Actions',
+    description: 'Verbs. Every interactive control draws from this set.',
+    icons: [
+      { name: 'Plus', icon: Plus },
+      { name: 'Minus', icon: Minus },
+      { name: 'Pencil', icon: Pencil },
+      { name: 'Trash2', icon: Trash2 },
+      { name: 'Copy', icon: Copy },
+      { name: 'Check', icon: Check },
+      { name: 'X', icon: X },
+      { name: 'Eye', icon: Eye },
+      { name: 'RotateCcw', icon: RotateCcw, note: 'Reset filters — the standard on every list page' },
+      { name: 'RefreshCw', icon: RefreshCw, note: 'Refetch data, not reset' },
+      { name: 'Link', icon: Link },
+      { name: 'Link2', icon: Link2, note: 'Chained cycles in Empty Returns' },
+      { name: 'Maximize', icon: Maximize },
+      { name: 'Minimize', icon: Minimize },
+    ],
+  },
+  {
+    id: 'settings',
+    title: 'Settings',
+    description: 'Configuration, security, preferences and theming.',
+    icons: [
+      { name: 'Settings', icon: Settings },
+      { name: 'Lock', icon: Lock },
+      { name: 'Globe', icon: Globe },
+      { name: 'Palette', icon: Palette },
+      { name: 'Sun', icon: Sun },
+      { name: 'Moon', icon: Moon },
+      { name: 'Monitor', icon: Monitor },
+    ],
+  },
+];
+
+/** Total icons in the catalogue, shown in the section header. */
+export const ICON_COUNT = ICON_CATEGORIES.reduce(
+  (total, category) => total + category.icons.length,
+  0,
+);
