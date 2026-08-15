@@ -1,0 +1,296 @@
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma, Partner } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import { StorageService } from '../storage/storage.service';
+import { nextReference } from '../../common/helpers/reference.util';
+import { CreatePartnerDto } from './dto/create-partner.dto';
+import { UpdatePartnerDto } from './dto/update-partner.dto';
+import { CreateDispatcherDto } from './dto/create-dispatcher.dto';
+import { CreatePricingTierDto } from './dto/create-pricing-tier.dto';
+import { UpsertBankAccountDto } from './dto/upsert-bank-account.dto';
+import { toMinorUnits } from '../../common/helpers/pricing.util';
+
+interface FindAllParams {
+  search?: string;
+  status?: string;
+  country?: string;
+  serviceCategory?: string;
+  sortBy?: string;
+  page: number;
+  limit: number;
+  scope: Record<string, string> | null;
+}
+
+@Injectable()
+export class PartnersService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
+  ) {}
+
+  private orderBy(sortBy?: string): Prisma.PartnerOrderByWithRelationInput {
+    switch (sortBy) {
+      case 'name-desc':
+        return { companyLegalName: 'desc' };
+      case 'fleet-desc':
+        return { fleetSize: 'desc' };
+      case 'name-asc':
+      default:
+        return { companyLegalName: 'asc' };
+    }
+  }
+
+  async findAll({ search, status, country, serviceCategory, sortBy, page, limit, scope }: FindAllParams) {
+    const where: Prisma.PartnerWhereInput = {
+      deletedAt: null,
+      ...(scope ?? {}),
+      ...(status && status !== 'all' ? { partnerStatus: status } : {}),
+      ...(country && country !== 'all' ? { country } : {}),
+      ...(serviceCategory ? { serviceCategories: { array_contains: serviceCategory } } : {}),
+      ...(search
+        ? {
+            OR: [
+              { companyLegalName: { contains: search } },
+              { registrationNumber: { contains: search } },
+              { country: { contains: search } },
+            ],
+          }
+        : {}),
+    };
+    const skip = (page - 1) * limit;
+
+    const [rows, total] = await Promise.all([
+      this.prisma.partner.findMany({ where, skip, take: limit, orderBy: this.orderBy(sortBy) }),
+      this.prisma.partner.count({ where }),
+    ]);
+
+    const items = await this.enrich(rows);
+    return { items, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
+  }
+
+  /** `id` may be the real UUID or the human-readable `reference` (e.g. "PTR-001") shown in the UI and used in URLs. */
+  async findOne(id: string, scope: Record<string, string> | null) {
+    const partner = await this.prisma.partner.findFirst({
+      where: { OR: [{ id }, { reference: id }], deletedAt: null },
+    });
+    if (!partner || (scope && scope.id && scope.id !== partner.id)) {
+      throw new NotFoundException(`Partner with ID "${id}" not found`);
+    }
+
+    const [enriched] = await this.enrich([partner]);
+    const [vehicles, drivers, pricingGrid, bankAccount] = await Promise.all([
+      this.prisma.vehicle.findMany({ where: { partnerId: partner.id, deletedAt: null } }),
+      this.prisma.driver.findMany({ where: { partnerId: partner.id, deletedAt: null } }),
+      this.prisma.pricingTier.findMany({ where: { partnerId: partner.id }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.partnerBankAccount.findUnique({ where: { partnerId: partner.id } }),
+    ]);
+
+    return { ...enriched, vehicles, drivers, pricingGrid, bankAccount };
+  }
+
+  async create(dto: CreatePartnerDto) {
+    const registrationNumber = dto.registrationNumber ?? `DJ-REG-${Date.now()}`;
+    const existing = await this.prisma.partner.findFirst({
+      where: { OR: [{ registrationNumber }, { companyLegalName: dto.companyLegalName }] },
+    });
+    if (existing) {
+      throw new ConflictException('A partner with this registration number or company name already exists');
+    }
+
+    const reference = await nextReference(this.prisma.partner, 'PTR');
+
+    const partner = await this.prisma.partner.create({
+      data: {
+        reference,
+        companyLegalName: dto.companyLegalName,
+        registrationNumber,
+        businessLicenseNumber: dto.businessLicenseNumber,
+        operatingRegions: dto.operatingRegions ?? [],
+        serviceCategories: dto.serviceCategories ?? [],
+        fleetSize: dto.fleetSize ?? 0,
+        vehicleTypes: dto.vehicleTypes ?? [],
+        country: dto.country,
+        address: dto.address,
+        insuranceProvider: dto.insuranceProvider,
+        insurancePolicyNumber: dto.insurancePolicyNumber,
+        insuranceExpiry: dto.insuranceExpiry ? new Date(dto.insuranceExpiry) : undefined,
+        partnerStatus: dto.partnerStatus ?? 'Pending',
+        registrationDate: dto.registrationDate ? new Date(dto.registrationDate) : new Date(),
+      },
+    });
+
+    await this.prisma.contact.create({
+      data: { ownerType: 'PARTNER', ownerId: partner.id, ...dto.primaryDispatcher, isPrimary: true },
+    });
+    for (const dispatcher of dto.additionalDispatchers ?? []) {
+      await this.prisma.contact.create({
+        data: { ownerType: 'PARTNER', ownerId: partner.id, ...dispatcher, isPrimary: false },
+      });
+    }
+
+    return this.findOne(partner.id, null);
+  }
+
+  async update(id: string, dto: UpdatePartnerDto) {
+    const existing = await this.findOne(id, null);
+    const partner = await this.prisma.partner.update({
+      where: { id: existing.id },
+      data: {
+        companyLegalName: dto.companyLegalName,
+        registrationNumber: dto.registrationNumber,
+        businessLicenseNumber: dto.businessLicenseNumber,
+        operatingRegions: dto.operatingRegions,
+        serviceCategories: dto.serviceCategories,
+        fleetSize: dto.fleetSize,
+        vehicleTypes: dto.vehicleTypes,
+        country: dto.country,
+        address: dto.address,
+        insuranceProvider: dto.insuranceProvider,
+        insurancePolicyNumber: dto.insurancePolicyNumber,
+        insuranceExpiry: dto.insuranceExpiry ? new Date(dto.insuranceExpiry) : undefined,
+        partnerStatus: dto.partnerStatus,
+        registrationDate: dto.registrationDate ? new Date(dto.registrationDate) : undefined,
+      },
+    });
+    return this.findOne(partner.id, null);
+  }
+
+  async remove(id: string) {
+    const existing = await this.findOne(id, null);
+    return this.prisma.partner.update({ where: { id: existing.id }, data: { deletedAt: new Date() } });
+  }
+
+  async uploadLogo(id: string, file: Express.Multer.File) {
+    const existing = await this.findOne(id, null);
+    const stored = await this.storage.upload(
+      { originalname: file.originalname, buffer: file.buffer, mimetype: file.mimetype, size: file.size },
+      { folder: 'logos' },
+    );
+    return this.prisma.partner.update({ where: { id: existing.id }, data: { logoKey: stored.key } });
+  }
+
+  async addDispatcher(partnerId: string, dto: CreateDispatcherDto) {
+    const existing = await this.findOne(partnerId, null);
+    if (dto.isPrimary) {
+      await this.prisma.contact.updateMany({
+        where: { ownerType: 'PARTNER', ownerId: existing.id, isPrimary: true },
+        data: { isPrimary: false },
+      });
+    }
+    return this.prisma.contact.create({ data: { ownerType: 'PARTNER', ownerId: existing.id, ...dto } });
+  }
+
+  async updateDispatcher(partnerId: string, contactId: string, dto: Partial<CreateDispatcherDto>) {
+    const existing = await this.findOne(partnerId, null);
+    await this.findContactOrThrow(existing.id, contactId);
+    if (dto.isPrimary) {
+      await this.prisma.contact.updateMany({
+        where: { ownerType: 'PARTNER', ownerId: existing.id, isPrimary: true, NOT: { id: contactId } },
+        data: { isPrimary: false },
+      });
+    }
+    return this.prisma.contact.update({ where: { id: contactId }, data: dto });
+  }
+
+  async removeDispatcher(partnerId: string, contactId: string) {
+    const existing = await this.findOne(partnerId, null);
+    await this.findContactOrThrow(existing.id, contactId);
+    return this.prisma.contact.delete({ where: { id: contactId } });
+  }
+
+  private async findContactOrThrow(partnerId: string, contactId: string) {
+    const contact = await this.prisma.contact.findFirst({
+      where: { id: contactId, ownerType: 'PARTNER', ownerId: partnerId },
+    });
+    if (!contact) throw new NotFoundException(`Dispatcher with ID "${contactId}" not found`);
+    return contact;
+  }
+
+  async listPricingTiers(partnerId: string) {
+    const existing = await this.findOne(partnerId, null);
+    return this.prisma.pricingTier.findMany({ where: { partnerId: existing.id }, orderBy: { createdAt: 'desc' } });
+  }
+
+  async addPricingTier(partnerId: string, dto: CreatePricingTierDto) {
+    const existing = await this.findOne(partnerId, null);
+    // At the currency's own scale, matching what `resolvePartnerRateMinorUnitsFdj`
+    // reads back — a flat ×100 stored a DJF tier 100× too high.
+    const basePriceMinorUnits = toMinorUnits(dto.basePrice, dto.currency);
+    return this.prisma.pricingTier.create({
+      data: {
+        partnerId: existing.id,
+        route: dto.route,
+        vehicleType: dto.vehicleType,
+        basePriceMinorUnits,
+        currency: dto.currency,
+        fxRate: 1.0,
+        baseAmountMinorUnits: basePriceMinorUnits,
+        pricePerKmMinorUnits: dto.pricePerKm !== undefined ? toMinorUnits(dto.pricePerKm, dto.currency) : undefined,
+      },
+    });
+  }
+
+  async updatePricingTier(partnerId: string, tierId: string, dto: Partial<CreatePricingTierDto>) {
+    const tier = await this.prisma.pricingTier.findFirst({ where: { id: tierId, partnerId } });
+    if (!tier) throw new NotFoundException(`Pricing tier with ID "${tierId}" not found`);
+    const currency = dto.currency ?? tier.currency;
+    const basePriceMinorUnits = dto.basePrice !== undefined ? toMinorUnits(dto.basePrice, currency) : undefined;
+    return this.prisma.pricingTier.update({
+      where: { id: tierId },
+      data: {
+        route: dto.route,
+        vehicleType: dto.vehicleType,
+        basePriceMinorUnits,
+        baseAmountMinorUnits: basePriceMinorUnits,
+        currency: dto.currency,
+        pricePerKmMinorUnits: dto.pricePerKm !== undefined ? toMinorUnits(dto.pricePerKm, currency) : undefined,
+      },
+    });
+  }
+
+  async removePricingTier(partnerId: string, tierId: string) {
+    const tier = await this.prisma.pricingTier.findFirst({ where: { id: tierId, partnerId } });
+    if (!tier) throw new NotFoundException(`Pricing tier with ID "${tierId}" not found`);
+    return this.prisma.pricingTier.delete({ where: { id: tierId } });
+  }
+
+  async upsertBankAccount(partnerId: string, dto: UpsertBankAccountDto) {
+    const existing = await this.findOne(partnerId, null);
+    return this.prisma.partnerBankAccount.upsert({
+      where: { partnerId: existing.id },
+      create: { partnerId: existing.id, ...dto },
+      update: dto,
+    });
+  }
+
+  /**
+   * Fleet counts on the list view (`PartnersPage.tsx`'s `vehicles?.length`/
+   * `drivers?.length` reads) need real arrays here, not just the parent
+   * fields — the frontend was built against the mock era's fully-nested
+   * `PartnerRecord`, where every partner always carried its whole fleet.
+   */
+  private async enrich(partners: Partner[]) {
+    return Promise.all(
+      partners.map(async (partner) => {
+        const [vehicles, drivers, contacts] = await Promise.all([
+          this.prisma.vehicle.findMany({ where: { partnerId: partner.id, deletedAt: null } }),
+          this.prisma.driver.findMany({ where: { partnerId: partner.id, deletedAt: null } }),
+          this.prisma.contact.findMany({
+            where: { ownerType: 'PARTNER', ownerId: partner.id },
+            orderBy: { isPrimary: 'desc' },
+          }),
+        ]);
+        // Contacts are ordered isPrimary desc, so the first one seen is the primary dispatcher.
+        const [primaryDispatcher, ...additionalDispatchers] = contacts;
+        return {
+          ...partner,
+          vehicles,
+          drivers,
+          primaryDispatcher: primaryDispatcher ?? null,
+          additionalDispatchers,
+          logoUrl: partner.logoKey ? await this.storage.getUrl(partner.logoKey) : null,
+        };
+      }),
+    );
+  }
+}

@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+coverage/
+
+# Secrets — never commit. Use .env.example as the documented template.
+.env
+.env.*
+!.env.example
+
+# Local uploads written by StorageService's local driver
+uploads/
+
+# Logs
+*.log
+logs/
+
+# OS / editor noise
+.DS_Store
+.idea/
+.vscode/
+*.swp

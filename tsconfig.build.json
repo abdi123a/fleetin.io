@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // Pin the root so output lands at dist/main.js rather than dist/src/main.js.
+    // Without this, TypeScript infers the root from the widest common ancestor
+    // of all inputs; prisma/seed.ts imports from src/, which lifts that to the
+    // project root and shifts every emitted path down a level — breaking
+    // `start:prod` (`node dist/main`) and any Docker CMD that assumes it.
+    "rootDir": "./src",
+    // Keep the incremental cache inside dist. nest-cli's `deleteOutDir` wipes
+    // dist on every start; if the cache lives outside it, tsc reads a manifest
+    // claiming the outputs already exist, emits nothing, and `nest start` dies
+    // on a missing dist/main.
+    "tsBuildInfoFile": "./dist/tsconfig.build.tsbuildinfo"
+  },
+  // `scripts` joins the list for the same reason `prisma` is on it: one-off
+  // maintenance tools live outside `rootDir`, so leaving them in the program
+  // fails the build with TS6059 rather than shipping them.
+  "exclude": ["node_modules", "dist", "test", "prisma", "scripts", "**/*spec.ts"]
+}

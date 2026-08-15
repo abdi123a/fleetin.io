@@ -1,0 +1,21 @@
+# pnpm build-script allowlist.
+#
+# pnpm blocks postinstall scripts by default. Each package that genuinely needs
+# to compile or generate code at install time is enabled here:
+#   - prisma / @prisma/client / @prisma/engines: fetch query engines and
+#     generate the typed client
+#   - argon2: native addon, resolves prebuilt bindings
+#   - msgpackr-extract: native addon used by BullMQ's serializer
+#   - puppeteer: downloads the Chromium build that the HR document PDF
+#     renderer launches (src/modules/hr/documents/pdf.service.ts)
+#
+# @scarf/scarf is denied on purpose — it is analytics-only telemetry that
+# phones home on install, and nothing depends on it running.
+allowBuilds:
+  '@prisma/client': true
+  '@prisma/engines': true
+  '@scarf/scarf': false
+  argon2: true
+  msgpackr-extract: true
+  prisma: true
+  puppeteer: true
