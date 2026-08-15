@@ -6,6 +6,8 @@ export { FinanceProjectPage } from './FinanceProjectPage';
 export { FinanceShipmentPage } from './FinanceShipmentPage';
 export { FinanceBookingPage } from './FinanceBookingPage';
 export { FinanceInvoicesPage } from './FinanceInvoicesPage';
+export { FinanceAccountsPage } from './FinanceAccountsPage';
+export { FinanceFundingPage } from './FinanceFundingPage';
 // The two documents: the client's invoice, and the transporter's signed voucher.
 export { InvoiceDocumentPage } from './InvoiceDocumentPage';
 export { PaymentVoucherPage } from './PaymentVoucherPage';

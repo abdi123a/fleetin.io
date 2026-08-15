@@ -10,7 +10,7 @@ import {
   type ShipmentFilterKey,
   type ShipperShipmentRow,
 } from '@/features/shipper-bi';
-import { BI_CURRENCY } from '@/lib/bi/config';
+import { biCurrency } from '@/lib/bi/config';
 import { formatDate } from '@/utils';
 import { cn } from '@/utils';
 
@@ -170,7 +170,7 @@ export function ShipmentsPanel({ rows, initialFilter, onOpenShipment }: Shipment
       },
       {
         accessorKey: 'cost',
-        header: `Cost (${BI_CURRENCY})`,
+        header: `Cost (${biCurrency()})`,
         meta: { label: 'Cost', align: 'right', width: 130 },
         cell: ({ row }) => (
           <div className="whitespace-nowrap text-right">

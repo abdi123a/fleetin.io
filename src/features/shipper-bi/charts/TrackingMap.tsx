@@ -7,7 +7,7 @@ import { useThemeStore } from '@/stores/theme.store';
 import { cn } from '@/utils';
 import type { LiveShipment, MapBounds, Route } from '../contracts';
 import { STAGE_LABELS } from '../contracts';
-import { RISK_SEVERITY_THRESHOLDS } from '@/lib/bi/config';
+import { riskSeverityThresholds } from '@/lib/bi/config';
 
 /**
  * The corridor, live.
@@ -86,8 +86,8 @@ export interface TrackingMapProps {
 }
 
 function riskColor(riskScore: number): string {
-  if (riskScore >= RISK_SEVERITY_THRESHOLDS.critical) return 'var(--destructive)';
-  if (riskScore >= RISK_SEVERITY_THRESHOLDS.warning) return 'var(--warning)';
+  if (riskScore >= riskSeverityThresholds().critical) return 'var(--destructive)';
+  if (riskScore >= riskSeverityThresholds().warning) return 'var(--warning)';
   return 'var(--primary)';
 }
 

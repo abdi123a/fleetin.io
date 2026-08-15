@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Receipt, Wallet } from '@/design-system/icons';
 import { Card, Skeleton } from '@/design-system';
+import { TablePager, usePagedRows } from '@/components';
 import { bucketLabel, chooseGranularity } from '@/lib/bi/time';
 import { CategoryBarChart, ChartCard, TrendChart, X_AXIS_HEIGHT } from '@/features/shipper-bi/charts';
 import { RankedBarList } from '../components/RankedBarList';
@@ -44,6 +45,8 @@ export function CostSection({ facts, dataset, overview, filters, onDrillDown }: 
 
   const costData = useMemo(() => buildCostData(facts), [facts]);
   const detentionRows = useMemo(() => buildDetentionRows(facts, dataset), [facts, dataset]);
+  const [detentionPageSize, setDetentionPageSize] = useState(25);
+  const pagedDetention = usePagedRows(detentionRows, { pageSize: detentionPageSize });
 
   if (!costData) return <CostSkeleton />;
 
@@ -195,7 +198,7 @@ export function CostSection({ facts, dataset, overview, filters, onDrillDown }: 
               </tr>
             </thead>
             <tbody>
-              {detentionRows.map((row) => (
+              {pagedDetention.rows.map((row) => (
                 <tr key={`${row.shipmentId}-${row.chargeType}`} className="border-b border-border/60 last:border-0">
                   <td className="py-2.5 pr-4 font-medium text-foreground">{row.reference}</td>
                   <td className="py-2.5 pr-4 text-muted-foreground">{row.transporter}</td>
@@ -207,6 +210,14 @@ export function CostSection({ facts, dataset, overview, filters, onDrillDown }: 
             </tbody>
           </table>
         </div>
+        {detentionRows.length > 0 ? (
+          <TablePager
+            paged={pagedDetention}
+            noun="charges"
+            pageSize={detentionPageSize}
+            onPageSizeChange={setDetentionPageSize}
+          />
+        ) : null}
       </ChartCard>
     </div>
   );

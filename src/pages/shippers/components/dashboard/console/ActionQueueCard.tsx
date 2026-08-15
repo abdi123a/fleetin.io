@@ -9,7 +9,7 @@ import {
 import { Card, IconChip } from '@/design-system';
 import type { ShipperShipmentRow } from '@/features/shipper-bi';
 import { cn } from '@/utils';
-import { DETENTION_RATE_PER_CONTAINER_DAY } from '@/lib/bi/config';
+import { detentionRatePerContainerDay } from '@/lib/bi/config';
 import { detentionCost, formatDetention, isContainerOut } from './detention';
 import { PANEL_SURFACE_ALERT } from './PanelHeader';
 
@@ -99,7 +99,7 @@ export function ActionQueueCard({ rows, onOpenShipment, onViewAll }: ActionQueue
             </div>
             <p className="type-body-xs mt-0.5 text-muted-foreground truncate">
               {accruing > 0
-                ? `${formatDetention(accruing)} total accrued (${formatDetention(DETENTION_RATE_PER_CONTAINER_DAY)}/container/day)`
+                ? `${formatDetention(accruing)} total accrued (${formatDetention(detentionRatePerContainerDay())}/container/day)`
                 : clear
                   ? 'Zero detention accruing across active shipments'
                   : 'Action required before detention charges begin'}

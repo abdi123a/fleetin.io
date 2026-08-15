@@ -7,6 +7,8 @@
 export const STORAGE_KEYS = {
   theme: 'fleetin.theme',
   sidebar: 'fleetin.sidebar',
+  /** Workspace configuration — branding, documents, policy, integrations. */
+  settings: 'fleetin.settings',
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];

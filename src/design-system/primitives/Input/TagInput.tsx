@@ -1,6 +1,6 @@
 import { X } from '@/design-system/icons';
 
-import { forwardRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
+import { forwardRef, useMemo, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
 
 import { useFormField } from '@/design-system/primitives/Form/FormContext';
 import { cn } from '@/utils';
@@ -31,6 +31,18 @@ export const TagInput = forwardRef<HTMLInputElement, TagInputProps>(function Tag
   const isDisabled = propDisabled ?? contextDisabled;
 
   const [draft, setDraft] = useState('');
+
+  // Any value repeated elsewhere in the list renders as a duplicate chip —
+  // an easy way to spot e.g. the same container number entered twice.
+  const duplicates = useMemo(() => {
+    const seen = new Set<string>();
+    const dupes = new Set<string>();
+    for (const v of value) {
+      if (seen.has(v)) dupes.add(v);
+      seen.add(v);
+    }
+    return dupes;
+  }, [value]);
 
   const applyTransform = (raw: string) => (transform ? transform(raw) : raw);
 
@@ -84,24 +96,32 @@ export const TagInput = forwardRef<HTMLInputElement, TagInputProps>(function Tag
         className,
       )}
     >
-      {value.map((tag, i) => (
-        <span
-          key={`${tag}-${i}`}
-          className="flex items-center gap-1 rounded-full bg-primary-subtle px-2.5 py-1 text-xs font-semibold text-primary-subtle-foreground"
-        >
-          {tag}
-          {!isDisabled && (
-            <button
-              type="button"
-              onClick={() => removeTag(i)}
-              aria-label={`Remove ${tag}`}
-              className="rounded-full p-0.5 hover:bg-primary/20"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          )}
-        </span>
-      ))}
+      {value.map((tag, i) => {
+        const isDuplicate = duplicates.has(tag);
+        return (
+          <span
+            key={`${tag}-${i}`}
+            className={cn(
+              'flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold',
+              isDuplicate
+                ? 'bg-danger-subtle text-danger-subtle-foreground ring-1 ring-danger/40'
+                : 'bg-primary-subtle text-primary-subtle-foreground',
+            )}
+          >
+            {tag}
+            {!isDisabled && (
+              <button
+                type="button"
+                onClick={() => removeTag(i)}
+                aria-label={`Remove ${tag}`}
+                className={cn('rounded-full p-0.5', isDuplicate ? 'hover:bg-danger/20' : 'hover:bg-primary/20')}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </span>
+        );
+      })}
       <input
         ref={ref}
         type="text"

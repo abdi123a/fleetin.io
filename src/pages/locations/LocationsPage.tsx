@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { CheckCircle2, Plus, X } from '@/design-system/icons';
-import { PageHeader } from '@/components';
+import { PageHeader, TablePager, usePagedRows } from '@/components';
 import {
   Button,
   LocationCard,
@@ -68,6 +68,9 @@ export function LocationsPage() {
   const [locations, setLocations] = useState<LocationRecord[]>(INITIAL_LOCATIONS);
   const [isAddLocationOpen, setIsAddLocationOpen] = useState(false);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
+
+  const [pageSize, setPageSize] = useState(12);
+  const pagedLocations = usePagedRows(locations, { pageSize });
 
   const handleCreateLocationSuccess = (formData: LocationFormData) => {
     const newRecord: LocationRecord = {
@@ -148,7 +151,7 @@ export function LocationsPage() {
 
       {/* Locations Card List matching the screenshot design */}
       <div className="space-y-4 pt-2">
-        {locations.map((location) => (
+        {pagedLocations.rows.map((location) => (
           <LocationCard
             key={location.id}
             city={location.city}
@@ -161,6 +164,16 @@ export function LocationsPage() {
           />
         ))}
       </div>
+
+      {locations.length > 0 ? (
+        <TablePager
+          paged={pagedLocations}
+          noun="locations"
+          pageSize={pageSize}
+          onPageSizeChange={setPageSize}
+          pageSizeOptions={[12, 24, 48, 96]}
+        />
+      ) : null}
     </div>
   );
 }

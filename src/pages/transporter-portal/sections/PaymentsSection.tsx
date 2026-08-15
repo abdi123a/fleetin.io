@@ -14,7 +14,7 @@ import {
   AGING_BUCKET_LABELS,
   PAYMENT_STATUSES,
   PAYMENT_STATUS_LABELS,
-  SETTLEMENT_WEEKDAY,
+  settlementWeekday,
   formatCompact,
   formatMoney,
   formatMoneyFull,
@@ -516,7 +516,7 @@ function computeNextSettlement(
   const today = generatedAt.slice(0, 10);
   const nextRun = (() => {
     const date = new Date(`${today}T00:00:00.000Z`);
-    while (date.getUTCDay() !== SETTLEMENT_WEEKDAY) {
+    while (date.getUTCDay() !== settlementWeekday()) {
       date.setUTCDate(date.getUTCDate() + 1);
     }
     return date.toISOString().slice(0, 10);

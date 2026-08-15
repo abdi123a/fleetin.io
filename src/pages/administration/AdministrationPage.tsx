@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 
-import { PageHeader } from '@/components';
+import { PageHeader, TablePager, usePagedRows } from '@/components';
 import { Button, IconChip } from '@/design-system';
 import {
   Building2,
@@ -90,6 +90,9 @@ export function AdministrationPage() {
     return [...list].sort((a, b) => b.requestedAt.localeCompare(a.requestedAt));
   }, [requests, statusFilter]);
 
+  const [pageSize, setPageSize] = useState(12);
+  const pagedRequests = usePagedRows(filteredRequests, { pageSize, resetKey: statusFilter });
+
   return (
     <div className="space-y-5 pb-12">
       <PageHeader
@@ -134,7 +137,7 @@ export function AdministrationPage() {
       </div>
 
       <div className="space-y-2">
-        {filteredRequests.map((request) => (
+        {pagedRequests.rows.map((request) => (
           <RequestRow
             key={request.id}
             request={request}
@@ -153,6 +156,15 @@ export function AdministrationPage() {
                 : `No requests are currently ${statusFilter.toLowerCase()}.`}
             </p>
           </div>
+        )}
+
+        {filteredRequests.length > 0 && (
+          <TablePager
+            paged={pagedRequests}
+            noun="requests"
+            pageSize={pageSize}
+            onPageSizeChange={setPageSize}
+          />
         )}
       </div>
     </div>

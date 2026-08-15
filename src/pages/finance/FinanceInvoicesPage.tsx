@@ -1,37 +1,16 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { TablePager, usePagedRows } from '@/components';
 import { ROUTES } from '@/config/routes';
 import { CircleCheck, Hourglass, Receipt, Search, TriangleAlert } from '@/design-system/icons';
-import { fmtDjf, overdueDays } from '@/lib/finance';
-import { useFinanceStore } from '@/stores/finance.store';
-import type { ClientInvoice } from '@/types/finance';
+import { fmtDjf } from '@/lib/finance';
+import { useInvoices, useMarkInvoicePaid, type InvoiceRecord } from '@/features/finance';
+import { useShipmentsRaw } from '@/features/shipments/api/queries';
 import { cn } from '@/utils';
 
-import {
-  ActionButton,
-  Avatar,
-  DataTable,
-  EmptyState,
-  FilterPills,
-  MoneyAmount,
-  PageHead,
-  Panel,
-  Pill,
-  StatCard,
-  Td,
-  Th,
-} from './components/kit';
-import { useFinanceModel } from './model';
-
-/**
- * Every invoice Fleetin has issued, in one book.
- *
- * Invoices are not created here — they are raised inside a booking the moment
- * proof of delivery is confirmed on a priced shipment, because that is when
- * the client's payment terms start. This page is the ledger of what that has
- * produced, and the way into each printable document.
- */
+import { BankAccountSelect } from './components/BankAccountSelect';
+import { ActionButton, DataTable, EmptyState, FilterPills, MoneyAmount, PageHead, Panel, Pill, StatCard, Td, Th } from './components/kit';
 
 type Filter = 'all' | 'outstanding' | 'overdue' | 'settled';
 
@@ -42,59 +21,86 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'settled', label: 'Settled' },
 ];
 
+function overdueNow(invoice: InvoiceRecord): boolean {
+  return invoice.status !== 'Paid' && new Date(invoice.contractDeadline).getTime() < Date.now();
+}
+
+/**
+ * Every invoice Fleetin has issued, in one book. Invoices are auto-issued
+ * server-side the moment a priced shipment's bookings are all proven — this
+ * page is the ledger of what that produced, plus the manual "Issue Invoice"/
+ * "Set client rate" paths on the shipment page for anything that missed it.
+ */
 export function FinanceInvoicesPage() {
-  const model = useFinanceModel();
-  const markInvoicePaid = useFinanceStore((state) => state.markInvoicePaid);
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
+  const [markingId, setMarkingId] = useState<string | null>(null);
+  const [bankAccountId, setBankAccountId] = useState('');
+
+  const { data, isLoading } = useInvoices({ limit: 200 });
+  const markPaid = useMarkInvoicePaid();
+
+  const invoices = useMemo(() => data?.items ?? [], [data]);
+
+  /**
+   * `missionIds` holds shipment keys, not references, so the book has to
+   * resolve them itself — one fetch for the whole page rather than a raw
+   * thirty-six-character key in a column headed SHIPMENT.
+   */
+  const { data: shipmentsData } = useShipmentsRaw({ limit: 500 }, { enabled: true });
+  const referenceById = useMemo(
+    () => new Map((shipmentsData?.items ?? []).map((s) => [s.id, s.reference])),
+    [shipmentsData],
+  );
+  /** `MSN-08802`, or `MSN-08802 +2` when the invoice is a month's statement. */
+  const shipmentLabel = (invoice: InvoiceRecord): string => {
+    const first = invoice.missionIds[0];
+    const reference = first ? referenceById.get(first) : undefined;
+    if (!reference) return '—';
+    return invoice.missionIds.length > 1 ? `${reference} +${invoice.missionIds.length - 1}` : reference;
+  };
 
   const rows = useMemo(() => {
     const term = query.trim().toLowerCase();
-    return model.invoices
+    return invoices
       .filter((invoice) => {
-        const late = overdueDays(invoice, model.nowMs) > 0;
-        if (filter === 'outstanding' && invoice.paidAt) return false;
-        if (filter === 'settled' && !invoice.paidAt) return false;
-        if (filter === 'overdue' && (invoice.paidAt || !late)) return false;
+        const late = overdueNow(invoice);
+        if (filter === 'outstanding' && invoice.status === 'Paid') return false;
+        if (filter === 'settled' && invoice.status !== 'Paid') return false;
+        if (filter === 'overdue' && (invoice.status === 'Paid' || !late)) return false;
         if (!term) return true;
-        const client = model.clientById.get(invoice.clientId)?.name ?? '';
         return (
-          invoice.id.toLowerCase().includes(term) ||
-          client.toLowerCase().includes(term) ||
-          invoice.shipmentId.toLowerCase().includes(term) ||
-          invoice.bookingIds.some((id) => id.toLowerCase().includes(term))
+          invoice.number.toLowerCase().includes(term) ||
+          invoice.shipperCompany.toLowerCase().includes(term) ||
+          invoice.missionIds.some((id) => (referenceById.get(id) ?? id).toLowerCase().includes(term))
         );
       })
-      .sort((a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime());
-  }, [model.invoices, model.clientById, model.nowMs, filter, query]);
+      .sort((a, b) => new Date(b.issueDate).getTime() - new Date(a.issueDate).getTime());
+  }, [invoices, filter, query, referenceById]);
 
-  const open = model.invoices.filter((invoice) => !invoice.paidAt);
-  const overdue = open.filter((invoice) => overdueDays(invoice, model.nowMs) > 0);
-  const settled = model.invoices.filter((invoice) => invoice.paidAt);
-  const sum = (list: ClientInvoice[]) => list.reduce((total, entry) => total + entry.amountDjf, 0);
+  /** The book pages — a year of invoices is not one scroll. */
+  const [pageSize, setPageSize] = useState(25);
+  const paged = usePagedRows(rows, { pageSize, resetKey: `${filter}|${query}` });
+
+  const open = invoices.filter((invoice) => invoice.status !== 'Paid');
+  const overdue = open.filter(overdueNow);
+  const settled = invoices.filter((invoice) => invoice.status === 'Paid');
+  const sum = (list: InvoiceRecord[]) => list.reduce((total, entry) => total + Number(entry.totalMinorUnits), 0);
+
+  const handleMarkPaid = async (id: string) => {
+    if (!bankAccountId) return;
+    await markPaid.mutateAsync({ id, bankAccountId });
+    setMarkingId(null);
+    setBankAccountId('');
+  };
 
   return (
     <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 px-4 pb-8 pt-1 sm:px-6">
-      <PageHead
-        title="Invoices"
-        subtitle="Every invoice raised from a booking, and what it is doing"
-      />
+      <PageHead title="Invoices" subtitle="Every invoice raised from a shipment, and what it is doing" />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          icon={Receipt}
-          tint="teal"
-          label="Issued"
-          value={String(model.invoices.length)}
-          hint={fmtDjf(sum(model.invoices))}
-        />
-        <StatCard
-          icon={Hourglass}
-          tint="orange"
-          label="Outstanding"
-          value={String(open.length)}
-          hint={fmtDjf(sum(open))}
-        />
+        <StatCard icon={Receipt} tint="teal" label="Issued" value={String(invoices.length)} hint={fmtDjf(sum(invoices))} />
+        <StatCard icon={Hourglass} tint="orange" label="Outstanding" value={String(open.length)} hint={fmtDjf(sum(open))} />
         <StatCard
           icon={TriangleAlert}
           tint="amber"
@@ -103,30 +109,21 @@ export function FinanceInvoicesPage() {
           hint={fmtDjf(sum(overdue))}
           tone={overdue.length > 0 ? 'attention' : 'plain'}
         />
-        <StatCard
-          icon={CircleCheck}
-          tint="teal"
-          label="Settled"
-          value={String(settled.length)}
-          hint={fmtDjf(sum(settled))}
-        />
+        <StatCard icon={CircleCheck} tint="teal" label="Settled" value={String(settled.length)} hint={fmtDjf(sum(settled))} />
       </div>
 
       <Panel
         title="Invoice book"
-        subtitle="Raised automatically when a priced booking's PoD is confirmed"
+        subtitle="Raised automatically when every booking on a priced shipment is proven"
         padded={false}
         action={
           <div className="flex flex-wrap items-center gap-2">
             <label className="relative">
-              <Search
-                aria-hidden
-                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-              />
+              <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Invoice, client or booking"
+                placeholder="Invoice, client or shipment"
                 className="w-56 rounded-lg border border-border bg-card py-2 pl-9 pr-3 text-xs font-semibold text-foreground outline-none transition-colors placeholder:font-medium placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-ring"
               />
             </label>
@@ -134,7 +131,11 @@ export function FinanceInvoicesPage() {
           </div>
         }
       >
-        {rows.length === 0 ? (
+        {isLoading ? (
+          <div className="px-5 py-6">
+            <EmptyState message="Loading invoices…" />
+          </div>
+        ) : rows.length === 0 ? (
           <div className="px-5 py-6">
             <EmptyState message="No invoice matches this view." />
           </div>
@@ -152,80 +153,54 @@ export function FinanceInvoicesPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((invoice) => {
-                const client = model.clientById.get(invoice.clientId);
-                const late = !invoice.paidAt && overdueDays(invoice, model.nowMs) > 0;
-                const shipmentRow = model.shipmentById.get(invoice.shipmentId);
+              {paged.rows.map((invoice) => {
+                const late = overdueNow(invoice);
                 return (
                   <tr key={invoice.id} className="transition-colors hover:bg-surface-sunken/60">
                     <Td>
-                      <Link
-                        to={`${ROUTES.financeInvoices}/${invoice.id}`}
-                        className="font-mono text-sm font-bold text-primary-subtle-foreground hover:underline"
-                      >
-                        {invoice.id}
+                      <Link to={`${ROUTES.financeInvoices}/${invoice.id}`} className="font-mono text-sm font-bold text-primary-subtle-foreground hover:underline">
+                        {invoice.number}
                       </Link>
                     </Td>
                     <Td>
-                      <span className="flex items-center gap-2">
-                        <Avatar name={client?.name ?? invoice.clientId} logoUrl={client?.logoUrl} size={24} />
-                        <span className="text-sm font-bold text-foreground">
-                          {client?.name ?? invoice.clientId}
-                        </span>
-                      </span>
+                      <span className="text-sm font-bold text-foreground">{invoice.shipperCompany}</span>
                     </Td>
                     <Td>
-{/* The invoice bills a whole consignment, so it links to the
-                          shipment and says how many bookings it covers. */}
-                      <Link
-                        to={`${ROUTES.financeShipments}/shipment/${invoice.shipmentId}`}
-                        className="font-mono text-xs font-semibold text-muted-foreground hover:text-foreground hover:underline"
-                      >
-                        {invoice.shipmentId}
-                      </Link>
-                      <span className="mt-0.5 block text-xs font-semibold text-muted-foreground">
-                        {invoice.bookingIds.length} booking
-                        {invoice.bookingIds.length === 1 ? '' : 's'}
-                        {shipmentRow?.shipment.reference ? ` · ${shipmentRow.shipment.reference}` : ''}
+                      <span className="font-mono text-xs font-semibold text-muted-foreground">{shipmentLabel(invoice)}</span>
+                    </Td>
+                    <Td align="right">
+                      <MoneyAmount value={Number(invoice.totalMinorUnits)} direction="in" className="text-sm" />
+                    </Td>
+                    <Td>
+                      <span className="text-xs font-semibold text-muted-foreground">{formatDate(invoice.issueDate)}</span>
+                    </Td>
+                    <Td>
+                      <span className={cn('text-xs font-bold', late ? 'text-accent-subtle-foreground' : 'text-muted-foreground')}>
+                        {formatDate(invoice.contractDeadline)}
                       </span>
                     </Td>
                     <Td align="right">
-                      <MoneyAmount value={invoice.amountDjf} direction="in" className="text-sm" />
-                    </Td>
-                    <Td>
-                      <span className="text-xs font-semibold text-muted-foreground">
-                        {formatDate(invoice.issuedAt)}
-                      </span>
-                    </Td>
-                    <Td>
-                      <span
-                        className={cn(
-                          'text-xs font-bold',
-                          late ? 'text-accent-subtle-foreground' : 'text-muted-foreground',
-                        )}
-                      >
-                        {formatDate(invoice.dueAt)}
-                        {late ? ` · ${overdueDays(invoice, model.nowMs)}d late` : ''}
-                      </span>
-                    </Td>
-                    <Td align="right">
-                      <span className="flex items-center justify-end gap-2">
-                        {invoice.paidAt ? (
+                      {invoice.status === 'Paid' ? (
+                        <span className="flex items-center justify-end gap-2">
                           <Pill tone="teal">Settled</Pill>
-                        ) : (
-                          <>
-                            <Pill tone={late ? 'orange' : 'amber'}>
-                              {late ? 'Overdue' : 'Outstanding'}
-                            </Pill>
-                            <ActionButton
-                              variant="ghost"
-                              onClick={() => markInvoicePaid(invoice.id)}
-                            >
-                              Mark paid
-                            </ActionButton>
-                          </>
-                        )}
-                      </span>
+                        </span>
+                      ) : markingId === invoice.id ? (
+                        <span className="flex items-center justify-end gap-2">
+                          <div className="w-44">
+                            <BankAccountSelect value={bankAccountId} onChange={setBankAccountId} />
+                          </div>
+                          <ActionButton variant="primary" onClick={() => handleMarkPaid(invoice.id)} disabled={!bankAccountId || markPaid.isPending}>
+                            {markPaid.isPending ? '…' : 'Confirm'}
+                          </ActionButton>
+                        </span>
+                      ) : (
+                        <span className="flex items-center justify-end gap-2">
+                          <Pill tone={late ? 'orange' : 'amber'}>{late ? 'Overdue' : 'Outstanding'}</Pill>
+                          <ActionButton variant="ghost" onClick={() => setMarkingId(invoice.id)}>
+                            Mark paid
+                          </ActionButton>
+                        </span>
+                      )}
                     </Td>
                   </tr>
                 );
@@ -233,12 +208,20 @@ export function FinanceInvoicesPage() {
             </tbody>
           </DataTable>
         )}
+        {rows.length > 0 ? (
+          <TablePager
+            paged={paged}
+            noun="invoices"
+            pageSize={pageSize}
+            onPageSizeChange={setPageSize}
+            className="px-5 pb-4"
+          />
+        ) : null}
       </Panel>
     </div>
   );
 }
 
-const formatDate = (iso: string): string =>
-  new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+const formatDate = (iso: string): string => new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 
 export default FinanceInvoicesPage;

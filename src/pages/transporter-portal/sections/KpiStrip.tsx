@@ -9,8 +9,8 @@ import {
 } from '@/design-system/icons';
 import {
   MetricTile,
-  ON_TIME_TARGET,
-  UTILIZATION_TARGET,
+  onTimeTarget,
+  utilizationTarget,
   formatMoney,
   type DetailRequest,
   type TransporterOverview,
@@ -34,7 +34,7 @@ export function KpiStrip({ data, overdueAmount, onOpenDetail }: KpiStripProps) {
   if (!data) return <KpiStripSkeleton />;
 
   const { kpis, nextSettlement } = data;
-  const utilizationShort = kpis.fleetUtilization.value < UTILIZATION_TARGET;
+  const utilizationShort = kpis.fleetUtilization.value < utilizationTarget();
 
   return (
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
@@ -42,7 +42,7 @@ export function KpiStrip({ data, overdueAmount, onOpenDetail }: KpiStripProps) {
         metric={kpis.fleetUtilization}
         label="Fleet Utilization"
         icon={<Gauge className="size-4" />}
-        subAnalysis={`Target ${(UTILIZATION_TARGET * 100).toFixed(0)}.0%`}
+        subAnalysis={`Target ${(utilizationTarget() * 100).toFixed(0)}.0%`}
         badge={
           utilizationShort
             ? { text: 'below target', intent: 'warning' }
@@ -80,7 +80,7 @@ export function KpiStrip({ data, overdueAmount, onOpenDetail }: KpiStripProps) {
         metric={kpis.onTimeRate}
         label="On-Time Rate"
         icon={<CheckCircle2 className="size-4" />}
-        subAnalysis={`SLA Target: ${(ON_TIME_TARGET * 100).toFixed(1)}%`}
+        subAnalysis={`SLA Target: ${(onTimeTarget() * 100).toFixed(1)}%`}
         shape="none"
         onClick={() => onOpenDetail(kpis.onTimeRate.detail)}
       />

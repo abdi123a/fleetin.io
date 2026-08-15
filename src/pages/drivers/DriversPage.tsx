@@ -19,7 +19,7 @@ import {
 import { DocumentViewerModal, type DocumentToView } from '@/components/DocumentViewerModal';
 import { triggerDocumentDownload } from '@/components/documentDownload';
 import { Grid, List, RotateCcw, AlertTriangle, Building2, IdCard, UserCheck, BadgeCheck, Check } from 'lucide-react';
-import { PageHeader } from '@/components';
+import { PageHeader, TablePager, usePagedRows } from '@/components';
 import { IconChip } from '@/design-system';
 import {
   Badge,
@@ -458,6 +458,13 @@ export function DriversPage() {
 
     return list;
   }, [drivers, searchTerm, statusFilter, partnerFilter, sortBy]);
+
+  /** One page at a time — the row list and the card grid share the pager. */
+  const [pageSize, setPageSize] = useState(12);
+  const pagedDrivers = usePagedRows(filteredDrivers, {
+    pageSize,
+    resetKey: `${statusFilter}|${partnerFilter}|${searchTerm}|${sortBy}`,
+  });
 
   const hasActiveFilters = searchTerm !== '' || statusFilter !== 'all' || partnerFilter !== 'all';
 
@@ -1086,7 +1093,7 @@ export function DriversPage() {
             <div className="col-span-1 text-right">Status</div>
           </div>
 
-          {filteredDrivers.map((driver) => (
+          {pagedDrivers.rows.map((driver) => (
             <div
               key={driver.id}
               onClick={() => handleSelectDriver(driver)}
@@ -1150,7 +1157,7 @@ export function DriversPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
-          {filteredDrivers.map((driver) => (
+          {pagedDrivers.rows.map((driver) => (
             <Card
               key={driver.id}
               onClick={() => handleSelectDriver(driver)}
@@ -1207,6 +1214,16 @@ export function DriversPage() {
             </Card>
           ))}
         </div>
+      )}
+
+      {filteredDrivers.length > 0 && (
+        <TablePager
+          paged={pagedDrivers}
+          noun="drivers"
+          pageSize={pageSize}
+          onPageSizeChange={setPageSize}
+          pageSizeOptions={[12, 24, 48, 96]}
+        />
       )}
 
       {/* Empty State */}

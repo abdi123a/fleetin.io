@@ -15,7 +15,7 @@ import {
   resolvePreset,
   toDayString,
 } from './time';
-import { EARLY_THRESHOLD_MINUTES, ON_TIME_GRACE_MINUTES } from './config';
+import { earlyThresholdMinutes, onTimeGraceMinutes } from './config';
 import { generateDataset } from '@/features/shipper-bi/mocks/generateDataset';
 import { biDatasetSchema } from '@/features/shipper-bi/contracts';
 import type { Container, DelayAttribution, ShipmentEvent } from '@/features/shipper-bi/contracts';
@@ -40,10 +40,10 @@ describe('classifyDelivery', () => {
 
   it('is late one minute past the grace window and not before', () => {
     const atGrace = new Date(
-      Date.parse(PLANNED) + ON_TIME_GRACE_MINUTES * 60_000,
+      Date.parse(PLANNED) + onTimeGraceMinutes() * 60_000,
     ).toISOString();
     const pastGrace = new Date(
-      Date.parse(PLANNED) + (ON_TIME_GRACE_MINUTES + 1) * 60_000,
+      Date.parse(PLANNED) + (onTimeGraceMinutes() + 1) * 60_000,
     ).toISOString();
 
     expect(classifyDelivery(PLANNED, atGrace).outcome).toBe('on_time');
@@ -55,7 +55,7 @@ describe('classifyDelivery', () => {
     // gate, which is what the waiting charges in the cost section are.
     const slightlyEarly = new Date(Date.parse(PLANNED) - 30 * 60_000).toISOString();
     const veryEarly = new Date(
-      Date.parse(PLANNED) - (EARLY_THRESHOLD_MINUTES + 1) * 60_000,
+      Date.parse(PLANNED) - (earlyThresholdMinutes() + 1) * 60_000,
     ).toISOString();
 
     expect(classifyDelivery(PLANNED, slightlyEarly).outcome).toBe('on_time');

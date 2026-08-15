@@ -21,11 +21,11 @@ import {
   type StageKey,
 } from '@/features/shipper-bi/contracts';
 import {
-  EARLY_THRESHOLD_MINUTES,
-  ON_TIME_GRACE_MINUTES,
+  earlyThresholdMinutes,
+  onTimeGraceMinutes,
   RISK_DWELL_CEILING_RATIO,
   RISK_ETA_DRIFT_CEILING_MINUTES,
-  RISK_WEIGHTS,
+  riskWeights,
 } from './config';
 import { clamp, quantile, sum } from './stats';
 import { daysBetween, hoursBetween, minutesBetween } from './time';
@@ -129,8 +129,8 @@ export function classifyDelivery(
   actualDeliveryAt: string,
 ): { outcome: DeliveryOutcome; varianceMinutes: number } {
   const varianceMinutes = minutesBetween(plannedDeliveryAt, actualDeliveryAt);
-  if (varianceMinutes > ON_TIME_GRACE_MINUTES) return { outcome: 'late', varianceMinutes };
-  if (varianceMinutes < -EARLY_THRESHOLD_MINUTES) return { outcome: 'early', varianceMinutes };
+  if (varianceMinutes > onTimeGraceMinutes()) return { outcome: 'late', varianceMinutes };
+  if (varianceMinutes < -earlyThresholdMinutes()) return { outcome: 'early', varianceMinutes };
   return { outcome: 'on_time', varianceMinutes };
 }
 
@@ -268,9 +268,9 @@ export function computeRiskScore(input: {
     headroom === undefined ? 0 : headroom <= 0 ? 1 : clamp(1 - headroom / 24, 0, 1);
 
   const score =
-    drift * RISK_WEIGHTS.etaDrift +
-    dwell * RISK_WEIGHTS.stageDwell +
-    freeTime * RISK_WEIGHTS.freeTime;
+    drift * riskWeights().etaDrift +
+    dwell * riskWeights().stageDwell +
+    freeTime * riskWeights().freeTime;
 
   return Math.round(score * 100);
 }

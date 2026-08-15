@@ -1,46 +1,49 @@
-import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
-import { COMPANY, COMPANY_ADDRESS_LINES } from '@/config/company';
-import { ROUTES } from '@/config/routes';
+import { ROUTES, buildPath } from '@/config/routes';
 import { ArrowLeft, Printer } from '@/design-system/icons';
+import { useSystemSettings } from '@/features/settings';
 import { amountInWords, fmtDjfPlain, fmtDocDate } from '@/lib/finance';
-import { useFinanceStore } from '@/stores/finance.store';
-import type { FinanceBooking, ShipmentPayment } from '@/types/finance';
+import { usePaymentOrder } from '@/features/finance';
+import type { PaymentOrderRecord } from '@/features/finance';
+import { useBookingsForShipment } from '@/features/bookings/api/queries';
+import type { BookingRecord } from '@/features/bookings/api/bookingsService';
+import { useShipmentRaw } from '@/features/shipments/api/queries';
 
-import { PAYMENT_METHOD_LABEL, SignVoucherDialog } from './components/dialogs';
 import { ActionButton, EmptyState, Panel, Pill } from './components/kit';
-import { useFinanceModel } from './model';
+import {
+  DocumentFooter,
+  DocumentLetterhead,
+  DocumentSignatureBlock,
+  DocumentStampWatermark,
+} from './components/documentChrome';
 
 /**
  * THE TRANSPORTER'S DOCUMENT: one voucher for one transporter, one shipment.
  *
- * The counterpart to the client invoice, and the second half of what the user
- * asked for: "it should have a shipment ID and the total of the bookings you
- * delivered, and then we sign him." So it says, in the haulier's own terms:
- * you carried these ten containers on shipment SHI-#####, here they are by
- * number, here is the total, sign here.
- *
- * Why it is shipment-scoped and not per container: a transporter who hauls ten
- * of a consignment's twenty boxes is paid ONCE for all ten. Ten vouchers for
- * one transfer would be ten signatures for one act, and would make the bank
- * statement impossible to reconcile against the paperwork.
- *
- * The signature block is not decoration. Money leaves on Monday and the signed
- * sheet comes back on Thursday; until it does, the voucher prints UNSIGNED and
- * the desk can see the gap. `acknowledgedAt` closes it, and the sheet then
- * prints the name and date over the line.
- *
- * Same paper as the invoice — `.invoice-sheet` in index.css — so the two
- * documents are visibly one house's stationery.
+ * Real `PaymentOrder` carries no signing field, so nothing here records that a
+ * transporter acknowledged receipt — the document prints the signatories
+ * configured under Settings → Documents and leaves a rule for the transporter's
+ * own signature. It still carries the one idea the user asked for: a
+ * transporter who hauls ten of a shipment's bookings is paid ONCE for all ten,
+ * one voucher, not ten.
  */
 export function PaymentVoucherPage() {
-  const model = useFinanceModel();
   const { paymentId = '' } = useParams();
-  const acknowledgePayment = useFinanceStore((state) => state.acknowledgePayment);
-  const [signing, setSigning] = useState(false);
+  const { data: payment, isLoading } = usePaymentOrder(paymentId);
+  const { data: shipment } = useShipmentRaw(payment?.missionId);
+  const { data: bookingsData } = useBookingsForShipment(payment?.missionId);
 
-  const payment = model.paymentById.get(paymentId);
+  if (isLoading) {
+    return (
+      <div className="mx-auto w-full max-w-[1600px] px-4 pt-6 sm:px-6">
+        <Panel title="Loading…">
+          <EmptyState message="Fetching this voucher." />
+        </Panel>
+      </div>
+    );
+  }
+
   if (!payment) {
     return (
       <div className="mx-auto w-full max-w-[1600px] px-4 pt-6 sm:px-6">
@@ -51,73 +54,25 @@ export function PaymentVoucherPage() {
     );
   }
 
-  const shipmentRow = model.shipmentById.get(payment.shipmentId);
-  /*
-   * The lines are rebuilt from the cost lines STAMPED with this voucher's id,
-   * not from the live settlement. A settlement is a running position — it moves
-   * as more of the shipment is paid — and a document must say what it said the
-   * day it was signed.
-   */
-  const lines = payment.bookingIds
-    .map((id) => model.bookingById.get(id)?.booking)
-    .filter((booking): booking is FinanceBooking => booking !== undefined)
-    .map((booking) => ({
-      booking,
-      amountDjf: booking.costLines
-        .filter(
-          (line) =>
-            line.counterpartyId === payment.transporterId &&
-            (line.paymentId === payment.id || line.paymentId === undefined),
-        )
-        .reduce((sum, line) => sum + line.amountDjf, 0),
-    }));
+  const bookings = (bookingsData ?? []).filter((b) => b.partnerId === payment.transporterId);
 
   return (
     <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-4 px-4 pb-8 pt-1 sm:px-6">
-      {/* Toolbar — screen only. */}
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
+        <Link to={buildPath(ROUTES.financeShipmentDetail, { shipmentId: payment.missionId })} className="w-fit">
+          <ActionButton variant="quiet" icon={ArrowLeft}>
+            {shipment?.reference ?? payment.missionId}
+          </ActionButton>
+        </Link>
         <div className="flex flex-wrap items-center gap-2">
-          <Link to={`${ROUTES.financeShipments}/shipment/${payment.shipmentId}`} className="w-fit">
-            <ActionButton variant="quiet" icon={ArrowLeft}>
-              {payment.shipmentId}
-            </ActionButton>
-          </Link>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {payment.acknowledgedAt ? (
-            <Pill tone="teal">
-              Signed by {payment.acknowledgedBy} · {fmtDocDate(payment.acknowledgedAt)}
-            </Pill>
-          ) : (
-            <>
-              <Pill tone="orange">Not signed back</Pill>
-              <ActionButton variant="ghost" onClick={() => setSigning(true)}>
-                Record signature
-              </ActionButton>
-            </>
-          )}
+          <Pill tone="teal">Paid {payment.paidAt ? fmtDocDate(payment.paidAt) : ''}</Pill>
           <ActionButton variant="primary" icon={Printer} onClick={() => window.print()}>
             Print / PDF
           </ActionButton>
         </div>
       </div>
 
-      <VoucherSheet
-        payment={payment}
-        lines={lines}
-        shipmentReference={shipmentRow?.shipment.reference}
-        clientName={shipmentRow?.client?.name}
-      />
-
-      <SignVoucherDialog
-        open={signing}
-        onClose={() => setSigning(false)}
-        paymentId={payment.id}
-        transporterName={payment.transporterName}
-        amountDjf={payment.amountDjf}
-        bookingsCount={payment.bookingIds.length}
-        onSign={(signedBy) => acknowledgePayment(payment.id, signedBy)}
-      />
+      <VoucherSheet payment={payment} bookings={bookings} shipmentReference={shipment?.reference} />
     </div>
   );
 }
@@ -126,80 +81,36 @@ export function PaymentVoucherPage() {
  * The sheet
  * ═══════════════════════════════════════════════════════════════════════ */
 
-export interface VoucherLine {
-  booking: FinanceBooking;
-  amountDjf: number;
-}
-
-/**
- * A4 at 210mm, in millimetres like the invoice, because both are paper.
- *
- * The visual difference from the invoice is deliberate and small: the accent
- * rule is the same house colour, but the document is headed PAYMENT VOUCHER
- * and the largest figure on the page is what is being PAID OUT rather than
- * what is owed in. Someone holding both should be able to tell them apart at
- * arm's length without reading a word.
- */
 export function VoucherSheet({
   payment,
-  lines,
+  bookings,
   shipmentReference,
-  clientName,
 }: {
-  payment: ShipmentPayment;
-  lines: VoucherLine[];
+  payment: PaymentOrderRecord;
+  bookings: BookingRecord[];
   shipmentReference?: string;
-  clientName?: string;
 }) {
-  const count = payment.bookingIds.length;
-  // Only trust the line sum when every covered booking resolved to an amount;
-  // otherwise the stored total stands alone rather than being reconstructed
-  // from a partial set — the same rule the invoice follows.
-  const lineSum = lines.reduce((sum, line) => sum + line.amountDjf, 0);
-  const linesAreComplete = lines.length === count && lineSum > 0;
+  const documents = useSystemSettings().documents;
+  const count = bookings.length;
+  const amount = Number(payment.amountMinorUnits);
 
   return (
-    <article className="invoice-sheet mx-auto w-full shadow-card print:shadow-none">
+    <article className="invoice-sheet relative mx-auto w-full shadow-card print:shadow-none">
+      <DocumentStampWatermark document="voucher" />
+
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <header className="flex flex-wrap items-start justify-between gap-6 border-b-[3px] border-[var(--invoice-brand)] px-[14mm] pb-[8mm] pt-[12mm]">
-        <div className="flex items-start gap-4">
-          <img
-            src={COMPANY.logoSrc}
-            alt={COMPANY.tradingName}
-            className="h-[16mm] w-auto object-contain"
-          />
-          <div className="text-[9pt] leading-[1.5]">
-            <p className="text-[11pt] font-extrabold tracking-tight text-[var(--invoice-ink)]">
-              {COMPANY.legalName}
-            </p>
-            <p className="text-[var(--invoice-muted)]">{COMPANY.tagline}</p>
-            {COMPANY_ADDRESS_LINES.map((line) => (
-              <p key={line} className="text-[var(--invoice-muted)]">
-                {line}
-              </p>
-            ))}
-          </div>
-        </div>
+        <DocumentLetterhead />
 
         <div className="text-right text-[9pt] leading-[1.6]">
-          <p className="text-[17pt] font-extrabold uppercase leading-none tracking-[0.08em] text-[var(--invoice-brand)]">
-            Payment voucher
-          </p>
-          <p className="mt-[3mm] font-mono text-[11pt] font-bold">{payment.id}</p>
-          <p className="font-mono text-[9pt] font-bold text-[var(--invoice-brand)]">
-            {payment.shipmentId}
+          <p className="text-[17pt] font-extrabold uppercase leading-none tracking-[0.08em] text-[var(--invoice-brand)]">Payment voucher</p>
+          <p className="mt-[3mm] font-mono text-[11pt] font-bold">{payment.number}</p>
+          <p className="font-mono text-[9pt] font-bold text-[var(--invoice-brand)]">{shipmentReference ?? payment.missionId}</p>
+          <p className="text-[var(--invoice-muted)]">
+            Paid <span className="font-semibold text-[var(--invoice-ink)]">{payment.paidAt ? fmtDocDate(payment.paidAt) : '—'}</span>
           </p>
           <p className="text-[var(--invoice-muted)]">
-            Paid{' '}
-            <span className="font-semibold text-[var(--invoice-ink)]">
-              {fmtDocDate(payment.paidAt)}
-            </span>
-          </p>
-          <p className="text-[var(--invoice-muted)]">
-            By{' '}
-            <span className="font-semibold text-[var(--invoice-ink)]">
-              {PAYMENT_METHOD_LABEL[payment.paidVia]}
-            </span>
+            By <span className="font-semibold text-[var(--invoice-ink)]">{payment.paymentMethod ?? 'bank transfer'}</span>
           </p>
         </div>
       </header>
@@ -207,53 +118,24 @@ export function VoucherSheet({
       {/* ── Parties ────────────────────────────────────────────────────── */}
       <section className="grid gap-6 px-[14mm] pt-[8mm] sm:grid-cols-2">
         <div>
-          <p className="text-[8pt] font-extrabold uppercase tracking-[0.12em] text-[var(--invoice-faint)]">
-            Paid to
-          </p>
-          <p className="mt-[2mm] text-[12pt] font-extrabold text-[var(--invoice-ink)]">
-            {payment.transporterName}
-          </p>
-          <p className="font-mono text-[9pt] text-[var(--invoice-muted)]">
-            {payment.transporterId}
-          </p>
+          <p className="text-[8pt] font-extrabold uppercase tracking-[0.12em] text-[var(--invoice-faint)]">Paid to</p>
+          <p className="mt-[2mm] text-[12pt] font-extrabold text-[var(--invoice-ink)]">{payment.transporterName}</p>
+          <p className="text-[9pt] text-[var(--invoice-muted)]">{payment.transporterCompany}</p>
         </div>
         <div className="sm:text-right">
-          <p className="text-[8pt] font-extrabold uppercase tracking-[0.12em] text-[var(--invoice-faint)]">
-            Amount paid
-          </p>
+          <p className="text-[8pt] font-extrabold uppercase tracking-[0.12em] text-[var(--invoice-faint)]">Amount paid</p>
           <p className="mt-[2mm] font-mono text-[18pt] font-extrabold tabular-nums text-[var(--invoice-ink)]">
-            {fmtDjfPlain(payment.amountDjf)} DJF
+            {fmtDjfPlain(amount)} {payment.currency}
           </p>
-          {payment.paymentRef ? (
-            <p className="font-mono text-[9pt] text-[var(--invoice-muted)]">
-              Ref {payment.paymentRef}
-            </p>
-          ) : null}
         </div>
       </section>
 
-      {/*
-        The statement of work, in the words the user used for it: you delivered
-        this many bookings on this shipment, and this is the one payment that
-        covers all of them. It sits above the table so the sheet says what it is
-        before it itemises.
-      */}
       <section className="px-[14mm] pt-[8mm]">
         <div className="rounded-[2mm] border border-[var(--invoice-rule)] bg-[var(--invoice-wash)] px-[4mm] py-[3.5mm]">
           <p className="text-[9.5pt] leading-[1.6] text-[var(--invoice-ink)]">
-            Payment for{' '}
-            <span className="font-bold">
-              {count} booking{count === 1 ? '' : 's'}
-            </span>{' '}
-            delivered under shipment{' '}
-            <span className="font-mono font-bold">{payment.shipmentId}</span>
-            {shipmentReference ? (
-              <>
-                {' '}(reference <span className="font-mono font-bold">{shipmentReference}</span>)
-              </>
-            ) : null}
-            {clientName ? ` for ${clientName}` : ''}. This voucher settles every one of them in a
-            single transfer — there is no separate payment per container.
+            Payment for <span className="font-bold">{count} booking{count === 1 ? '' : 's'}</span> delivered under shipment{' '}
+            <span className="font-mono font-bold">{shipmentReference ?? payment.missionId}</span>. This voucher settles every one of them
+            in a single transfer — there is no separate payment per booking.
           </p>
         </div>
       </section>
@@ -263,50 +145,27 @@ export function VoucherSheet({
         <table className="w-full border-collapse text-[9pt]">
           <thead>
             <tr className="bg-[var(--invoice-wash)]">
-              <th className="border-b border-[var(--invoice-rule)] px-[3mm] py-[2.5mm] text-left text-[8pt] font-extrabold uppercase tracking-[0.08em] text-[var(--invoice-muted)]">
-                Booking
-              </th>
-              <th className="border-b border-[var(--invoice-rule)] px-[3mm] py-[2.5mm] text-left text-[8pt] font-extrabold uppercase tracking-[0.08em] text-[var(--invoice-muted)]">
-                Container
-              </th>
-              <th className="border-b border-[var(--invoice-rule)] px-[3mm] py-[2.5mm] text-left text-[8pt] font-extrabold uppercase tracking-[0.08em] text-[var(--invoice-muted)]">
-                Route
-              </th>
-              <th className="border-b border-[var(--invoice-rule)] px-[3mm] py-[2.5mm] text-left text-[8pt] font-extrabold uppercase tracking-[0.08em] text-[var(--invoice-muted)]">
-                Delivered
-              </th>
-              <th className="border-b border-[var(--invoice-rule)] px-[3mm] py-[2.5mm] text-right text-[8pt] font-extrabold uppercase tracking-[0.08em] text-[var(--invoice-muted)]">
-                Amount (DJF)
-              </th>
+              <th className="border-b border-[var(--invoice-rule)] px-[3mm] py-[2.5mm] text-left text-[8pt] font-extrabold uppercase tracking-[0.08em] text-[var(--invoice-muted)]">Booking</th>
+              <th className="border-b border-[var(--invoice-rule)] px-[3mm] py-[2.5mm] text-left text-[8pt] font-extrabold uppercase tracking-[0.08em] text-[var(--invoice-muted)]">Container</th>
+              <th className="border-b border-[var(--invoice-rule)] px-[3mm] py-[2.5mm] text-left text-[8pt] font-extrabold uppercase tracking-[0.08em] text-[var(--invoice-muted)]">Status</th>
+              <th className="border-b border-[var(--invoice-rule)] px-[3mm] py-[2.5mm] text-right text-[8pt] font-extrabold uppercase tracking-[0.08em] text-[var(--invoice-muted)]">Amount</th>
             </tr>
           </thead>
           <tbody>
-            {lines.length > 0 ? (
-              lines.map(({ booking, amountDjf }) => (
+            {bookings.length > 0 ? (
+              bookings.map((booking) => (
                 <tr key={booking.id}>
-                  <td className="border-b border-[var(--invoice-rule-soft)] px-[3mm] py-[3mm] align-top font-mono text-[8pt] font-bold">
-                    {booking.id}
-                  </td>
-                  <td className="border-b border-[var(--invoice-rule-soft)] px-[3mm] py-[3mm] align-top font-mono text-[8pt]">
-                    {booking.containerNumber ?? '—'}
-                  </td>
-                  <td className="border-b border-[var(--invoice-rule-soft)] px-[3mm] py-[3mm] align-top text-[var(--invoice-muted)]">
-                    {booking.origin} → {booking.destination}
-                  </td>
-                  <td className="border-b border-[var(--invoice-rule-soft)] px-[3mm] py-[3mm] align-top text-[var(--invoice-muted)]">
-                    {booking.proof.podSentAt ? fmtDocDate(booking.proof.podSentAt) : '—'}
-                  </td>
+                  <td className="border-b border-[var(--invoice-rule-soft)] px-[3mm] py-[3mm] align-top font-mono text-[8pt] font-bold">{booking.reference}</td>
+                  <td className="border-b border-[var(--invoice-rule-soft)] px-[3mm] py-[3mm] align-top font-mono text-[8pt]">{booking.containerNumber ?? '—'}</td>
+                  <td className="border-b border-[var(--invoice-rule-soft)] px-[3mm] py-[3mm] align-top text-[var(--invoice-muted)]">{booking.status}</td>
                   <td className="border-b border-[var(--invoice-rule-soft)] px-[3mm] py-[3mm] text-right align-top font-mono font-bold tabular-nums">
-                    {amountDjf > 0 ? fmtDjfPlain(amountDjf) : '—'}
+                    {booking.transporterCostMinorUnits != null ? fmtDjfPlain(Number(booking.transporterCostMinorUnits)) : '—'}
                   </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td
-                  colSpan={5}
-                  className="border-b border-[var(--invoice-rule-soft)] px-[3mm] py-[3mm] text-[var(--invoice-muted)]"
-                >
+                <td colSpan={4} className="border-b border-[var(--invoice-rule-soft)] px-[3mm] py-[3mm] text-[var(--invoice-muted)]">
                   Transport services as agreed
                 </td>
               </tr>
@@ -314,108 +173,45 @@ export function VoucherSheet({
           </tbody>
           <tfoot>
             <tr>
-              <td
-                colSpan={4}
-                className="px-[3mm] py-[2mm] text-right text-[var(--invoice-muted)]"
-              >
-                Subtotal
-              </td>
-              <td className="px-[3mm] py-[2mm] text-right font-mono font-bold tabular-nums">
-                {fmtDjfPlain(linesAreComplete ? lineSum : payment.amountDjf)}
-              </td>
-            </tr>
-            <tr>
-              <td
-                colSpan={4}
-                className="border-t-2 border-[var(--invoice-brand)] px-[3mm] py-[3mm] text-right text-[10pt] font-extrabold uppercase tracking-wide"
-              >
+              <td colSpan={3} className="border-t-2 border-[var(--invoice-brand)] px-[3mm] py-[3mm] text-right text-[10pt] font-extrabold uppercase tracking-wide">
                 Total paid · {count} booking{count === 1 ? '' : 's'}
               </td>
               <td className="border-t-2 border-[var(--invoice-brand)] px-[3mm] py-[3mm] text-right font-mono text-[13pt] font-extrabold tabular-nums">
-                {fmtDjfPlain(payment.amountDjf)}
+                {fmtDjfPlain(amount)}
               </td>
             </tr>
           </tfoot>
         </table>
 
-        <p className="mt-[3mm] text-[8.5pt] italic text-[var(--invoice-muted)]">
-          {amountInWords(payment.amountDjf)}
-        </p>
+        <p className="mt-[3mm] text-[8.5pt] italic text-[var(--invoice-muted)]">{amountInWords(amount)}</p>
       </section>
 
-      {/* ── How it was paid + the signature ────────────────────────────── */}
+      {/* ── Payment details + signature ────────────────────────────────── */}
       <section className="grid gap-6 px-[14mm] pt-[9mm] sm:grid-cols-2">
         <div>
-          <p className="text-[8pt] font-extrabold uppercase tracking-[0.12em] text-[var(--invoice-faint)]">
-            Payment details
-          </p>
+          <p className="text-[8pt] font-extrabold uppercase tracking-[0.12em] text-[var(--invoice-faint)]">Payment details</p>
           <dl className="mt-[2mm] text-[9pt] leading-[1.7]">
-            <PayRow label="Method" value={PAYMENT_METHOD_LABEL[payment.paidVia]} />
-            <PayRow label="Date" value={fmtDocDate(payment.paidAt)} />
-            <PayRow label="Reference" value={payment.paymentRef ?? '—'} mono />
-            <PayRow label="Released by" value={payment.paidBy} />
+            <PayRow label="Method" value={payment.paymentMethod ?? 'bank transfer'} />
+            <PayRow label="Date" value={payment.paidAt ? fmtDocDate(payment.paidAt) : '—'} />
+            <PayRow label="Approved by" value={payment.approvedByName ?? '—'} />
           </dl>
           <p className="mt-[3mm] text-[8pt] text-[var(--invoice-muted)]">
-            Quote <span className="font-mono font-bold">{payment.id}</span> in any query about this
-            payment.
+            Quote <span className="font-mono font-bold">{payment.number}</span> in any query about this payment.
           </p>
+          {documents.voucherTerms ? (
+            <p className="mt-[3mm] max-w-[80mm] text-[8pt] leading-[1.55] text-[var(--invoice-faint)]">
+              {documents.voucherTerms}
+            </p>
+          ) : null}
         </div>
 
-        {/*
-          The receipt half. An unsigned voucher prints an empty ruled box for a
-          wet signature; once the signed sheet is back, the same box prints the
-          name and the date it was collected, so the two states are the same
-          document rather than two layouts.
-        */}
         <div className="flex flex-col items-end justify-end">
-          <div className="w-full max-w-[75mm]">
-            <p className="text-[8pt] font-extrabold uppercase tracking-[0.12em] text-[var(--invoice-faint)]">
-              Received in full
-            </p>
-            <div className="mt-[2mm] flex h-[26mm] flex-col items-center justify-center rounded-[2mm] border-[1.5px] border-dashed border-[var(--invoice-rule)] px-[3mm] text-center">
-              {payment.acknowledgedAt ? (
-                <>
-                  <p className="text-[11pt] font-extrabold text-[var(--invoice-ink)]">
-                    {payment.acknowledgedBy}
-                  </p>
-                  <p className="text-[8pt] text-[var(--invoice-muted)]">
-                    Signed {fmtDocDate(payment.acknowledgedAt)}
-                  </p>
-                </>
-              ) : (
-                <p className="text-[8pt] text-[var(--invoice-faint)]">
-                  To be signed on collection
-                </p>
-              )}
-            </div>
-            <div className="mt-[2mm] border-t border-[var(--invoice-ink)] pt-[1.5mm] text-center text-[8pt] font-semibold text-[var(--invoice-muted)]">
-              Signature &amp; stamp — {payment.transporterName}
-            </div>
-            <p className="mt-[1mm] text-center text-[8pt] text-[var(--invoice-faint)]">
-              I confirm receipt of {fmtDjfPlain(payment.amountDjf)} DJF in full settlement of the{' '}
-              {count} booking{count === 1 ? '' : 's'} listed above.
-            </p>
-          </div>
+          <DocumentSignatureBlock document="voucher" />
         </div>
       </section>
 
       {/* ── Footer ─────────────────────────────────────────────────────── */}
-      <footer className="mt-[10mm] border-t border-[var(--invoice-rule)] px-[14mm] py-[6mm]">
-        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 text-[8pt] text-[var(--invoice-muted)]">
-          <span className="flex items-center gap-2">
-            <img src={COMPANY.markSrc} alt="" className="h-[5mm] w-auto object-contain" />
-            <span className="font-bold text-[var(--invoice-ink)]">{COMPANY.legalName}</span>
-          </span>
-          <span>{COMPANY.registration.tradeRegister}</span>
-          <span>{COMPANY.registration.taxId}</span>
-          <span>{COMPANY.contact.phone}</span>
-          <span>{COMPANY.contact.email}</span>
-        </div>
-        <p className="mt-[2mm] text-center text-[7.5pt] text-[var(--invoice-faint)]">
-          This voucher covers every booking listed and settles them in one payment. Retain the
-          signed copy — it is the receipt for the whole shipment, not for any single container.
-        </p>
-      </footer>
+      <DocumentFooter note="This voucher covers every booking listed and settles them in one payment." />
     </article>
   );
 }

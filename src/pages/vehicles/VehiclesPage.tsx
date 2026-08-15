@@ -18,7 +18,7 @@ import {
 import { DocumentViewerModal, type DocumentToView } from '@/components/DocumentViewerModal';
 import { triggerDocumentDownload } from '@/components/documentDownload';
 import { Grid, List, RotateCcw, AlertTriangle, Navigation, Building2, BadgeCheck, Check } from 'lucide-react';
-import { PageHeader } from '@/components';
+import { PageHeader, TablePager, usePagedRows } from '@/components';
 import { IconChip } from '@/design-system';
 import {
   Badge,
@@ -479,6 +479,13 @@ export function VehiclesPage() {
 
     return list;
   }, [vehicles, searchTerm, statusFilter, typeFilter, partnerFilter, sortBy]);
+
+  /** One page at a time — the row list and the card grid share the pager. */
+  const [pageSize, setPageSize] = useState(12);
+  const pagedVehicles = usePagedRows(filteredVehicles, {
+    pageSize,
+    resetKey: `${statusFilter}|${typeFilter}|${partnerFilter}|${searchTerm}|${sortBy}`,
+  });
 
   const hasActiveFilters = searchTerm !== '' || statusFilter !== 'all' || typeFilter !== 'all' || partnerFilter !== 'all';
 
@@ -1208,7 +1215,7 @@ export function VehiclesPage() {
             <div className="col-span-1 text-right">Status</div>
           </div>
 
-          {filteredVehicles.map((vehicle) => (
+          {pagedVehicles.rows.map((vehicle) => (
             <div
               key={vehicle.id}
               onClick={() => handleSelectVehicle(vehicle)}
@@ -1267,7 +1274,7 @@ export function VehiclesPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
-          {filteredVehicles.map((vehicle) => (
+          {pagedVehicles.rows.map((vehicle) => (
             <Card
               key={vehicle.id}
               onClick={() => handleSelectVehicle(vehicle)}
@@ -1320,6 +1327,16 @@ export function VehiclesPage() {
             </Card>
           ))}
         </div>
+      )}
+
+      {filteredVehicles.length > 0 && (
+        <TablePager
+          paged={pagedVehicles}
+          noun="vehicles"
+          pageSize={pageSize}
+          onPageSizeChange={setPageSize}
+          pageSizeOptions={[12, 24, 48, 96]}
+        />
       )}
 
       {/* Empty State */}

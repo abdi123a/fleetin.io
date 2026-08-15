@@ -20,6 +20,7 @@ import {
   DetentionStatusCard,
   EarningsPerMoveCard,
   EmptyLegsCard,
+  FleetPlanningCalendarCard,
   FleetWeekCard,
   JobsInProgressCard,
   KpiTiles,
@@ -225,6 +226,15 @@ export function TransporterDashboardPage() {
         <NetworkComparisonCard
           data={model.network}
           onOpenDetails={() => goAnalytics('network')}
+        />
+      </section>
+
+      {/* The same commitments as dates — where the week is stacked */}
+      <section className="min-w-0">
+        <FleetPlanningCalendarCard
+          dataset={dataset}
+          now={now.getTime()}
+          onSelectTrip={() => goAnalytics('trips')}
         />
       </section>
 

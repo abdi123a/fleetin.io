@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/services/api.client';
+import type * as ApiClientModule from '@/services/api.client';
 import type { DemoPresetUser } from './auth.store';
 import { DEMO_ACCOUNT_PASSWORD } from './access-request.store';
 
@@ -65,7 +66,7 @@ const postMock = vi.fn();
 // unreachable (fall back to the local directory), and that branch is an
 // `instanceof` check, so a fake class would silently take the wrong path.
 vi.mock('@/services/api.client', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/services/api.client')>()),
+  ...(await importOriginal<typeof ApiClientModule>()),
   apiClient: { post: (...args: unknown[]) => postMock(...args) },
 }));
 

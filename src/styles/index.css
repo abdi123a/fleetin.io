@@ -457,16 +457,21 @@
    * screen and in a laser printer's tray — it does not follow the viewer's
    * theme, because paper does not. These are the only fixed colours in the
    * app and they live here rather than scattered through the component.
-   * `--invoice-brand` is the house #60969D.
+   *
+   * The values are the ones the HR renderer prints from (see the backend's
+   * `documents/brand.ts`), so an invoice, a payslip and an attestation are
+   * recognisably the same company's paper. `--invoice-accent` is the amber
+   * that marks the one figure that matters — never structure.
    */
   --invoice-paper: #ffffff;
-  --invoice-ink: #1a1a1a;
-  --invoice-muted: #5b6b6d;
-  --invoice-faint: #8a9a9c;
-  --invoice-rule: #c8d8da;
-  --invoice-rule-soft: #e4ecee;
-  --invoice-wash: #eef4f5;
-  --invoice-brand: #60969d;
+  --invoice-ink: #22383d;
+  --invoice-muted: #7e9498;
+  --invoice-faint: #9fb2b5;
+  --invoice-rule: #dce6e7;
+  --invoice-rule-soft: #eef4f5;
+  --invoice-wash: #f4f8f8;
+  --invoice-brand: #4f8d95;
+  --invoice-accent: #e9a33f;
   --invoice-settled: #3f7a5e;
 
   width: 210mm;

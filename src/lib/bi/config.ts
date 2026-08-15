@@ -1,3 +1,5 @@
+import { getSettings } from '@/stores/settings.store';
+
 /**
  * The tunable constants behind the control tower's metric definitions.
  *
@@ -5,6 +7,18 @@
  * on time?" — has one answer with one place to change it, and so the backend
  * port has an explicit list of what it must agree with. Every value is a
  * business decision, not an implementation detail.
+ *
+ * Since Settings arrived, most of these are **functions, not constants**. That
+ * is the point: a business decision an operator can change has to be read at
+ * the moment it is used, and a `const` captured at module load cannot be. The
+ * ones that are still `const` are the ones nobody was ever going to tune from
+ * a settings screen — histogram bin edges, the ceilings inside the risk score's
+ * own arithmetic.
+ *
+ * Each function reads the store directly rather than through a hook, because
+ * these are called from `derive`/`aggregate` code that runs outside React. A
+ * component that needs to re-render when a policy changes should read the
+ * `useOperationsPolicy()` hook instead.
  */
 
 /**
@@ -20,7 +34,9 @@
  * believes is a scorecard nobody uses. The moment a transporter disputes their
  * ranking this is the number the argument is about, so it lives here, named.
  */
-export const ON_TIME_GRACE_MINUTES = 12 * 60;
+export function onTimeGraceMinutes(): number {
+  return getSettings().operations.onTimeGraceMinutes;
+}
 
 /**
  * How early is *too* early.
@@ -31,15 +47,20 @@ export const ON_TIME_GRACE_MINUTES = 12 * 60;
  * ordinary variation and counts as on time; beyond it is reported separately so
  * the pattern stays visible.
  */
-export const EARLY_THRESHOLD_MINUTES = 24 * 60;
+export function earlyThresholdMinutes(): number {
+  return getSettings().operations.earlyThresholdMinutes;
+}
 
-/** Free-time headroom bands for containers still out, in hours. */
-export const RETURN_HEADROOM_BANDS = {
-  /** Past free time — accruing charges now. */
-  overdue: 0,
-  /** Inside two days: still fixable if someone acts today. */
-  dueSoon: 48,
-} as const;
+/**
+ * Free-time headroom bands for containers still out, in hours.
+ *
+ * `overdue` is not configurable and never will be: zero headroom means free
+ * time has expired, which is a fact about the container rather than a policy
+ * about it. Only the due-soon window is a judgement call.
+ */
+export function returnHeadroomBands(): { overdue: number; dueSoon: number } {
+  return { overdue: 0, dueSoon: getSettings().operations.returnDueSoonHours };
+}
 
 /**
  * Weights of the risk score, summing to 1.
@@ -49,32 +70,25 @@ export const RETURN_HEADROOM_BANDS = {
  * it is stuck at a stage longer than that stage normally takes, or its free
  * time is about to run out.
  */
-export const RISK_WEIGHTS = {
-  etaDrift: 0.45,
-  stageDwell: 0.35,
-  freeTime: 0.2,
-} as const;
-
-/** ETA drift that scores full marks on its component, in minutes. */
-export const RISK_ETA_DRIFT_CEILING_MINUTES = 24 * 60;
-
-/** Dwell beyond a stage's P90 that scores full marks, as a multiple of P90. */
-export const RISK_DWELL_CEILING_RATIO = 2;
+export function riskWeights(): { etaDrift: number; stageDwell: number; freeTime: number } {
+  return getSettings().operations.riskWeights;
+}
 
 /** Risk score at or above which an alert is critical / warning. */
-export const RISK_SEVERITY_THRESHOLDS = {
-  critical: 70,
-  warning: 40,
-} as const;
-
-/** Bin edges for the empty-return cycle-time histogram, in days. */
-export const CYCLE_TIME_BINS = [0, 2, 4, 6, 8, 10, 14, 21] as const;
+export function riskSeverityThresholds(): { critical: number; warning: number } {
+  const { riskCritical, riskWarning } = getSettings().operations;
+  return { critical: riskCritical, warning: riskWarning };
+}
 
 /** Fallback free time when a shipping line has not specified one, in days. */
-export const DEFAULT_FREE_TIME_DAYS = 7;
+export function defaultFreeTimeDays(): number {
+  return getSettings().finance.defaultFreeTimeDays;
+}
 
 /** Currency the ledger is denominated in. */
-export const BI_CURRENCY = 'DJF';
+export function biCurrency(): string {
+  return getSettings().finance.baseCurrency;
+}
 
 /**
  * Detention billed per container, per day past free time.
@@ -84,5 +98,25 @@ export const BI_CURRENCY = 'DJF';
  * empty-return panel is the one place the dashboard shows it, and it labels the
  * currency at the point of display so it cannot be read as a DJF figure.
  */
-export const DETENTION_RATE_PER_CONTAINER_DAY = 50;
-export const DETENTION_RATE_CURRENCY = 'USD';
+export function detentionRatePerContainerDay(): number {
+  return getSettings().finance.detentionRatePerDay;
+}
+
+export function detentionRateCurrency(): string {
+  return getSettings().finance.detentionCurrency;
+}
+
+// ─── Not settings ───────────────────────────────────────────────────────────
+//
+// Internal to the risk score's own arithmetic and to chart layout. Changing one
+// of these is changing how a metric is computed, not what the business wants
+// from it, so they stay in code.
+
+/** ETA drift that scores full marks on its component, in minutes. */
+export const RISK_ETA_DRIFT_CEILING_MINUTES = 24 * 60;
+
+/** Dwell beyond a stage's P90 that scores full marks, as a multiple of P90. */
+export const RISK_DWELL_CEILING_RATIO = 2;
+
+/** Bin edges for the empty-return cycle-time histogram, in days. */
+export const CYCLE_TIME_BINS = [0, 2, 4, 6, 8, 10, 14, 21] as const;

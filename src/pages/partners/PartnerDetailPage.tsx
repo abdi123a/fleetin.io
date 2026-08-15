@@ -28,7 +28,7 @@ import {
   BadgeCheck,
   Users,
 } from 'lucide-react';
-import { PageHeader } from '@/components';
+import { PageHeader, TablePager, usePagedRows } from '@/components';
 import { IconChip } from '@/design-system';
 import {
   Badge,
@@ -177,6 +177,13 @@ export function PartnerDetailPage() {
   const [newBasePrice, setNewBasePrice] = useState('');
 
   // ── Shipments search & filter ──
+  /* Each dossier tab pages independently — a partner with sixty trucks should
+     not make the fleet tab a scroll, and its shipment history even less so. */
+  const [driversPageSize, setDriversPageSize] = useState(12);
+  const [vehiclesPageSize, setVehiclesPageSize] = useState(12);
+  const [documentsPageSize, setDocumentsPageSize] = useState(12);
+  const [shipmentsPageSize, setShipmentsPageSize] = useState(12);
+
   const [shipmentSearch, setShipmentSearch] = useState('');
   const [shipmentFilter, setShipmentFilter] = useState<'ALL' | 'IN_TRANSIT' | 'DELIVERED' | 'REGISTERED'>('ALL');
 
@@ -367,6 +374,14 @@ export function PartnerDetailPage() {
       (shipmentFilter === 'REGISTERED' && shp.status === 'REGISTERED');
 
     return matchesSearch && matchesFilter;
+  });
+
+  const pagedDrivers = usePagedRows(drivers, { pageSize: driversPageSize });
+  const pagedVehicles = usePagedRows(vehicles, { pageSize: vehiclesPageSize });
+  const pagedDocuments = usePagedRows(documents, { pageSize: documentsPageSize });
+  const pagedShipments = usePagedRows(filteredShipments, {
+    pageSize: shipmentsPageSize,
+    resetKey: `${shipmentFilter}|${shipmentSearch}`,
   });
 
   if (isPartnerLoading || !partner) {
@@ -749,7 +764,7 @@ export function PartnerDetailPage() {
 
                 {/* Drivers Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                  {drivers.map((drv) => (
+                  {pagedDrivers.rows.map((drv) => (
                     <div key={drv.id} className="p-4 rounded-lg border border-border/80 bg-muted/20 space-y-3 text-xs">
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2.5 min-w-0">
@@ -797,6 +812,16 @@ export function PartnerDetailPage() {
                     </div>
                   ))}
                 </div>
+
+                {drivers.length > 0 ? (
+                  <TablePager
+                    paged={pagedDrivers}
+                    noun="drivers"
+                    pageSize={driversPageSize}
+                    onPageSizeChange={setDriversPageSize}
+                    pageSizeOptions={[12, 24, 48, 96]}
+                  />
+                ) : null}
               </Card>
 
               {/* Compact Primary Dispatcher Contact Card (Bottom) */}
@@ -942,7 +967,7 @@ export function PartnerDetailPage() {
 
                 {/* Vehicles Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                  {vehicles.map((veh) => (
+                  {pagedVehicles.rows.map((veh) => (
                     <div key={veh.id} className="p-4 rounded-lg border border-border/80 bg-muted/20 space-y-3 text-xs">
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
@@ -981,6 +1006,16 @@ export function PartnerDetailPage() {
                     </div>
                   ))}
                 </div>
+
+                {vehicles.length > 0 ? (
+                  <TablePager
+                    paged={pagedVehicles}
+                    noun="vehicles"
+                    pageSize={vehiclesPageSize}
+                    onPageSizeChange={setVehiclesPageSize}
+                    pageSizeOptions={[12, 24, 48, 96]}
+                  />
+                ) : null}
               </Card>
 
               {/* Compliance Documents & Grey Card Vault Card */}
@@ -1036,7 +1071,7 @@ export function PartnerDetailPage() {
 
                 {/* Documents Cards Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {documents.map((doc) => (
+                  {pagedDocuments.rows.map((doc) => (
                     <div key={doc.id} className="flex items-center justify-between p-4 rounded-lg border border-border/60 bg-muted/20 hover:border-primary/40 transition-colors">
                       <div className="flex items-center gap-3 min-w-0">
                         <IconChip icon={FileText} size={36} />
@@ -1082,6 +1117,16 @@ export function PartnerDetailPage() {
                     </div>
                   ))}
                 </div>
+
+                {documents.length > 0 ? (
+                  <TablePager
+                    paged={pagedDocuments}
+                    noun="documents"
+                    pageSize={documentsPageSize}
+                    onPageSizeChange={setDocumentsPageSize}
+                    pageSizeOptions={[12, 24, 48, 96]}
+                  />
+                ) : null}
               </Card>
 
             </div>
@@ -1198,7 +1243,7 @@ export function PartnerDetailPage() {
                 </div>
 
                 <div className="space-y-4">
-                  {filteredShipments.map((shp) => (
+                  {pagedShipments.rows.map((shp) => (
                     // Both references print whole. Stripping the prefix was how
                     // the old twelve-character ids were made to fit; the scheme
                     // is short enough now that hiding what kind of reference it
@@ -1244,6 +1289,16 @@ export function PartnerDetailPage() {
                       No shipments for {partner.companyLegalName} match this view yet — new ones
                       appear here the moment they are created on the Shipments page.
                     </div>
+                  )}
+
+                  {filteredShipments.length > 0 && (
+                    <TablePager
+                      paged={pagedShipments}
+                      noun="shipments"
+                      pageSize={shipmentsPageSize}
+                      onPageSizeChange={setShipmentsPageSize}
+                      pageSizeOptions={[12, 24, 48, 96]}
+                    />
                   )}
                 </div>
               </Card>

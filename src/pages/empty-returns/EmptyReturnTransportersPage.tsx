@@ -15,6 +15,8 @@ import { Truck } from '@/design-system/icons';
 import { PageHeader } from '@/components';
 import type { TransporterCycleStats } from '@/types/emptyReturn';
 import { selectTransporterStats, useEmptyReturnStore } from '@/stores/emptyReturn.store';
+import { useAvailableEmpties, useCycles } from '@/features/empty-returns/api/queries';
+import { cycleToRow, emptyBookingToRow } from '@/features/empty-returns/mappers';
 
 import { CompanyName, Mono } from './components/atoms';
 
@@ -110,8 +112,17 @@ function TransporterCard({ row }: TransporterCardProps) {
 }
 
 export function EmptyReturnTransportersPage() {
-  const records = useEmptyReturnStore((state) => state.records);
+  const now = useEmptyReturnStore((state) => state.now);
+  const cyclesQuery = useCycles();
+  const availableEmptiesQuery = useAvailableEmpties();
 
+  const records = useMemo(
+    () => [
+      ...(cyclesQuery.data ?? []).map((cycle) => cycleToRow(cycle, now)),
+      ...(availableEmptiesQuery.data ?? []).map((booking) => emptyBookingToRow(booking, now)),
+    ],
+    [cyclesQuery.data, availableEmptiesQuery.data, now],
+  );
   const transporters = useMemo(() => selectTransporterStats(records), [records]);
 
   return (

@@ -14,6 +14,8 @@ export interface ShipmentRecord {
   bookingId: string;
   referenceNumber: string;
   dpcsReference: string;
+  /** Persisted origination channel — 'dpcs' | 'custom'. */
+  source: string;
   status: string;
   paymentStatus: string;
 
@@ -85,8 +87,27 @@ export interface ShipmentRecord {
   rateFxRate: number;
   rateBaseAmountMinorUnits: string;
 
+  /** What the shipper is billed — the revenue side. Nullable until Finance/the wizard sets it; never estimated as 0. */
+  clientRateMinorUnits: string | null;
+  clientRateCurrency: string | null;
+  clientRateFxRate: number | null;
+  clientRateBaseAmountMinorUnits: string | null;
+
+  payoutReleasedAt: string | null;
+  payoutReleasedById: string | null;
+  payoutReleasedByName: string | null;
+  projectId: string | null;
+
   createdAt: string;
   updatedAt: string;
+
+  /**
+   * How many live bookings — containers — this shipment covers. Counted
+   * server-side on both the list and detail responses; absent only on the
+   * create/update responses, which return the shipment before its bookings
+   * exist.
+   */
+  bookingCount?: number;
 
   /** Only populated on the detail response (`GET /shipments/:id`) — list rows omit it for efficiency. */
   timeline?: ShipmentTimelineStepRecord[];
@@ -246,9 +267,42 @@ export async function fetchShipments(filters: ShipmentFilters = {}): Promise<Pag
   return { ...res.data, items: res.data.items.map(mapShipmentToMission) };
 }
 
+/** Raw `ShipmentRecord[]`, not `Mission`-mapped — for Finance, which needs the money fields the mapping drops. */
+export async function fetchShipmentsRaw(filters: ShipmentFilters = {}): Promise<PaginatedResponse<ShipmentRecord>> {
+  const res = await apiClient.get<PaginatedResponse<ShipmentRecord>>(`/shipments?${toQueryString(filters)}`, token());
+  return res.data;
+}
+
+/**
+ * Every page of the raw list, concatenated — for the admin console, whose
+ * totals must cover the whole book rather than one capped page. Hard-stops at
+ * 20 pages so a runaway `totalPages` can't loop the client.
+ */
+export async function fetchAllShipmentsRaw(filters: ShipmentFilters = {}): Promise<ShipmentRecord[]> {
+  const first = await fetchShipmentsRaw({ ...filters, page: 1 });
+  const items = [...first.items];
+  const lastPage = Math.min(first.meta.totalPages, 20);
+  for (let page = 2; page <= lastPage; page += 1) {
+    const next = await fetchShipmentsRaw({ ...filters, page });
+    items.push(...next.items);
+  }
+  return items;
+}
+
 export async function fetchShipment(id: string): Promise<Mission> {
   const res = await apiClient.get<ShipmentRecord>(`/shipments/${id}`, token());
   return mapShipmentToMission(res.data);
+}
+
+/**
+ * The raw record, not the `Mission`-mapped shape — Finance needs the money
+ * fields (`clientRateMinorUnits`, `payoutReleasedAt`, `projectId`, ...) as-is,
+ * which `mapShipmentToMission` doesn't carry over since Operations never
+ * needed them.
+ */
+export async function fetchShipmentRaw(id: string): Promise<ShipmentRecord> {
+  const res = await apiClient.get<ShipmentRecord>(`/shipments/${id}`, token());
+  return res.data;
 }
 
 export interface CreateShipmentPayload {
@@ -282,6 +336,9 @@ export interface CreateShipmentPayload {
   requiredDocuments?: string[];
   paymentStatus?: string;
   scheduledPickupTime: string;
+  /** What the shipper is billed — optional, the wizard doesn't always collect it. */
+  clientRateMinorUnits?: number;
+  projectId?: string;
 }
 
 export async function createShipment(payload: CreateShipmentPayload): Promise<Mission> {
@@ -308,11 +365,52 @@ export interface UpdateShipmentPayload {
   shippingLine?: string;
   containerReturnDepot?: string;
   containerReturnFreeDays?: number;
+  /**
+   * What the shipper is billed. Normally resolved server-side from the chosen
+   * transporters' price lists at creation time; set here only to override that
+   * with a negotiated one-off figure.
+   */
+  clientRateMinorUnits?: number;
+  projectId?: string;
 }
 
 export async function updateShipment(id: string, payload: UpdateShipmentPayload): Promise<Mission> {
   const res = await apiClient.patch<ShipmentRecord>(`/shipments/${id}`, payload, token());
   return mapShipmentToMission(res.data);
+}
+
+/** Same PATCH, but returns the raw record — for Finance call sites that need the money fields back. */
+export async function updateShipmentRaw(id: string, payload: UpdateShipmentPayload): Promise<ShipmentRecord> {
+  const res = await apiClient.patch<ShipmentRecord>(`/shipments/${id}`, payload, token());
+  return res.data;
+}
+
+/**
+ * `PATCH /shipments/:id/reprice` — prices a shipment off its transporters'
+ * price lists (containers × per-mission price). For the backlog of shipments
+ * created before pricing was automatic. Leaves an already-set rate alone.
+ */
+export async function repriceShipment(id: string): Promise<ShipmentRecord> {
+  const res = await apiClient.patch<ShipmentRecord>(`/shipments/${id}/reprice`, {}, token());
+  return res.data;
+}
+
+export interface RepriceSummary {
+  considered: number;
+  priced: number;
+}
+
+/** The same, across every unpriced shipment — optionally just one shipper's. */
+export async function repriceUnpricedShipments(shipperId?: string): Promise<RepriceSummary> {
+  const query = shipperId ? `?shipperId=${encodeURIComponent(shipperId)}` : '';
+  const res = await apiClient.patch<RepriceSummary>(`/shipments/reprice-unpriced${query}`, {}, token());
+  return res.data;
+}
+
+/** `PATCH /shipments/:id/release` — guarded server-side: every booking delivered, no open hold, not already released. */
+export async function releaseShipment(id: string): Promise<ShipmentRecord> {
+  const res = await apiClient.patch<ShipmentRecord>(`/shipments/${id}/release`, {}, token());
+  return res.data;
 }
 
 export async function updateShipmentStatus(id: string, status: string): Promise<Mission> {

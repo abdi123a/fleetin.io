@@ -25,12 +25,16 @@ export interface PipelineBookingItem {
   step?: string;
   startDate?: string;
   endDate?: string;
+  /** Where this booking's own container sits on its way back — undefined until delivered. Never sourced from `status`; a booking's real status doesn't carry this. */
+  emptyReturnStage?: 'waiting_match' | 'matched' | 'returned' | 'standalone';
 }
 
 export interface PipelineFlowCardProps<T extends PipelineBookingItem = PipelineBookingItem> {
   ready?: boolean;
   bookings?: T[];
   onBookingClick?: (booking: T) => void;
+  /** Whether the shipment's transporter payout has been released — one flag for the whole card, since money moves per shipment, never per booking. */
+  payoutReleased?: boolean;
 }
 
 const STAGE_NAMES = [
@@ -42,7 +46,34 @@ const STAGE_NAMES = [
   'Payment Released',
 ];
 
-export function getStageIndex(status?: string): number {
+/** The real booking ladder's own delivery sub-steps — everything through here is still "in transit", not yet a question of empty return. */
+const REAL_DELIVERY_STAGE: Record<string, number> = {
+  Pending: 0,
+  Assigned: 0,
+  'Driver Assigned': 1,
+  'En Route': 1,
+  Arrived: 2,
+  Unloading: 2,
+  'POD Submitted': 2,
+};
+
+export function getStageIndex(
+  booking?: Pick<PipelineBookingItem, 'status' | 'emptyReturnStage'>,
+  payoutReleased?: boolean,
+): number {
+  const status = booking?.status;
+
+  // The real ladder: 0-2 are pure delivery progress, keyed off the exact
+  // status word. "Completed" is the one status whose stage depends on
+  // Empty Return instead — a booking never advances past it on its own.
+  if (status && status in REAL_DELIVERY_STAGE) return REAL_DELIVERY_STAGE[status] ?? 0;
+  if (status === 'Completed') {
+    if (booking?.emptyReturnStage === 'returned') return payoutReleased ? 5 : 4;
+    return 3; // not yet returned — unmatched, matched-in-progress, or standalone-unconfirmed all read as "pending" here
+  }
+
+  // Anything else (a legacy/demo label vocabulary, e.g. the showcase's own
+  // mock bookings) falls back to the original keyword match.
   const s = (status || '').toLowerCase();
   if (s.includes('payment') || s.includes('paid')) return 5;
   if (s.includes('empty returned') || s.includes('trip completed') || s.includes('returned')) return 4;
@@ -56,13 +87,14 @@ export function getStageIndex(status?: string): number {
 export function PipelineFlowCard<T extends PipelineBookingItem = PipelineBookingItem>({
   ready = true,
   bookings,
+  payoutReleased,
 }: PipelineFlowCardProps<T>) {
   const isDynamic = Boolean(bookings && bookings.length >= 0);
 
   // Calculate cumulative sequential pipeline stages (each stage includes all bookings that reached or passed it)
   const dynamicStages = STAGE_NAMES.map((stageName, stageIdx) => {
-    const passedBookings = (bookings || []).filter((b) => getStageIndex(b.status) >= stageIdx);
-    const activeBookings = (bookings || []).filter((b) => getStageIndex(b.status) === stageIdx);
+    const passedBookings = (bookings || []).filter((b) => getStageIndex(b, payoutReleased) >= stageIdx);
+    const activeBookings = (bookings || []).filter((b) => getStageIndex(b, payoutReleased) === stageIdx);
 
     return {
       stage: stageName,

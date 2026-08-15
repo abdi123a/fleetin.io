@@ -15,6 +15,7 @@ import { TransporterPerformanceConsoleCard } from './components/dashboard/consol
 import { DeliveryVehiclesCard } from './components/dashboard/console/DeliveryVehiclesCard';
 import { PendingShipmentsModal } from './components/dashboard/console/PendingShipmentsModal';
 import { ContainerReturnStatusCard } from './components/dashboard/console/ContainerReturnStatusCard';
+import { DeliveryPlanningCalendarCard } from './components/dashboard/console/DeliveryPlanningCalendarCard';
 import { DelayResponsibilityCard } from './components/dashboard/console/DelayResponsibilityCard';
 import { ShipmentTypesMixedChart } from './components/dashboard/console/ShipmentTypesMixedChart';
 import { LastShipmentsSection } from './components/dashboard/console/LastShipmentsSection';
@@ -173,6 +174,15 @@ export function ShipperDashboardPage() {
           className="h-full"
           shipperName={shipper?.companyLegalName || user?.companyName || 'Shipper'}
           shipperLogoUrl={shipper?.logoUrl}
+        />
+      </section>
+
+      {/* The same book as dates — what lands which day, full width */}
+      <section className="min-w-0">
+        <DeliveryPlanningCalendarCard
+          rows={rows}
+          now={now.getTime()}
+          onSelectShipment={openShipment}
         />
       </section>
 

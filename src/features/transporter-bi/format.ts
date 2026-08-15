@@ -1,5 +1,5 @@
 import { formatNumber } from '@/utils';
-import { TP_CURRENCY, USD_TO_DJF } from './config';
+import { tpCurrency, usdToDjf } from './config';
 import type { MetricUnit } from './contracts';
 
 /**
@@ -27,21 +27,21 @@ export function formatCompact(value: number): string {
 
 /** USD in, francs out. The one conversion in the suite. */
 export function toDjf(usd: number): number {
-  return usd * USD_TO_DJF;
+  return usd * usdToDjf();
 }
 
 /** Card money, from a USD figure: "22.8M DJF". */
 export function formatMoney(usd: number): string {
   const value = toDjf(usd);
   const sign = value < 0 ? '−' : '';
-  return `${sign}${formatCompact(Math.abs(value))} ${TP_CURRENCY}`;
+  return `${sign}${formatCompact(Math.abs(value))} ${tpCurrency()}`;
 }
 
 /** Table money, from a USD figure: "195,700 DJF" — every digit kept. */
 export function formatMoneyFull(usd: number): string {
   const value = toDjf(usd);
   const sign = value < 0 ? '−' : '';
-  return `${sign}${formatNumber(Math.abs(value), { maximumFractionDigits: 0 })} ${TP_CURRENCY}`;
+  return `${sign}${formatNumber(Math.abs(value), { maximumFractionDigits: 0 })} ${tpCurrency()}`;
 }
 
 /**
@@ -66,7 +66,7 @@ export function formatMoneyCompact(usd: number): string {
 export function formatRatePerKm(usdPerKm: number): string {
   const value = toDjf(usdPerKm);
   const sign = value < 0 ? '−' : '';
-  return `${sign}${formatNumber(Math.abs(value), { maximumFractionDigits: 0 })} ${TP_CURRENCY}/km`;
+  return `${sign}${formatNumber(Math.abs(value), { maximumFractionDigits: 0 })} ${tpCurrency()}/km`;
 }
 
 /** Kilometres at card scale: "12.4k km". */
@@ -151,4 +151,4 @@ export function deltaIntent(
   return rising ? 'bad' : 'good';
 }
 
-export { TP_CURRENCY, USD_TO_DJF };
+export { tpCurrency, usdToDjf };

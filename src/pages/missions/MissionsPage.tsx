@@ -3,13 +3,13 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, Button, Badge, ShipmentCard, StatisticCard } from '@/design-system';
 import { Compass, Plus, Truck, Repeat } from '@/design-system/icons';
 import { BadgeCheck } from 'lucide-react';
-import { PageHeader } from '@/components';
+import { PageHeader, TablePager, usePagedRows } from '@/components';
 import type { Mission, MissionFilterState } from '@/types/mission';
 import { MissionFilterToolbar } from './components/MissionFilterToolbar';
 import { MissionRowCard } from './components/MissionRowCard';
 import { ROUTES, buildPath } from '@/config/routes';
 import { useShipmentStore } from '@/stores/shipment.store';
-import { useEmptyReturnStore } from '@/stores/emptyReturn.store';
+import { useAvailableEmpties, useCycles } from '@/features/empty-returns/api/queries';
 
 
 export function MissionsPage() {
@@ -19,7 +19,8 @@ export function MissionsPage() {
 
   const missions = useShipmentStore((s) => s.missions);
   const openCreateModal = useShipmentStore((s) => s.openCreateModal);
-  const emptyReturnRecords = useEmptyReturnStore((s) => s.records);
+  const { data: availableEmpties } = useAvailableEmpties();
+  const { data: emptyReturnCycles } = useCycles();
 
   // State for view mode: 'rows' (long view) vs 'cards' (grid cards)
   const [viewMode, setViewMode] = useState<'rows' | 'cards'>('rows');
@@ -37,7 +38,7 @@ export function MissionsPage() {
     containerNumber: '',
     status: initialStatusParam,
     paymentStatus: '',
-    sortBy: 'plate-asc',
+    sortBy: 'date-desc',
   });
 
   const handleFilterChange = (updated: Partial<MissionFilterState>) => {
@@ -57,7 +58,7 @@ export function MissionsPage() {
       containerNumber: '',
       status: '',
       paymentStatus: '',
-      sortBy: 'plate-asc',
+      sortBy: 'date-desc',
     });
   };
 
@@ -92,16 +93,12 @@ export function MissionsPage() {
     };
   }, [missions]);
 
-  // Empties still out: anything in the return pipeline that has not been
-  // returned yet. Excludes boxes still `unloading` (not empties yet) and
-  // `completed` (already back). Live from the Empty Return store.
-  const waitingEmptyReturn = useMemo(
-    () =>
-      emptyReturnRecords.filter(
-        (r) => r.status !== 'completed' && r.status !== 'unloading'
-      ).length,
-    [emptyReturnRecords]
-  );
+  // Empties still out: every delivered, unmatched booking plus every matched
+  // cycle that hasn't completed yet. Live from the real Booking/EmptyReturnCycle
+  // endpoints, not a local store.
+  const waitingEmptyReturn =
+    (availableEmpties?.length ?? 0) +
+    (emptyReturnCycles?.filter((c) => c.status !== 'completed').length ?? 0);
 
   // Filtered and sorted dataset calculation
   const filteredMissions = useMemo(() => {
@@ -195,6 +192,13 @@ export function MissionsPage() {
     return result;
   }, [filters, missions]);
 
+  /** One page at a time — the row list and the card grid share the pager. */
+  const [pageSize, setPageSize] = useState(12);
+  const pagedMissions = usePagedRows(filteredMissions, {
+    pageSize,
+    resetKey: JSON.stringify(filters),
+  });
+
   const handleRowClick = (mission: Mission) => {
     navigate(buildPath(ROUTES.shipmentOverview, { id: mission.id }));
   };
@@ -281,7 +285,7 @@ export function MissionsPage() {
           </div>
 
           <div className="space-y-3.5">
-            {filteredMissions.map((mission) => (
+            {pagedMissions.rows.map((mission) => (
               <MissionRowCard
                 key={mission.id}
                 mission={mission}
@@ -295,6 +299,16 @@ export function MissionsPage() {
               </Card>
             )}
           </div>
+
+          {filteredMissions.length > 0 && (
+            <TablePager
+              paged={pagedMissions}
+              noun="shipments"
+              pageSize={pageSize}
+              onPageSizeChange={setPageSize}
+              pageSizeOptions={[12, 24, 48, 96]}
+            />
+          )}
         </div>
       ) : (
         /* Grid Cards View */
@@ -309,7 +323,7 @@ export function MissionsPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredMissions.map((mission) => (
+            {pagedMissions.rows.map((mission) => (
               <ShipmentCard
                 key={mission.id}
                 shipmentNumber={mission.id}
@@ -350,6 +364,16 @@ export function MissionsPage() {
               </Card>
             )}
           </div>
+
+          {filteredMissions.length > 0 && (
+            <TablePager
+              paged={pagedMissions}
+              noun="shipments"
+              pageSize={pageSize}
+              onPageSizeChange={setPageSize}
+              pageSizeOptions={[12, 24, 48, 96]}
+            />
+          )}
         </div>
       )}
     </div>

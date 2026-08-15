@@ -218,7 +218,7 @@ export const MissionFilterToolbar: React.FC<MissionFilterToolbarProps> = ({
           <Select
             selectSize="sm"
             containerClassName="flex-1 sm:flex-initial sm:w-32 lg:w-36"
-            value={filters.sortBy || 'plate-asc'}
+            value={filters.sortBy || 'date-desc'}
             onChange={(e) => onFilterChange({ sortBy: e.target.value })}
             options={[
               { value: 'plate-asc', label: 'Sort: Plate No' },

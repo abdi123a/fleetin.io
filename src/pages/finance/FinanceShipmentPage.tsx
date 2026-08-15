@@ -1,37 +1,27 @@
-import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useState, type FormEvent } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 
-import { ROUTES } from '@/config/routes';
-import { IconChip } from '@/design-system';
+import { ROUTES, buildPath } from '@/config/routes';
+import { Button, IconChip, Input } from '@/design-system';
 import {
   ArrowLeft,
   Banknote,
-  Camera,
   Check,
-  CircleCheck,
   Clock,
   FileText,
   MapPin,
   PauseCircle,
   Receipt,
 } from '@/design-system/icons';
-import { clockLabel, fmtDjf, pct, wasReleasedEarly } from '@/lib/finance';
-import { useFinanceStore } from '@/stores/finance.store';
-import type {
-  PaymentMethod,
-  PodDocument,
-  TransporterSettlement,
-} from '@/types/finance';
+import { fmtDjf } from '@/lib/finance';
+import { useShipper } from '@/features/shippers/api/queries';
+import { useClearHold, useIssueInvoiceForShipment, usePayTransporter } from '@/features/finance';
+import { useReleaseShipment, useRepriceShipment, useUpdateShipmentRaw } from '@/features/shipments/api/queries';
 import { cn } from '@/utils';
 
-import { ChannelBadge } from './components/ChannelTabs';
-import {
-  BookingQuickViewDialog,
-  PAYMENT_METHOD_LABEL,
-  PayDialog,
-  PodDialog,
-} from './components/dialogs';
-import { CargoChip } from './components/ShipmentsTable';
+import { BankAccountSelect } from './components/BankAccountSelect';
+import { ChannelBadge, type OriginationChannel } from './components/ChannelTabs';
+import { MoneyBreakdown } from './components/MoneyBreakdown';
 import {
   ActionButton,
   Avatar,
@@ -43,181 +33,214 @@ import {
   PageHead,
   Panel,
   Pill,
-  RiskTag,
   SettlementChip,
   StageChip,
   Td,
   Th,
-  UnpricedChip,
-  ValidationTrack,
 } from './components/kit';
-import { useFinanceModel, type BookingRow, type ShipmentRow } from './model';
+import { bookingStage, useShipmentFinanceDetail, type TransporterSettlement } from './shipmentFinance';
 
 /**
  * ONE CONSIGNMENT — and the page where money actually moves.
  *
- * Rebuilt 2026-08-13 around the shipment tier. Before this, paying happened
- * inside each booking: a twenty-container consignment split between two
- * hauliers meant twenty releases and twenty payments for work that is one
- * release and two payments. This page is the correction.
- *
- * It answers three questions in order, top to bottom:
- *
- *   1. Is the consignment finished?  — every booking, its proof, and the ones
- *      still missing NAMED rather than counted.
- *   2. Can the money go?             — one release for the whole shipment.
- *   3. Who gets paid, and how much?  — one row per transporter: the bookings
- *      they carried × the total, one Pay button, one signed voucher.
- *
- * A single unproven container blocks the whole consignment, so it is called
- * out by id — "release blocked" is useless, "BKG-00412 has no signed note" is
- * something someone can act on.
+ * Rebuilt on real data: `useShipmentFinanceDetail` assembles the shipment,
+ * its bookings, holds, payment orders and invoice from independent queries.
+ * PoD is no longer a Finance action — it already happens in Operations
+ * (`BookingPreviewSheet.tsx`); this page only reads the resulting booking
+ * status and the invoice it auto-issues. Client pricing is shipment-level
+ * only (no per-booking rate exists in the real model), so a shipment left
+ * unpriced gets an inline "Set client rate" action instead of a booking-level
+ * one.
  */
 export function FinanceShipmentPage() {
-  const model = useFinanceModel();
   const { shipmentId = '' } = useParams();
-  const releaseShipment = useFinanceStore((state) => state.releaseShipment);
-  const payTransporter = useFinanceStore((state) => state.payTransporter);
-  const confirmPod = useFinanceStore((state) => state.confirmPod);
-  const clearHold = useFinanceStore((state) => state.clearHold);
+  const navigate = useNavigate();
+  const detail = useShipmentFinanceDetail(shipmentId);
+  const { data: shipper } = useShipper(detail.shipment?.shipperId);
 
-  /** Which container's proof is being confirmed. */
-  const [podFor, setPodFor] = useState<string | null>(null);
-  /** Which transporter's settlement the pay dialog is committing. */
+  const releaseShipment = useReleaseShipment();
+  const payTransporter = usePayTransporter();
+  const clearHold = useClearHold();
+  const issueInvoice = useIssueInvoiceForShipment();
+  const setClientRate = useUpdateShipmentRaw();
+  const reprice = useRepriceShipment();
+
   const [paying, setPaying] = useState<TransporterSettlement | null>(null);
-  /** Which booking's quick-view popup is open. */
-  const [viewing, setViewing] = useState<BookingRow | null>(null);
+  const [payBankAccountId, setPayBankAccountId] = useState('');
+  const [payError, setPayError] = useState<string | null>(null);
 
-  const row = model.shipmentById.get(shipmentId);
-  if (!row) {
+  const [settingRate, setSettingRate] = useState(false);
+  const [rateInput, setRateInput] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  if (detail.isLoading) {
     return (
       <div className="mx-auto w-full max-w-[1600px] px-4 pt-6 sm:px-6">
-        <Panel title="Shipment not found">
-          <EmptyState message="No consignment with that reference." />
+        <Panel title="Loading…">
+          <EmptyState message="Fetching this shipment's finance detail." />
         </Panel>
       </div>
     );
   }
 
-  const { shipment } = row;
-  const windowMs = model.settings.validationWindowHours * 3_600_000;
-  const released = shipment.payout.releasedAt !== undefined;
-  const payable = row.settlements.filter((entry) => entry.payableDjf > 0);
-  const payableTotal = payable.reduce((sum, entry) => sum + entry.payableDjf, 0);
-  const settledCount = row.settlements.filter((entry) => entry.status === 'paid').length;
-  const first = row.bookings[0]?.booking;
+  if (!detail.shipment) {
+    return (
+      <div className="mx-auto w-full max-w-[1600px] px-4 pt-6 sm:px-6">
+        <Panel title="Shipment not found">
+          <EmptyState message="No shipment with that reference." />
+        </Panel>
+      </div>
+    );
+  }
 
-  const handlePay = (method: PaymentMethod, reference: string) => {
-    if (!paying) return;
-    payTransporter(shipment.id, paying.transporterId, method, reference);
+  const { shipment, bookings, holds, settlements, money, unproven, held, invoice, stage } = detail;
+  const payable = settlements.filter((s) => s.status === 'payable');
+  const payableTotal = payable.reduce((sum, s) => sum + s.totalMinorUnits, 0);
+  const settledCount = settlements.filter((s) => s.status === 'paid').length;
+
+  const handleRelease = async () => {
+    setActionError(null);
+    try {
+      await releaseShipment.mutateAsync(shipment.id);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Could not release this shipment.');
+    }
+  };
+
+  const handleClearHold = async (holdId: string) => {
+    setActionError(null);
+    try {
+      await clearHold.mutateAsync({ id: holdId, shipmentId: shipment.id });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Could not clear that hold.');
+    }
+  };
+
+  const handleIssueInvoice = async () => {
+    setActionError(null);
+    try {
+      await issueInvoice.mutateAsync(shipment.id);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Could not issue an invoice for this shipment.');
+    }
+  };
+
+  const handleSetRate = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!rateInput.trim()) return;
+    setActionError(null);
+    try {
+      await setClientRate.mutateAsync({ id: shipment.id, payload: { clientRateMinorUnits: Number(rateInput) } });
+      setSettingRate(false);
+      setRateInput('');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Could not set the client rate.');
+    }
+  };
+
+  const handlePay = async () => {
+    if (!paying || !payBankAccountId) return;
+    setPayError(null);
+    try {
+      await payTransporter.mutateAsync({
+        shipmentId: shipment.id,
+        transporterId: paying.partnerId,
+        bankAccountId: payBankAccountId,
+      });
+      setPaying(null);
+      setPayBankAccountId('');
+    } catch (err) {
+      setPayError(err instanceof Error ? err.message : 'Could not pay this transporter.');
+    }
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 px-4 pb-8 pt-1 sm:px-6">
-      {/* A one-off has no project to go back to — it returns to its client. */}
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 pb-6 pt-1 sm:px-6">
       <Link
         to={
           shipment.projectId
-            ? `${ROUTES.financeShipments}/project/${shipment.projectId}`
-            : `${ROUTES.financeShipments}/client/${shipment.clientId}?channel=${shipment.originationChannel}`
+            ? buildPath(ROUTES.financeShipmentProject, { projectId: shipment.projectId })
+            : buildPath(ROUTES.financeShipmentClient, { clientId: shipment.shipperId })
         }
         className="w-fit"
       >
         <ActionButton variant="quiet" icon={ArrowLeft}>
-          {row.project?.name ?? row.client?.name ?? 'Back'}
+          {shipper?.companyLegalName ?? 'Back'}
         </ActionButton>
       </Link>
 
       <div className="flex flex-wrap items-start justify-between gap-4">
         <PageHead
-          title={shipment.id}
-          subtitle={`${row.bookingCount} booking${row.bookingCount === 1 ? '' : 's'} · ${
-            row.settlements.length
-          } counterpart${row.settlements.length === 1 ? 'y' : 'ies'}${
-            shipment.reference ? ` · ${shipment.reference}` : ''
-          }`}
-          badge={<StageChip stage={row.stage} held={row.held} />}
+          title={shipment.reference}
+          subtitle={`${bookings.length} booking${bookings.length === 1 ? '' : 's'} · ${
+            settlements.length
+          } counterpart${settlements.length === 1 ? 'y' : 'ies'}`}
+          badge={<StageChip stage={stage} held={held} />}
         />
-        <div className="flex flex-wrap items-center gap-2">
-          <ChannelBadge channel={shipment.originationChannel} />
-          {row.source ? <RiskTag bearer={row.source.riskBearer} /> : null}
-        </div>
+        <ChannelBadge channel={shipment.source as OriginationChannel} />
       </div>
+
+      {actionError ? (
+        <div className="rounded-card border border-destructive/40 bg-destructive-subtle px-4 py-3 text-sm font-semibold text-destructive-subtle-foreground">
+          {actionError}
+        </div>
+      ) : null}
 
       {/* Route + client */}
-      <div className="flex flex-wrap items-center gap-3 rounded-card border border-border bg-card px-5 py-4 shadow-card">
+      <div className="flex flex-wrap items-center gap-3 rounded-card border border-border bg-card px-4 py-3 shadow-card">
         <MapPin aria-hidden className="size-4 shrink-0 text-muted-foreground" />
         <div className="flex flex-wrap items-center gap-2 text-sm font-bold text-foreground">
-          <span>{first?.origin ?? 'Djibouti Port'}</span>
-          {(first?.transitPoints ?? []).map((point) => (
-            <span key={point} className="flex items-center gap-2">
-              <span className="text-muted-foreground">→</span>
-              <span className="font-semibold text-muted-foreground">{point}</span>
-            </span>
-          ))}
+          <span>{shipment.pickupLocationCity}</span>
           <span className="text-muted-foreground">→</span>
-          <span>{first?.destination ?? '—'}</span>
+          <span>{shipment.deliveryLocationCity}</span>
         </div>
-        <div className="ml-auto flex flex-wrap items-center gap-3">
-          {row.client ? (
-            <span className="flex items-center gap-2">
-              <Avatar name={row.client.name} logoUrl={row.client.logoUrl} size={24} />
-              <span className="text-sm font-bold text-foreground">{row.client.name}</span>
-            </span>
-          ) : null}
-        </div>
+        {shipper ? (
+          <span className="ml-auto flex items-center gap-2">
+            <Avatar name={shipper.companyLegalName} logoUrl={shipper.logoUrl} size={24} />
+            <span className="text-sm font-bold text-foreground">{shipper.companyLegalName}</span>
+          </span>
+        ) : null}
       </div>
 
-      {/* ── The money path: three steps, one live action ─────────────────── */}
+      {/* ── The money path ────────────────────────────────────────────────── */}
       <Panel
         title="Paying this shipment"
         subtitle="Every booking proven → release the consignment → pay each transporter once"
+        dense
       >
         <ol className="flex flex-col gap-2.5">
           <PayStep
             index={1}
             icon={FileText}
             title="Proof of delivery"
-            state={row.provenCount === row.bookingCount && row.bookingCount > 0 ? 'done' : 'current'}
+            state={bookings.length > 0 && unproven.length === 0 ? 'done' : 'current'}
             detail={
-              row.bookingCount === 0
-                ? 'No bookings on this consignment yet.'
-                : row.unproven.length === 0
-                  ? `All ${row.bookingCount} booking${
-                      row.bookingCount === 1 ? '' : 's'
-                    } proven — the consignment is complete.`
-                  : `${row.provenCount} of ${row.bookingCount} proven. ${row.unproven.length} booking${
-                      row.unproven.length === 1 ? '' : 's'
-                    } still hold the whole payout: ${row.unproven
-                      .map((booking) => booking.id)
-                      .join(', ')}`
+              bookings.length === 0
+                ? 'No bookings on this shipment yet.'
+                : unproven.length === 0
+                  ? `All ${bookings.length} booking${bookings.length === 1 ? '' : 's'} proven — the shipment is complete.`
+                  : `${bookings.length - unproven.length} of ${bookings.length} proven. ${unproven.length} booking${
+                      unproven.length === 1 ? '' : 's'
+                    } still hold the whole payout: ${unproven.map((b) => b.reference).join(', ')}`
             }
           >
-            {/*
-             * Naming the blockers is the point. A count tells the desk there is
-             * a problem; the ids tell them which truck to ring about.
-             */}
-            {row.unproven.length > 0 ? (
+            {unproven.length > 0 ? (
               <div className="mt-2.5 flex flex-col gap-1.5">
-                {row.unproven.map((booking) => (
+                {unproven.map((booking) => (
                   <div
                     key={booking.id}
                     className="flex flex-wrap items-center gap-3 rounded-card-nested border border-dashed border-accent/50 bg-accent-subtle/40 px-3.5 py-2.5"
                   >
-                    <span className="font-mono text-xs font-bold text-foreground">{booking.id}</span>
+                    <span className="font-mono text-xs font-bold text-foreground">{booking.reference}</span>
                     <span className="min-w-[7rem] flex-1 truncate text-xs font-semibold text-muted-foreground">
                       {booking.containerNumber ? `${booking.containerNumber} · ` : ''}
-                      {booking.destination} · {booking.cargoSummary}
+                      {booking.cargoType}
                     </span>
-                    {booking.proof.completedAt ? (
-                      <ActionButton variant="primary" icon={FileText} onClick={() => setPodFor(booking.id)}>
-                        Confirm PoD
+                    <Link to={buildPath(ROUTES.financeShipmentBooking, { bookingId: booking.id })}>
+                      <ActionButton variant="ghost" icon={Clock}>
+                        {booking.status}
                       </ActionButton>
-                    ) : (
-                      <Pill tone="neutral" icon={Clock}>
-                        Still on the road
-                      </Pill>
-                    )}
+                    </Link>
                   </div>
                 ))}
               </div>
@@ -227,155 +250,107 @@ export function FinanceShipmentPage() {
           <PayStep
             index={2}
             icon={Banknote}
-            title="Release the consignment"
-            state={released ? 'done' : row.unproven.length > 0 ? 'waiting' : 'current'}
-            detail={releaseDetail(row, windowMs, released)}
+            title="Release the shipment"
+            state={shipment.payoutReleasedAt ? 'done' : unproven.length > 0 ? 'waiting' : 'current'}
+            detail={releaseDetail(shipment, unproven, held)}
             action={
-              released ? null : row.unproven.length > 0 ? null : row.held ? (
+              shipment.payoutReleasedAt ? null : unproven.length > 0 ? null : held ? (
                 <HeldChip label="Blocked by hold" />
               ) : (
                 <ActionButton
                   variant="primary"
                   icon={Banknote}
-                  onClick={() => releaseShipment(shipment.id)}
+                  onClick={handleRelease}
+                  disabled={releaseShipment.isPending}
                 >
-                  Release {fmtDjf(row.money.costDjf)}
+                  {releaseShipment.isPending ? 'Releasing…' : `Release ${fmtDjf(money.costDjf)}`}
                 </ActionButton>
               )
             }
-          >
-            {/*
-             * The window is shown because the desk wants to know where it
-             * stands, NOT because it decides anything. The button above stays
-             * live at every point on this track.
-             */}
-            {row.stage === 'ready' ? (
-              <div className="mt-2.5 flex flex-wrap items-end gap-3">
-                <ValidationTrack
-                  elapsedMs={row.clock.elapsedMs}
-                  windowMs={windowMs}
-                  paused={row.held}
-                  className="max-w-xs flex-1"
-                />
-                {row.clock.closingSoon ? (
-                  <Pill tone="amber" icon={Clock}>
-                    Closes in {clockLabel(row.clock.remainingMs)}
-                  </Pill>
-                ) : null}
-              </div>
-            ) : null}
-          </PayStep>
+          />
 
           <PayStep
             index={3}
             icon={Receipt}
-            title={`Pay ${row.settlements.length === 1 ? 'the transporter' : 'each transporter'}`}
+            title={`Pay ${settlements.length === 1 ? 'the transporter' : 'each transporter'}`}
             state={
-              row.settlements.length > 0 && settledCount === row.settlements.length
+              settlements.length > 0 && settledCount === settlements.length
                 ? 'done'
                 : payable.length > 0
                   ? 'current'
                   : 'waiting'
             }
             detail={
-              row.settlements.length === 0
-                ? 'No counterparties on this consignment.'
-                : settledCount === row.settlements.length
-                  ? `All ${row.settlements.length} settlement${
-                      row.settlements.length === 1 ? '' : 's'
-                    } paid · ${fmtDjf(row.money.paidOutDjf)} out across ${row.bookingCount} booking${
-                      row.bookingCount === 1 ? '' : 's'
-                    }`
+              settlements.length === 0
+                ? 'No transporter costs recorded yet.'
+                : settledCount === settlements.length
+                  ? `All ${settlements.length} settlement${settlements.length === 1 ? '' : 's'} paid · ${fmtDjf(money.paidOutDjf)} out`
                   : payable.length > 0
-                    ? `${payable.length} transporter${
-                        payable.length === 1 ? '' : 's'
-                      } payable now · ${fmtDjf(payableTotal)} in ${payable.length} transfer${
-                        payable.length === 1 ? '' : 's'
-                      }`
-                    : row.held
+                    ? `${payable.length} transporter${payable.length === 1 ? '' : 's'} payable now · ${fmtDjf(payableTotal)}`
+                    : held
                       ? 'Frozen while the hold stands — held money is never payable.'
-                      : 'Payable as soon as the consignment is released.'
+                      : 'Payable as soon as the shipment is released.'
             }
           />
         </ol>
 
-        {shipment.payout.holds.length > 0 ? (
+        {holds.length > 0 ? (
           <div className="mt-4 flex flex-col gap-2">
-            {shipment.payout.holds.map((hold) => (
+            {holds.map((hold) => (
               <div
                 key={hold.id}
                 className={cn(
                   'flex flex-wrap items-center gap-3 rounded-card-nested border px-4 py-3',
-                  hold.clearedAt
-                    ? 'border-border bg-card'
-                    : 'border-dashed border-warning/60 bg-warning-subtle',
+                  hold.clearedAt ? 'border-border bg-card' : 'border-dashed border-warning/60 bg-warning-subtle',
                 )}
               >
                 <PauseCircle
                   aria-hidden
-                  className={cn(
-                    'size-4 shrink-0',
-                    hold.clearedAt ? 'text-muted-foreground' : 'text-warning-subtle-foreground',
-                  )}
+                  className={cn('size-4 shrink-0', hold.clearedAt ? 'text-muted-foreground' : 'text-warning-subtle-foreground')}
                 />
                 <div className="min-w-0 flex-1">
-                  <p
-                    className={cn(
-                      'truncate text-sm font-bold',
-                      hold.clearedAt ? 'text-muted-foreground' : 'text-warning-subtle-foreground',
-                    )}
-                  >
+                  <p className={cn('truncate text-sm font-bold', hold.clearedAt ? 'text-muted-foreground' : 'text-warning-subtle-foreground')}>
                     {hold.reason}
                   </p>
                   <p className="mt-0.5 text-xs font-semibold text-muted-foreground">
                     {hold.category.replace('_', ' ')}
-                    {/* The container in dispute, when the dispute is about one. */}
-                    {hold.bookingId ? ` · ${hold.bookingId}` : ''} · raised by {hold.raisedBy} ·{' '}
-                    {new Date(hold.raisedAt).toLocaleString('en-GB', {
-                      day: '2-digit',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+                    {hold.bookingId ? ` · ${hold.bookingId}` : ''} · raised by {hold.raisedByName} ·{' '}
+                    {new Date(hold.raisedAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
                 {hold.clearedAt ? (
                   <Pill tone="neutral">Cleared</Pill>
                 ) : (
-                  <ActionButton variant="ghost" onClick={() => clearHold(shipment.id, hold.id)}>
+                  <ActionButton variant="ghost" onClick={() => handleClearHold(hold.id)} disabled={clearHold.isPending}>
                     Clear hold
                   </ActionButton>
                 )}
               </div>
             ))}
-            {row.held ? (
-              <p className="text-xs font-semibold text-warning-subtle-foreground">
-                A dispute is the one thing that still stops money. The counter is paused where it
-                stands — clearing the hold resumes it from there and makes the whole consignment
-                releasable immediately.
-              </p>
-            ) : null}
           </div>
         ) : null}
       </Panel>
 
-      {/* ── THE SETTLEMENT TABLE — the reason this page exists ───────────── */}
+      <MoneyBreakdown money={money} />
+
+      {/* ── Settlement table ─────────────────────────────────────────────── */}
       <Panel
         title="Transporter settlements"
         subtitle="One row per transporter: everything they carried on this shipment, paid in one transfer"
         padded={false}
+        dense
         action={
           payable.length > 0 ? (
             <Pill tone="orange">{fmtDjf(payableTotal)} payable</Pill>
-          ) : row.settlements.length > 0 && settledCount === row.settlements.length ? (
+          ) : settlements.length > 0 && settledCount === settlements.length ? (
             <Pill tone="teal">All settled</Pill>
           ) : null
         }
       >
-        {row.settlements.length === 0 ? (
-          <EmptyState message="No costs recorded against this consignment yet." />
+        {settlements.length === 0 ? (
+          <EmptyState message="No transporter costs recorded against this shipment yet." />
         ) : (
-          <DataTable minWidth={980}>
+          <DataTable minWidth={900}>
             <thead>
               <tr>
                 <Th>Transporter</Th>
@@ -386,120 +361,68 @@ export function FinanceShipmentPage() {
               </tr>
             </thead>
             <tbody>
-              {row.settlements.map((settlement) => {
-                const payment = settlement.paymentId
-                  ? model.paymentById.get(settlement.paymentId)
-                  : undefined;
-                return (
-                  <tr
-                    key={settlement.transporterId}
-                    className="transition-colors hover:bg-surface-sunken/60"
-                  >
-                    <Td>
-                      <span className="flex items-center gap-3">
-                        <Avatar
-                          name={settlement.transporterName}
-                          logoUrl={model.transporterById.get(settlement.transporterId)?.logoUrl}
-                          size={36}
-                        />
-                        <span className="min-w-0">
-                          <span className="block text-sm font-bold text-foreground">
-                            {settlement.transporterName}
-                          </span>
-                          <span className="mt-0.5 block font-mono text-xs font-semibold text-muted-foreground">
-                            {settlement.transporterId}
-                          </span>
-                        </span>
+              {settlements.map((settlement) => (
+                <tr key={settlement.partnerId} className="transition-colors hover:bg-surface-sunken/60">
+                  <Td>
+                    <span className="flex items-center gap-3">
+                      <Avatar name={settlement.partnerName} size={36} />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-bold text-foreground">{settlement.partnerName}</span>
                       </span>
-                    </Td>
-                    <Td align="right">
-                      {/*
-                       * The multiplication the user asked for, stated: ten
-                       * bookings at this rate is one payment of ten times it.
-                       */}
-                      <span className="font-mono text-sm font-extrabold tabular-nums text-foreground">
-                        {settlement.bookingsCount}
-                      </span>
-                      <span className="mt-0.5 block text-xs font-semibold text-muted-foreground">
-                        {settlement.bookingsCount === 1
-                          ? 'booking'
-                          : `× ${fmtDjf(
-                              Math.round(settlement.totalDjf / settlement.bookingsCount),
-                            )} avg`}
-                      </span>
-                    </Td>
-                    <Td align="right">
-                      <MoneyAmount value={settlement.totalDjf} direction="out" className="text-sm" />
-                      {settlement.paidDjf > 0 && settlement.paidDjf < settlement.totalDjf ? (
-                        <span className="mt-0.5 block text-xs font-semibold text-muted-foreground">
-                          {fmtDjf(settlement.paidDjf)} already paid
-                        </span>
-                      ) : null}
-                    </Td>
-                    <Td>
-                      <div className="flex flex-col items-start gap-1.5">
-                        <SettlementChip status={row.held ? 'blocked' : settlement.status} />
-                        {payment ? (
-                          <span className="font-mono text-xs font-semibold text-muted-foreground">
-                            {payment.id}
-                            {payment.paidVia ? ` · ${PAYMENT_METHOD_LABEL[payment.paidVia]}` : ''}
-                          </span>
-                        ) : null}
-                        {payment && !payment.acknowledgedAt ? (
-                          <span className="text-xs font-bold text-accent-subtle-foreground">
-                            Voucher not signed back
-                          </span>
-                        ) : null}
-                      </div>
-                    </Td>
-                    <Td align="right">
-                      {settlement.payableDjf > 0 ? (
-                        <ActionButton
-                          variant="primary"
-                          icon={Banknote}
-                          onClick={() => setPaying(settlement)}
-                        >
-                          Pay {fmtDjf(settlement.payableDjf)}
+                    </span>
+                  </Td>
+                  <Td align="right">
+                    <span className="font-mono text-sm font-extrabold tabular-nums text-foreground">{settlement.bookingsCount}</span>
+                    {settlement.hasUnpricedBookings ? (
+                      <span className="mt-0.5 block text-xs font-semibold text-accent-subtle-foreground">unpriced booking(s)</span>
+                    ) : null}
+                  </Td>
+                  <Td align="right">
+                    <MoneyAmount value={settlement.totalMinorUnits} direction="out" className="text-sm" />
+                  </Td>
+                  <Td>
+                    <SettlementChip status={held ? 'blocked' : settlement.status} />
+                  </Td>
+                  <Td align="right">
+                    {settlement.status === 'payable' ? (
+                      <ActionButton variant="primary" icon={Banknote} onClick={() => setPaying(settlement)}>
+                        Pay {fmtDjf(settlement.totalMinorUnits)}
+                      </ActionButton>
+                    ) : settlement.paidOrder ? (
+                      <Link to={buildPath(ROUTES.financePayment, { paymentId: settlement.paidOrder.id })}>
+                        <ActionButton variant="ghost" icon={Receipt}>
+                          Voucher
                         </ActionButton>
-                      ) : payment ? (
-                        <Link to={`${ROUTES.financePayment.replace(':paymentId', payment.id)}`}>
-                          <ActionButton variant="ghost" icon={Receipt}>
-                            Voucher
-                          </ActionButton>
-                        </Link>
-                      ) : (
-                        <span className="text-xs font-semibold text-muted-foreground">
-                          {row.held
-                            ? 'Frozen by the hold'
-                            : released
-                              ? '—'
-                              : 'Waiting on release'}
-                        </span>
-                      )}
-                    </Td>
-                  </tr>
-                );
-              })}
+                      </Link>
+                    ) : (
+                      <span className="text-xs font-semibold text-muted-foreground">
+                        {held ? 'Frozen by the hold' : shipment.payoutReleasedAt ? '—' : 'Waiting on release'}
+                      </span>
+                    )}
+                  </Td>
+                </tr>
+              ))}
             </tbody>
           </DataTable>
         )}
       </Panel>
 
-      {/* ── The bookings themselves ──────────────────────────────────────── */}
-      <div className="grid gap-4 xl:grid-cols-3">
+      {/* ── Bookings + sidebar ───────────────────────────────────────────── */}
+      <div className="grid gap-3 xl:grid-cols-3">
         <Panel
           className="xl:col-span-2"
           title="Bookings"
           subtitle="One container or one vehicle each — delivered and proven separately, paid together"
           padded={false}
+          dense
           action={
-            <Pill tone={row.unproven.length > 0 ? 'orange' : 'teal'}>
-              {row.provenCount}/{row.bookingCount} proven
+            <Pill tone={unproven.length > 0 ? 'orange' : 'teal'}>
+              {bookings.length - unproven.length}/{bookings.length} proven
             </Pill>
           }
         >
-          {row.bookings.length === 0 ? (
-            <EmptyState message="No bookings on this consignment." />
+          {bookings.length === 0 ? (
+            <EmptyState message="No bookings on this shipment." />
           ) : (
             <DataTable minWidth={880}>
               <thead>
@@ -509,58 +432,35 @@ export function FinanceShipmentPage() {
                   <Th>Transporter</Th>
                   <Th>Proof</Th>
                   <Th align="right">Cost</Th>
-                  <Th align="right">Rate</Th>
                 </tr>
               </thead>
               <tbody>
-                {row.bookings.map((entry) => (
+                {bookings.map((booking) => (
                   <tr
-                    key={entry.booking.id}
-                    onClick={() => setViewing(entry)}
+                    key={booking.id}
+                    onClick={() => navigate(buildPath(ROUTES.financeShipmentBooking, { bookingId: booking.id }))}
                     className="cursor-pointer transition-colors hover:bg-surface-sunken/60"
                   >
                     <Td>
-                      <span className="font-mono text-sm font-bold text-foreground">
-                        {entry.booking.id}
-                      </span>
-                      {entry.booking.containerNumber ? (
-                        <span className="mt-0.5 block font-mono text-xs font-medium text-muted-foreground">
-                          {entry.booking.containerNumber}
-                        </span>
+                      <span className="font-mono text-sm font-bold text-foreground">{booking.reference}</span>
+                      {booking.containerNumber ? (
+                        <span className="mt-0.5 block font-mono text-xs font-medium text-muted-foreground">{booking.containerNumber}</span>
                       ) : null}
                     </Td>
                     <Td>
-                      <CargoChip type={entry.booking.cargoType} />
-                      <span className="mt-1.5 block text-xs font-semibold text-muted-foreground">
-                        {entry.booking.destination}
-                      </span>
+                      <span className="text-sm font-semibold text-foreground">{booking.cargoType}</span>
                     </Td>
                     <Td>
-                      <span className="text-sm font-bold text-foreground">
-                        {entry.transporter?.name ?? entry.booking.transporterId}
-                      </span>
+                      <span className="text-sm font-bold text-foreground">{booking.partner?.companyLegalName ?? '—'}</span>
                     </Td>
                     <Td>
-                      <BookingStageChip stage={entry.stage} />
+                      <BookingStageChip stage={bookingStage(booking)} />
                     </Td>
                     <Td align="right">
-                      <MoneyAmount
-                        value={entry.costTotal}
-                        direction="out"
-                        unit={false}
-                        className="text-sm"
-                      />
-                    </Td>
-                    <Td align="right">
-                      {entry.booking.clientRateDjf !== null ? (
-                        <MoneyAmount
-                          value={entry.booking.clientRateDjf}
-                          direction="in"
-                          unit={false}
-                          className="text-sm"
-                        />
+                      {booking.transporterCostMinorUnits != null ? (
+                        <MoneyAmount value={Number(booking.transporterCostMinorUnits)} direction="out" unit={false} className="text-sm" />
                       ) : (
-                        <UnpricedChip moneyOut={released} />
+                        <Pill tone="orange">Unpriced</Pill>
                       )}
                     </Td>
                   </tr>
@@ -570,223 +470,177 @@ export function FinanceShipmentPage() {
           )}
         </Panel>
 
-        <div className="flex flex-col gap-4">
-          <Panel title="Payment summary">
-            <div className="flex flex-col gap-3">
-              <SummaryRow
-                icon={CircleCheck}
-                tint="teal"
-                label="Paid"
-                sub={`${settledCount} of ${row.settlements.length} settlements`}
-                value={row.money.paidOutDjf}
-                direction="out"
-              />
-              <SummaryRow
-                icon={row.held ? PauseCircle : payable.length > 0 ? Banknote : Clock}
-                tint={row.held ? 'amber' : payable.length > 0 ? 'orange' : 'neutral'}
-                label={
-                  row.held
-                    ? 'Frozen on hold'
-                    : payable.length > 0
-                      ? 'Payable now'
-                      : 'Waiting for release'
-                }
-                sub={`${row.settlements.length - settledCount} settlement${
-                  row.settlements.length - settledCount === 1 ? '' : 's'
-                } outstanding`}
-                value={
-                  row.money.payableDjf + row.money.frozenDjf + row.money.pipelineDjf
-                }
-                direction={row.held ? 'held' : 'out'}
-                badge={row.held ? <HeldChip /> : undefined}
-              />
-            </div>
-            {payable.length > 0 ? (
-              <div className="mt-4 rounded-card-nested bg-surface-sunken px-3.5 py-3">
-                <p className="text-xs font-semibold text-muted-foreground">
-                  {payable.map((entry) => entry.transporterName).join(', ')}{' '}
-                  {payable.length === 1 ? 'is' : 'are'} waiting on {fmtDjf(payableTotal)} across{' '}
-                  {payable.reduce((sum, entry) => sum + entry.bookingsCount, 0)} bookings.
-                </p>
-              </div>
-            ) : (
-              <p className="mt-4 rounded-card-nested bg-surface-sunken px-3.5 py-3 text-xs font-semibold text-muted-foreground">
-                {row.settlements.length > 0 && settledCount === row.settlements.length
-                  ? 'Every transporter on this consignment has been paid.'
-                  : 'Nothing is payable until the consignment is released.'}
-              </p>
-            )}
-          </Panel>
-
-          <Panel title="Shipment economics">
+        {invoice ? (
+          <Panel
+            title="Client invoice"
+            dense
+            action={
+              <Link to={`${ROUTES.financeInvoices}/${invoice.id}`}>
+                <ActionButton variant="ghost" icon={Receipt}>
+                  Open invoice
+                </ActionButton>
+              </Link>
+            }
+          >
             <dl className="flex flex-col gap-3">
-              <Econ label="Client total">
-                {row.money.revenueDjf > 0 ? (
-                  <MoneyAmount value={row.money.revenueDjf} direction="in" className="text-sm" />
-                ) : (
-                  <UnpricedChip moneyOut={released} />
-                )}
+              <Econ label="Invoice">
+                <span className="font-mono text-sm font-bold text-foreground">{invoice.number}</span>
               </Econ>
-              {row.money.unpricedCount > 0 ? (
-                <Econ label="Unpriced">
-                  <span className="text-sm font-bold text-accent-subtle-foreground">
-                    {row.money.unpricedCount} booking
-                    {row.money.unpricedCount === 1 ? '' : 's'} · {fmtDjf(row.money.unpricedCostDjf)}{' '}
-                    cost
-                  </span>
-                </Econ>
-              ) : null}
-              <Econ label="Total expenses">
-                <MoneyAmount value={row.money.costDjf} direction="out" className="text-sm" />
+              <Econ label="Amount">
+                <MoneyAmount value={Number(invoice.totalMinorUnits)} direction="in" className="text-sm" />
               </Econ>
-              <Econ label="Gross margin">
-                {row.money.grossDjf !== null ? (
-                  <MoneyAmount
-                    value={row.money.grossDjf}
-                    direction={row.money.grossDjf < 0 ? 'out' : 'in'}
-                    className="text-sm"
-                  />
-                ) : (
-                  <span className="text-sm font-bold text-muted-foreground">Unknowable</span>
-                )}
-              </Econ>
-              <Econ label="Margin %">
-                <span
-                  className={cn(
-                    'font-mono text-sm font-bold tabular-nums',
-                    row.money.marginPct === null
-                      ? 'text-muted-foreground'
-                      : row.money.marginPct < 0
-                        ? 'text-destructive-subtle-foreground'
-                        : 'text-foreground',
-                  )}
-                >
-                  {row.money.marginPct !== null ? pct(row.money.marginPct, 1) : '—'}
+              <Econ label="Due">
+                <span className="text-sm font-bold text-foreground">
+                  {new Date(invoice.contractDeadline).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
                 </span>
               </Econ>
-              <Econ label="Funded by">
-                <span className="font-mono text-sm font-bold text-foreground">
-                  {shipment.fundingSourceId}
-                </span>
+              <Econ label="Status">
+                {invoice.status === 'Paid' ? <Pill tone="teal">Settled</Pill> : <Pill tone="amber">Outstanding</Pill>}
               </Econ>
             </dl>
           </Panel>
-
-          {row.invoice ? (
-            <Panel
-              title="Client invoice"
-              action={
-                <Link to={`${ROUTES.financeInvoices}/${row.invoice.id}`}>
-                  <ActionButton variant="ghost" icon={Receipt}>
-                    Open invoice
+        ) : (
+          <Panel title="Client invoice" dense>
+            {shipment.clientRateMinorUnits == null ? (
+              settingRate ? (
+                <form onSubmit={handleSetRate} className="flex flex-col gap-2.5">
+                  <label className="text-[11px] font-bold text-foreground block">Client rate (what the shipper is billed)</label>
+                  <Input type="number" min={0} value={rateInput} onChange={(e) => setRateInput(e.target.value)} placeholder="e.g. 250000" />
+                  <div className="flex items-center gap-2">
+                    <Button type="submit" size="sm" disabled={setClientRate.isPending} className="rounded-lg bg-primary px-4 font-semibold text-primary-foreground">
+                      {setClientRate.isPending ? 'Saving…' : 'Save rate'}
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => setSettingRate(false)} className="rounded-lg">
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <div className="flex flex-col gap-2.5">
+                  {/* Typing a figure is the fallback, not the first move: the
+                      price is containers × the transporter's own per-mission
+                      price, and one button applies it. */}
+                  <p className="text-xs font-semibold leading-relaxed text-muted-foreground">
+                    No price on this shipment — it predates automatic pricing. The transporter's price list can fill it in.
+                  </p>
+                  <ActionButton
+                    variant="primary"
+                    icon={Banknote}
+                    onClick={() => reprice.mutate(shipment.id)}
+                    disabled={reprice.isPending}
+                  >
+                    {reprice.isPending ? 'Pricing…' : 'Price from the price list'}
                   </ActionButton>
-                </Link>
-              }
-            >
-              <dl className="flex flex-col gap-3">
-                <Econ label="Invoice">
-                  <span className="font-mono text-sm font-bold text-foreground">
-                    {row.invoice.id}
-                  </span>
-                </Econ>
-                <Econ label="Covers">
-                  <span className="text-sm font-bold text-foreground">
-                    {row.invoice.bookingIds.length} booking
-                    {row.invoice.bookingIds.length === 1 ? '' : 's'}
-                  </span>
-                </Econ>
-                <Econ label="Amount">
-                  <MoneyAmount value={row.invoice.amountDjf} direction="in" className="text-sm" />
-                </Econ>
-                <Econ label="Due">
-                  <span className="text-sm font-bold text-foreground">
-                    {new Date(row.invoice.dueAt).toLocaleDateString('en-GB', {
-                      day: '2-digit',
-                      month: 'short',
-                    })}
-                  </span>
-                </Econ>
-                <Econ label="Status">
-                  {row.invoice.paidAt ? (
-                    <Pill tone="teal">Settled</Pill>
-                  ) : (
-                    <Pill tone="amber">Outstanding</Pill>
-                  )}
-                </Econ>
-              </dl>
-            </Panel>
-          ) : (
-            <Panel title="Client invoice">
+                  <button
+                    type="button"
+                    onClick={() => setSettingRate(true)}
+                    className="w-fit text-[11px] font-bold text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  >
+                    Enter a negotiated price instead
+                  </button>
+                </div>
+              )
+            ) : bookings.length > 0 && unproven.length === 0 ? (
+              <div className="flex flex-col gap-2.5">
+                <p className="text-xs font-semibold leading-relaxed text-muted-foreground">
+                  Delivered and on the month's statement. Bill it on its own only if it shouldn't wait for month end.
+                </p>
+                <ActionButton variant="primary" icon={Receipt} onClick={handleIssueInvoice} disabled={issueInvoice.isPending}>
+                  {issueInvoice.isPending ? 'Issuing…' : 'Issue invoice'}
+                </ActionButton>
+              </div>
+            ) : (
               <p className="text-xs font-semibold leading-relaxed text-muted-foreground">
-                No invoice issued. A consignment is billable once every booking on it is proven
-                {row.money.revenueDjf === 0 ? ' and at least one client rate is agreed' : ''}.
+                Priced. It goes onto the client's end-of-month statement — Fleetin funds it until then.
               </p>
-            </Panel>
-          )}
-        </div>
+            )}
+          </Panel>
+        )}
       </div>
 
-      <PodDialog
-        open={podFor !== null}
-        onClose={() => setPodFor(null)}
-        bookingId={podFor ?? ''}
-        onConfirm={(documents: PodDocument[]) => {
-          if (podFor) confirmPod(podFor, documents);
-        }}
-      />
-      <PayDialog
-        open={paying !== null}
-        onClose={() => setPaying(null)}
-        settlement={paying}
-        shipmentId={shipment.id}
-        logoFor={(id) => model.transporterById.get(id)?.logoUrl}
-        onPay={handlePay}
-      />
-      <BookingQuickViewDialog open={viewing !== null} onClose={() => setViewing(null)} entry={viewing} />
+      {/* ── Pay transporter ──────────────────────────────────────────────── */}
+      {paying ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <button
+            type="button"
+            aria-label="Close"
+            className="absolute inset-0 cursor-default"
+            onClick={() => {
+              setPaying(null);
+              setPayError(null);
+            }}
+          />
+          <div role="dialog" aria-modal="true" className="relative flex w-full max-w-md flex-col overflow-hidden rounded-card border border-border bg-card shadow-2xl">
+            <div className="flex items-start gap-3 border-b border-border-subtle px-5 py-4">
+              <IconChip icon={Banknote} tint="teal" size={36} />
+              <div className="min-w-0 flex-1">
+                <h2 className="text-base font-extrabold tracking-tight text-foreground">Pay {paying.partnerName}</h2>
+                <p className="mt-0.5 text-xs font-semibold text-muted-foreground">
+                  {paying.bookingsCount} booking{paying.bookingsCount === 1 ? '' : 's'} · {fmtDjf(paying.totalMinorUnits)}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-col gap-3 px-5 py-4">
+              {payError ? (
+                <div className="rounded-lg border border-destructive/40 bg-destructive-subtle px-3 py-2 text-xs font-semibold text-destructive-subtle-foreground">
+                  {payError}
+                </div>
+              ) : null}
+              <label className="text-[11px] font-bold text-foreground block">Pay from</label>
+              <BankAccountSelect value={payBankAccountId} onChange={setPayBankAccountId} />
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-border-subtle bg-surface-sunken px-5 py-3.5">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-lg"
+                onClick={() => {
+                  setPaying(null);
+                  setPayError(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!payBankAccountId || payTransporter.isPending}
+                onClick={handlePay}
+                className="rounded-lg bg-primary px-5 font-semibold text-primary-foreground"
+              >
+                {payTransporter.isPending ? 'Paying…' : `Pay ${fmtDjf(paying.totalMinorUnits)}`}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 /* ── Pieces ──────────────────────────────────────────────────────────────── */
 
-const formatDate = (iso?: string): string =>
-  iso
-    ? new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-    : '—';
+const formatDate = (iso?: string | null): string =>
+  iso ? new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
-/** What step 2 says about itself, in one line. */
-function releaseDetail(row: ShipmentRow, windowMs: number, released: boolean): string {
-  if (released) {
-    const early = wasReleasedEarly(
-      row.shipment,
-      row.bookings.map((entry) => entry.booking),
-      windowMs,
-    );
-    return `Released ${formatDate(row.shipment.payout.releasedAt)}${
-      early ? ' — early, ahead of the review window' : ''
-    }. The whole consignment's money is authorised to leave.`;
+function releaseDetail(
+  shipment: { payoutReleasedAt: string | null },
+  unproven: { reference: string }[],
+  held: boolean,
+): string {
+  if (shipment.payoutReleasedAt) {
+    return `Released ${formatDate(shipment.payoutReleasedAt)}. The whole shipment's money is authorised to leave.`;
   }
-  if (row.unproven.length > 0) {
-    return `Blocked: ${row.unproven.length} of ${row.bookingCount} booking${
-      row.bookingCount === 1 ? '' : 's'
-    } has no proof of delivery. One unproven container freezes the entire consignment.`;
+  if (unproven.length > 0) {
+    return `Blocked: ${unproven.length} booking${unproven.length === 1 ? '' : 's'} ${unproven.length === 1 ? 'has' : 'have'} no proof of delivery yet. One unproven booking freezes the entire shipment.`;
   }
-  if (row.held) return 'A hold is open. Clear it and this releases immediately.';
-  if (row.clock.expired) return 'The review window has closed. This is overdue for release.';
-  return `Ready now. The ${Math.round(windowMs / 3_600_000)}h review window has ${clockLabel(
-    row.clock.remainingMs,
-  )} left, but it does not have to be waited out.`;
+  if (held) return 'A hold is open. Clear it and this releases immediately.';
+  return 'Ready now — every booking is proven.';
 }
 
 type StepState = 'done' | 'current' | 'waiting';
 
-/**
- * One station on the money path.
- *
- * The current step is the loud one and carries the only primary button on the
- * panel; done steps recede to a tick; future steps state their precondition
- * rather than showing a dead control.
- */
 function PayStep({
   index,
   icon: Icon,
@@ -807,12 +661,8 @@ function PayStep({
   return (
     <li
       className={cn(
-        'rounded-card-nested border px-4 py-3.5 transition-colors',
-        state === 'current'
-          ? 'border-primary/40 bg-primary-subtle/30'
-          : state === 'done'
-            ? 'border-border-subtle bg-card'
-            : 'border-border-subtle bg-surface-sunken',
+        'rounded-card-nested border px-3.5 py-3 transition-colors',
+        state === 'current' ? 'border-primary/40 bg-primary-subtle/30' : state === 'done' ? 'border-border-subtle bg-card' : 'border-border-subtle bg-surface-sunken',
       )}
     >
       <div className="flex flex-wrap items-center gap-3">
@@ -822,73 +672,16 @@ function PayStep({
           <IconChip icon={Icon} tint={state === 'current' ? 'orange' : 'neutral'} size={36} />
         )}
         <div className="min-w-[10rem] flex-1">
-          <p
-            className={cn(
-              'text-sm font-bold',
-              state === 'waiting' ? 'text-muted-foreground' : 'text-foreground',
-            )}
-          >
+          <p className={cn('text-sm font-bold', state === 'waiting' ? 'text-muted-foreground' : 'text-foreground')}>
             <span className="mr-1.5 font-mono text-xs text-muted-foreground">{index}</span>
             {title}
           </p>
-          <p className="mt-0.5 text-xs font-semibold leading-relaxed text-muted-foreground">
-            {detail}
-          </p>
+          <p className="mt-0.5 text-xs font-semibold leading-relaxed text-muted-foreground">{detail}</p>
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}
       </div>
       {children}
     </li>
-  );
-}
-
-export function PodChip({ doc }: { doc: PodDocument }) {
-  const Icon = doc.kind === 'signed_pdf' ? FileText : Camera;
-  const chip = (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-bold text-foreground">
-      <Icon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-      {doc.fileName}
-    </span>
-  );
-  // Session uploads can be opened; seeded history has no file behind it.
-  return doc.previewUrl ? (
-    <a href={doc.previewUrl} target="_blank" rel="noreferrer" className="hover:opacity-80">
-      {chip}
-    </a>
-  ) : (
-    chip
-  );
-}
-
-function SummaryRow({
-  icon: Icon,
-  tint,
-  label,
-  sub,
-  value,
-  direction,
-  badge,
-}: {
-  icon: (props: { className?: string; 'aria-hidden'?: boolean }) => React.ReactNode;
-  tint: 'teal' | 'orange' | 'amber' | 'neutral';
-  label: string;
-  sub: string;
-  value: number;
-  direction: 'out' | 'held';
-  badge?: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-card-nested bg-surface-sunken px-3.5 py-3">
-      <IconChip icon={Icon} tint={tint} size={36} />
-      <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-2 text-sm font-bold text-foreground">
-          {label}
-          {badge}
-        </p>
-        <p className="text-xs font-semibold text-muted-foreground">{sub}</p>
-      </div>
-      <MoneyAmount value={value} direction={direction} unit={false} className="text-sm" />
-    </div>
   );
 }
 

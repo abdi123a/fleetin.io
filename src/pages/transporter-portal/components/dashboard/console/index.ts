@@ -26,6 +26,7 @@ export { DetentionStatusCard } from './DetentionStatusCard';
 export { PaymentsCard } from './PaymentsCard';
 export { NetworkComparisonCard } from './NetworkComparisonCard';
 export { JobsInProgressCard } from './JobsInProgressCard';
+export { FleetPlanningCalendarCard } from './FleetPlanningCalendarCard';
 
 export { buildConsoleModel, type ConsoleModel } from './model';
 export { buildRateTabs, type RateTab } from './rateSeries';

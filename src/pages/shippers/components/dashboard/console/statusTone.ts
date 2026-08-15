@@ -1,6 +1,6 @@
 import { CheckCircle2, Clock3, Truck } from '@/design-system/icons';
 import type { ShipperShipmentRow } from '@/features/shipper-bi';
-import { ON_TIME_GRACE_MINUTES } from '@/lib/bi/config';
+import { onTimeGraceMinutes } from '@/lib/bi/config';
 
 /**
  * The console speaks in two colours, and this is where they are assigned.
@@ -110,7 +110,7 @@ export function classifyStatus(row: ShipperShipmentRow): ConsoleStatus {
   if (hasLanded(row)) return row.outcome === 'late' ? 'delayed' : 'delivered';
 
   // Still moving: late only once the forecast breaks the promise past grace.
-  return (row.varianceMinutes ?? 0) > ON_TIME_GRACE_MINUTES ? 'delayed' : 'in_transit';
+  return (row.varianceMinutes ?? 0) > onTimeGraceMinutes() ? 'delayed' : 'in_transit';
 }
 
 export function classifyRow(row: ShipperShipmentRow): StatusTone {

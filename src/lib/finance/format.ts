@@ -76,6 +76,43 @@ export function fmtDocDate(iso: string): string {
   });
 }
 
+/**
+ * DJF has no subunit in practice; every other currency here uses two decimal
+ * places. Mirrors `scaleForCurrency()` in the backend's `pricing.util.ts` so a
+ * minor-units figure decodes the same way on both sides.
+ */
+export function scaleForCurrency(currency: string): number {
+  return currency === 'FDJ' || currency === 'DJF' ? 0 : 2;
+}
+
+/**
+ * A figure typed into a form ("1 250.50") to the integer the API wants.
+ * Rounds rather than truncates — a half-centime typed by hand is a rounding
+ * question, and `Math.trunc` would quietly lose money on every entry.
+ */
+export function toMinorUnits(amount: number, currency: string): number {
+  return Math.round(amount * 10 ** scaleForCurrency(currency));
+}
+
+/** The inverse, for pre-filling a form from a stored minor-units figure. */
+export function fromMinorUnits(amountMinor: string | number | bigint, currency: string): number {
+  return Number(amountMinor) / 10 ** scaleForCurrency(currency);
+}
+
+/**
+ * Real bank-account/ledger money — a `BigInt`-shaped minor-units amount with
+ * its own currency, unlike the rest of this module's DJF-only, whole-unit
+ * figures. "4,859,014 DJF" / "1,250.50 USD".
+ */
+export function formatMoneyMinorUnits(amountMinor: string | number | bigint, currency: string): string {
+  const minor = typeof amountMinor === 'bigint' ? amountMinor : BigInt(Math.trunc(Number(amountMinor)));
+  const negative = minor < 0n;
+  const scale = scaleForCurrency(currency);
+  const whole = Number(negative ? -minor : minor) / 10 ** scale;
+  const body = formatNumber(whole, { minimumFractionDigits: scale, maximumFractionDigits: scale });
+  return `${negative ? '−' : ''}${body} ${currency}`;
+}
+
 // ─── Amount in words ────────────────────────────────────────────────────────
 
 /*

@@ -15,7 +15,7 @@ import {
   ROUTE_DEMAND,
 } from './world';
 import { Rng } from './random';
-import { CO2_KG_PER_KM_EMPTY, PAYMENT_TERMS_DAYS, SETTLEMENT_WEEKDAY } from '../config';
+import { co2KgPerKmEmpty, paymentTermsDays, settlementWeekday } from '../config';
 import type {
   BackhaulOpportunity,
   ContainerType,
@@ -69,7 +69,7 @@ const dayOf = (date: Date) => date.toISOString().slice(0, 10);
 /** Next weekly settlement run on or after the given instant. */
 function nextSettlementDate(after: Date): string {
   const date = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth(), after.getUTCDate()));
-  while (date.getUTCDay() !== SETTLEMENT_WEEKDAY) date.setUTCDate(date.getUTCDate() + 1);
+  while (date.getUTCDay() !== settlementWeekday()) date.setUTCDate(date.getUTCDate() + 1);
   return dayOf(date);
 }
 
@@ -481,7 +481,7 @@ function paymentFor(
   asOf: Date,
 ): Trip['payment'] {
   const invoicedAt = addHours(deliveredAt, rng.logNormal(60, 0.4));
-  const dueAt = addDays(invoicedAt, PAYMENT_TERMS_DAYS);
+  const dueAt = addDays(invoicedAt, paymentTermsDays());
   // A slow-payer segment gives the aging chart its long tail.
   const paidLagDays = rng.bool(0.1) ? rng.logNormal(62, 0.35) : rng.logNormal(24, 0.4);
   const paidAt = addDays(invoicedAt, paidLagDays);
@@ -579,7 +579,7 @@ function buildOpportunities(
           0.97,
         ),
         emptyKmAvoided,
-        co2SavedKg: Math.round(emptyKmAvoided * CO2_KG_PER_KM_EMPTY),
+        co2SavedKg: Math.round(emptyKmAvoided * co2KgPerKmEmpty()),
       });
     }
   }
@@ -609,7 +609,7 @@ function buildOpportunities(
       deadheadKm,
       matchScore: clamp(rng.float(0.3, 0.6), 0.2, 0.97),
       emptyKmAvoided,
-      co2SavedKg: Math.round(emptyKmAvoided * CO2_KG_PER_KM_EMPTY),
+      co2SavedKg: Math.round(emptyKmAvoided * co2KgPerKmEmpty()),
     });
   }
 

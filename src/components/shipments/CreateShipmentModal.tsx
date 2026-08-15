@@ -10,6 +10,7 @@ import {
   Package,
   MapPin,
   Info,
+  AlertCircle,
   Check,
   Layers,
   Wrench,
@@ -34,13 +35,15 @@ import {
   SheetDescription,
 } from '@/design-system';
 import { useShipmentStore } from '@/stores/shipment.store';
-import { useFinanceStore } from '@/stores/finance.store';
 import { ROUTES, buildPath } from '@/config/routes';
 import { useShippers } from '@/features/shippers/api/queries';
 import { usePartners } from '@/features/partners/api/queries';
 import { useCreateShipment } from '@/features/shipments/api/queries';
-import { USD_TO_DJF } from '@/features/transporter-bi/config';
-import { setProjectLink } from '@/lib/operations/shipmentProjectLink';
+import { useCreateBookings } from '@/features/bookings/api/queries';
+import type { CreateBookingItemPayload } from '@/features/bookings/api/bookingsService';
+import { useProjects } from '@/features/finance';
+import { useSettings } from '@/features/settings';
+import { usdToDjf } from '@/features/transporter-bi/config';
 import type { PartnerRecord } from '@/types/partner';
 import { cn } from '@/utils';
 import { IconChip } from '@/design-system';
@@ -61,8 +64,79 @@ function resolvePartnerRateFDJ(partner: PartnerRecord | undefined, vehicleType: 
       (tier) => needle.includes(tier.vehicleType.toLowerCase()) || tier.vehicleType.toLowerCase().includes(needle),
     ) ?? tiers[0];
   if (!match) return 65000;
-  const amount = match.currency === 'USD' ? match.basePrice * USD_TO_DJF : match.basePrice;
+  const amount = match.currency === 'USD' ? match.basePrice * usdToDjf() : match.basePrice;
   return Math.round(amount);
+}
+
+/**
+ * One real `Booking` per container (or one, for bulk/machinery, which never
+ * split across multiple containers today). Each transporter assignment's
+ * `vehicles` count expands into that many consecutive slots — assignment A
+ * with 3 vehicles claims the first 3 containers, assignment B the next N —
+ * which is the only container↔vehicle mapping this wizard collects today;
+ * there is no per-container vehicle picker to read instead. DPCS-sourced
+ * bookings pass their externally-assigned booking id through as the real
+ * `reference` (one per slot, same order) instead of letting the backend mint
+ * one — DPCS already tracks these, Fleetin must not invent a second id for
+ * the same container (see `project-real-booking-empty-return-backend`).
+ */
+function buildBookingItems(params: {
+  isContainer: boolean;
+  containerNumbers: string[];
+  transporterAssignments: { partnerId: string; vehicles: number; bookingIds: string[] }[];
+  isDpcsSource: boolean;
+  cargoType: string;
+  shipmentCategory: string;
+  shippingLine?: string;
+  containerReturnDepot?: string;
+  containerReturnDeadline?: string;
+  containerReturnFreeDays?: number;
+  scheduledPickupTime: string;
+}): CreateBookingItemPayload[] {
+  const {
+    isContainer,
+    containerNumbers,
+    transporterAssignments,
+    isDpcsSource,
+    cargoType,
+    shipmentCategory,
+    shippingLine,
+    containerReturnDepot,
+    containerReturnDeadline,
+    containerReturnFreeDays,
+    scheduledPickupTime,
+  } = params;
+
+  if (!isContainer) {
+    const first = transporterAssignments[0];
+    return [{ cargoType, shipmentCategory, partnerId: first?.partnerId || undefined, scheduledPickupTime }];
+  }
+
+  const slots: { partnerId: string; reference?: string }[] = [];
+  for (const assignment of transporterAssignments) {
+    for (let i = 0; i < assignment.vehicles; i += 1) {
+      slots.push({
+        partnerId: assignment.partnerId,
+        reference: isDpcsSource ? assignment.bookingIds[i] : undefined,
+      });
+    }
+  }
+
+  return containerNumbers.filter(Boolean).map((containerNumber, index) => {
+    const slot = slots[index];
+    return {
+      reference: slot?.reference?.trim() || undefined,
+      cargoType,
+      shipmentCategory,
+      containerNumber,
+      shippingLine,
+      partnerId: slot?.partnerId || undefined,
+      containerReturnDepot,
+      containerReturnDeadline,
+      containerReturnFreeDays,
+      scheduledPickupTime,
+    };
+  });
 }
 
 // ─── Static data ─────────────────────────────────────────────────────────────
@@ -306,6 +380,7 @@ export function CreateShipmentModal() {
   const defaultTransporter = partners[0];
 
   const createShipmentMutation = useCreateShipment();
+  const createBookingsMutation = useCreateBookings();
 
   const [shipmentSource, setShipmentSource] = useState<'dpcs' | 'custom' | null>(null);
   const isDpcsSource = shipmentSource === 'dpcs';
@@ -313,6 +388,7 @@ export function CreateShipmentModal() {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [completedSteps, setCompletedSteps] = useState<number[]>([]);
   const [successToast, setSuccessToast] = useState<{ id: string; bookingId: string } | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Form Fields State: Category (Container, Bulk, Machinery)
   const [shipmentCategory, setShipmentCategory] = useState<'containerized' | 'bulk' | 'machinery'>('containerized');
@@ -376,19 +452,10 @@ export function CreateShipmentModal() {
   // inline while creating a shipment" concept anywhere else in the product.
   const [selectedShipperId, setSelectedShipperId] = useState<string>('');
 
-  // Which of the shipper's open finance projects this shipment belongs to,
-  // if any — '' means a one-off. The Finance module has no backend of its
-  // own yet, so this tag is recorded locally (see `shipmentProjectLink`)
-  // rather than sent to the shipment API.
+  // Which of the shipper's open Finance projects this shipment belongs to,
+  // if any — '' means a one-off. Sent as `projectId` on the real create payload.
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
-  const financeProjects = useFinanceStore((state) => state.projects);
-  const clientProjects = useMemo(
-    () =>
-      financeProjects.filter(
-        (project) => project.clientId === selectedShipperId && project.status === 'active',
-      ),
-    [financeProjects, selectedShipperId],
-  );
+  const { data: clientProjects = [] } = useProjects({ shipperId: selectedShipperId, status: 'active' }, { enabled: Boolean(selectedShipperId) });
   useEffect(() => {
     setSelectedProjectId('');
   }, [selectedShipperId]);
@@ -419,6 +486,14 @@ export function CreateShipmentModal() {
 
   // Pricing — the rate lives per transporter (set in the Fleet step); the total is derived.
   const [paymentStatus, setPaymentStatus] = useState<'Paid' | 'Pending'>('Pending');
+  // Fleetin's house commission, for the payout split shown in the review step.
+  // Read-only here: the wizard displays where the money lands, it never sets it.
+  const { data: settings } = useSettings();
+  // Normally empty — the price comes from the transporters' own price lists.
+  // Filled only when an operator explicitly overrides with a negotiated figure.
+  const [clientRateInput, setClientRateInput] = useState<string>('');
+  /** Off by default: the price list decides, so the wizard cannot leave a shipment unpriced. */
+  const [overridePrice, setOverridePrice] = useState(false);
   const [requiredDocuments, setRequiredDocuments] = useState<string[]>(['DPCS Clearance', 'Bill of Lading']);
   const [customDocuments, setCustomDocuments] = useState<string[]>(() => loadCustomDocuments());
   const [newDocumentName, setNewDocumentName] = useState<string>('');
@@ -528,11 +603,23 @@ export function CreateShipmentModal() {
     setCurrentStep(1);
     setCompletedSteps([]);
     setSuccessToast(null);
+    setSubmitError(null);
     setShipmentSource(null);
   };
 
   const isContainer = shipmentCategory === 'containerized';
   const containerNumberDiff = containerNumbers.length - containerQuantity;
+  const duplicateContainerNumbers = useMemo(() => {
+    const seen = new Set<string>();
+    const dupes = new Set<string>();
+    for (const n of containerNumbers) {
+      if (!n) continue;
+      if (seen.has(n)) dupes.add(n);
+      seen.add(n);
+    }
+    return dupes;
+  }, [containerNumbers]);
+  const hasDuplicateContainerNumbers = isContainer && duplicateContainerNumbers.size > 0;
 
   const activeShipper = sampleShippers.find((s) => s.id === selectedShipperId);
 
@@ -542,10 +629,45 @@ export function CreateShipmentModal() {
   const vehicleDiff = vehicleCount - vehiclesNeeded;
   const dpcsFieldsMissing =
     isDpcsSource && (!dpcsReference.trim() || transporterAssignments.some((a) => a.bookingIds.length === 0));
+  // The shipment's price, and the whole of the pricing rule: containers times
+  // the per-mission price on the chosen transporter's own list. This is what
+  // the shipper is billed — Fleetin's commission is already inside it, and the
+  // transporters are paid this less that commission.
   const totalCostFDJ = transporterAssignments.reduce((sum, a) => {
     const partner = partners.find((p) => p.id === a.partnerId);
     return sum + a.vehicles * resolvePartnerRateFDJ(partner, vehicleType);
   }, 0);
+  const commissionPct = settings?.fleetinCommissionPct ?? 0;
+  const fleetinCutFDJ = Math.round((totalCostFDJ * commissionPct) / 100);
+  const transporterPayoutFDJ = totalCostFDJ - fleetinCutFDJ;
+
+  // Every reason "Confirm & Create" can't be pressed yet — shown together near
+  // the submit button so a missing field is never a silent no-op click (the
+  // step-2 inline banners above say the same things, but by step 3 they're
+  // scrolled out of view).
+  const validationIssues: string[] = [];
+  if (!activeShipper) validationIssues.push('Select a shipper.');
+  if (transporterAssignments.some((a) => !a.partnerId)) validationIssues.push('Assign a transporter to every fleet row.');
+  if (isContainer && containerNumberDiff !== 0) {
+    validationIssues.push(
+      containerNumberDiff < 0
+        ? `Add ${Math.abs(containerNumberDiff)} more container number(s) to match the ${containerQuantity} selected.`
+        : `Remove ${containerNumberDiff} extra container number(s), or increase the container count.`,
+    );
+  }
+  if (hasDuplicateContainerNumbers) {
+    validationIssues.push('Remove the duplicate container number(s) — each one must be unique.');
+  }
+  if (vehicleDiff !== 0) {
+    validationIssues.push(
+      vehicleDiff < 0
+        ? `Assign ${Math.abs(vehicleDiff)} more vehicle(s) to match the ${vehiclesNeeded} needed.`
+        : `Remove ${vehicleDiff} extra vehicle(s), or increase what's needed.`,
+    );
+  }
+  if (dpcsFieldsMissing) {
+    validationIssues.push("Enter the DPCS Shipment ID and each transporter's Booking ID(s).");
+  }
 
   const addTransporterAssignment = () => {
     const usedIds = new Set(transporterAssignments.map((a) => a.partnerId));
@@ -678,10 +800,12 @@ export function CreateShipmentModal() {
     return `Machinery (${machineryName})`;
   };
 
-  const canSubmit = Boolean(activeShipper) && transporterAssignments.every((a) => a.partnerId);
+  const canSubmit = validationIssues.length === 0;
 
   const handleCreateShipment = async () => {
     if (!activeShipper || !canSubmit) return;
+
+    setSubmitError(null);
 
     const resolvedContainerNumber = isContainer ? containerNumbers.filter(Boolean).join(', ') : undefined;
     const scheduledPickupTimeIso = new Date(`${pickupDate}T${pickupTime}:00`).toISOString();
@@ -689,50 +813,75 @@ export function CreateShipmentModal() {
       ? new Date(`${returnDeadline}T${returnDeadlineTime}:00`).toISOString()
       : undefined;
 
-    const created = await createShipmentMutation.mutateAsync({
-      shipmentSource: shipmentSource ?? 'custom',
-      dpcsReference: isDpcsSource ? dpcsReference.trim() : undefined,
-      bookingId: !isDpcsSource ? prefillData?.bookingId : undefined,
-      shipperId: activeShipper.id,
-      transporterAssignments: transporterAssignments.map((a) => ({
-        partnerId: a.partnerId,
-        vehicles: a.vehicles,
-        bookingIds: a.bookingIds,
-      })),
-      preferredVehicleType: vehicleType,
-      pickupLocationName: pickupLocation,
-      pickupLocationAddress: pickupLocation,
-      pickupLocationCity: pickupCity,
-      pickupGateOrTerminal: 'Terminal Gate 4A',
-      deliveryLocationName: deliveryLocation,
-      deliveryLocationAddress: deliveryLocation,
-      deliveryLocationCity: deliveryCity,
-      estimatedDistanceKm: estimatedDistanceKm,
-      estimatedDurationHours: '18h 30m',
-      cargoType: getResolvedCargoLabel(),
-      shipmentCategory: shipmentCategory === 'machinery' ? 'bulky_goods' : shipmentCategory,
-      machineryType: shipmentCategory === 'machinery' ? machineryClassification : undefined,
-      requiredDocuments: requiredDocuments.length > 0 ? requiredDocuments : undefined,
-      bulkCommodity: shipmentCategory === 'bulk' ? bulkCommodity : undefined,
-      containerNumber: resolvedContainerNumber,
-      shippingLine: isContainer ? shippingLine : undefined,
-      containerReturnDepot: isContainer ? deliveryLocation : undefined,
-      containerReturnDeadline: containerReturnDeadlineIso,
-      containerReturnFreeDays: isContainer ? freeDays : undefined,
-      goodsDescription:
-        isContainer
-          ? `Container Cargo (${containerSize})`
-          : shipmentCategory === 'bulk'
-          ? bulkCommodity
-          : machineryClassification,
-      totalWeightKg: totalWeightKg,
-      paymentStatus,
-      scheduledPickupTime: scheduledPickupTimeIso,
-    });
+    try {
+      const created = await createShipmentMutation.mutateAsync({
+        shipmentSource: shipmentSource ?? 'custom',
+        dpcsReference: isDpcsSource ? dpcsReference.trim() : undefined,
+        bookingId: !isDpcsSource ? prefillData?.bookingId : undefined,
+        shipperId: activeShipper.id,
+        transporterAssignments: transporterAssignments.map((a) => ({
+          partnerId: a.partnerId,
+          vehicles: a.vehicles,
+          bookingIds: a.bookingIds,
+        })),
+        preferredVehicleType: vehicleType,
+        pickupLocationName: pickupLocation,
+        pickupLocationAddress: pickupLocation,
+        pickupLocationCity: pickupCity,
+        pickupGateOrTerminal: 'Terminal Gate 4A',
+        deliveryLocationName: deliveryLocation,
+        deliveryLocationAddress: deliveryLocation,
+        deliveryLocationCity: deliveryCity,
+        estimatedDistanceKm: estimatedDistanceKm,
+        estimatedDurationHours: '18h 30m',
+        cargoType: getResolvedCargoLabel(),
+        shipmentCategory: shipmentCategory === 'machinery' ? 'bulky_goods' : shipmentCategory,
+        machineryType: shipmentCategory === 'machinery' ? machineryClassification : undefined,
+        requiredDocuments: requiredDocuments.length > 0 ? requiredDocuments : undefined,
+        bulkCommodity: shipmentCategory === 'bulk' ? bulkCommodity : undefined,
+        containerNumber: resolvedContainerNumber,
+        shippingLine: isContainer ? shippingLine : undefined,
+        containerReturnDepot: isContainer ? deliveryLocation : undefined,
+        containerReturnDeadline: containerReturnDeadlineIso,
+        containerReturnFreeDays: isContainer ? freeDays : undefined,
+        goodsDescription:
+          isContainer
+            ? `Container Cargo (${containerSize})`
+            : shipmentCategory === 'bulk'
+            ? bulkCommodity
+            : machineryClassification,
+        totalWeightKg: totalWeightKg,
+        paymentStatus,
+        scheduledPickupTime: scheduledPickupTimeIso,
+        clientRateMinorUnits: clientRateInput.trim() ? Number(clientRateInput) : undefined,
+        projectId: selectedProjectId || undefined,
+      });
 
-    addShipment(created);
-    if (selectedProjectId) setProjectLink(created.id, selectedProjectId);
-    setSuccessToast({ id: created.id, bookingId: created.bookingId });
+      // One real booking per container (or one, for bulk/machinery) — the
+      // shipment above is the shipper's request; these are what Empty Return
+      // and per-container tracking actually key off. See `buildBookingItems`.
+      await createBookingsMutation.mutateAsync({
+        shipmentId: created.id,
+        bookings: buildBookingItems({
+          isContainer,
+          containerNumbers,
+          transporterAssignments,
+          isDpcsSource,
+          cargoType: getResolvedCargoLabel(),
+          shipmentCategory: shipmentCategory === 'machinery' ? 'bulky_goods' : shipmentCategory,
+          shippingLine: isContainer ? shippingLine : undefined,
+          containerReturnDepot: isContainer ? deliveryLocation : undefined,
+          containerReturnDeadline: containerReturnDeadlineIso,
+          containerReturnFreeDays: isContainer ? freeDays : undefined,
+          scheduledPickupTime: scheduledPickupTimeIso,
+        }),
+      });
+
+      addShipment(created);
+      setSuccessToast({ id: created.id, bookingId: created.bookingId });
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Something went wrong creating this shipment. Please try again.');
+    }
   };
 
   const handleFinishAndNavigate = () => {
@@ -1645,15 +1794,74 @@ export function CreateShipmentModal() {
                   <div className="space-y-3 border-t border-border pt-5">
                     <div className="space-y-1 rounded-lg border border-primary/15 bg-primary-subtle p-4">
                       <span className="text-[10px] font-bold text-primary-subtle-foreground uppercase tracking-wider">
-                        Total Shipment Freight
+                        Shipment Price — what the shipper is billed
                       </span>
                       <div className="text-2xl font-extrabold text-foreground">
                         {totalCostFDJ.toLocaleString()} FDJ
                       </div>
                       <p className="text-[11px] text-muted-foreground">
-                        {vehicleCount} vehicle(s) across {transporterAssignments.length} transporter{transporterAssignments.length !== 1 ? 's' : ''} · rates from each transporter's pricing grid
+                        {vehicleCount} × per-mission price from {transporterAssignments.length === 1 ? "the transporter's" : "each transporter's"} own price
+                        list{transporterAssignments.length !== 1 ? ` · ${transporterAssignments.length} transporters` : ''}
                       </p>
                     </div>
+
+                    {/* Where the money lands. Shown because the price above is
+                        gross of Fleetin's cut — without this split, "what the
+                        transporter gets" is a number nobody can see. */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded-lg border border-border bg-muted/20 p-3">
+                        <span className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                          Transporter is paid
+                        </span>
+                        <div className="mt-0.5 font-mono text-base font-black tabular-nums text-foreground">
+                          {transporterPayoutFDJ.toLocaleString()} FDJ
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-border bg-muted/20 p-3">
+                        <span className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                          Fleetin keeps ({commissionPct}%)
+                        </span>
+                        <div className="mt-0.5 font-mono text-base font-black tabular-nums text-foreground">
+                          {fleetinCutFDJ.toLocaleString()} FDJ
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* An override, never a blank to fill in. The price is
+                        always resolved from the price list, so leaving this
+                        alone can no longer produce an unpriced shipment —
+                        which is what used to strand shipments in Finance. */}
+                    {overridePrice ? (
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-foreground block">Negotiated price for this shipment</label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={clientRateInput}
+                          onChange={(e) => setClientRateInput(e.target.value)}
+                          placeholder={String(totalCostFDJ)}
+                          suffixText="FDJ"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOverridePrice(false);
+                            setClientRateInput('');
+                          }}
+                          className="text-[10px] font-bold text-primary underline-offset-2 hover:underline"
+                        >
+                          Use the price list instead
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setOverridePrice(true)}
+                        className="text-[11px] font-bold text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                      >
+                        Override with a negotiated price
+                      </button>
+                    )}
 
                     <div className="space-y-2">
                       <label className="text-[11px] font-bold text-foreground block">Payment Status *</label>
@@ -1743,6 +1951,30 @@ export function CreateShipmentModal() {
             </div>
             </div>
 
+            {/* ── VALIDATION / SUBMIT ERROR ── */}
+            {currentStep === STEPS.length && (validationIssues.length > 0 || submitError) && (
+              <div className="shrink-0 space-y-2 border-t border-border/40 px-6 py-3 sm:px-8">
+                {submitError ? (
+                  <div className="flex items-start gap-2 rounded-md bg-danger-subtle p-2.5 text-[11px] text-danger-subtle-foreground">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>{submitError}</span>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-2 rounded-md bg-warning-subtle p-2.5 text-[11px] text-warning-subtle-foreground">
+                    <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="font-bold">Before you can create this shipment:</p>
+                      <ul className="list-disc space-y-0.5 pl-3.5">
+                        {validationIssues.map((issue) => (
+                          <li key={issue}>{issue}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* ── STICKY FOOTER ── */}
             <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border/40 bg-background px-6 py-4 sm:px-8">
               <Button
@@ -1769,8 +2001,8 @@ export function CreateShipmentModal() {
                   type="button"
                   size="sm"
                   onClick={handleCreateShipment}
-                  disabled={!canSubmit || createShipmentMutation.isPending}
-                  isLoading={createShipmentMutation.isPending}
+                  disabled={!canSubmit || createShipmentMutation.isPending || createBookingsMutation.isPending}
+                  isLoading={createShipmentMutation.isPending || createBookingsMutation.isPending}
                   className="gap-1.5 rounded-lg bg-primary px-5 font-semibold text-primary-foreground"
                 >
                   <CheckCircle2 className="h-4 w-4" />

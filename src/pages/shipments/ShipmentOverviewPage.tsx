@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { RotateCcw } from 'lucide-react';
 import {
   Bell,
@@ -20,45 +20,67 @@ import {
   VerificationBadge,
 } from '@/design-system';
 import { ROUTES } from '@/config/routes';
-import { BookingPreviewSheet, type BookingPreviewItem } from './components';
-import { useShipment } from '@/features/shipments/api/queries';
-import { getProjectLink } from '@/lib/operations/shipmentProjectLink';
-import { useFinanceStore } from '@/stores/finance.store';
-import type { Mission, MissionStatus } from '@/types/mission';
+import { BookingPreviewSheet, type BookingPreviewItem, type EmptyReturnStage } from './components';
+import { useShipment, useShipmentRaw } from '@/features/shipments/api/queries';
+import { useBookingsForShipment } from '@/features/bookings/api/queries';
+import { displayBookingStatus, statusIntentOf, type BookingRecord } from '@/features/bookings/api/bookingsService';
+import { useCycles } from '@/features/empty-returns/api/queries';
+import type { EmptyReturnCycleRecord } from '@/features/empty-returns/api/emptyReturnsService';
+import { useProject } from '@/features/finance';
 
 const PAGE_SIZE = 3;
 
+/** Mirrors the backend's `DELIVERED_STATUSES` (`empty-return-status.util.ts`) — the same boundary Empty Return itself uses to decide when a booking's container is even eligible to go back. */
+const DELIVERED_STATUSES = ['Arrived', 'Unloading', 'POD Submitted', 'Completed'];
+
 /**
- * `BookingPreviewItem.status`/`statusIntent` speak a display-only vocabulary
- * (`Dispatched`, `Port Entry`, `Empty Returned`, …) that predates — and has
- * no 1:1 mapping to — the real `MissionStatus` ladder. This buckets the real
- * status into the closest intent color; the label itself stays the real
- * status string rather than inventing a fake equivalent.
+ * Where this booking's own container sits on its way back — purely a
+ * read of Empty Return's already-real data (a matched cycle, or the
+ * standalone flag), never a new status of its own. `undefined` before the
+ * booking is delivered, since the question doesn't apply yet.
  */
-function statusIntentForMission(status: MissionStatus): 'green' | 'orange' | 'blue' | 'slate' {
-  if (status === 'Completed' || status === 'POD Submitted') return 'green';
-  if (status === 'En Route' || status === 'Arrived') return 'blue';
-  if (status === 'Pending' || status === 'Assigned' || status === 'Driver Assigned' || status === 'Payment Pending') {
-    return 'orange';
-  }
-  return 'slate';
+function emptyReturnStageOf(booking: BookingRecord, cycle: EmptyReturnCycleRecord | undefined): EmptyReturnStage | undefined {
+  if (!DELIVERED_STATUSES.includes(booking.status)) return undefined;
+  if (cycle) return cycle.status === 'completed' ? 'returned' : 'matched';
+  if (booking.emptyReturnException) return 'standalone';
+  return 'waiting_match';
 }
 
-/** Maps the single real shipment into the one-element list this page's card grid/pipeline UI expects. */
-function missionToBookingPreview(mission: Mission): BookingPreviewItem {
-  const podStep = mission.timeline.find((step) => step.key === 'pod_upload' && step.status === 'completed');
+/** Compact label for the booking card's own row — the full sentence lives in the preview sheet's Empty Return card. */
+const EMPTY_RETURN_STAGE_LABEL: Record<EmptyReturnStage, string> = {
+  waiting_match: 'Waiting Match',
+  matched: 'In Progress',
+  returned: 'Returned',
+  standalone: 'Standalone',
+};
+
+/** One card per real `Booking` (one per container/trip) — no more single-tier Shipment-as-one-card synthesis now that Bookings are real (Phase 2). */
+function bookingToPreviewItem(booking: BookingRecord, cycle: EmptyReturnCycleRecord | undefined): BookingPreviewItem {
+  const now = Date.now();
+  const podStep = booking.timeline?.find((step) => step.key === 'pod_upload' && step.status === 'completed');
   return {
-    id: mission.id,
-    bookingNumber: mission.bookingId.replace('BKG-', ''),
-    partnerName: mission.transporter.company,
-    driverName: mission.driver?.name ?? 'Unassigned',
-    driverPhone: mission.driver?.phone,
-    driverVerified: mission.driver?.isVerified ?? false,
-    vehicleNumber: mission.assignedTruck?.registrationNumber ?? '—',
-    vehicleType: mission.assignedTruck?.vehicleType,
-    vehicleVerified: mission.assignedTruck?.isVerified ?? false,
-    status: mission.status,
-    statusIntent: statusIntentForMission(mission.status),
+    id: booking.id,
+    bookingNumber: booking.reference.replace('BKG-', ''),
+    containerNumber: booking.containerNumber ?? undefined,
+    partnerId: booking.partnerId ?? undefined,
+    partnerName: booking.partner?.companyLegalName,
+    vehicleId: booking.vehicleId ?? undefined,
+    driverId: booking.driverId ?? undefined,
+    driverName: booking.driver?.fullName ?? 'Unassigned',
+    driverPhone: booking.driver?.phone,
+    // "Verified" reads as current documents, not expired — the closest honest
+    // signal the real data has; there is no separate verified flag to fake.
+    driverVerified: booking.driver ? new Date(booking.driver.licenseExpiry).getTime() > now : false,
+    vehicleNumber: booking.vehicle?.plateNumber ?? '—',
+    vehicleType: booking.vehicle?.truckType,
+    vehicleVerified: booking.vehicle
+      ? new Date(booking.vehicle.registrationExpiry).getTime() > now &&
+        new Date(booking.vehicle.insuranceExpiry).getTime() > now
+      : false,
+    status: booking.status,
+    statusIntent: statusIntentOf(booking.status),
+    emptyReturnStage: emptyReturnStageOf(booking, cycle),
+    emptyReturnCycleReference: cycle?.reference,
     podDocument: podStep
       ? { name: podStep.podFileUrl ?? 'Proof of Delivery', size: '—', uploadedAt: podStep.timestamp ?? '' }
       : null,
@@ -68,27 +90,65 @@ function missionToBookingPreview(mission: Mission): BookingPreviewItem {
 export function ShipmentOverviewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: mission, isLoading, isError } = useShipment(id);
+  const { data: shipmentRaw } = useShipmentRaw(mission?.id);
+  const { data: bookingRecords } = useBookingsForShipment(mission?.id);
+  // Every cycle system-wide — cheap at this data's scale, and the only way
+  // to know whether one of THIS shipment's bookings is the "empty" side of
+  // a match; there's no `?bookingIds=` filter on the endpoint to narrow it
+  // server-side.
+  const { data: cycles } = useCycles();
+  const cyclesByBookingId = useMemo(() => {
+    const map = new Map<string, EmptyReturnCycleRecord>();
+    for (const cycle of cycles ?? []) map.set(cycle.bookingId, cycle);
+    return map;
+  }, [cycles]);
+  // Money moves per shipment, never per booking — one flag applies to every
+  // booking's card alike.
+  const payoutReleased = Boolean(shipmentRaw?.payoutReleasedAt);
 
   const [selectedBooking, setSelectedBooking] = useState<BookingPreviewItem | null>(null);
   const [isBookingSheetOpen, setIsBookingSheetOpen] = useState(false);
   const [bookingPage, setBookingPage] = useState(1);
 
+  // One card per real Booking (Phase 2) — a local overlay on top of the live
+  // query so the sheet's cosmetic-only edits (POD upload, schedule fields,
+  // neither of which has a backend field yet) can still update a card in
+  // place without waiting on a refetch. A real status change instead comes
+  // back through the query itself (see BookingPreviewSheet's own mutation).
   const [bookings, setBookings] = useState<BookingPreviewItem[]>([]);
 
-  // The tag recorded at creation time (see CreateShipmentModal) — frontend-
-  // only until the Finance module has a real backend project to join on.
-  const linkedProjectId = useMemo(() => (id ? getProjectLink(id) : null), [id]);
-  const linkedProject = useFinanceStore((state) =>
-    linkedProjectId ? state.projects.find((project) => project.id === linkedProjectId) : undefined,
-  );
+  // The real Finance project this shipment was tagged to at creation (see CreateShipmentModal).
+  const { data: linkedProject } = useProject(shipmentRaw?.projectId ?? undefined);
 
-  // The real shipment loads asynchronously; once it does, it becomes the
-  // page's single booking card (see missionToBookingPreview's doc comment —
-  // there is no Booking-tier split, single-tier Shipment maps to one card).
   useEffect(() => {
-    if (mission) setBookings([missionToBookingPreview(mission)]);
-  }, [mission]);
+    if (bookingRecords) {
+      setBookings(bookingRecords.map((b) => bookingToPreviewItem(b, cyclesByBookingId.get(b.id))));
+    }
+  }, [bookingRecords, cyclesByBookingId]);
+
+  // Deep link from Empty Return's cycle detail ("open this container's own
+  // booking") — `?openBooking=<id>` opens the matching card's preview sheet
+  // once the list has loaded, then clears itself so a refresh doesn't reopen it.
+  const openBookingId = searchParams.get('openBooking');
+  useEffect(() => {
+    if (!openBookingId || bookings.length === 0) return;
+    const target = bookings.find((b) => b.id === openBookingId);
+    if (target) {
+      setSelectedBooking(target);
+      setIsBookingSheetOpen(true);
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('openBooking');
+        return next;
+      },
+      { replace: true },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openBookingId, bookings]);
 
   const totalPages = Math.ceil(bookings.length / PAGE_SIZE);
   const pagedBookings = bookings.slice((bookingPage - 1) * PAGE_SIZE, bookingPage * PAGE_SIZE);
@@ -160,7 +220,7 @@ export function ShipmentOverviewPage() {
       </div>
 
       {/* ── PIPELINE FLOW ── */}
-      <PipelineFlowCard bookings={bookings} onBookingClick={handleBookingClick} />
+      <PipelineFlowCard bookings={bookings} onBookingClick={handleBookingClick} payoutReleased={payoutReleased} />
 
       {/* ── BOOKINGS CARD ── */}
       <Card className="p-4 sm:p-5 rounded-lg border border-border/80 bg-card space-y-3">
@@ -203,7 +263,7 @@ export function ShipmentOverviewPage() {
                       <span>POD</span>
                     </span>
                   )}
-                  <Badge variant="subtle" intent={getBadgeIntent()} size="sm">{item.status}</Badge>
+                  <Badge variant="subtle" intent={getBadgeIntent()} size="sm">{displayBookingStatus(item.status)}</Badge>
                 </div>
 
                 {/* Fields */}
@@ -229,6 +289,19 @@ export function ShipmentOverviewPage() {
                       )}
                     </div>
                   </div>
+
+                  {item.emptyReturnStage && (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground shrink-0">Empty Return</span>
+                      <span
+                        className={`font-semibold ${
+                          item.emptyReturnStage === 'returned' ? 'text-success' : 'text-warning-subtle-foreground'
+                        }`}
+                      >
+                        {EMPTY_RETURN_STAGE_LABEL[item.emptyReturnStage]}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">

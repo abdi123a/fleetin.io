@@ -13,7 +13,7 @@ import { getTransporterProfile } from '@/features/shipper-bi/mocks/transporterPr
 import type { ShipmentFact } from '../derive';
 import { mean, ratio, sum } from '../stats';
 import { hoursBetween } from '../time';
-import { RETURN_HEADROOM_BANDS } from '../config';
+import { returnHeadroomBands } from '../config';
 import {
   bucketSeries,
   buildKpi,
@@ -413,8 +413,8 @@ function buildReturnHeadroom(context: BiContext, awaiting: ShipmentFact[]): Cate
       continue;
     }
     const hoursRemaining = hoursBetween(asOf, fact.freeTimeExpiresAt);
-    if (hoursRemaining <= RETURN_HEADROOM_BANDS.overdue) overdue.push(fact);
-    else if (hoursRemaining <= RETURN_HEADROOM_BANDS.dueSoon) dueSoon.push(fact);
+    if (hoursRemaining <= returnHeadroomBands().overdue) overdue.push(fact);
+    else if (hoursRemaining <= returnHeadroomBands().dueSoon) dueSoon.push(fact);
     else comfortable.push(fact);
   }
 

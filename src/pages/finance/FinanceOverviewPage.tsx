@@ -1,81 +1,141 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import { ROUTES } from '@/config/routes';
-import { ArrowRight, Banknote, Clock, FileText, Landmark, PauseCircle, Receipt, TrendingUp, Wallet } from '@/design-system/icons';
+import { ROUTES, buildPath } from '@/config/routes';
+import { ArrowRight, Banknote, Clock, FileText, Landmark, PauseCircle, Receipt, TrendingUp } from '@/design-system/icons';
 import { compactDjf, fmtDjf, pct } from '@/lib/finance';
-
+import { useShippers } from '@/features/shippers/api/queries';
+import { useRepriceUnpricedShipments, useShipmentsRaw } from '@/features/shipments/api/queries';
+import { useCreditFacilities, useDrawdowns, useInvoices, useOpenHolds, usePaymentOrders } from '@/features/finance';
 import { cn } from '@/utils';
 
 import { ContractRemindersPanel } from './components/ContractReminders';
 import { ExposureChart, type ExposurePoint } from './components/ExposureChart';
-import {
-  ActionButton,
-  Bar,
-  DirectionGlyph,
-  EmptyState,
-  FilterPills,
-  ListRow,
-  MoneyAmount,
-  PageHead,
-  Panel,
-  Pill,
-  RiskTag,
-  Ring,
-  StatCard,
-} from './components/kit';
-import { useFinanceModel } from './model';
+import { ActionButton, Bar, DirectionGlyph, EmptyState, FilterPills, ListRow, MoneyAmount, PageHead, Panel, Pill, Ring, StatCard } from './components/kit';
+import { aggregateMoneyPosition } from './shipmentFinance';
+
+interface QueueItem {
+  id: string;
+  title: string;
+  detail: string;
+  direction: 'out' | 'in';
+  amountDjf?: number;
+}
 
 /**
- * The one-screen answer to "where is our money right now".
- *
- * Four figures carry the whole working-capital loop: what is payable, what is
- * frozen, what CAC has funded, what clients still owe. Everything else on this
- * page is a list of names — because that is what an operator acts on.
+ * The one-screen answer to "where is our money right now" — built against
+ * real, book-wide data. A few of the mock's queue kinds needed per-booking
+ * data to compute (missing PoD, per-transporter settlement pending), which
+ * would be N+1 at this scale; those still surface on the shipment's own
+ * detail page, just not summarized here. Credit facilities/drawdowns are
+ * standalone real objects (no per-shipment funding link), so "capacity by
+ * funding source" reads from those directly rather than a per-shipment
+ * `FundingSource` that doesn't exist.
  */
 export function FinanceOverviewPage() {
-  const model = useFinanceModel();
   const [feed, setFeed] = useState<'queue' | 'paid'>('queue');
 
-  const utilisation = model.bankCeilingTotal > 0 ? model.bankDrawnTotal / model.bankCeilingTotal : 0;
-  const topQueue = model.queue.slice(0, 5);
-  // Largest exposure first, so the curve opens on the client that matters most.
-  const exposure: ExposurePoint[] = [...model.clientAr]
-    .filter((row) => row.openTotal > 0)
-    .sort((a, b) => b.openTotal - a.openTotal)
-    .map((row) => ({
-      id: row.client.id,
-      label: row.client.name,
-      withinTermsDjf: row.openTotal - row.overdueTotal,
-      pastDueDjf: row.overdueTotal,
-      dso: row.dso,
-      termsDays: row.client.paymentTermsDays,
-    }));
+  const { data: shippersData } = useShippers({ limit: 200 });
+  const { data: shipmentsData } = useShipmentsRaw({ limit: 500 });
+  const { data: invoicesData } = useInvoices({ limit: 500 });
+  const { data: paidOrdersData } = usePaymentOrders({ status: 'Paid', limit: 20 });
+  const { data: openHolds = [] } = useOpenHolds();
+  const { data: facilities = [] } = useCreditFacilities();
+  const { data: drawdowns = [] } = useDrawdowns();
+
+  const shippers = useMemo(() => shippersData?.items ?? [], [shippersData]);
+  const shipments = useMemo(() => shipmentsData?.items ?? [], [shipmentsData]);
+  const invoices = useMemo(() => invoicesData?.items ?? [], [invoicesData]);
+  const paidOrders = useMemo(() => paidOrdersData?.items ?? [], [paidOrdersData]);
+
+  const money = useMemo(() => aggregateMoneyPosition(shipments, invoices, paidOrders), [shipments, invoices, paidOrders]);
+
+  const bankDrawnTotal = drawdowns.reduce((sum, d) => sum + Number(d.amountMinorUnits) - Number(d.repaidMinorUnits), 0);
+  const bankCeilingTotal = facilities.reduce((sum, f) => sum + Number(f.limitMinorUnits), 0);
+  const utilisation = bankCeilingTotal > 0 ? bankDrawnTotal / bankCeilingTotal : 0;
+
+  const exposure: ExposurePoint[] = useMemo(() => {
+    const byShipper = new Map<string, typeof shipments>();
+    for (const shipment of shipments) {
+      const list = byShipper.get(shipment.shipperId) ?? [];
+      list.push(shipment);
+      byShipper.set(shipment.shipperId, list);
+    }
+    return shippers
+      .map((shipper): ExposurePoint | null => {
+        const list = byShipper.get(shipper.id) ?? [];
+        if (list.length === 0) return null;
+        const shipperInvoices = invoices.filter((inv) => inv.shipperId === shipper.id);
+        const pos = aggregateMoneyPosition(list, shipperInvoices, paidOrders);
+        if (pos.outstandingDjf <= 0) return null;
+        return {
+          id: shipper.id,
+          label: shipper.companyLegalName,
+          withinTermsDjf: pos.outstandingDjf - pos.overdueDjf,
+          pastDueDjf: pos.overdueDjf,
+          dso: null,
+          // The real per-shipper payment-terms field doesn't exist yet — the
+          // backend's own invoice-issuing code uses a fixed 30-day placeholder
+          // (`contractDeadline = issueDate + 30 days`), so this mirrors that,
+          // not an invented number.
+          termsDays: 30,
+        };
+      })
+      .filter((point): point is ExposurePoint => point !== null)
+      .sort((a, b) => b.pastDueDjf + b.withinTermsDjf - (a.pastDueDjf + a.withinTermsDjf));
+  }, [shippers, shipments, invoices, paidOrders]);
   const worstClient = [...exposure].sort((a, b) => b.pastDueDjf - a.pastDueDjf)[0];
-  /*
-   * The payout feed lists VOUCHERS, not cost lines. One voucher is one promise
-   * kept — "you delivered ten containers, here is the money for all ten" — and
-   * showing ten rows for one transfer would misrepresent both the count and
-   * the work.
-   */
-  const recentPayouts = [...model.payments]
-    .sort((a, b) => b.paidAt.localeCompare(a.paidAt))
-    .slice(0, 4);
+
+  const repriceUnpriced = useRepriceUnpricedShipments();
+
+  const unpricedShipments = useMemo(
+    () => shipments.filter((s) => s.clientRateMinorUnits == null).sort((a, b) => Number(b.rateMinorUnits) - Number(a.rateMinorUnits)),
+    [shipments],
+  );
+
+  const queue: QueueItem[] = useMemo(() => {
+    const items: QueueItem[] = [];
+    for (const shipment of shipments) {
+      if (shipment.payoutReleasedAt && shipment.clientRateMinorUnits == null) {
+        items.push({
+          id: `unpriced-released-${shipment.id}`,
+          title: `${shipment.reference} released, still unpriced`,
+          detail: 'Released to transporters but carries no price — price it from the transporter\'s price list.',
+          direction: 'in',
+        });
+      } else if (!shipment.payoutReleasedAt && shipment.clientRateMinorUnits == null && ['POD Submitted', 'Completed'].includes(shipment.status)) {
+        items.push({
+          id: `unpriced-pending-${shipment.id}`,
+          title: `${shipment.reference} delivered, still unpriced`,
+          detail: 'Delivered but carries no price — price it from the transporter\'s price list.',
+          direction: 'in',
+        });
+      }
+    }
+    for (const hold of openHolds) {
+      items.push({ id: `hold-${hold.id}`, title: `Hold open on a shipment`, detail: hold.reason, direction: 'out' });
+    }
+    for (const invoice of invoices) {
+      if (invoice.status !== 'Paid' && new Date(invoice.contractDeadline).getTime() < Date.now()) {
+        items.push({
+          id: `overdue-${invoice.id}`,
+          title: `${invoice.number} overdue`,
+          detail: `${invoice.shipperCompany} — due ${new Date(invoice.contractDeadline).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`,
+          direction: 'in',
+          amountDjf: Number(invoice.remainingMinorUnits),
+        });
+      }
+    }
+    return items;
+  }, [shipments, openHolds, invoices]);
+  const topQueue = queue.slice(0, 5);
 
   return (
     <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 px-4 pb-8 pt-1 sm:px-6">
       <PageHead
         title="Finance"
-        subtitle="Payouts out on CAC money, receivables closing the loop."
-        badge={
-          model.queue.filter((item) => item.priority === 'now').length > 0 ? (
-            <Pill tone="red">
-              {model.queue.filter((item) => item.priority === 'now').length} need a decision
-            </Pill>
-          ) : (
-            <Pill tone="teal">Nothing urgent</Pill>
-          )
-        }
+        subtitle="Payouts against drawn capital, receivables closing the loop."
+        badge={queue.length > 0 ? <Pill tone="red">{queue.length} need a decision</Pill> : <Pill tone="teal">Nothing urgent</Pill>}
         actions={
           <Link to={ROUTES.financeShipments}>
             <ActionButton variant="primary" icon={ArrowRight}>
@@ -89,9 +149,6 @@ export function FinanceOverviewPage() {
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="flex min-w-0 flex-col gap-4">
-          {/* ── The hero: money Fleetin has fronted and not yet recovered ── */}
-          {/* The hero is a brand tile like the Shipments row: solid teal fill,
-              white disc with the mark in the tile's own colour. */}
           <div className="relative overflow-hidden rounded-card bg-tile-teal p-6 shadow-card">
             <div className="flex flex-wrap items-start justify-between gap-6">
               <div className="min-w-0">
@@ -99,79 +156,47 @@ export function FinanceOverviewPage() {
                   <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-white text-tile-teal">
                     <Landmark aria-hidden className="size-5" />
                   </span>
-                  <span className="text-sm font-bold text-tile-teal-foreground">
-                    Drawn from CAC Bank
-                  </span>
+                  <span className="text-sm font-bold text-tile-teal-foreground">Drawn on credit facilities</span>
                 </div>
-                <p className="mt-4 font-mono text-[40px] font-extrabold leading-none tracking-tight tabular-nums text-tile-teal-foreground">
-                  {fmtDjf(model.bankDrawnTotal)}
-                </p>
+                <p className="mt-4 font-mono text-[40px] font-extrabold leading-none tracking-tight tabular-nums text-tile-teal-foreground">{fmtDjf(bankDrawnTotal)}</p>
                 <p className="mt-3 flex flex-wrap items-center gap-2 text-xs font-semibold text-tile-teal-foreground/75">
                   <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1 font-bold text-tile-teal-foreground">
                     <TrendingUp aria-hidden className="size-3.5" />
                     {pct(utilisation)} of ceilings
                   </span>
-                  {fmtDjf(model.bankCeilingTotal - model.bankDrawnTotal)} headroom left across{' '}
-                  {model.sources.length} sources
+                  {fmtDjf(bankCeilingTotal - bankDrawnTotal)} headroom left across {facilities.length} facilit{facilities.length === 1 ? 'y' : 'ies'}
                 </p>
               </div>
-              <Ring
-                value={utilisation}
-                label={pct(utilisation)}
-                caption="used"
-                tone="onFill"
-                size={118}
-                className="[&_span]:text-tile-teal-foreground"
-              />
+              <Ring value={utilisation} label={pct(utilisation)} caption="used" tone="onFill" size={118} className="[&_span]:text-tile-teal-foreground" />
             </div>
           </div>
 
-          {/* ── The four positions ─────────────────────────────────────────── */}
           <div className="grid gap-4 sm:grid-cols-2">
-            <StatCard
-              icon={Banknote}
-              tint="orange"
-              label="Payable now"
-              value={compactDjf(model.payableNowTotal)}
-              hint="Released legs, not yet paid"
-              badge={<Pill tone="orange">Money out</Pill>}
-            />
+            <StatCard icon={Banknote} tint="orange" label="Payable now" value={compactDjf(money.payableDjf)} hint="Released, not yet paid" badge={<Pill tone="orange">Money out</Pill>} />
             <StatCard
               icon={PauseCircle}
               tint="amber"
-              label="Frozen on hold"
-              value={compactDjf(model.frozenOnHoldTotal)}
-              hint="Paused — not payable"
-              tone={model.frozenOnHoldTotal > 0 ? 'held' : 'plain'}
+              label="Open holds"
+              value={String(openHolds.length)}
+              hint="Disputes freezing a payout"
+              tone={openHolds.length > 0 ? 'held' : 'plain'}
               badge={<Pill tone="amber">Held</Pill>}
             />
-            <StatCard
-              icon={Receipt}
-              tint="teal"
-              label="Receivables open"
-              value={compactDjf(model.arOpenTotal)}
-              hint={`${model.invoices.filter((invoice) => !invoice.paidAt).length} invoices out`}
-              badge={<Pill tone="teal">Money in</Pill>}
-            />
+            <StatCard icon={Receipt} tint="teal" label="Receivables open" value={compactDjf(money.outstandingDjf)} hint={`${invoices.filter((i) => i.status !== 'Paid').length} invoices out`} badge={<Pill tone="teal">Money in</Pill>} />
             <StatCard
               icon={Clock}
               tint="red"
               label="Past due"
-              value={compactDjf(model.arOverdueTotal)}
-              hint={
-                model.dsoOverall !== null
-                  ? `DSO ${model.dsoOverall.toFixed(0)} days`
-                  : 'No settled history'
-              }
-              tone={model.arOverdueTotal > 0 ? 'critical' : 'plain'}
+              value={compactDjf(money.overdueDjf)}
+              hint="Invoiced, deadline passed"
+              tone={money.overdueDjf > 0 ? 'critical' : 'plain'}
               badge={<Pill tone="red">Chase</Pill>}
             />
           </div>
 
-          {/* ── Client exposure — the deadline is the zero line ────────────── */}
           <Panel
             title="Client exposure"
-            subtitle={`${compactDjf(model.arOpenTotal)} open · ${compactDjf(model.arOverdueTotal)} of it past due`}
+            subtitle={`${compactDjf(money.outstandingDjf)} open · ${compactDjf(money.overdueDjf)} of it past due`}
             action={
               <div className="flex items-center gap-4 text-xs font-bold text-muted-foreground">
                 <span className="inline-flex items-center gap-1.5">
@@ -192,10 +217,8 @@ export function FinanceOverviewPage() {
                   {worstClient ? (
                     <>
                       <span className="text-foreground">
-                        {worstClient.label} carries the most late money —{' '}
-                        {compactDjf(worstClient.pastDueDjf)} of{' '}
-                        {compactDjf(worstClient.withinTermsDjf + worstClient.pastDueDjf)} is past
-                        its due date.
+                        {worstClient.label} carries the most late money — {compactDjf(worstClient.pastDueDjf)} of {compactDjf(worstClient.withinTermsDjf + worstClient.pastDueDjf)} is past its due
+                        date.
                       </span>{' '}
                       Anything below the line is money the facility is still funding.
                     </>
@@ -209,63 +232,55 @@ export function FinanceOverviewPage() {
             )}
           </Panel>
 
-          {/* ── Facility capacity — one bar per ceiling ────────────────────── */}
           <Panel
             title="Capacity by funding source"
             subtitle="An exhausted ceiling stops transporter payouts"
             action={
-              <Link to={ROUTES.financeShipments}>
-                <ActionButton variant="quiet">Shipments</ActionButton>
+              <Link to={ROUTES.financeFunding}>
+                <ActionButton variant="quiet">Funding</ActionButton>
               </Link>
             }
           >
             <div className="flex flex-col gap-4">
-              {model.sources.map((source) => {
-                const position = model.positions.get(source.id);
-                if (!position) return null;
-                const hot = position.utilisation >= 0.8;
-                return (
-                  <div key={source.id} className="min-w-0">
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex min-w-[9rem] items-center gap-2.5">
-                        <span className="text-sm font-bold leading-snug text-foreground">
-                          {source.name}
+              {facilities.length === 0 ? (
+                <EmptyState message="No credit facilities registered yet." />
+              ) : (
+                facilities.map((facility) => {
+                  const facilityDrawdowns = drawdowns.filter((d) => d.facilityId === facility.id);
+                  const drawn = facilityDrawdowns.reduce((sum, d) => sum + Number(d.amountMinorUnits) - Number(d.repaidMinorUnits), 0);
+                  const limit = Number(facility.limitMinorUnits);
+                  const util = limit > 0 ? drawn / limit : 0;
+                  const hot = util >= 0.8;
+                  return (
+                    <div key={facility.id} className="min-w-0">
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-sm font-bold leading-snug text-foreground">{facility.bankName}</span>
+                        <span className="shrink-0 font-mono text-sm font-bold tabular-nums text-foreground">
+                          {compactDjf(drawn)}
+                          <span className="font-sans font-semibold text-muted-foreground"> / {compactDjf(limit)}</span>
                         </span>
-                        <RiskTag bearer={source.riskBearer} />
                       </div>
-                      <span className="shrink-0 font-mono text-sm font-bold tabular-nums text-foreground">
-                        {compactDjf(position.drawnDjf)}
-                        <span className="font-sans font-semibold text-muted-foreground">
-                          {' '}
-                          / {compactDjf(source.ceilingDjf)}
-                        </span>
-                      </span>
+                      <Bar value={util} tone={hot ? 'orange' : 'teal'} />
+                      <p className="mt-1.5 text-xs font-semibold text-muted-foreground">
+                        {pct(util)} used · {compactDjf(Math.max(0, limit - drawn))} available{hot ? ' · running hot' : ''}
+                      </p>
                     </div>
-                    <Bar value={position.utilisation} tone={hot ? 'orange' : 'teal'} />
-                    <p className="mt-1.5 text-xs font-semibold text-muted-foreground">
-                      {pct(position.utilisation)} used · {compactDjf(position.availableDjf)} available
-                      {hot ? ' · running hot' : ''}
-                    </p>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </Panel>
         </div>
 
-        {/* ── Right rail: the names that need something ─────────────────────── */}
         <div className="flex min-w-0 flex-col gap-4">
-          {/* One panel, two sides of the same day: what still needs a call,
-              and what has already gone out. Tabs rather than two stacked
-              cards — they are read one at a time, never compared. */}
           <Panel
             title="Activity"
             padded={false}
             action={
               <FilterPills
                 options={[
-                  { key: 'queue', label: 'To decide', count: model.queue.length, tone: 'orange' },
-                  { key: 'paid', label: 'Paid', count: recentPayouts.length, tone: 'teal' },
+                  { key: 'queue', label: 'To decide', count: queue.length, tone: 'orange' },
+                  { key: 'paid', label: 'Paid', count: paidOrders.length, tone: 'teal' },
                 ]}
                 active={feed}
                 onChange={setFeed}
@@ -281,58 +296,24 @@ export function FinanceOverviewPage() {
                       name={item.title}
                       sub={item.detail}
                       leading={
-                        <span
-                          className={cn(
-                            'inline-flex size-9 shrink-0 items-center justify-center rounded-full',
-                            item.direction === 'out' ? 'bg-accent-bold' : 'bg-primary-bold',
-                          )}
-                        >
-                          <DirectionGlyph
-                            direction={item.direction}
-                            className={
-                              item.direction === 'out'
-                                ? 'text-accent-bold-foreground'
-                                : 'text-primary-bold-foreground'
-                            }
-                          />
+                        <span className={cn('inline-flex size-9 shrink-0 items-center justify-center rounded-full', item.direction === 'out' ? 'bg-accent-bold' : 'bg-primary-bold')}>
+                          <DirectionGlyph direction={item.direction} className={item.direction === 'out' ? 'text-accent-bold-foreground' : 'text-primary-bold-foreground'} />
                         </span>
                       }
-                      right={
-                        item.amountDjf !== undefined ? (
-                          <MoneyAmount
-                            value={item.amountDjf}
-                            direction={item.direction}
-                            unit={false}
-                            className="text-sm"
-                          />
-                        ) : undefined
-                      }
+                      right={item.amountDjf !== undefined ? <MoneyAmount value={item.amountDjf} direction={item.direction} unit={false} className="text-sm" /> : undefined}
                     />
                   ))
                 ) : (
                   <EmptyState message="Nothing waiting on a human." />
                 )
-              ) : recentPayouts.length > 0 ? (
-                recentPayouts.map((payment) => (
+              ) : paidOrders.length > 0 ? (
+                paidOrders.slice(0, 4).map((payment) => (
                   <ListRow
                     key={payment.id}
                     name={payment.transporterName}
-                    logoUrl={model.transporterById.get(payment.transporterId)?.logoUrl}
-                    sub={`${payment.bookingIds.length} booking${
-                      payment.bookingIds.length === 1 ? '' : 's'
-                    } on ${payment.shipmentId} · ${payment.id}`}
-                    right={
-                      <MoneyAmount
-                        value={payment.amountDjf}
-                        direction="out"
-                        unit={false}
-                        className="text-sm"
-                      />
-                    }
-                    rightSub={new Date(payment.paidAt).toLocaleDateString('en-GB', {
-                      day: '2-digit',
-                      month: 'short',
-                    })}
+                    sub={`${payment.number} on ${payment.missionId}`}
+                    right={<MoneyAmount value={Number(payment.amountMinorUnits)} direction="out" unit={false} className="text-sm" />}
+                    rightSub={payment.paidAt ? new Date(payment.paidAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : undefined}
                   />
                 ))
               ) : (
@@ -340,69 +321,69 @@ export function FinanceOverviewPage() {
               )}
             </div>
             <div className="border-t border-border-subtle px-5 py-3">
-              <Link to={feed === 'queue' ? ROUTES.financeShipments : ROUTES.financeShipments}>
+              <Link to={ROUTES.financeShipments}>
                 <ActionButton variant="quiet">Open the shipment book</ActionButton>
               </Link>
             </div>
           </Panel>
 
-
-          <Panel title="Unpriced work" padded={false}>
+          {/* A shipment created through the wizard is always priced now —
+              containers × the transporter's own per-mission price. Anything
+              listed here predates that, so the fix is one button, not nine
+              trips into nine shipments to type a figure. */}
+          <Panel
+            title="Unpriced work"
+            subtitle={
+              unpricedShipments.length > 0
+                ? 'Created before pricing was automatic — the price list can fill these in'
+                : undefined
+            }
+            padded={false}
+          >
+            {unpricedShipments.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-3 border-b border-border-subtle px-5 pb-3">
+                <ActionButton
+                  variant="primary"
+                  disabled={repriceUnpriced.isPending}
+                  onClick={() => repriceUnpriced.mutate(undefined)}
+                >
+                  {repriceUnpriced.isPending
+                    ? 'Pricing…'
+                    : `Price all ${unpricedShipments.length} from the price list`}
+                </ActionButton>
+                {repriceUnpriced.isSuccess ? (
+                  <span className="text-xs font-bold text-muted-foreground">
+                    Priced {repriceUnpriced.data.priced} of {repriceUnpriced.data.considered}.
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             <div className="flex flex-col gap-1 px-3 pb-4">
-              {model.economics.unpricedRows.length > 0 ? (
-                model.economics.unpricedRows.map((row) => {
-                  // Whether money has LEFT is the difference between a pricing
-                  // chore and an emergency, and that is a shipment fact.
-                  const parent = model.shipmentOfBooking.get(row.booking.id);
-                  const moneyOut = parent?.shipment.payout.releasedAt !== undefined;
-                  return (
-                    <ListRow
-                      key={row.booking.id}
-                      name={row.booking.id}
-                      leading={
-                        <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-bold">
-                          <FileText aria-hidden className="size-[18px] text-accent-bold-foreground" />
-                        </span>
-                      }
-                      sub={`${parent?.client?.name ?? ''} · ${parent?.shipment.id ?? ''} · ${compactDjf(
-                        row.costTotal,
-                      )} cost committed`}
-                      right={
-                        moneyOut ? (
-                          <Pill tone="orange">Money out</Pill>
-                        ) : (
-                          <Pill tone="neutral">No price</Pill>
-                        )
-                      }
-                      tone={moneyOut ? 'attention' : 'plain'}
-                    />
-                  );
-                })
+              {unpricedShipments.length > 0 ? (
+                unpricedShipments.slice(0, 8).map((shipment) => (
+                  <ListRow
+                    key={shipment.id}
+                    name={shipment.reference}
+                    leading={
+                      <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-bold">
+                        <FileText aria-hidden className="size-[18px] text-accent-bold-foreground" />
+                      </span>
+                    }
+                    sub={`${shipment.customerCompany} · ${compactDjf(Number(shipment.rateMinorUnits))} cost committed`}
+                    right={shipment.payoutReleasedAt ? <Pill tone="orange">Money out</Pill> : <Pill tone="neutral">No price</Pill>}
+                    tone={shipment.payoutReleasedAt ? 'attention' : 'plain'}
+                    action={
+                      <Link to={buildPath(ROUTES.financeShipmentDetail, { shipmentId: shipment.id })}>
+                        <ActionButton variant="ghost">Open</ActionButton>
+                      </Link>
+                    }
+                  />
+                ))
               ) : (
-                <EmptyState message="Every booking is priced." />
+                <EmptyState message="Every shipment is priced." />
               )}
             </div>
           </Panel>
-
-          <Link to={ROUTES.financeShipments} className="block">
-            <StatCard
-              icon={Wallet}
-              tint="neutral"
-              label="Transporter promise"
-              value={
-                model.transporterRows.length > 0
-                  ? pct(
-                      model.transporterRows
-                        .map((row) => row.promiseKeptRate)
-                        .filter((rate): rate is number => rate !== null)
-                        .reduce((sum, rate, _index, all) => sum + rate / all.length, 0),
-                    )
-                  : '—'
-              }
-              hint={`Paid within ${model.settings.payoutPromiseDays} days of release`}
-              badge={<Pill tone="neutral">Fast pay</Pill>}
-            />
-          </Link>
         </div>
       </div>
     </div>

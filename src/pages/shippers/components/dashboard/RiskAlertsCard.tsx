@@ -1,6 +1,6 @@
 import { AlertTriangle, ArrowRight } from '@/design-system/icons';
 import { Badge, Card, CompanyAvatar, IconChip } from '@/design-system';
-import { ON_TIME_GRACE_MINUTES, RISK_SEVERITY_THRESHOLDS } from '@/lib/bi/config';
+import { onTimeGraceMinutes, riskSeverityThresholds } from '@/lib/bi/config';
 import { formatDuration } from '@/features/shipper-bi/format';
 import type { ShipperShipmentRow } from '@/features/shipper-bi';
 import { getTransporterLogoUrl } from '@/features/shipper-bi/mocks/transporterProfiles';
@@ -31,7 +31,7 @@ export interface RiskAlertsCardProps {
 
 export function RiskAlertsCard({ rows, onOpenShipment, onViewAll }: RiskAlertsCardProps) {
   const atRisk = rows
-    .filter((row) => row.status === 'open' && row.riskScore >= RISK_SEVERITY_THRESHOLDS.warning)
+    .filter((row) => row.status === 'open' && row.riskScore >= riskSeverityThresholds().warning)
     .sort((a, b) => b.riskScore - a.riskScore);
 
   const shown = atRisk.slice(0, MAX_ALERTS);
@@ -161,7 +161,7 @@ export function RiskAlertsCard({ rows, onOpenShipment, onViewAll }: RiskAlertsCa
 }
 
 function severityOf(score: number): 'critical' | 'warning' {
-  return score >= RISK_SEVERITY_THRESHOLDS.critical ? 'critical' : 'warning';
+  return score >= riskSeverityThresholds().critical ? 'critical' : 'warning';
 }
 
 /**
@@ -182,7 +182,7 @@ function reasonFor(row: ShipperShipmentRow): string {
     return `Free time expires in ${Math.round(headroom)}h`;
   }
 
-  if (row.varianceMinutes !== undefined && row.varianceMinutes > ON_TIME_GRACE_MINUTES) {
+  if (row.varianceMinutes !== undefined && row.varianceMinutes > onTimeGraceMinutes()) {
     return `Forecast ${formatDuration(row.varianceMinutes)} past promised date`;
   }
 

@@ -29,8 +29,24 @@ export const ROUTES = {
   financeShipmentBooking: '/finance/shipments/booking/:bookingId',
   financeInvoices: '/finance/invoices',
   financeInvoiceDetail: '/finance/invoices/:invoiceId',
+  /** Bank accounts every real money movement is booked through. */
+  financeAccounts: '/finance/accounts',
+  /** Standalone credit facilities + drawdowns — never linked to a specific shipment. */
+  financeFunding: '/finance/funding',
   /** The transporter's signed payment voucher for one shipment. */
   financePayment: '/finance/payments/:paymentId',
+  /**
+   * HR & Payroll. `employees` above stays where it is — it is the operational
+   * staff directory in the fleet sense; these are the payroll records.
+   */
+  hr: '/hr',
+  hrEmployees: '/hr/employees',
+  hrEmployeeDetail: '/hr/employees/:id',
+  hrPayroll: '/hr/payroll',
+  hrPayrollPeriod: '/hr/payroll/:periodId',
+  hrLeave: '/hr/leave',
+  /** The three-step document generator. */
+  hrDocuments: '/hr/documents',
   reports: '/reports',
   administration: '/administration',
   settings: '/settings',

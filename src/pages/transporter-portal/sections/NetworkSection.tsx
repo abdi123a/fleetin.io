@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Activity, Gauge, Star, TrendingUp, Users } from '@/design-system/icons';
 import { Badge } from '@/design-system';
 import {
@@ -11,13 +11,14 @@ import {
 } from '@/features/shipper-bi/charts';
 import type { CategorySlice } from '@/features/shipper-bi/contracts';
 import {
-  ON_TIME_TARGET,
+  onTimeTarget,
   formatCompact,
   formatDuration,
   formatRating,
 } from '@/features/transporter-bi';
 import { cn } from '@/utils';
 import type { TransporterSectionProps } from '../sectionContract';
+import { TablePager, usePagedRows } from './cards/TablePager';
 
 const BAR_ROW_HEIGHT = 36;
 const BUBBLE_HEIGHT = 320;
@@ -34,6 +35,9 @@ export function NetworkSection({ dataset }: TransporterSectionProps) {
       [...network.peers].sort((a, b) => b.reliabilityScore - a.reliabilityScore),
     [network.peers],
   );
+
+  const [pageSize, setPageSize] = useState(25);
+  const pagedPeers = usePagedRows(peers, { pageSize });
 
   const you = useMemo(() => peers.find((peer) => peer.isYou), [peers]);
 
@@ -115,7 +119,7 @@ export function NetworkSection({ dataset }: TransporterSectionProps) {
             <div className="flex flex-col items-center justify-center gap-4 py-2 md:flex-row md:gap-10">
               <RateGauge
                 value={you.onTimeRate}
-                target={ON_TIME_TARGET}
+                target={onTimeTarget()}
                 label="Your on-time rate"
                 size={150}
               />
@@ -194,7 +198,7 @@ export function NetworkSection({ dataset }: TransporterSectionProps) {
           height={BUBBLE_HEIGHT - 24}
           quadrants={{
             x: 1,
-            y: ON_TIME_TARGET,
+            y: onTimeTarget(),
             labels: [
               'Cheap · reliable',
               'Premium · reliable',
@@ -286,7 +290,7 @@ export function NetworkSection({ dataset }: TransporterSectionProps) {
               </tr>
             </thead>
             <tbody>
-              {peers.map((peer, index) => (
+              {pagedPeers.rows.map((peer, index) => (
                 <tr
                   key={peer.id}
                   className={cn(
@@ -295,7 +299,7 @@ export function NetworkSection({ dataset }: TransporterSectionProps) {
                   )}
                 >
                   <td className="py-2.5 pr-4 font-semibold tabular-nums text-foreground">
-                    {index + 1}
+                    {pagedPeers.rangeStart + index}
                   </td>
                   <td className="py-2.5 pr-4">
                     <span className="font-medium text-foreground">{peer.label}</span>
@@ -325,6 +329,14 @@ export function NetworkSection({ dataset }: TransporterSectionProps) {
             </tbody>
           </table>
         </div>
+        {peers.length > 0 ? (
+          <TablePager
+            paged={pagedPeers}
+            noun="carriers"
+            pageSize={pageSize}
+            onPageSizeChange={setPageSize}
+          />
+        ) : null}
       </ChartCard>
     </div>
   );

@@ -1,7 +1,7 @@
 import type { ShipperShipmentRow } from '@/features/shipper-bi';
 import {
-  DETENTION_RATE_CURRENCY,
-  DETENTION_RATE_PER_CONTAINER_DAY,
+  detentionRateCurrency,
+  detentionRatePerContainerDay,
 } from '@/lib/bi/config';
 
 /**
@@ -32,7 +32,7 @@ export function isOverdue(row: ShipperShipmentRow): boolean {
 
 /** The billable slice of the overrun, at the contracted rate. */
 export function detentionCost(row: ShipperShipmentRow): number {
-  return row.detentionDays * DETENTION_RATE_PER_CONTAINER_DAY;
+  return row.detentionDays * detentionRatePerContainerDay();
 }
 
 /** Containers still out past free time, and what they have cost so far. */
@@ -46,5 +46,5 @@ export function detentionExposure(rows: ShipperShipmentRow[]) {
 
 /** Always with its currency named, because it is not the ledger's. */
 export function formatDetention(amount: number): string {
-  return `${Math.round(amount).toLocaleString()} ${DETENTION_RATE_CURRENCY}`;
+  return `${Math.round(amount).toLocaleString()} ${detentionRateCurrency()}`;
 }

@@ -10,6 +10,13 @@
     },
     {
       "name": "fleetin-backend",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "/Users/abdihakim/Documents/Fleetin Internal Managemnt system/fleetin-backend",
+        "run",
+        "start:dev"
+      ],
       "port": 3000,
       "url": "http://localhost:3000/",
       "autoPort": false

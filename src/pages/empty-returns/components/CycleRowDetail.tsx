@@ -1,23 +1,24 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { Button, Card, IconChip, Input, Tooltip } from '@/design-system';
+import { Button, Card, IconChip, Tooltip } from '@/design-system';
 import {
   AlertTriangle,
   ArrowRight,
-  Check,
   CheckCircle2,
   Circle,
   Clock,
   Copy,
+  ExternalLink,
   FileText,
   MapPin,
-  Truck,
 } from '@/design-system/icons';
-import { companyInitials, EMPTY_RETURN_HUB, RETURN_MILESTONE } from '@/data/emptyReturnData';
-import { ROUTES } from '@/config/routes';
-import { formatDateTime, riskOf, useEmptyReturnStore } from '@/stores/emptyReturn.store';
-import type { EmptyReturnRecord } from '@/types/emptyReturn';
+import { buildPath, ROUTES } from '@/config/routes';
+import { companyInitials, EMPTY_RETURN_HUB, EMPTY_RETURN_STATUS_META } from '@/data/emptyReturnData';
+import { useUpdateBookingStatus } from '@/features/bookings/api/queries';
+import { useMarkStandalone } from '@/features/empty-returns/api/queries';
+import { formatDateTime } from '@/stores/emptyReturn.store';
+import type { EmptyReturnRecord, EmptyReturnStatus } from '@/types/emptyReturn';
 import { cn } from '@/utils';
 
 import { orgTintClass } from './ui/urgencyTokens';
@@ -28,32 +29,20 @@ import {
 } from './atoms';
 
 /**
- * Five plain-language stages, replacing the old 16-step granular tracker.
- * The underlying `record.milestone` (0..16) still drives risk/status
- * elsewhere in the app untouched — this only buckets it for display.
+ * The post-match ladder: `preparing → ready → in_progress → completed`.
+ * A cycle never has a status of its own to advance — this mirrors
+ * `nextBooking.status` via the backend's `syncCycleStatusForBooking`, so the
+ * one button below moves the real outbound booking forward and the cycle's
+ * badge reflects it on the next fetch.
  */
-const SIMPLE_MILESTONE_STAGES = [
-  'Previous full load delivered',
-  'Unloading started',
-  'Empty ready',
-  'Full load mission selected',
-  'Returned',
-] as const;
+const CYCLE_LADDER: readonly EmptyReturnStatus[] = ['preparing', 'ready', 'in_progress', 'completed'];
 
-/** Which of the 5 stages is "current" for a given granular milestone index. */
-function simpleStageIndex(milestone: number): number {
-  return Math.min(milestone, SIMPLE_MILESTONE_STAGES.length - 1);
-}
-
-/** Stage `i` is done — unlike the first four, "Returned" only completes once
- *  the box is physically back (`RETURN_MILESTONE`), not the moment its bucket starts. */
-function simpleStageDone(index: number, milestone: number): boolean {
-  if (index < SIMPLE_MILESTONE_STAGES.length - 1) return milestone > index;
-  return milestone >= RETURN_MILESTONE;
-}
-
-const ROUTE_REGISTRY: Readonly<Record<string, string>> = ROUTES;
-const MATCHING_ROUTE = ROUTE_REGISTRY['emptyReturnsMatching'] ?? '/empty-returns/matching';
+/** What advancing one step actually means for the real booking underneath. */
+const NEXT_BOOKING_STATUS_FOR_CYCLE: Partial<Record<EmptyReturnStatus, string>> = {
+  preparing: 'Driver Assigned',
+  ready: 'En Route',
+  in_progress: 'Arrived',
+};
 
 export interface CycleRowDetailProps {
   record: EmptyReturnRecord;
@@ -61,37 +50,34 @@ export interface CycleRowDetailProps {
   now: number;
   /** Id for the panel body — the dialog points its `aria-controls` at it. */
   panelId: string;
+  /** Opens the one matching workbench — DualTransactionsRecommendationsModal. */
+  onOpenMatching: () => void;
 }
 
-/** `<input type="datetime-local">` wants local time with no timezone suffix. */
-function toDateTimeLocalValue(ms: number): string {
-  const d = new Date(ms);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-export function CycleRowDetail({ record, now, panelId }: CycleRowDetailProps) {
+/** Opens the booking's own shipment, deep-linked straight to this booking's preview card — never just the bare shipment. */
+function ShipmentLink({ shipmentReference, bookingId }: { shipmentReference?: string; bookingId?: string }) {
   const navigate = useNavigate();
+  if (!shipmentReference) return null;
+
+  const href = `${buildPath(ROUTES.shipmentOverview, { id: shipmentReference })}${bookingId ? `?openBooking=${encodeURIComponent(bookingId)}` : ''}`;
+
+  return (
+    <button
+      type="button"
+      onClick={() => navigate(href)}
+      className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold text-primary hover:underline"
+    >
+      <ExternalLink className="size-2.5 shrink-0" aria-hidden />
+      <span className="truncate">Shipment {shipmentReference}</span>
+    </button>
+  );
+}
+
+export function CycleRowDetail({ record, panelId, onOpenMatching }: CycleRowDetailProps) {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [showEmptyReadyPrompt, setShowEmptyReadyPrompt] = useState(false);
-  const [emptyReadyTimeInput, setEmptyReadyTimeInput] = useState('');
 
-  const confirmCycle = useEmptyReturnStore((state) => state.confirmCycle);
-  const dispatchTruck = useEmptyReturnStore((state) => state.dispatchTruck);
-  const advanceMilestone = useEmptyReturnStore((state) => state.advanceMilestone);
-  const markEmptyReady = useEmptyReturnStore((state) => state.markEmptyReady);
-  const markStandaloneRequired = useEmptyReturnStore((state) => state.markStandaloneRequired);
-  const setMatchSelection = useEmptyReturnStore((state) => state.setMatchSelection);
-
-  const timelineRef = useRef<HTMLOListElement>(null);
-  const currentStepRef = useRef<HTMLLIElement>(null);
-
-  useEffect(() => {
-    const list = timelineRef.current;
-    const step = currentStepRef.current;
-    if (!list || !step) return;
-    list.scrollTop = Math.max(0, step.offsetTop - list.clientHeight / 2);
-  }, [record.milestone]);
+  const updateBookingStatus = useUpdateBookingStatus();
+  const markStandalone = useMarkStandalone();
 
   const handleCopy = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
@@ -99,118 +85,86 @@ export function CycleRowDetail({ record, now, panelId }: CycleRowDetailProps) {
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  const openEmptyReadyPrompt = () => {
-    setEmptyReadyTimeInput(toDateTimeLocalValue(now));
-    setShowEmptyReadyPrompt(true);
-  };
-
-  const confirmEmptyReady = () => {
-    const ms = emptyReadyTimeInput ? new Date(emptyReadyTimeInput).getTime() : NaN;
-    markEmptyReady(record.id, Number.isFinite(ms) ? ms : undefined);
-    setShowEmptyReadyPrompt(false);
-  };
-
-  const risk = riskOf(record, now);
-  const currentStage = simpleStageIndex(record.milestone);
-  const showCutoffNote =
-    (risk === 'critical' || risk === 'at_risk' || risk === 'overdue') &&
-    record.status !== 'completed';
+  const isMatched = Boolean(record.cycleId);
+  const currentStageIndex = CYCLE_LADDER.indexOf(record.status);
+  const nextBookingStatus = NEXT_BOOKING_STATUS_FOR_CYCLE[record.status];
+  const nextBookingId = record.nextFull?.missionId;
   const showEmptyReadyActions = record.status === 'empty_ready' && !record.exception;
+  const showCutoffNote = record.exception != null && record.status !== 'completed';
 
   return (
     <div id={panelId} className="space-y-3">
       {/* 2-Column Structured Layout */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* ── Column 1: Operational Milestones (5 simple stages) ── */}
+        {/* ── Column 1: Cycle progress ── */}
         <Card className="flex flex-col border border-border/80 bg-card p-4 shadow-2xs">
           <div className="mb-3 flex items-center justify-between border-b border-border/60 pb-2.5">
             <div className="flex items-center gap-2">
               <IconChip icon={Clock} size={36} />
-              <h4 className="text-xs font-bold text-foreground">Operational Milestones</h4>
+              <h4 className="text-xs font-bold text-foreground">Cycle Progress</h4>
             </div>
-            <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-[10px] font-semibold text-foreground">
-              {currentStage + 1}/{SIMPLE_MILESTONE_STAGES.length}
-            </span>
+            {isMatched && (
+              <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-[10px] font-semibold text-foreground">
+                {Math.max(currentStageIndex, 0) + 1}/{CYCLE_LADDER.length}
+              </span>
+            )}
           </div>
 
-          <ol
-            ref={timelineRef}
-            className="relative flex-1 space-y-2 overflow-y-auto pr-1 max-h-[310px]"
-          >
-            {SIMPLE_MILESTONE_STAGES.map((label, index) => {
-              const complete = simpleStageDone(index, record.milestone);
-              const current = index === currentStage && !complete;
+          {isMatched ? (
+            <>
+              <ol className="flex-1 space-y-2">
+                {CYCLE_LADDER.map((status, index) => {
+                  const complete = currentStageIndex > index;
+                  const current = index === currentStageIndex;
+                  const meta = EMPTY_RETURN_STATUS_META[status];
 
-              return (
-                <li
-                  key={label}
-                  ref={current ? currentStepRef : undefined}
-                  aria-current={current ? 'step' : undefined}
-                  className={cn(
-                    'group relative flex items-start gap-2.5 rounded-md p-1.5 transition-colors text-xs',
-                    current && 'bg-primary/5 font-semibold text-primary ring-1 ring-primary/20',
-                    complete && 'text-foreground/90',
-                    !complete && !current && 'text-muted-foreground/70',
-                  )}
+                  return (
+                    <li
+                      key={status}
+                      aria-current={current ? 'step' : undefined}
+                      className={cn(
+                        'group relative flex items-start gap-2.5 rounded-md p-1.5 transition-colors text-xs',
+                        current && 'bg-primary/5 font-semibold text-primary ring-1 ring-primary/20',
+                        complete && 'text-foreground/90',
+                        !complete && !current && 'text-muted-foreground/70',
+                      )}
+                    >
+                      <div className="relative mt-0.5 flex size-4 shrink-0 items-center justify-center">
+                        {complete ? (
+                          <CheckCircle2 className="size-4 text-success-subtle-foreground" aria-hidden />
+                        ) : current ? (
+                          <span className="relative flex size-3">
+                            <span className="absolute inline-flex h-full w-full animate-ping motion-reduce:animate-none rounded-full bg-primary opacity-75" />
+                            <span className="relative inline-flex size-3 rounded-full bg-primary" />
+                          </span>
+                        ) : (
+                          <Circle className="size-3.5 text-border-strong" aria-hidden />
+                        )}
+                      </div>
+                      <span className="truncate">{meta.label}</span>
+                    </li>
+                  );
+                })}
+              </ol>
+
+              {nextBookingStatus && nextBookingId && (
+                <Button
+                  size="sm"
+                  fullWidth
+                  className="mt-3 text-xs font-semibold shadow-xs"
+                  leadingIcon={<ArrowRight className="size-3.5" />}
+                  isLoading={updateBookingStatus.isPending}
+                  onClick={() => updateBookingStatus.mutate({ id: nextBookingId, status: nextBookingStatus })}
                 >
-                  <div className="relative mt-0.5 flex size-4 shrink-0 items-center justify-center">
-                    {complete ? (
-                      <CheckCircle2 className="size-4 text-success-subtle-foreground" aria-hidden />
-                    ) : current ? (
-                      <span className="relative flex size-3">
-                        <span className="absolute inline-flex h-full w-full animate-ping motion-reduce:animate-none rounded-full bg-primary opacity-75" />
-                        <span className="relative inline-flex size-3 rounded-full bg-primary" />
-                      </span>
-                    ) : (
-                      <Circle className="size-3.5 text-border-strong" aria-hidden />
-                    )}
-                  </div>
-
-                  <div className="flex min-w-0 flex-1 items-baseline justify-between gap-1">
-                    <span className="truncate">{label}</span>
-                    <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/60">
-                      #{index + 1}
-                    </span>
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
-
-          {record.status === 'preparing' && (
-            <Button
-              size="sm"
-              fullWidth
-              className="mt-3 bg-success text-white font-semibold shadow-xs hover:bg-success"
-              leadingIcon={<Check className="size-3.5" />}
-              onClick={() => confirmCycle(record.id)}
-            >
-              Confirm Cycle → Ready to Dispatch
-            </Button>
-          )}
-
-          {record.status === 'ready' && (
-            <Button
-              size="sm"
-              fullWidth
-              className="mt-3 text-xs font-semibold shadow-xs"
-              leadingIcon={<Truck className="size-3.5" />}
-              onClick={() => dispatchTruck(record.id)}
-            >
-              Dispatch the Truck
-            </Button>
-          )}
-
-          {record.status === 'in_progress' && (
-            <Button
-              size="sm"
-              fullWidth
-              className="mt-3 text-xs font-semibold shadow-xs"
-              leadingIcon={<ArrowRight className="size-3.5" />}
-              onClick={() => advanceMilestone(record.id)}
-            >
-              Advance Cycle
-            </Button>
+                  Advance to {nextBookingStatus}
+                </Button>
+              )}
+            </>
+          ) : (
+            <p className="type-body-sm flex-1 text-muted-foreground">
+              Not matched yet — this container is ready to go back but has no outbound load assigned.
+              Open Matching to weld it to one.
+            </p>
           )}
         </Card>
 
@@ -238,6 +192,7 @@ export function CycleRowDetail({ record, now, panelId }: CycleRowDetailProps) {
                 <p className="text-[10px] text-muted-foreground">
                   {record.type} • {record.line}
                 </p>
+                <ShipmentLink shipmentReference={record.shipmentReference} bookingId={record.bookingId} />
               </div>
               <Tooltip content={copiedKey === 'empty' ? 'Copied!' : 'Copy container ID'}>
                 <button
@@ -263,6 +218,12 @@ export function CycleRowDetail({ record, now, panelId }: CycleRowDetailProps) {
                 </dd>
                 {record.nextFull && (
                   <p className="text-[10px] text-muted-foreground">{record.nextFull.type}</p>
+                )}
+                {record.nextFull && (
+                  <ShipmentLink
+                    shipmentReference={record.nextFull.shipmentReference}
+                    bookingId={record.nextFull.bookingId}
+                  />
                 )}
               </div>
               {record.nextFull && (
@@ -316,8 +277,7 @@ export function CycleRowDetail({ record, now, panelId }: CycleRowDetailProps) {
               </div>
 
               {/* The return commitment captured on the booking — not a
-                  prediction. Comes from Create Shipment's "Return Date & Time",
-                  which lands on the record as `deadline`. */}
+                  prediction. Comes from Create Shipment's "Return Date & Time". */}
               <div className="rounded-md border border-border/50 bg-muted/20 p-2">
                 <span className="text-muted-foreground">Container Return Date</span>
                 <p className="font-semibold text-foreground">
@@ -341,63 +301,15 @@ export function CycleRowDetail({ record, now, panelId }: CycleRowDetailProps) {
           </dl>
 
           {/* Actions Bottom Bar */}
-          {(record.status === 'unloading' || showEmptyReadyActions || showCutoffNote) && (
+          {(showEmptyReadyActions || showCutoffNote) && (
             <div className="mt-3 flex flex-col gap-2 border-t border-border/60 pt-2.5">
-              {record.status === 'unloading' && !showEmptyReadyPrompt && (
-                <Button
-                  size="sm"
-                  fullWidth
-                  className="text-xs font-semibold shadow-xs"
-                  onClick={openEmptyReadyPrompt}
-                >
-                  <CheckCircle2 className="size-3.5 mr-1" />
-                  Confirm &quot;Empty Ready&quot;
-                </Button>
-              )}
-
-              {record.status === 'unloading' && showEmptyReadyPrompt && (
-                <div className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-2.5">
-                  <label className="block text-[10px] font-semibold text-muted-foreground">
-                    When was the box actually empty? This is what unloading time gets measured against.
-                  </label>
-                  <Input
-                    type="datetime-local"
-                    value={emptyReadyTimeInput}
-                    onChange={(e) => setEmptyReadyTimeInput(e.target.value)}
-                    className="h-8 text-xs"
-                  />
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      fullWidth
-                      className="text-xs font-semibold shadow-xs"
-                      onClick={confirmEmptyReady}
-                    >
-                      <CheckCircle2 className="size-3.5 mr-1" />
-                      Confirm
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="text-xs font-semibold"
-                      onClick={() => setShowEmptyReadyPrompt(false)}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              )}
-
               {showEmptyReadyActions && (
                 <div className="flex gap-2">
                   <Button
                     size="sm"
                     fullWidth
                     className="text-xs font-semibold flex-1 shadow-xs"
-                    onClick={() => {
-                      setMatchSelection(record.id);
-                      navigate(MATCHING_ROUTE);
-                    }}
+                    onClick={onOpenMatching}
                   >
                     Open Matching
                   </Button>
@@ -405,7 +317,8 @@ export function CycleRowDetail({ record, now, panelId }: CycleRowDetailProps) {
                     size="sm"
                     variant="outline"
                     className="border-destructive/40 text-xs font-semibold text-destructive hover:bg-destructive/10"
-                    onClick={() => markStandaloneRequired(record.id)}
+                    isLoading={markStandalone.isPending}
+                    onClick={() => markStandalone.mutate(record.id)}
                   >
                     Standalone Return
                   </Button>
@@ -415,7 +328,7 @@ export function CycleRowDetail({ record, now, panelId }: CycleRowDetailProps) {
               {showCutoffNote && (
                 <div className="flex items-start gap-1.5 rounded-md border border-warning/30 bg-warning-subtle p-2 text-[11px] text-warning-subtle-foreground">
                   <AlertTriangle className="size-3.5 shrink-0 text-warning-subtle-foreground mt-0.5" />
-                  <span>Safety cutoff near or passed: deadline protection takes precedence over matching.</span>
+                  <span>{record.exception}</span>
                 </div>
               )}
             </div>

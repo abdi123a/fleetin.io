@@ -1,3 +1,4 @@
+import { useBranding, useOrganization } from '@/features/settings';
 import { cn } from '@/utils';
 
 export interface LogoProps {
@@ -52,27 +53,45 @@ const fullSizeMap = {
  * opt-in here only.
  */
 export function Logo({ iconOnly = false, size = 'lg', variant = 'default', className }: LogoProps) {
+  const branding = useBranding();
+  const org = useOrganization();
+
   if (iconOnly) {
     return (
-      <span className={cn('inline-flex items-center justify-center shrink-0 py-0.5', className)} aria-label="FLEETIN">
+      <span
+        className={cn('inline-flex items-center justify-center shrink-0 py-0.5', className)}
+        aria-label={org.tradingName}
+      >
         <img
-          src="/logo/fleetin-icon.png"
-          alt="FLEETIN"
+          src={branding.resolvedMarkSrc}
+          alt={org.tradingName}
           className={cn(iconSizeMap[size], 'w-auto object-contain shrink-0 transition-all')}
         />
       </span>
     );
   }
 
+  /*
+   * An uploaded white wordmark is used as-is; the `brightness-0 invert` pass
+   * is only for the shipped colour artwork, where flattening is the whole
+   * point. Applying it to a mark somebody uploaded *because* it is already
+   * white would erase the detail they uploaded it for.
+   */
+  const hasOwnWhiteMark = variant === 'white' && branding.logoWhiteSrc != null;
+  const src = variant === 'white' ? branding.resolvedLogoWhiteSrc : branding.resolvedLogoSrc;
+
   return (
-    <span className={cn('inline-flex items-center shrink-0 gap-2 py-0.5', className)} aria-label="FLEETIN Logistics">
+    <span
+      className={cn('inline-flex items-center shrink-0 gap-2 py-0.5', className)}
+      aria-label={`${org.tradingName} Logistics`}
+    >
       <img
-        src="/logo/fleetin-logo.png"
-        alt="FLEETIN Internal Management System"
+        src={src}
+        alt={`${org.tradingName} Internal Management System`}
         className={cn(
           fullSizeMap[size],
           'w-auto object-contain shrink-0 transition-all',
-          variant === 'white' && 'brightness-0 invert',
+          variant === 'white' && !hasOwnWhiteMark && 'brightness-0 invert',
         )}
       />
     </span>

@@ -17,7 +17,7 @@ import {
   X,
 } from '@/design-system/icons';
 import { Grid, List, RotateCcw, BadgeCheck } from 'lucide-react';
-import { PageHeader } from '@/components';
+import { PageHeader, TablePager, usePagedRows } from '@/components';
 import { IconChip } from '@/design-system';
 import {
   Badge,
@@ -227,6 +227,18 @@ export function ShippersPage() {
         return 0;
       });
   }, [shippersWithLiveCounts, statusFilter, industryFilter, searchTerm, sortBy]);
+
+  /**
+   * One page at a time. The list mode and the card grid share the pager, so a
+   * reader who switches views keeps the same page and the same page size.
+   * `resetKey` is every input that changes what the list contains — a narrowed
+   * list must start at page 1, since page 4 of the old one addresses nothing.
+   */
+  const [pageSize, setPageSize] = useState(12);
+  const pagedShippers = usePagedRows(filteredShippers, {
+    pageSize,
+    resetKey: `${statusFilter}|${industryFilter}|${searchTerm}|${sortBy}`,
+  });
 
   const uniqueIndustries = Array.from(new Set(shippers.map((s) => s.industry)));
 
@@ -616,7 +628,7 @@ export function ShippersPage() {
             <div className="col-span-2 text-right">Actions</div>
           </div>
 
-          {filteredShippers.map((shipper) => (
+          {pagedShippers.rows.map((shipper) => (
             <div
               key={shipper.id}
               onClick={() => setDrawerState({ mode: 'profile', shipper })}
@@ -717,7 +729,7 @@ export function ShippersPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
-          {filteredShippers.map((shipper) => (
+          {pagedShippers.rows.map((shipper) => (
             <Card
               key={shipper.id}
               onClick={() => setDrawerState({ mode: 'profile', shipper })}
@@ -810,6 +822,16 @@ export function ShippersPage() {
             </Card>
           ))}
         </div>
+      )}
+
+      {filteredShippers.length > 0 && (
+        <TablePager
+          paged={pagedShippers}
+          noun="shippers"
+          pageSize={pageSize}
+          onPageSizeChange={setPageSize}
+          pageSizeOptions={[12, 24, 48, 96]}
+        />
       )}
 
       {/* Empty / Loading State */}

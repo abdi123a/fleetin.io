@@ -19,7 +19,7 @@ import {
   type TrackingPosition,
   type Vehicle,
 } from '../contracts';
-import { DEFAULT_FREE_TIME_DAYS } from '@/lib/bi/config';
+import { defaultFreeTimeDays } from '@/lib/bi/config';
 import { Rng } from './random';
 import {
   ACCESSORIAL_DAY_RATES,
@@ -276,7 +276,7 @@ export function generateDataset({
       const gateOutAt = stageTimestamps.get('picked_up');
       const deliveredAt = stageTimestamps.get('delivered');
       const returnedAt = stageTimestamps.get('empty_returned');
-      const freeTimeExpiresAt = addHours(createdAt, DEFAULT_FREE_TIME_DAYS * 24);
+      const freeTimeExpiresAt = addHours(createdAt, defaultFreeTimeDays() * 24);
 
       containers.push({
         id: `CNT-${String(index + 1).padStart(4, '0')}`,
@@ -298,7 +298,7 @@ export function generateDataset({
     const gateOutAt = stageTimestamps.get('picked_up');
     const deliveredAt = stageTimestamps.get('delivered');
     const returnedAt = stageTimestamps.get('empty_returned');
-    const freeTimeExpiresAt = addHours(createdAt, DEFAULT_FREE_TIME_DAYS * 24);
+    const freeTimeExpiresAt = addHours(createdAt, defaultFreeTimeDays() * 24);
     const containerId = isBulkCargo ? undefined : `CNT-${String(index + 1).padStart(4, '0')}`;
 
     const ratePerKm = TRANSPORTER_RATE_PER_KM[transporter.id] ?? 150;

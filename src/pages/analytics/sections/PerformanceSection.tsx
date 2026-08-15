@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Truck } from '@/design-system/icons';
 import { Card, Skeleton } from '@/design-system';
+import { TablePager, usePagedRows } from '@/components';
 import { ChartCard, ChartHoverPortal } from '@/features/shipper-bi/charts';
 import { FleetSpotlightCard } from '@/features/shipper-bi/sections/cards/FleetSpotlightCard';
 import type {
@@ -41,6 +42,11 @@ export function PerformanceSection({
   onDrillDown,
 }: PerformanceSectionProps) {
   const performance = useMemo(() => buildPerformanceData(facts, dataset), [facts, dataset]);
+
+  /* Declared above the early return — a hook cannot sit behind a condition.
+     Rows carry their own `rank`, so a page 2 row still prints rank 26. */
+  const [pageSize, setPageSize] = useState(25);
+  const pagedLeaderboard = usePagedRows(performance?.leaderboard ?? [], { pageSize });
 
   if (!performance) return <PerformanceSkeleton />;
 
@@ -91,7 +97,7 @@ export function PerformanceSection({
               </tr>
             </thead>
             <tbody>
-              {leaderboard.map((row) => (
+              {pagedLeaderboard.rows.map((row) => (
                 <tr
                   key={row.transporterId}
                   className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-surface-sunken"
@@ -131,6 +137,14 @@ export function PerformanceSection({
             </tbody>
           </table>
         </div>
+        {leaderboard.length > 0 ? (
+          <TablePager
+            paged={pagedLeaderboard}
+            noun="transporters"
+            pageSize={pageSize}
+            onPageSizeChange={setPageSize}
+          />
+        ) : null}
       </ChartCard>
 
       {/* Strategic quadrant matrix */}

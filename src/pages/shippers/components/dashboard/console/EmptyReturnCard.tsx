@@ -4,8 +4,8 @@ import { Card, IconChip } from '@/design-system';
 import { DELAY_OWNER_LABELS, type DelayOwner } from '@/features/shipper-bi/contracts';
 import type { ShipperShipmentRow } from '@/features/shipper-bi';
 import {
-  DETENTION_RATE_CURRENCY,
-  DETENTION_RATE_PER_CONTAINER_DAY,
+  detentionRateCurrency,
+  detentionRatePerContainerDay,
 } from '@/lib/bi/config';
 import { cn } from '@/utils';
 import { PANEL_SURFACE } from './PanelHeader';
@@ -94,8 +94,8 @@ export function EmptyReturnCard({ rows, onOpenShipment, onViewAll }: EmptyReturn
             </p>
             <p className="type-body-xs mt-1.5 text-muted-foreground">
               {model.detentionDays.toLocaleString()} container-day
-              {model.detentionDays === 1 ? '' : 's'} at {DETENTION_RATE_CURRENCY}{' '}
-              {DETENTION_RATE_PER_CONTAINER_DAY}/day
+              {model.detentionDays === 1 ? '' : 's'} at {detentionRateCurrency()}{' '}
+              {detentionRatePerContainerDay()}/day
             </p>
           </div>
 
@@ -179,7 +179,7 @@ export function EmptyReturnCard({ rows, onOpenShipment, onViewAll }: EmptyReturn
                       </span>
                     </span>
                     <span className="type-body-sm shrink-0 font-semibold tabular-nums text-destructive">
-                      {formatUsd(row.detentionDays * DETENTION_RATE_PER_CONTAINER_DAY)}
+                      {formatUsd(row.detentionDays * detentionRatePerContainerDay())}
                     </span>
                   </button>
                 </li>
@@ -274,7 +274,7 @@ function buildModel(rows: ShipperShipmentRow[]): EmptyReturnModel {
     if (!owner) continue;
     const entry = byOwner.get(owner) ?? { count: 0, cost: 0 };
     entry.count += 1;
-    entry.cost += row.detentionDays * DETENTION_RATE_PER_CONTAINER_DAY;
+    entry.cost += row.detentionDays * detentionRatePerContainerDay();
     byOwner.set(owner, entry);
   }
 
@@ -292,7 +292,7 @@ function buildModel(rows: ShipperShipmentRow[]): EmptyReturnModel {
       .sort((a, b) => b.detentionDays - a.detentionDays)
       .slice(0, 4),
     detentionDays,
-    detentionCost: detentionDays * DETENTION_RATE_PER_CONTAINER_DAY,
+    detentionCost: detentionDays * detentionRatePerContainerDay(),
     worstOverrunDays: Math.round(
       overdue.reduce((max, row) => Math.max(max, row.emptyReturnOverdueDays), 0),
     ),

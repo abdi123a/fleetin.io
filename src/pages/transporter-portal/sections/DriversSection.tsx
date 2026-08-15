@@ -12,6 +12,7 @@ import {
 import { cn } from '@/utils';
 import type { TransporterSectionProps } from '../sectionContract';
 import { StatCard } from './cards/StatCard';
+import { TablePager, usePagedRows } from './cards/TablePager';
 
 type SortKey = 'rank' | 'trips' | 'onTimeRate' | 'avgRating' | 'distanceKm' | 'name';
 
@@ -47,6 +48,9 @@ export function DriversSection({
     const rows = buildDriverLeaderboard(periodFacts, dataset);
     return sortDriverRows(rows, sortKey, sortDir);
   }, [periodFacts, dataset, sortKey, sortDir]);
+
+  const [pageSize, setPageSize] = useState(25);
+  const paged = usePagedRows(leaderboard, { pageSize, resetKey: `${sortKey}|${sortDir}` });
 
   const headline = useMemo(() => {
     let ratingSum = 0;
@@ -206,7 +210,7 @@ export function DriversSection({
               </tr>
             </thead>
             <tbody>
-              {leaderboard.map((row) => (
+              {paged.rows.map((row) => (
                 <tr
                   key={row.driverId}
                   className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-surface-sunken"
@@ -238,6 +242,14 @@ export function DriversSection({
             </tbody>
           </table>
         </div>
+        {leaderboard.length > 0 ? (
+          <TablePager
+            paged={paged}
+            noun="drivers"
+            pageSize={pageSize}
+            onPageSizeChange={setPageSize}
+          />
+        ) : null}
       </ChartCard>
     </div>
   );

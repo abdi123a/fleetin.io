@@ -1,6 +1,5 @@
-import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { ROUTES } from '@/config/routes';
 import { HOUR_MS } from '@/data/emptyReturnData';
@@ -10,17 +9,15 @@ import {
   startEmptyReturnClock,
   useEmptyReturnStore,
 } from '@/stores/emptyReturn.store';
+import { useAvailableEmpties, useCycles } from '@/features/empty-returns/api/queries';
+import { cycleToRow, emptyBookingToRow } from '@/features/empty-returns/mappers';
 import type { EmptyReturnFilters } from '@/types/emptyReturn';
 
 import { DualTransactionsRecommendationsModal } from './components/DualTransactionsRecommendationsModal';
 import {
-  CarrierScoreboardCard,
-  ChainsCard,
-  CyclePipelineCard,
-  DeadlineRiskBoardCard,
   EmptyReturnConsoleHeader,
-  MatchingOpportunitiesCard,
   ReturnKpiTiles,
+  ReturnPlanningCalendarCard,
   ReturnsOutstandingCard,
   buildEmptyReturnConsoleModel,
 } from './components/console';
@@ -31,15 +28,13 @@ import {
  * `ConsolePanel`, meters, donuts) but not their structure: no personal
  * greeting, no alert pills, no timeframe picker. This module runs on a clock
  * racing a deadline, not a reporting period, so the header just names the
- * page and gets out of the way, and the three rows below are its own.
+ * page and gets out of the way, and the row below is its own.
  *
- * The reading order is the argument. Row one is the only thing that can cost
- * money tonight: which boxes breach first, and how many are already back.
- * Row two is the work: the lifecycle pipeline beside the same-yard pairings
- * that would shorten it. Row three is the network running the work: carriers
- * and chains. A dispatcher who stops after row one has still seen everything
- * urgent — the KPI tiles alone already carry Overdue and Critical in solid
- * colour, so nothing above them needs to repeat those counts.
+ * The reading order is the argument. The KPI tiles carry everything urgent —
+ * Overdue and Critical in solid colour — so nothing below them needs to repeat
+ * those counts. Under the tiles sit the two figures a dispatcher acts on: how
+ * many boxes are still out and how loudly their clocks tick, beside the
+ * same-yard pairings that would take boxes off that count today.
  *
  * Every figure is a door — tiles, board rows and legend chips all land on the
  * sibling view with the matching filter already applied — and all arithmetic
@@ -48,10 +43,18 @@ import {
  */
 export function EmptyReturnDashboardPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const records = useEmptyReturnStore((state) => state.records);
-  const missions = useEmptyReturnStore((state) => state.missions);
   const now = useEmptyReturnStore((state) => state.now);
+  const cyclesQuery = useCycles();
+  const availableEmptiesQuery = useAvailableEmpties();
+  const records = useMemo(
+    () => [
+      ...(cyclesQuery.data ?? []).map((cycle) => cycleToRow(cycle, now)),
+      ...(availableEmptiesQuery.data ?? []).map((booking) => emptyBookingToRow(booking, now)),
+    ],
+    [cyclesQuery.data, availableEmptiesQuery.data, now],
+  );
   const applyFilterPreset = useEmptyReturnStore((state) => state.applyFilterPreset);
   const focusRecord = useEmptyReturnStore((state) => state.focusRecord);
   // Moved here from the Matching page's own header — Matching is a workbench
@@ -63,9 +66,25 @@ export function EmptyReturnDashboardPage() {
   // running even when mounted outside the module chrome.
   useEffect(() => startEmptyReturnClock(), []);
 
+  // Deep link from a booking's own Empty Return card ("find this container
+  // a match") — `?createMatch=1` opens the same modal the header's button
+  // does, then clears itself so a refresh doesn't reopen it.
+  useEffect(() => {
+    if (searchParams.get('createMatch') !== '1') return;
+    setDualOpen(true);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('createMatch');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [searchParams, setSearchParams]);
+
   const model = useMemo(
-    () => buildEmptyReturnConsoleModel({ records, missions, now }),
-    [records, missions, now],
+    () => buildEmptyReturnConsoleModel({ records, now }),
+    [records, now],
   );
 
   const goCycles = (preset?: EmptyReturnFilters) => {
@@ -134,66 +153,23 @@ export function EmptyReturnDashboardPage() {
         onSelect={(preset) => goCycles(preset)}
       />
 
-      {/* What can cost money tonight — the board, and the count behind it */}
-      <ConsoleRow
-        main={
-          <DeadlineRiskBoardCard
-            rows={model.urgent}
-            onOpenCycles={() => goCycles()}
-            onSelectRow={(record) => {
-              focusRecord(record.id, record.container);
-              navigate(ROUTES.emptyReturnsCycles);
-            }}
-          />
-        }
-        side={<ReturnsOutstandingCard data={model.outstanding} />}
-      />
+      {/* Everything still out, and how loudly each clock is ticking */}
+      <section className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
+        <div className="flex min-w-0 flex-col">
+          <ReturnsOutstandingCard data={model.outstanding} />
+        </div>
+      </section>
 
-      {/* The work: the pipeline, and the pairings that would shorten it */}
-      <ConsoleRow
-        main={
-          <CyclePipelineCard
-            pipeline={model.pipeline}
-            matchable={model.matching.matchable}
-            onOpenCycles={() => goCycles()}
-            onStageSelect={(status) => goCycles({ q: '', status, risk: 'all' })}
-          />
-        }
-        side={
-          <MatchingOpportunitiesCard
-            data={model.matching}
-            onOpenMatching={() => navigate(ROUTES.emptyReturnsMatching)}
-          />
-        }
-      />
-
-      {/* The network running the work: carriers, and the loops they keep alive */}
-      <ConsoleRow
-        main={
-          <CarrierScoreboardCard
-            carriers={model.carriers}
-            onOpenLeague={() => navigate(ROUTES.emptyReturnsTransporters)}
-          />
-        }
-        side={
-          <ChainsCard
-            chains={model.chains}
-            onOpenChains={() => navigate(`${ROUTES.emptyReturnsCycles}?tab=chains`)}
-            onOpenMatching={() => navigate(ROUTES.emptyReturnsMatching)}
-          />
-        }
+      {/* The same work as dates: when each of those clocks actually lands */}
+      <ReturnPlanningCalendarCard
+        records={records}
+        now={now}
+        onSelectRecord={(record) => {
+          focusRecord(record.id, record.container);
+          navigate(ROUTES.emptyReturnsCycles);
+        }}
       />
     </div>
-  );
-}
-
-/** The console's one row shape: analysis at 2/3, the figure it turns on at 1/3. */
-function ConsoleRow({ main, side }: { main: ReactNode; side: ReactNode }) {
-  return (
-    <section className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-12">
-      <div className="flex min-w-0 flex-col xl:col-span-8">{main}</div>
-      <div className="flex min-w-0 flex-col xl:col-span-4">{side}</div>
-    </section>
   );
 }
 

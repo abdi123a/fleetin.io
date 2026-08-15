@@ -1,5 +1,5 @@
 import { formatNumber } from '@/utils';
-import { BI_CURRENCY } from '@/lib/bi/config';
+import { biCurrency } from '@/lib/bi/config';
 import type { MetricUnit } from './contracts';
 
 /**
@@ -22,7 +22,7 @@ export function formatCompact(value: number): string {
 
 /** Full precision, for tables and tooltips. */
 export function formatCurrencyFull(value: number): string {
-  return `${formatNumber(value, { maximumFractionDigits: 0 })} ${BI_CURRENCY}`;
+  return `${formatNumber(value, { maximumFractionDigits: 0 })} ${biCurrency()}`;
 }
 
 export function formatMetric(value: number, unit: MetricUnit): string {
@@ -30,7 +30,7 @@ export function formatMetric(value: number, unit: MetricUnit): string {
     case 'percent':
       return `${(value * 100).toFixed(1)}%`;
     case 'currency':
-      return `${formatCompact(value)} ${BI_CURRENCY}`;
+      return `${formatCompact(value)} ${biCurrency()}`;
     case 'days':
       return `${value.toFixed(1)}d`;
     case 'hours':

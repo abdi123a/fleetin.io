@@ -1,8 +1,10 @@
 import { Link } from 'react-router-dom';
 
 import { ROUTES } from '@/config/routes';
-import type { OriginationChannel } from '@/types/finance';
 import { cn } from '@/utils';
+
+/** The real `Shipment.source` values — 'custom' is Fleetin's own desk, matching the mock's former 'fleetin_direct'. */
+export type OriginationChannel = 'custom' | 'dpcs';
 
 /**
  * The two books of business, as tabs.
@@ -25,7 +27,7 @@ export const CHANNEL_META: Record<
   OriginationChannel,
   { label: string; icon: string; blurb: string }
 > = {
-  fleetin_direct: {
+  custom: {
     label: 'Fleetin',
     icon: '/logo/fleetin-icon.png',
     blurb: "Work Fleetin's own desk booked and priced",
@@ -50,7 +52,7 @@ export function ChannelTabs({
       aria-label="Origination channel"
       className="inline-flex items-center gap-1 rounded-full border border-border bg-card p-1.5 shadow-card"
     >
-      {(['fleetin_direct', 'dpcs'] as OriginationChannel[]).map((channel) => {
+      {(['custom', 'dpcs'] as OriginationChannel[]).map((channel) => {
         const meta = CHANNEL_META[channel];
         const isActive = channel === active;
         return (

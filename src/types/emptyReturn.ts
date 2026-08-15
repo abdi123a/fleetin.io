@@ -46,14 +46,24 @@ export type ReturnRiskLevel =
   | 'overdue'
   | 'protected';
 
-/** Whether the return deadline has been confirmed against the line/terminal. */
+/**
+ * Whether the return deadline has been confirmed against the line/terminal.
+ *
+ * `unverified` is a mock-only middle state with no real signal behind it —
+ * a real `Booking` only ever has `containerReturnDeadline` set or not — so it
+ * is never produced by `@/features/empty-returns/mappers` and only kept here
+ * for the display components that still switch on all three.
+ */
 export type DeadlineVerification = 'verified' | 'unverified' | 'missing';
 
-/** The only two box formats this corridor moves. */
-export type ContainerFormat = '20GP' | '40HC';
-
-export type MissionDocumentStatus = 'verified' | 'pending';
-export type MissionConfirmationStatus = 'confirmed' | 'pending';
+/**
+ * The cargo/container description shown beside a container number.
+ *
+ * A real `Booking.cargoType` is free text (`"Container (40ft)"`), not the
+ * two-value mock enum this used to be — widened rather than coerced so a
+ * real value is never forced into a shape it doesn't fit.
+ */
+export type ContainerFormat = string;
 
 /* ---------------------------------------------------------------------------
  * Records
@@ -72,10 +82,14 @@ export interface LinkedFullLoad {
   client?: string;
   /** Set when the full load is a real shipment — the cycle reports back to it. */
   shipmentId?: string;
+  /** The shipment's human-readable `MSN-#####` — for display and as the `/shipments/:id` route param (the backend accepts either). */
+  shipmentReference?: string;
+  /** The underlying booking's own id — deep-links straight to its card in the shipment. */
+  bookingId?: string;
 }
 
 export interface EmptyReturnRecord {
-  /** `ERT-#####`. Shown in the Cycle column only while `cycleId` is null. */
+  /** A matched cycle's own reference (`CYC-2026-#####`) once `cycleId` is set, otherwise the underlying booking's own reference. */
   id: string;
   /** The empty box going back. */
   container: string;
@@ -100,17 +114,13 @@ export interface EmptyReturnRecord {
   /** Stamped at milestone 11. Once set and within the deadline, risk is `protected` forever. */
   returnedAt: number | null;
   status: EmptyReturnStatus;
-  /** `CHN-#####`, or null when the record is not in a cycle. */
+  /** `CHN-2026-#####`, or null when the record is not in a cycle. */
   chainId: string | null;
-  /** `CYC-#####`. Also the transporter counting unit. */
+  /** `CYC-2026-#####`, or null when the record is not yet matched. Also the transporter counting unit. */
   cycleId: string | null;
   /** 1-based position of this cycle inside its chain. */
   seq: number | null;
   nextFull: LinkedFullLoad | null;
-  /** Count of milestones completed, 0…16. Index `i` is done when `i < milestone`. */
-  milestone: number;
-  /** Length 16, index-aligned with the checklist labels. */
-  checklist: boolean[];
   /** Free-text exception badge. Only the three `EMPTY_RETURN_EXCEPTIONS` values occur. */
   exception: string | null;
   /**
@@ -119,6 +129,10 @@ export interface EmptyReturnRecord {
    * registrations and to push cycle progress back onto the shipment.
    */
   shipmentId?: string;
+  /** The shipment's human-readable `MSN-#####` — for display and as the `/shipments/:id` route param (the backend accepts either). */
+  shipmentReference?: string;
+  /** The underlying booking's own id — the empty's own booking (not the cycle) once matched, so a deep link still opens the right card. */
+  bookingId?: string;
 }
 
 /**
@@ -136,11 +150,8 @@ export interface FullLoadMission {
   locationName: string;
   pickupHub: string;
   pickupAt: number;
-  /** Human slot, e.g. `08:00 – 12:00` (en dash). */
+  /** Human slot, e.g. `08:00 – 12:00` (en dash), or a formatted point-in-time when there's no real window to show. */
   window: string;
-  doStatus: MissionDocumentStatus;
-  booking: MissionConfirmationStatus;
-  release: MissionConfirmationStatus;
   /**
    * Set when this pool entry is a real shipment awaiting dispatch. Creating a
    * cycle from it marks that shipment Assigned; completing the cycle completes it.
@@ -234,46 +245,6 @@ export interface TransporterCycleStats {
   /** `100%` or `—` — precomputed so two views cannot round it differently. */
   onTimeLabel: string;
   standalone: number;
-}
-
-/** One advisory chip on a candidate mission card. Always six, always in order. */
-export interface MissionChip {
-  id: 'location' | 'type' | 'delivery-order' | 'booking' | 'release' | 'deadline';
-  label: string;
-  ok: boolean;
-}
-
-/**
- * Whether a mission may be turned into a cycle, and why not.
- *
- * The editorial position of the whole module lives in `eligible`: **only**
- * same-location and no-exception gate the button. A type mismatch, a missing
- * Delivery Order and an infeasible deadline are all advisory — the system
- * filters and displays, Operations decides. The checklist enforces the
- * documents later.
- */
-export interface MissionEligibility {
-  eligible: boolean;
-  /** Null when eligible; otherwise the tooltip text for the disabled button. */
-  blockedReason: string | null;
-  /** True when the amber "documents will block the checklist" note should show. */
-  showDocumentsNote: boolean;
-  chips: MissionChip[];
-}
-
-/** What the Matching view needs, resolved in one pass. */
-export interface MatchingContext {
-  eligible: EmptyReturnRecord[];
-  /** Self-heals to the first eligible record when the selection has moved on. */
-  selected: EmptyReturnRecord | null;
-  candidates: FullLoadMission[];
-}
-
-/** Returned by `createCycle` so the caller can navigate and report. */
-export interface CycleCreationResult {
-  cycleId: string;
-  chainId: string;
-  sequence: number;
 }
 
 /* ---------------------------------------------------------------------------

@@ -1,18 +1,11 @@
 import { lazy } from 'react';
-import { Navigate, useNavigate, type RouteObject } from 'react-router-dom';
+import { Navigate, type RouteObject } from 'react-router-dom';
 
 import { ROUTES } from '@/config/routes';
 import { AppLayout, AuthLayout } from '@/layouts';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
-// Type-only, so it is erased at build time and does not pull the page into this chunk.
-import type { EmptyReturnMatchingPageProps } from '@/pages/empty-returns';
 
-/**
- * Almost every route element is rendered without props, so `P` defaults to none.
- * The one exception is a page that hands a decision back to its host — Empty
- * Return Matching reports "a cycle was created" instead of navigating itself —
- * and a prop-free `ComponentType` would make that wrapper untypeable.
- */
+/** Every route element is rendered without props. */
 type RouteComponent<P = Record<string, never>> = React.ComponentType<P>;
 
 function lazyWithRetry<P extends object = Record<string, never>>(
@@ -51,7 +44,6 @@ const PartnersPage = lazyWithRetry(() => import('@/pages/partners'), 'PartnersPa
 const PartnerDetailPage = lazyWithRetry(() => import('@/pages/partners'), 'PartnerDetailPage');
 const VehiclesPage = lazyWithRetry(() => import('@/pages/vehicles'), 'VehiclesPage');
 const DriversPage = lazyWithRetry(() => import('@/pages/drivers'), 'DriversPage');
-const EmployeesPage = lazyWithRetry(() => import('@/pages/employees'), 'EmployeesPage');
 const DocumentsPage = lazyWithRetry(() => import('@/pages/documents'), 'DocumentsPage');
 const FinanceModuleChrome = lazyWithRetry(() => import('@/pages/finance'), 'FinanceModuleChrome');
 const FinanceOverviewPage = lazyWithRetry(() => import('@/pages/finance'), 'FinanceOverviewPage');
@@ -61,8 +53,18 @@ const FinanceProjectPage = lazyWithRetry(() => import('@/pages/finance'), 'Finan
 const FinanceShipmentPage = lazyWithRetry(() => import('@/pages/finance'), 'FinanceShipmentPage');
 const FinanceBookingPage = lazyWithRetry(() => import('@/pages/finance'), 'FinanceBookingPage');
 const FinanceInvoicesPage = lazyWithRetry(() => import('@/pages/finance'), 'FinanceInvoicesPage');
+const FinanceAccountsPage = lazyWithRetry(() => import('@/pages/finance'), 'FinanceAccountsPage');
+const FinanceFundingPage = lazyWithRetry(() => import('@/pages/finance'), 'FinanceFundingPage');
 const InvoiceDocumentPage = lazyWithRetry(() => import('@/pages/finance'), 'InvoiceDocumentPage');
 const PaymentVoucherPage = lazyWithRetry(() => import('@/pages/finance'), 'PaymentVoucherPage');
+const HrModuleChrome = lazyWithRetry(() => import('@/pages/hr'), 'HrModuleChrome');
+const HrDashboardPage = lazyWithRetry(() => import('@/pages/hr'), 'HrDashboardPage');
+const HrEmployeesPage = lazyWithRetry(() => import('@/pages/hr'), 'HrEmployeesPage');
+const HrEmployeeDetailPage = lazyWithRetry(() => import('@/pages/hr'), 'HrEmployeeDetailPage');
+const HrPayrollPage = lazyWithRetry(() => import('@/pages/hr'), 'HrPayrollPage');
+const HrPayrollPeriodPage = lazyWithRetry(() => import('@/pages/hr'), 'HrPayrollPeriodPage');
+const HrLeavePage = lazyWithRetry(() => import('@/pages/hr'), 'HrLeavePage');
+const HrDocumentsPage = lazyWithRetry(() => import('@/pages/hr'), 'HrDocumentsPage');
 const ReportsPage = lazyWithRetry(() => import('@/pages/reports'), 'ReportsPage');
 const AdministrationPage = lazyWithRetry(() => import('@/pages/administration'), 'AdministrationPage');
 const SettingsPage = lazyWithRetry(() => import('@/pages/settings'), 'SettingsPage');
@@ -101,10 +103,6 @@ const EmptyReturnCyclesPage = lazyWithRetry(
   () => import('@/pages/empty-returns'),
   'EmptyReturnCyclesPage',
 );
-const EmptyReturnMatchingPage = lazyWithRetry<EmptyReturnMatchingPageProps>(
-  () => import('@/pages/empty-returns'),
-  'EmptyReturnMatchingPage',
-);
 const EmptyReturnTransportersPage = lazyWithRetry(
   () => import('@/pages/empty-returns'),
   'EmptyReturnTransportersPage',
@@ -123,16 +121,6 @@ function RootIndexRedirect() {
     return <Navigate to={ROUTES.transporterDashboard} replace />;
   }
   return <Navigate to={ROUTES.dashboard} replace />;
-}
-
-/**
- * Matching hands the "a cycle was created" moment back to its host rather than
- * navigating itself, so the same view can live behind a route or behind a tab.
- * A `RouteObject.element` cannot call `useNavigate`, hence this two-line seam.
- */
-function EmptyReturnMatchingRoute() {
-  const navigate = useNavigate();
-  return <EmptyReturnMatchingPage onCycleCreated={() => navigate(ROUTES.emptyReturnsCycles)} />;
 }
 
 function DashboardOrShipperRedirect() {
@@ -187,7 +175,8 @@ export const routes: RouteObject[] = [
       { path: ROUTES.partnerDetail, element: <PartnerDetailPage /> },
       { path: ROUTES.vehicles, element: <VehiclesPage /> },
       { path: ROUTES.drivers, element: <DriversPage /> },
-      { path: ROUTES.employees, element: <EmployeesPage /> },
+      /* The staff directory placeholder is superseded by the HR module. */
+      { path: ROUTES.employees, element: <Navigate to={ROUTES.hrEmployees} replace /> },
       { path: ROUTES.documents, element: <DocumentsPage /> },
       /*
        * Finance is a layout route like Empty Return: the chrome owns the one
@@ -211,9 +200,29 @@ export const routes: RouteObject[] = [
           { path: ROUTES.financeShipmentBooking, element: <FinanceBookingPage /> },
           { path: ROUTES.financeInvoices, element: <FinanceInvoicesPage /> },
           { path: ROUTES.financeInvoiceDetail, element: <InvoiceDocumentPage /> },
+          { path: ROUTES.financeAccounts, element: <FinanceAccountsPage /> },
+          { path: ROUTES.financeFunding, element: <FinanceFundingPage /> },
           // The two documents: the client's invoice above, the transporter's
           // signed voucher here.
           { path: ROUTES.financePayment, element: <PaymentVoucherPage /> },
+        ],
+      },
+      /*
+       * HR & Payroll. A layout route like finance and empty return, so the six
+       * views share one module shell — and so the payroll run, the leave grid
+       * and the document generator can never be reached without the module's
+       * own chrome around them.
+       */
+      {
+        element: <HrModuleChrome />,
+        children: [
+          { path: ROUTES.hr, element: <HrDashboardPage /> },
+          { path: ROUTES.hrEmployees, element: <HrEmployeesPage /> },
+          { path: ROUTES.hrEmployeeDetail, element: <HrEmployeeDetailPage /> },
+          { path: ROUTES.hrPayroll, element: <HrPayrollPage /> },
+          { path: ROUTES.hrPayrollPeriod, element: <HrPayrollPeriodPage /> },
+          { path: ROUTES.hrLeave, element: <HrLeavePage /> },
+          { path: ROUTES.hrDocuments, element: <HrDocumentsPage /> },
         ],
       },
       { path: ROUTES.reports, element: <ReportsPage /> },
@@ -236,16 +245,22 @@ export const routes: RouteObject[] = [
       { path: ROUTES.bookingDetail, element: <ShipmentOverviewPage /> },
       { path: ROUTES.missions, element: <MissionsPage /> },
       { path: ROUTES.missionDetail, element: <ShipmentOverviewPage /> },
-      // Pathless layout route: the four views are siblings in the URL, but they
+      // Pathless layout route: the three views are siblings in the URL, but they
       // share one 30s clock and one toast renderer. See EmptyReturnModuleChrome.
-      // Chains used to be a fifth sibling here; it's now a tab inside Cycles
-      // (`?tab=chains`) — the old path redirects there, below.
+      // Chains used to be a sibling here; it's now a tab inside Cycles
+      // (`?tab=chains`) — the old path redirects there, below. Matching used to
+      // be a sibling too; it is now the DualTransactionsRecommendationsModal
+      // popup opened in place from Cycles and the Dashboard, so the old path
+      // redirects to Cycles, where every "create a match" entry point lives.
       {
         element: <EmptyReturnModuleChrome />,
         children: [
           { path: ROUTES.emptyReturns, element: <EmptyReturnDashboardPage /> },
           { path: ROUTES.emptyReturnsCycles, element: <EmptyReturnCyclesPage /> },
-          { path: ROUTES.emptyReturnsMatching, element: <EmptyReturnMatchingRoute /> },
+          {
+            path: ROUTES.emptyReturnsMatching,
+            element: <Navigate to={ROUTES.emptyReturnsCycles} replace />,
+          },
           {
             path: ROUTES.emptyReturnsChains,
             element: <Navigate to={`${ROUTES.emptyReturnsCycles}?tab=chains`} replace />,

@@ -1,19 +1,14 @@
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
 
 import { Button } from '@/design-system';
 import { ExternalLink, Layers, MapPin, X } from '@/design-system/icons';
-import { ROUTES } from '@/config/routes';
-import { riskOf, slackOf, useEmptyReturnStore } from '@/stores/emptyReturn.store';
+import { riskOf, slackOf } from '@/stores/emptyReturn.store';
 import type { EmptyReturnRecord } from '@/types/emptyReturn';
 
 import { CycleRowDetail } from './CycleRowDetail';
 import { Mono } from './atoms';
 import { DeadlineCell, UrgencyBadge } from './ui';
-
-const ROUTE_REGISTRY: Readonly<Record<string, string>> = ROUTES;
-const MATCHING_ROUTE = ROUTE_REGISTRY['emptyReturnsMatching'] ?? '/empty-returns/matching';
 
 export interface CycleDetailModalProps {
   /** The cycle being inspected, or null when nothing is open. */
@@ -21,6 +16,8 @@ export interface CycleDetailModalProps {
   /** The list's live clock, so modal and row agree on slack. */
   now: number;
   onClose: () => void;
+  /** Opens the one matching workbench — DualTransactionsRecommendationsModal. */
+  onOpenMatching: () => void;
 }
 
 /**
@@ -33,9 +30,7 @@ export interface CycleDetailModalProps {
  * Identity (reference, chain, hub, urgency, deadline) lives in the dialog
  * header — `CycleRowDetail` renders only the two working columns.
  */
-export function CycleDetailModal({ record, now, onClose }: CycleDetailModalProps) {
-  const navigate = useNavigate();
-  const setMatchSelection = useEmptyReturnStore((state) => state.setMatchSelection);
+export function CycleDetailModal({ record, now, onClose, onOpenMatching }: CycleDetailModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
 
   const open = record !== null;
@@ -133,9 +128,8 @@ export function CycleDetailModal({ record, now, onClose }: CycleDetailModalProps
                 variant="outline"
                 className="h-7 text-xs"
                 onClick={() => {
-                  setMatchSelection(record.id);
                   onClose();
-                  navigate(MATCHING_ROUTE);
+                  onOpenMatching();
                 }}
               >
                 <ExternalLink className="size-3" aria-hidden />
@@ -156,7 +150,7 @@ export function CycleDetailModal({ record, now, onClose }: CycleDetailModalProps
 
         {/* Body */}
         <div className="min-h-0 flex-1 overflow-y-auto bg-muted/10 p-4 sm:p-5">
-          <CycleRowDetail record={record} now={now} panelId={panelId} />
+          <CycleRowDetail record={record} now={now} panelId={panelId} onOpenMatching={onOpenMatching} />
         </div>
       </div>
     </div>,

@@ -12,8 +12,8 @@ import {
   type StackedSeries,
 } from '@/features/shipper-bi/charts';
 import {
-  ON_TIME_GRACE_MINUTES,
-  ON_TIME_TARGET,
+  onTimeGraceMinutes,
+  onTimeTarget,
   buildSeries,
   formatCompact,
   inPeriod,
@@ -182,17 +182,17 @@ export function OverviewSection({
             <div className="flex min-w-[200px] flex-col items-center justify-center p-4">
               <RateGauge
                 value={kpis.onTimeRate.value}
-                target={ON_TIME_TARGET}
+                target={onTimeTarget()}
                 label="On-time delivery rate"
                 size={160}
               />
               <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
                 <span className="h-2 w-2 rounded-full bg-primary" />
-                <span>{(ON_TIME_TARGET * 100).toFixed(0)}.0% SLA Target</span>
+                <span>{(onTimeTarget() * 100).toFixed(0)}.0% SLA Target</span>
               </div>
               {lateCount > 0 ? (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  {formatCompact(lateCount)} late beyond {ON_TIME_GRACE_MINUTES / 60}h grace
+                  {formatCompact(lateCount)} late beyond {onTimeGraceMinutes() / 60}h grace
                 </p>
               ) : null}
             </div>

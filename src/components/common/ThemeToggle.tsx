@@ -76,7 +76,10 @@ export function ThemeToggle({ variant = 'full', tone = 'surface', className }: T
       role="radiogroup"
       aria-label="Colour theme"
       className={cn(
-        'flex w-full items-center gap-0.5 rounded-full border p-1',
+        // `overflow-hidden` is the backstop, not the fix: the segments below
+        // shrink properly now, and this only guarantees that a segment can
+        // never paint outside the rounded track if one ever cannot.
+        'flex w-full items-center gap-0.5 overflow-hidden rounded-full border p-1',
         onSidebar ? 'border-sidebar-border bg-sidebar-item-hover' : 'border-border bg-surface-sunken',
         className,
       )}
@@ -94,7 +97,17 @@ export function ThemeToggle({ variant = 'full', tone = 'surface', className }: T
             title={label}
             onClick={() => setMode(value)}
             className={cn(
-              'inline-flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-1.5',
+              /*
+               * `min-w-0` is the load-bearing part. A flex item defaults to
+               * `min-width:auto`, so `flex-1` could not shrink these below
+               * their icon-plus-label width and the three segments overflowed
+               * the sidebar's track by a couple of pixels — enough to push the
+               * selected pill past the rounded border. The tighter padding
+               * buys the room back: at the sidebar's width each segment gets
+               * 75px and "System" — the longest label — needs 74 of them. The
+               * truncate keeps it honest anywhere narrower.
+               */
+              'inline-flex min-w-0 flex-1 items-center justify-center gap-1 rounded-full px-1.5 py-1.5',
               'text-xs font-semibold transition-colors duration-fast ease-out',
               'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring',
               onSidebar
@@ -107,7 +120,7 @@ export function ThemeToggle({ variant = 'full', tone = 'surface', className }: T
             )}
           >
             <Icon className="size-3.5 shrink-0" aria-hidden />
-            <span>{label}</span>
+            <span className="truncate">{label}</span>
           </button>
         );
       })}

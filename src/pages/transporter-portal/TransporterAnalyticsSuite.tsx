@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { chooseGranularity, previousPeriod } from '@/lib/bi/time';
 import {
-  EMPTY_RISK_ALERT,
+  emptyRiskAlert,
   applyFilters,
   deriveTripFacts,
   peekTransporterDataset,
@@ -84,7 +84,7 @@ export function TransporterAnalyticsSuite({
 
   // Counts the tab bar wears as badges.
   const emptyRiskCount = useMemo(
-    () => facts.filter((fact) => fact.emptyReturnRisk >= EMPTY_RISK_ALERT).length,
+    () => facts.filter((fact) => fact.emptyReturnRisk >= emptyRiskAlert()).length,
     [facts],
   );
   const overdue = useMemo(

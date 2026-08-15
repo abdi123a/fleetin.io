@@ -11,7 +11,7 @@ import {
   quietStates,
   resolveColor,
 } from '@/features/shipper-bi/charts/apexChartTheme';
-import { BI_CURRENCY } from '@/lib/bi/config';
+import { biCurrency } from '@/lib/bi/config';
 import { cn } from '@/utils';
 import { PANEL_SURFACE } from './PanelHeader';
 
@@ -163,7 +163,7 @@ function generateRateSeries(
 
 function formatSignedDjf(value: number): string {
   const sign = value > 0 ? '+' : value < 0 ? '−' : '';
-  return `${sign}${formatCompact(Math.abs(value))} ${BI_CURRENCY}`;
+  return `${sign}${formatCompact(Math.abs(value))} ${biCurrency()}`;
 }
 
 function formatSignedPct(value: number): string {

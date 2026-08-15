@@ -14,23 +14,13 @@ import {
   Truck,
   X,
 } from '@/design-system/icons';
-import {
-  formatDateTime,
-  useEmptyReturnStore,
-} from '@/stores/emptyReturn.store';
+import { useAvailableEmpties, useCreateCycle, useOpenFullLoads } from '@/features/empty-returns/api/queries';
+import { bookingToFullLoadMission, emptyBookingToRow } from '@/features/empty-returns/mappers';
+import { formatDateTime, useEmptyReturnStore } from '@/stores/emptyReturn.store';
 import type { EmptyReturnRecord, FullLoadMission } from '@/types/emptyReturn';
 import { cn } from '@/utils';
 
 import { CompanyName, Mono } from './atoms';
-
-const FREEZONE_OPTIONS = [
-  { value: 'all', label: 'All pickup freezones' },
-  { value: 'LOC-00002', label: 'Djibouti Free Zone — Warehouse Block B-12' },
-  { value: 'LOC-00001', label: 'Boulaos Industrial Yard' },
-  { value: 'LOC-00003', label: 'PK12 Dry Port Yard' },
-  { value: 'LOC-00004', label: 'Ali Sabieh Logistics Hub' },
-  { value: 'LOC-00005', label: 'Nagad Inland Container Depot' },
-] as const;
 
 const SIZE_OPTIONS = [
   { value: 'all', label: 'All sizes' },
@@ -57,26 +47,27 @@ interface FilterDraft {
   size: string;
 }
 
-function todayIso(): string {
-  return format(new Date(), 'yyyy-MM-dd');
-}
-
 function defaultDateToIso(): string {
   return format(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd');
 }
 
 function initialFilters(): FilterDraft {
   return {
-    dateFrom: todayIso(),
+    // No lower bound by default — an open full load whose pickup was
+    // scheduled days ago (the overdue ones the Deadline Risk Board flags,
+    // exactly the most urgent to match) is still open and matchable today.
+    // Defaulting "from" to today silently hid every one of those.
+    dateFrom: '',
     dateTo: defaultDateToIso(),
     freezoneId: 'all',
     size: 'all',
   };
 }
 
+/** Real cargo descriptions are free text ("Container (40ft)") — `includes`, not `startsWith`. */
 function typeMatchesSize(type: string, size: string): boolean {
   if (size === 'all') return true;
-  return type.startsWith(size);
+  return type.includes(size);
 }
 
 function inDateRange(ts: number, from: string, to: string): boolean {
@@ -437,10 +428,33 @@ export function DualTransactionsRecommendationsModal({
   onOpenChange,
   onAccepted,
 }: DualTransactionsRecommendationsModalProps) {
-  const records = useEmptyReturnStore((state) => state.records);
-  const missions = useEmptyReturnStore((state) => state.missions);
-  const createCycle = useEmptyReturnStore((state) => state.createCycle);
+  const now = useEmptyReturnStore((state) => state.now);
   const notify = useEmptyReturnStore((state) => state.notify);
+  const { data: availableEmpties } = useAvailableEmpties();
+  const { data: openFullLoads } = useOpenFullLoads();
+  const createCycleMutation = useCreateCycle();
+
+  const records = useMemo(
+    () => (availableEmpties ?? []).map((booking) => emptyBookingToRow(booking, now)),
+    [availableEmpties, now],
+  );
+  const missions = useMemo(
+    () => (openFullLoads ?? []).map(bookingToFullLoadMission),
+    [openFullLoads],
+  );
+
+  /** Every depot actually present right now — real bookings carry a free-text depot, not a fixed `LOC-#####` list. */
+  const freezoneOptions = useMemo(() => {
+    const depots = new Set<string>();
+    for (const record of records) depots.add(record.locationId);
+    for (const mission of missions) depots.add(mission.locationId);
+    return [
+      { value: 'all', label: 'All pickup freezones' },
+      ...Array.from(depots)
+        .sort((a, b) => a.localeCompare(b))
+        .map((depot) => ({ value: depot, label: depot })),
+    ];
+  }, [records, missions]);
 
   const [draft, setDraft] = useState<FilterDraft>(initialFilters);
   const [applied, setApplied] = useState<FilterDraft>(initialFilters);
@@ -512,7 +526,9 @@ export function DualTransactionsRecommendationsModal({
     return AVAILABILITY_LINES.map((line) => ({
       line,
       cells: AVAILABILITY_SIZES.map((size) =>
-        emptiesPool.some((record) => record.line === line && record.type === size),
+        emptiesPool.some(
+          (record) => record.line === line && typeMatchesSize(record.type, size.slice(0, 2)),
+        ),
       ),
     }));
   }, [emptiesPool]);
@@ -581,29 +597,28 @@ export function DualTransactionsRecommendationsModal({
     setConfirmOpen(true);
   };
 
-  const handleRequestDuals = () => {
+  const handleRequestDuals = async () => {
     const pairs = Object.entries(matches);
     if (pairs.length === 0) return;
 
     setAccepting(true);
-    const createdIds: string[] = [];
-    let created = 0;
 
-    for (const [missionId, emptyId] of pairs) {
-      const mission = missions.find((item) => item.id === missionId);
-      if (!mission) continue;
-      const result = createCycle(emptyId, mission);
-      if (result) {
-        created += 1;
-        createdIds.push(emptyId);
-      }
-    }
+    const settled = await Promise.allSettled(
+      pairs.map(([missionId, emptyId]) =>
+        createCycleMutation
+          .mutateAsync({ bookingId: emptyId, nextBookingId: missionId })
+          .then(() => emptyId),
+      ),
+    );
+    const createdIds = settled
+      .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
+      .map((result) => result.value);
 
-    if (created > 0) {
+    if (createdIds.length > 0) {
       notify(
-        created === 1
+        createdIds.length === 1
           ? 'Dual transaction requested — cycle created.'
-          : `${created} dual transactions requested — cycles created.`,
+          : `${createdIds.length} dual transactions requested — cycles created.`,
       );
       setConfirmOpen(false);
       onAccepted?.(createdIds);
@@ -722,7 +737,7 @@ export function DualTransactionsRecommendationsModal({
                     onChange={(event) =>
                       setDraft((prev) => ({ ...prev, freezoneId: event.target.value }))
                     }
-                    options={[...FREEZONE_OPTIONS]}
+                    options={freezoneOptions}
                   />
                 </div>
 

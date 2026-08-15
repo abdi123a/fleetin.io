@@ -13,9 +13,9 @@ import {
 } from '../contracts';
 import { deriveFacts, type ShipmentFact } from '@/lib/bi/derive';
 import {
-  ON_TIME_GRACE_MINUTES,
-  RETURN_HEADROOM_BANDS,
-  RISK_SEVERITY_THRESHOLDS,
+  onTimeGraceMinutes,
+  returnHeadroomBands,
+  riskSeverityThresholds,
 } from '@/lib/bi/config';
 import { hoursBetween } from '@/lib/bi/time';
 import { ratio, sum } from '@/lib/bi/stats';
@@ -190,11 +190,11 @@ function buildSummary(dataset: BiDataset, facts: ShipmentFact[]): ShipperAccount
   const awaitingReturn = open.length - inProgress;
 
   const atRisk = open.filter(
-    (fact) => fact.riskScore >= RISK_SEVERITY_THRESHOLDS.warning,
+    (fact) => fact.riskScore >= riskSeverityThresholds().warning,
   ).length;
 
   const forecastLate = open.filter(
-    (fact) => (fact.etaDriftMinutes ?? 0) > ON_TIME_GRACE_MINUTES,
+    (fact) => (fact.etaDriftMinutes ?? 0) > onTimeGraceMinutes(),
   ).length;
 
   const lateDeliveries = delivered.filter((fact) => fact.deliveryOutcome === 'late').length;
@@ -213,14 +213,14 @@ function buildSummary(dataset: BiDataset, facts: ShipmentFact[]): ShipperAccount
 
   const overdue = containersOut.filter((fact) => {
     const headroom = headroomHours(fact);
-    return headroom !== undefined && headroom <= RETURN_HEADROOM_BANDS.overdue;
+    return headroom !== undefined && headroom <= returnHeadroomBands().overdue;
   });
   const dueSoon = containersOut.filter((fact) => {
     const headroom = headroomHours(fact);
     return (
       headroom !== undefined &&
-      headroom > RETURN_HEADROOM_BANDS.overdue &&
-      headroom <= RETURN_HEADROOM_BANDS.dueSoon
+      headroom > returnHeadroomBands().overdue &&
+      headroom <= returnHeadroomBands().dueSoon
     );
   });
 

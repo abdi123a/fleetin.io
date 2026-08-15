@@ -1,5 +1,5 @@
 import { chooseGranularity, previousPeriod, type Period } from '@/lib/bi/time';
-import { SETTLEMENT_WEEKDAY } from './config';
+import { settlementWeekday } from './config';
 import {
   applyFilters,
   buildKpi,
@@ -115,7 +115,7 @@ export function aggregateOverview(
   const today = dataset.generatedAt.slice(0, 10);
   const nextRun = (() => {
     const date = new Date(`${today}T00:00:00.000Z`);
-    while (date.getUTCDay() !== SETTLEMENT_WEEKDAY) date.setUTCDate(date.getUTCDate() + 1);
+    while (date.getUTCDay() !== settlementWeekday()) date.setUTCDate(date.getUTCDate() + 1);
     return date.toISOString().slice(0, 10);
   })();
 

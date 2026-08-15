@@ -1,17 +1,23 @@
 import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useShipmentStore } from '@/stores/shipment.store';
-import { usePartners } from '@/features/partners/api/queries';
 import {
   createShipment,
   deleteShipment,
+  fetchAllShipmentsRaw,
   fetchShipment,
+  fetchShipmentRaw,
   fetchShipments,
+  fetchShipmentsRaw,
+  releaseShipment,
   updateShipment,
+  updateShipmentRaw,
   updateShipmentStatus,
   type CreateShipmentPayload,
   type ShipmentFilters,
   type UpdateShipmentPayload,
+  repriceShipment,
+  repriceUnpricedShipments,
 } from './shipmentsService';
 
 export const shipmentQueryKeys = {
@@ -27,10 +33,36 @@ export function useShipments(filters: ShipmentFilters = {}) {
   });
 }
 
+/** Raw `ShipmentRecord[]` instead of `Mission`-mapped — for Finance. */
+export function useShipmentsRaw(filters: ShipmentFilters = {}, options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: [...shipmentQueryKeys.list(filters), 'raw'] as const,
+    queryFn: () => fetchShipmentsRaw(filters),
+    enabled: options.enabled,
+  });
+}
+
+/** Every page of the raw list, concatenated — for the admin console's whole-book totals. */
+export function useAllShipmentsRaw(filters: ShipmentFilters = {}) {
+  return useQuery({
+    queryKey: [...shipmentQueryKeys.list(filters), 'raw', 'all'] as const,
+    queryFn: () => fetchAllShipmentsRaw(filters),
+  });
+}
+
 export function useShipment(id: string | undefined) {
   return useQuery({
     queryKey: shipmentQueryKeys.detail(id ?? ''),
     queryFn: () => fetchShipment(id as string),
+    enabled: Boolean(id),
+  });
+}
+
+/** Raw `ShipmentRecord` (money fields included) instead of the `Mission`-mapped shape — for Finance. */
+export function useShipmentRaw(id: string | undefined) {
+  return useQuery({
+    queryKey: [...shipmentQueryKeys.detail(id ?? ''), 'raw'] as const,
+    queryFn: () => fetchShipmentRaw(id as string),
     enabled: Boolean(id),
   });
 }
@@ -56,6 +88,41 @@ export function useUpdateShipment() {
   });
 }
 
+/** Same mutation as `useUpdateShipment`, but resolves with the raw record (money fields) — for Finance call sites. */
+export function useUpdateShipmentRaw() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: UpdateShipmentPayload }) => updateShipmentRaw(id, payload),
+    onSuccess: (_data, variables) => invalidateShipments(queryClient, variables.id),
+  });
+}
+
+export function useReleaseShipment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => releaseShipment(id),
+    onSuccess: (_data, id) => invalidateShipments(queryClient, id),
+  });
+}
+
+/** Prices one previously-unpriced shipment off its transporters' price lists. */
+export function useRepriceShipment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => repriceShipment(id),
+    onSuccess: (_data, id) => invalidateShipments(queryClient, id),
+  });
+}
+
+/** The bulk version — clears a whole backlog of unpriced shipments in one call. */
+export function useRepriceUnpricedShipments() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (shipperId?: string) => repriceUnpricedShipments(shipperId),
+    onSuccess: () => invalidateShipments(queryClient),
+  });
+}
+
 export function useUpdateShipmentStatus() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -74,10 +141,9 @@ export function useDeleteShipment() {
 
 /**
  * Keeps `useShipmentStore`'s `missions` array (still read directly by
- * `MissionsPage`, `MissionRowCard`, and the Empty Returns bridge) in sync
- * with the backend. Call once from a shared layout point — every page that
- * mounts it re-fetches on the same query key, so it's cheap to call from
- * more than one page.
+ * `MissionsPage` and `MissionRowCard`) in sync with the backend. Call once
+ * from a shared layout point — every page that mounts it re-fetches on the
+ * same query key, so it's cheap to call from more than one page.
  */
 export function useHydrateShipments() {
   const { data } = useShipments();
@@ -86,15 +152,4 @@ export function useHydrateShipments() {
   useEffect(() => {
     if (data) setMissions(data.items);
   }, [data, setMissions]);
-
-  // Partners aren't a Zustand store (they're TanStack Query-backed), but
-  // `shipment.store.ts`'s `assignShipmentToCycle` runs synchronously inside a
-  // Zustand action and needs a live partner list to resolve a transporter's
-  // real id — see the store's own comment on `partners`.
-  const { data: partnersData } = usePartners();
-  const setPartners = useShipmentStore((s) => s.setPartners);
-
-  useEffect(() => {
-    if (partnersData) setPartners(partnersData.items);
-  }, [partnersData, setPartners]);
 }

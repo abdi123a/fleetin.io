@@ -1,5 +1,5 @@
 import { formatNumber } from '@/utils';
-import { TP_CURRENCY, USD_TO_DJF, toDjf } from '@/features/transporter-bi';
+import { tpCurrency, usdToDjf, toDjf } from '@/features/transporter-bi';
 
 /**
  * The console's franc formatting.
@@ -7,14 +7,22 @@ import { TP_CURRENCY, USD_TO_DJF, toDjf } from '@/features/transporter-bi';
  * `transporter-bi` settles the corridor dataset in USD because that is how
  * cross-border linehaul contracts are written, but the operator sitting in
  * front of this screen quotes, invoices and gets paid in DJF — and the shipper
- * console next door already reads in DJF (`BI_CURRENCY`). The peg and the
- * conversion itself live in the feature (`config.ts`, `format.ts`) so the
- * dashboard and the analytics suite can never disagree about what a franc is
- * worth; what remains here are the console's own display shapes.
+ * console next door already reads in DJF too. The peg and the conversion
+ * itself live in the feature (`config.ts`, `format.ts`) so the dashboard and
+ * the analytics suite can never disagree about what a franc is worth; what
+ * remains here are the console's own display shapes.
  */
-export const DJF = TP_CURRENCY;
 
-export { USD_TO_DJF, toDjf };
+/**
+ * The currency mark, read at call time.
+ *
+ * It was a module-level `const` until the base currency became a setting — a
+ * constant captured at import cannot follow a value somebody changes on the
+ * Settings screen.
+ */
+export const DJF = () => tpCurrency();
+
+export { usdToDjf, toDjf };
 
 /** 1_284_000 -> "1.28M". The card-scale abbreviation, no currency mark. */
 export function compact(value: number): string {
@@ -33,14 +41,14 @@ export function djfCompact(usd: number): string {
 
 /** Card money with its unit: "7.52M DJF". */
 export function djfCard(usd: number): string {
-  return `${compact(toDjf(usd))} ${DJF}`;
+  return `${compact(toDjf(usd))} ${DJF()}`;
 }
 
 /** Table money, from a USD figure: "48,200 DJF" — read carefully, keeps digits. */
 export function djfFull(usd: number): string {
   const djf = toDjf(usd);
   const sign = djf < 0 ? '−' : '';
-  return `${sign}${formatNumber(Math.abs(djf), { maximumFractionDigits: 0 })} ${DJF}`;
+  return `${sign}${formatNumber(Math.abs(djf), { maximumFractionDigits: 0 })} ${DJF()}`;
 }
 
 /** Table money without the unit, for columns that head their own currency. */
@@ -58,20 +66,20 @@ export function djfPlain(usd: number): string {
  */
 export function fmtDjf(value: number): string {
   const sign = value < 0 ? '−' : '';
-  return `${sign}${formatNumber(Math.abs(value), { maximumFractionDigits: 0 })} ${DJF}`;
+  return `${sign}${formatNumber(Math.abs(value), { maximumFractionDigits: 0 })} ${DJF()}`;
 }
 
 /** A signed franc figure: "+2,310 DJF". */
 export function fmtDjfSigned(value: number): string {
   const sign = value > 0 ? '+' : value < 0 ? '−' : '';
-  return `${sign}${formatNumber(Math.abs(value), { maximumFractionDigits: 0 })} ${DJF}`;
+  return `${sign}${formatNumber(Math.abs(value), { maximumFractionDigits: 0 })} ${DJF()}`;
 }
 
 /** A signed DJF delta where the sign carries the message: "−4,400 DJF". */
 export function djfSigned(usd: number): string {
   const djf = toDjf(usd);
   const sign = djf > 0 ? '+' : djf < 0 ? '−' : '';
-  return `${sign}${formatNumber(Math.abs(djf), { maximumFractionDigits: 0 })} ${DJF}`;
+  return `${sign}${formatNumber(Math.abs(djf), { maximumFractionDigits: 0 })} ${DJF()}`;
 }
 
 /** A percentage with an explicit sign: "+6.2%". */

@@ -14,6 +14,19 @@ export interface ApiResponse<T = unknown> {
 }
 
 /**
+ * Uploaded files (logos, documents) come back as host-relative paths like
+ * `/uploads/logos/….png` — served by the API host, not by whatever origin the
+ * app itself is running on. In dev those differ (5173 vs 3000), so an `<img
+ * src>` straight from the API would 404 against Vite. Absolute URLs (S3
+ * presigned) pass through untouched.
+ */
+export function resolveAssetUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  if (/^(https?:)?\/\//.test(url) || url.startsWith('data:') || url.startsWith('blob:')) return url;
+  return `${new URL(API_BASE_URL, window.location.origin).origin}${url.startsWith('/') ? '' : '/'}${url}`;
+}
+
+/**
  * Thrown for any non-2xx response. Carries the HTTP status so
  * `lib/queryClient.ts`'s retry policy can tell a 4xx (never retry) from a 5xx
  * (retry) — before this existed every thrown error was a plain `Error` with

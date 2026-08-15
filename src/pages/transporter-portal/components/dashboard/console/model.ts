@@ -4,7 +4,7 @@ import {
   DELAY_CAUSE_PARTY,
   DELAY_PARTIES,
   DELAY_PARTY_LABELS,
-  EMPTY_COST_PER_KM,
+  emptyCostPerKm,
   WAITING_LOCATION_LABELS,
   fleetSnapshot,
   inPeriod,
@@ -708,7 +708,7 @@ export function buildConsoleModel({
         DETENTION_COST_PER_HOUR,
     ),
   );
-  const emptyCostPerMove = mean(completed.map((fact) => fact.emptyKm * EMPTY_COST_PER_KM));
+  const emptyCostPerMove = mean(completed.map((fact) => fact.emptyKm * emptyCostPerKm()));
   const waitingCost = mean(
     completed.map(
       (fact) =>

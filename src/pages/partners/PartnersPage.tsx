@@ -17,7 +17,7 @@ import {
   Mail,
 } from '@/design-system/icons';
 import { Grid, List, RotateCcw, BadgeCheck } from 'lucide-react';
-import { PageHeader } from '@/components';
+import { PageHeader, TablePager, usePagedRows } from '@/components';
 import { IconChip } from '@/design-system';
 import {
   Button,
@@ -146,6 +146,13 @@ export function PartnersPage() {
 
     return list;
   }, [partners, searchTerm, statusFilter, countryFilter, sortBy]);
+
+  /** One page at a time — the row list and the card grid share the pager. */
+  const [pageSize, setPageSize] = useState(12);
+  const pagedPartners = usePagedRows(filteredPartners, {
+    pageSize,
+    resetKey: `${statusFilter}|${countryFilter}|${searchTerm}|${sortBy}`,
+  });
 
   const hasActiveFilters = searchTerm !== '' || statusFilter !== 'all' || countryFilter !== 'all';
 
@@ -507,7 +514,7 @@ export function PartnersPage() {
             <div className="col-span-2 text-right">Actions</div>
           </div>
 
-          {filteredPartners.map((partner) => {
+          {pagedPartners.rows.map((partner) => {
             const score = computeComplianceScore(partner);
             const scoreColor = score >= 80 ? 'text-success-subtle-foreground' : score >= 50 ? 'text-warning-subtle-foreground' : 'text-destructive-subtle-foreground';
             return (
@@ -600,7 +607,7 @@ export function PartnersPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
-          {filteredPartners.map((partner) => {
+          {pagedPartners.rows.map((partner) => {
             const score = computeComplianceScore(partner);
             const scoreColor = score >= 80 ? 'text-success-subtle-foreground' : score >= 50 ? 'text-warning-subtle-foreground' : 'text-destructive-subtle-foreground';
             return (
@@ -678,6 +685,16 @@ export function PartnersPage() {
             );
           })}
         </div>
+      )}
+
+      {filteredPartners.length > 0 && (
+        <TablePager
+          paged={pagedPartners}
+          noun="partners"
+          pageSize={pageSize}
+          onPageSizeChange={setPageSize}
+          pageSizeOptions={[12, 24, 48, 96]}
+        />
       )}
 
       {/* Empty / Loading State */}

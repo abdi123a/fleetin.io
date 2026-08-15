@@ -8,11 +8,11 @@ import {
   type Period,
 } from '@/lib/bi/time';
 import {
-  CO2_KG_PER_KM_EMPTY,
-  CO2_KG_PER_KM_LOADED,
-  EMPTY_COST_PER_KM,
-  EMPTY_RISK_HOURS,
-  ON_TIME_GRACE_MINUTES,
+  co2KgPerKmEmpty,
+  co2KgPerKmLoaded,
+  emptyCostPerKm,
+  emptyRiskHours,
+  onTimeGraceMinutes,
 } from './config';
 import {
   DELAY_CAUSE_PARTY,
@@ -181,7 +181,7 @@ function deriveEmptyReturnRisk(trip: Trip, route: TransporterRoute | undefined, 
     0,
   );
   // Urgency: 1 at arrival, 0 at the edge of the risk window.
-  const urgency = Math.max(0, 1 - hoursToArrival / EMPTY_RISK_HOURS);
+  const urgency = Math.max(0, 1 - hoursToArrival / emptyRiskHours());
   // Stake: how expensive an unmatched return on this lane is, normalised to
   // the longest corridor leg.
   const stake = Math.min((route?.distanceKm ?? 400) / 1150, 1);
@@ -229,7 +229,7 @@ export function deriveTripFacts(dataset: TransporterDataset): TripFact[] {
     const onTime =
       deliveryVarianceMinutes === undefined
         ? undefined
-        : deliveryVarianceMinutes <= ON_TIME_GRACE_MINUTES;
+        : deliveryVarianceMinutes <= onTimeGraceMinutes();
 
     const backhaul = trip.backhaul;
     const outboundKm = isCancelled ? 0 : trip.distanceKm;
@@ -239,8 +239,8 @@ export function deriveTripFacts(dataset: TransporterDataset): TripFact[] {
     const loadedKm = outboundKm + (isCompleted ? backhaulLoadedKm : 0);
     const totalKm = loadedKm + emptyKm;
 
-    const emptyCo2Kg = Math.round(emptyKm * CO2_KG_PER_KM_EMPTY);
-    const co2Kg = Math.round(loadedKm * CO2_KG_PER_KM_LOADED + emptyKm * CO2_KG_PER_KM_EMPTY);
+    const emptyCo2Kg = Math.round(emptyKm * co2KgPerKmEmpty());
+    const co2Kg = Math.round(loadedKm * co2KgPerKmLoaded() + emptyKm * co2KgPerKmEmpty());
 
     const backhaulRevenue = isCompleted ? (backhaul.revenue ?? 0) : 0;
     const revenue = isCancelled ? 0 : trip.revenue;
@@ -292,7 +292,7 @@ export function deriveTripFacts(dataset: TransporterDataset): TripFact[] {
       totalKm,
       co2Kg,
       emptyCo2Kg,
-      emptyCostUsd: Math.round(emptyKm * EMPTY_COST_PER_KM),
+      emptyCostUsd: Math.round(emptyKm * emptyCostPerKm()),
 
       revenue,
       backhaulRevenue,

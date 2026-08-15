@@ -16,8 +16,11 @@
  *
  * - MINTED references are handed out by this module and nothing else may
  *   invent one. Money (`INV`, `PAY`, and the internal `HLD`/`DRW`/`RPY`/`LEG`),
- *   work (`PRJ`, `SHI`, `BKG`, `MSN`), and the operational records around them
- *   (`ERT`, `FLM`, `CYC`, `CHN`, `VEH`, `DRV`, `DOC`, `CTC`, `LOC`).
+ *   work (`PRJ`, `SHI`, `BKG`, `MSN`), and the register around them
+ *   (`VEH`, `DRV`, `DOC`, `CTC`, `LOC`). Real `Booking`/`EmptyReturnCycle`/
+ *   `EmptyReturnChain` references (`BKG-2026-#####`, `CYC-2026-#####`,
+ *   `CHN-2026-#####`) are minted by the backend's own `nextReference` helper,
+ *   a different scheme entirely — this module never parses or mints them.
  * - PARTY references (`SHP` shipper, `PTR` transporter) are NOT minted here.
  *   They are join keys that Shippers, Partners and the Empty Return module all
  *   key off; renaming them is a cross-module migration, not an ID cleanup.
@@ -55,10 +58,6 @@ export type IdKind =
   | 'costLine'
   // ── Operations ────────────────────────────────────────────────────────
   | 'mission'
-  | 'emptyReturn'
-  | 'fullLoad'
-  | 'cycle'
-  | 'chain'
   // ── The register ──────────────────────────────────────────────────────
   | 'vehicle'
   | 'driver'
@@ -85,12 +84,6 @@ export const ID_PREFIX: Record<IdKind, string> = {
    * does not exist. When the two datasets are unified, this prefix retires.
    */
   mission: 'MSN',
-  /** An empty container on its way back to the line. */
-  emptyReturn: 'ERT',
-  /** A full load waiting for a truck — the Matching pool's half of a pair. */
-  fullLoad: 'FLM',
-  cycle: 'CYC',
-  chain: 'CHN',
   vehicle: 'VEH',
   driver: 'DRV',
   /** Any uploaded file on a party, vehicle or driver. */
@@ -112,10 +105,6 @@ export const ID_LABEL: Record<IdKind, string> = {
   repayment: 'Repayment',
   costLine: 'Cost line',
   mission: 'Mission',
-  emptyReturn: 'Empty return',
-  fullLoad: 'Full load',
-  cycle: 'Cycle',
-  chain: 'Chain',
   vehicle: 'Vehicle',
   driver: 'Driver',
   document: 'Document',

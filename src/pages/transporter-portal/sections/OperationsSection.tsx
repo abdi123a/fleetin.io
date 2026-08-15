@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { AlertTriangle, Gauge, Package, RotateCcw, Route, Truck } from '@/design-system/icons';
 import { Badge, Button } from '@/design-system';
 import {
@@ -10,16 +10,16 @@ import {
   type StackedSeries,
 } from '@/features/shipper-bi/charts';
 import {
-  BACKHAUL_MATCH_TARGET,
+  backhaulMatchTarget,
   BACKHAUL_STATUSES,
   BACKHAUL_STATUS_LABELS,
   CONTAINER_TYPE_LABELS,
-  EMPTY_COST_PER_KM,
-  EMPTY_RISK_ALERT,
-  EMPTY_RISK_CRITICAL,
+  emptyCostPerKm,
+  emptyRiskAlert,
+  emptyRiskCritical,
   FLEET_STATES,
   FLEET_STATE_LABELS,
-  UTILIZATION_TARGET,
+  utilizationTarget,
   CompanyLabel,
   buildSeries,
   fleetSnapshot,
@@ -38,6 +38,7 @@ import {
 import { cn, formatDate } from '@/utils';
 import type { TransporterSectionProps } from '../sectionContract';
 import { StatCard } from './cards/StatCard';
+import { TablePager, usePagedRows } from './cards/TablePager';
 
 const MIX_BODY_HEIGHT = 240;
 const TREND_PLOT_HEIGHT = 220;
@@ -216,7 +217,7 @@ export function OperationsSection({
   const riskRows = useMemo(
     () =>
       facts
-        .filter((fact) => fact.emptyReturnRisk >= EMPTY_RISK_ALERT)
+        .filter((fact) => fact.emptyReturnRisk >= emptyRiskAlert())
         .sort((a, b) => b.emptyReturnRisk - a.emptyReturnRisk)
         .slice(0, 12),
     [facts],
@@ -227,6 +228,11 @@ export function OperationsSection({
     [dataset.routes],
   );
 
+  const [routePageSize, setRoutePageSize] = useState(25);
+  const pagedRoutes = usePagedRows(routeProfitability, { pageSize: routePageSize });
+  const [oppPageSize, setOppPageSize] = useState(25);
+  const pagedOpportunities = usePagedRows(opportunities, { pageSize: oppPageSize });
+
   const hasFleetTrend = fleetTrend.some((series) => series.points.some((point) => point.v > 0));
 
   return (
@@ -235,11 +241,11 @@ export function OperationsSection({
         <StatCard
           label="Backhaul match rate"
           value={`${(backhaulStats.matchRate * 100).toFixed(1)}%`}
-          caption={`Target ${(BACKHAUL_MATCH_TARGET * 100).toFixed(0)}% · ${formatCompact(backhaulStats.matched)} matched`}
+          caption={`Target ${(backhaulMatchTarget() * 100).toFixed(0)}% · ${formatCompact(backhaulStats.matched)} matched`}
           intent={
             backhaulStats.resolved === 0
               ? 'neutral'
-              : backhaulStats.matchRate >= BACKHAUL_MATCH_TARGET
+              : backhaulStats.matchRate >= backhaulMatchTarget()
                 ? 'good'
                 : 'warning'
           }
@@ -261,7 +267,7 @@ export function OperationsSection({
         <StatCard
           label="Empty mileage cost"
           value={formatMoney(backhaulStats.emptyCost)}
-          caption={`At $${EMPTY_COST_PER_KM.toFixed(2)} / empty km`}
+          caption={`At $${emptyCostPerKm().toFixed(2)} / empty km`}
           intent={backhaulStats.emptyCost > 0 ? 'warning' : 'neutral'}
         />
       </div>
@@ -276,7 +282,7 @@ export function OperationsSection({
           bodyHeight={MIX_BODY_HEIGHT}
           actions={
             <span className="text-xs font-medium text-muted-foreground">
-              Target {(UTILIZATION_TARGET * 100).toFixed(0)}%
+              Target {(utilizationTarget() * 100).toFixed(0)}%
             </span>
           }
           tableRows={fleetStateSlices}
@@ -297,13 +303,13 @@ export function OperationsSection({
             <div className="flex min-w-[200px] flex-col items-center justify-center p-4">
               <RateGauge
                 value={fleet.utilization}
-                target={UTILIZATION_TARGET}
+                target={utilizationTarget()}
                 label="Fleet utilisation"
                 size={160}
               />
               <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
                 <span className="h-2 w-2 rounded-full bg-primary" />
-                <span>{(UTILIZATION_TARGET * 100).toFixed(0)}.0% utilisation target</span>
+                <span>{(utilizationTarget() * 100).toFixed(0)}.0% utilisation target</span>
               </div>
             </div>
 
@@ -428,7 +434,7 @@ export function OperationsSection({
               </tr>
             </thead>
             <tbody>
-              {routeProfitability.map((row) => (
+              {pagedRoutes.rows.map((row) => (
                 <tr
                   key={row.routeId}
                   className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-surface-sunken"
@@ -455,11 +461,19 @@ export function OperationsSection({
             </tbody>
           </table>
         </div>
+        {routeProfitability.length > 0 ? (
+          <TablePager
+            paged={pagedRoutes}
+            noun="corridors"
+            pageSize={routePageSize}
+            onPageSizeChange={setRoutePageSize}
+          />
+        ) : null}
       </ChartCard>
 
       <ChartCard
         title="Empty return risk"
-        subtitle={`${riskRows.length} live trips scoring ${EMPTY_RISK_ALERT}+ without a return load`}
+        subtitle={`${riskRows.length} live trips scoring ${emptyRiskAlert()}+ without a return load`}
         icon={<AlertTriangle className="size-4" />}
         isEmpty={riskRows.length === 0}
         emptyMessage="No live trips currently at empty-return risk."
@@ -521,7 +535,7 @@ export function OperationsSection({
                     <span
                       className={cn(
                         'font-semibold tabular-nums',
-                        row.emptyReturnRisk >= EMPTY_RISK_CRITICAL
+                        row.emptyReturnRisk >= emptyRiskCritical()
                           ? 'text-destructive'
                           : 'text-warning-foreground',
                       )}
@@ -561,7 +575,7 @@ export function OperationsSection({
               </tr>
             </thead>
             <tbody>
-              {opportunities.map((opp) => {
+              {pagedOpportunities.rows.map((opp) => {
                 const reserved =
                   reservedOpportunityIds.has(opp.id) || opp.status === 'reserved';
                 return (
@@ -625,6 +639,14 @@ export function OperationsSection({
             </tbody>
           </table>
         </div>
+        {opportunities.length > 0 ? (
+          <TablePager
+            paged={pagedOpportunities}
+            noun="opportunities"
+            pageSize={oppPageSize}
+            onPageSizeChange={setOppPageSize}
+          />
+        ) : null}
       </ChartCard>
     </div>
   );
@@ -692,5 +714,5 @@ function routeEmptyStake(dataset: TransporterDataset, fact: TripFact): number {
   const route = dataset.routes.find((entry) => entry.id === fact.routeId);
   if (!route) return fact.emptyCostUsd;
   // Live trips have not booked empty km yet — estimate from the corridor leg.
-  return Math.round(route.distanceKm * EMPTY_COST_PER_KM);
+  return Math.round(route.distanceKm * emptyCostPerKm());
 }

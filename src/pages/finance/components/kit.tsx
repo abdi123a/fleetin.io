@@ -1,16 +1,14 @@
 import type { ReactNode } from 'react';
 
 import { IconChip, type IconChipTint } from '@/design-system';
-import { ArrowDownLeft, ArrowUpRight, EllipsisVertical, Landmark, PauseCircle, ShieldAlert, TrendingDown, TrendingUp } from '@/design-system/icons';
-import { clockLabel, fmtDjf, fmtDjfPlain } from '@/lib/finance';
-import type {
-  BookingStage,
-  FundingSource,
-  RiskBearer,
-  SettlementStatus,
-  ShipmentStage,
-} from '@/types/finance';
+import { ArrowDownLeft, ArrowUpRight, EllipsisVertical, PauseCircle, TrendingDown, TrendingUp } from '@/design-system/icons';
+import { fmtDjf, fmtDjfPlain } from '@/lib/finance';
 import { cn } from '@/utils';
+
+/** Real-data string-literal unions — kept local rather than imported from the (deleted) mock `@/types/finance`. */
+type ShipmentStage = 'awaiting_pod' | 'ready' | 'released' | 'settled';
+type BookingStage = 'in_transit' | 'awaiting_pod' | 'proven';
+type SettlementStatus = 'blocked' | 'payable' | 'part_paid' | 'paid';
 
 /**
  * The finance module's visual vocabulary.
@@ -658,6 +656,7 @@ export function Panel({
   action,
   children,
   padded = true,
+  dense = false,
   className,
   bodyClassName,
 }: {
@@ -667,6 +666,12 @@ export function Panel({
   children: ReactNode;
   /** Off for a full-bleed table. */
   padded?: boolean;
+  /**
+   * Tighter header/body padding for pages that stack many panels in one
+   * scroll — the client, project and shipment tiers. Off by default so the
+   * rest of the module (overview, invoices) keeps its current rhythm.
+   */
+  dense?: boolean;
   className?: string;
   bodyClassName?: string;
 }) {
@@ -675,7 +680,12 @@ export function Panel({
       {/* Wraps rather than truncates: a panel's subtitle is the sentence that
           says what the panel is for, and half of it is worth nothing. The
           header itself wraps too, so a wide action never squeezes the title. */}
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-5 pb-4 pt-5">
+      <div
+        className={cn(
+          'flex flex-wrap items-start justify-between gap-x-4 gap-y-2',
+          dense ? 'px-4 pb-3 pt-3.5' : 'px-5 pb-4 pt-5',
+        )}
+      >
         <div className="min-w-[10rem] flex-1">
           <h2 className="text-base font-extrabold leading-tight text-foreground">{title}</h2>
           {subtitle ? (
@@ -686,7 +696,9 @@ export function Panel({
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}
       </div>
-      <div className={cn(padded && 'px-5 pb-5', bodyClassName)}>{children}</div>
+      <div className={cn(padded && (dense ? 'px-4 pb-4' : 'px-5 pb-5'), bodyClassName)}>
+        {children}
+      </div>
     </section>
   );
 }
@@ -878,31 +890,6 @@ export function ActionButton({
  * Risk / held / unpriced / stage — the semantic guarantees
  * ═══════════════════════════════════════════════════════════════════════ */
 
-const RISK_LABEL: Record<RiskBearer, string> = {
-  fleetin: 'Fleetin risk',
-  bank: 'Bank risk',
-  undecided: 'Undecided',
-};
-
-const RISK_TONE: Record<RiskBearer, PillTone> = {
-  fleetin: 'red',
-  bank: 'blue',
-  undecided: 'neutral',
-};
-
-/** Who eats a default. Words always — a colour alone would be a guess. */
-export function RiskTag({ bearer, className }: { bearer: RiskBearer; className?: string }) {
-  return (
-    <Pill
-      tone={RISK_TONE[bearer]}
-      icon={bearer === 'bank' ? Landmark : ShieldAlert}
-      className={className}
-    >
-      {RISK_LABEL[bearer]}
-    </Pill>
-  );
-}
-
 /** Paused money. Dashed and marked, so it can never pass for payable. */
 export function HeldChip({ label = 'Held', className }: { label?: string; className?: string }) {
   return (
@@ -1041,52 +1028,8 @@ export function SettlementChip({
   );
 }
 
-/**
- * The 48-hour window as a track with its reading beneath.
- *
- * Running teal, paused amber with the pause mark and the frozen figure, and
- * the label always states the elapsed hours — the bar is never the only
- * encoding of a clock that decides when money leaves.
- */
-export function ValidationTrack({
-  elapsedMs,
-  windowMs,
-  paused,
-  className,
-}: {
-  elapsedMs: number;
-  windowMs: number;
-  paused: boolean;
-  className?: string;
-}) {
-  const fraction = Math.max(0, Math.min(1, elapsedMs / windowMs));
-  const expired = fraction >= 1;
-  return (
-    <div className={cn('min-w-0', className)}>
-      <Bar value={fraction} tone={paused ? 'amber' : expired ? 'orange' : 'teal'} />
-      <p
-        className={cn(
-          'mt-1.5 flex items-center gap-1 whitespace-nowrap text-xs font-bold tabular-nums',
-          paused
-            ? 'text-warning-subtle-foreground'
-            : expired
-              ? 'text-accent-subtle-foreground'
-              : 'text-muted-foreground',
-        )}
-      >
-        {paused ? <PauseCircle aria-hidden className="size-3.5 shrink-0" /> : null}
-        {paused
-          ? `Paused at ${clockLabel(elapsedMs)}`
-          : expired
-            ? 'Release due'
-            : `${clockLabel(elapsedMs)} of ${Math.round(windowMs / 3_600_000)}h`}
-      </p>
-    </div>
-  );
-}
-
 /* ═══════════════════════════════════════════════════════════════════════════
- * Parties & funding
+ * Parties
  * ═══════════════════════════════════════════════════════════════════════ */
 
 /** Avatar + name (+ one line under). Never a bare company name. */
@@ -1112,17 +1055,6 @@ export function PartyCell({
           <span className="block truncate text-xs font-medium text-muted-foreground">{sub}</span>
         ) : null}
       </span>
-    </span>
-  );
-}
-
-/** The funding reference and its risk words — never one without the other. */
-export function FundingCell({ source, className }: { source?: FundingSource; className?: string }) {
-  if (!source) return <span className="text-sm text-muted-foreground">—</span>;
-  return (
-    <span className={cn('flex min-w-0 flex-col items-start gap-1.5', className)}>
-      <span className="truncate font-mono text-xs font-bold text-foreground">{source.id}</span>
-      <RiskTag bearer={source.riskBearer} />
     </span>
   );
 }
