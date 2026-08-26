@@ -25,8 +25,10 @@ import {
 } from '@/design-system/icons';
 
 
+import { permissionsForPath } from '@/config/permissions';
 import { ROUTES } from '@/config/routes';
 import type { NavItem, NavSection } from '@/types';
+import { hasAnyPermission, toGrantList } from '@/utils';
 
 /**
  * The single source of truth for application navigation.
@@ -269,11 +271,28 @@ export const NAV_ITEMS_BY_PATH: ReadonlyMap<string, NavItem> = new Map(
 /** Icons available to navigation entries, re-exported for typed config authoring. */
 export type NavIcon = LucideIcon;
 
+/** The slice of the session this module reads. */
+export interface NavUser {
+  role?: string;
+  shipperId?: string;
+  /** Grants as issued by the API — `string[]`, wildcards included. */
+  permissions?: unknown;
+}
+
 /**
- * Returns navigation tree customized by user role.
- * For Shipper role, returns a streamlined workspace menu pointing to their own account pages.
+ * Returns the navigation tree for one session.
+ *
+ * Two filters, in order. The portal roles (SHIPPER, CLIENT, TRANSPORTER) get a
+ * different tree entirely — their own workspace, not a subset of the internal
+ * one. Everybody else gets the internal tree with the rows their permissions
+ * do not reach removed.
+ *
+ * That second step is the one that was missing: `NavItem.permissions` has been
+ * in the model since Phase 1 marked it "enforced once auth exists", and until
+ * now nothing read it — so an account with twelve permissions was shown the
+ * same sidebar as an administrator and met a 403 on every row it clicked.
  */
-export function getNavigationForUser(user: { role?: string; shipperId?: string } | null): NavSection[] {
+export function getNavigationForUser(user: NavUser | null): NavSection[] {
   if (user?.role === 'SHIPPER' || user?.role === 'CLIENT') {
     const sId = user.shipperId || 'SHP-101';
     const shipperPath = `/shippers/${sId}`;
@@ -396,5 +415,53 @@ export function getNavigationForUser(user: { role?: string; shipperId?: string }
     ];
   }
 
-  return NAVIGATION;
+  return filterNavigationByGrants(NAVIGATION, toGrantList(user?.permissions));
 }
+
+/**
+ * What a nav row needs, in order of specificity.
+ *
+ * An explicit `permissions` on the item wins; otherwise the requirement is
+ * whatever its route needs, so the sidebar and the route guard cannot disagree
+ * about a screen. A group with no path of its own requires nothing directly —
+ * it survives on its children.
+ */
+function requirementFor(item: NavItem): readonly string[] {
+  if (item.permissions) return item.permissions;
+  if (item.path) return permissionsForPath(item.path);
+  return [];
+}
+
+/**
+ * Drops rows, groups and whole sections the grants cannot reach.
+ *
+ * A group survives on its children: an account holding `vehicles.view` but not
+ * `partners.view` still needs the Partners group in order to reach Vehicles.
+ * What it loses is the group's own destination — the row is stripped back to a
+ * plain expander rather than a link onto a page that would refuse it.
+ */
+export function filterNavigationByGrants(sections: NavSection[], grants: string[]): NavSection[] {
+  const keep = (item: NavItem): NavItem | null => {
+    const allowedSelf = hasAnyPermission(grants, requirementFor(item));
+    const children = item.children
+      ?.map(keep)
+      .filter((child): child is NavItem => child !== null);
+
+    if (children && children.length > 0) {
+      return { ...item, children, path: allowedSelf ? item.path : undefined };
+    }
+
+    /* A leaf, or a group left with nothing under it. Either way it is only
+       worth showing if it goes somewhere this account may open. */
+    if (!allowedSelf || !item.path) return null;
+    return { ...item, children: undefined };
+  };
+
+  return sections
+    .map((section) => ({
+      ...section,
+      items: section.items.map(keep).filter((item): item is NavItem => item !== null),
+    }))
+    .filter((section) => section.items.length > 0);
+}
+

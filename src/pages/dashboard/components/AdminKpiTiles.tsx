@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/config/routes';
 import { IconChip, type IconChipTint } from '@/design-system';
 import { AlertTriangle, Banknote, ContainerIcon, Percent, Truck, Users } from '@/design-system/icons';
+import { usePermissions } from '@/hooks';
 import { compactDjf, pct } from '@/lib/finance';
 import { cn } from '@/utils';
 
@@ -91,8 +92,23 @@ interface Tile {
   to: string;
 }
 
+/**
+ * Written out rather than interpolated: Tailwind generates classes by scanning
+ * this file's text, so `xl:grid-cols-${n}` is a class that never exists.
+ */
+const COLUMNS: Record<number, string> = {
+  0: 'xl:grid-cols-1',
+  1: 'xl:grid-cols-1',
+  2: 'xl:grid-cols-2',
+  3: 'xl:grid-cols-3',
+  4: 'xl:grid-cols-4',
+  5: 'xl:grid-cols-5',
+  6: 'xl:grid-cols-6',
+};
+
 export function AdminKpiTiles({ model, className }: { model: AdminConsoleModel; className?: string }) {
   const navigate = useNavigate();
+  const { canOpen } = usePermissions();
   const { operations, returns, money, workforce } = model;
 
   const breaches = model.attention
@@ -167,9 +183,14 @@ export function AdminKpiTiles({ model, className }: { model: AdminConsoleModel; 
     },
   ];
 
+  /* Every tile is a link into a module, and its figure is that module's data
+     — so the permission that opens the page is the one that earns the tile.
+     Commission and Payables go with Finance, Headcount with HR. */
+  const visible = tiles.filter((tile) => canOpen(tile.to));
+
   return (
-    <div className={cn('grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6', className)}>
-      {tiles.map((tile) => {
+    <div className={cn('grid gap-4 grid-cols-2 sm:grid-cols-3', COLUMNS[visible.length] ?? COLUMNS[6], className)}>
+      {visible.map((tile) => {
         const tone = TILE[tile.tone];
         return (
           <button

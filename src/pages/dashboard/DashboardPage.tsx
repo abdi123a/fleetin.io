@@ -16,6 +16,7 @@ import {
   useOpenHolds,
 } from '@/features/finance';
 import { useHrDashboard } from '@/features/hr/api/queries';
+import { usePermissions } from '@/hooks';
 import { usePartners } from '@/features/partners/api/queries';
 import { useSettings } from '@/features/settings/api/queries';
 import { useAllShipmentsRaw } from '@/features/shipments/api/queries';
@@ -82,13 +83,44 @@ const TAB_MODULES: Record<Exclude<TabKey, 'overview'>, AttentionItem['module'][]
   network: ['Fleet'],
 };
 
+/**
+ * What each section needs before it is worth showing.
+ *
+ * The console reads from every module at once, which is the whole point of it
+ * for an administrator and a leak for anybody else: an account with only
+ * container permissions was still shown commission, payables and headcount,
+ * because a tab is not a route and the route guard never saw it. Any-of, and
+ * Overview is always available — it narrows to whatever survives.
+ */
+const TAB_PERMISSIONS: Record<Exclude<TabKey, 'overview'>, string[]> = {
+  operations: ['shipments.view', 'bookings.view', 'empty-returns.view'],
+  money: ['finance.view'],
+  people: ['hr.view', 'payroll.view', 'leave.view'],
+  network: ['partners.view', 'vehicles.view', 'drivers.view'],
+};
+
+/** The queue is cross-module, so each line is gated like its module. */
+const MODULE_PERMISSIONS: Record<AttentionItem['module'], string[]> = {
+  Shipments: ['shipments.view', 'bookings.view'],
+  'Empty Returns': ['empty-returns.view'],
+  Finance: ['finance.view'],
+  HR: ['hr.view', 'payroll.view', 'leave.view'],
+  Fleet: ['partners.view', 'vehicles.view', 'drivers.view'],
+};
+
 export function DashboardPage() {
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
+  const { canAny, canOpen } = usePermissions();
   const [searchParams, setSearchParams] = useSearchParams();
 
+  const allowedTab = (key: TabKey) => key === 'overview' || canAny(TAB_PERMISSIONS[key]);
+
   const tabParam = searchParams.get('tab') as TabKey | null;
-  const tab: TabKey = tabParam && TAB_KEYS.includes(tabParam) ? tabParam : 'overview';
+  /* `?tab=money` in a bookmark or a shared link must not reopen a section the
+     account cannot see; an unavailable tab falls back to Overview. */
+  const tab: TabKey =
+    tabParam && TAB_KEYS.includes(tabParam) && allowedTab(tabParam) ? tabParam : 'overview';
 
   const setTab = (next: TabKey) => {
     setSearchParams(
@@ -211,8 +243,15 @@ export function DashboardPage() {
     ],
   );
 
+  /* One filtered queue, used by the tabs, their badges and every panel: an
+     alert about an unpaid invoice is a finance figure like any other. */
+  const attention = useMemo(
+    () => model.attention.filter((item) => canAny(MODULE_PERMISSIONS[item.module] ?? [])),
+    [model.attention, canAny],
+  );
+
   const sliceFor = (key: Exclude<TabKey, 'overview'>) =>
-    model.attention.filter((item) => TAB_MODULES[key].includes(item.module));
+    attention.filter((item) => TAB_MODULES[key].includes(item.module));
 
   const tabs: ConsoleTab<TabKey>[] = useMemo(() => {
     const badge = (items: AttentionItem[]) => ({
@@ -220,24 +259,26 @@ export function DashboardPage() {
       breached: items.some((item) => item.severity === 'breach'),
     });
     const slice = (key: Exclude<TabKey, 'overview'>) =>
-      model.attention.filter((item) => TAB_MODULES[key].includes(item.module));
+      attention.filter((item) => TAB_MODULES[key].includes(item.module));
 
-    return [
-      { key: 'overview', label: 'Overview', ...badge(model.attention) },
+    const all: ConsoleTab<TabKey>[] = [
+      { key: 'overview', label: 'Overview', ...badge(attention) },
       { key: 'operations', label: 'Operations', ...badge(slice('operations')) },
       { key: 'money', label: 'Money', ...badge(slice('money')) },
       { key: 'people', label: 'People', ...badge(slice('people')) },
       { key: 'network', label: 'Network & fleet', ...badge(slice('network')) },
     ];
-  }, [model.attention]);
+
+    return all.filter((entry) => entry.key === 'overview' || canAny(TAB_PERMISSIONS[entry.key as Exclude<TabKey, 'overview'>]));
+  }, [attention, canAny]);
 
   const userName = user ? `${user.firstName} ${user.lastName}`.trim() || 'Administrator' : 'Administrator';
   const userRole = user?.role ?? 'ADMIN';
 
-  const breaches = model.attention
+  const breaches = attention
     .filter((item) => item.severity === 'breach')
     .reduce((sum, item) => sum + item.count, 0);
-  const asks = model.attention
+  const asks = attention
     .filter((item) => item.severity === 'ask')
     .reduce((sum, item) => sum + item.count, 0);
 
@@ -264,10 +305,10 @@ export function DashboardPage() {
         <>
           <AdminKpiTiles model={model} />
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-            <MoneyFlowCard movement={model.movement} />
-            <VolumeCard movement={model.movement} />
+            {canAny(TAB_PERMISSIONS.money) && <MoneyFlowCard movement={model.movement} />}
+            {canOpen(ROUTES.shipmentsList) && <VolumeCard movement={model.movement} />}
           </div>
-          <AttentionQueueCard items={model.attention} />
+          <AttentionQueueCard items={attention} />
         </>
       ) : null}
 
