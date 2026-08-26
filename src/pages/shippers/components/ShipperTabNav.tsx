@@ -1,5 +1,5 @@
 import { useRef, type ReactNode } from 'react';
-import { BarChart3, Building2, Package } from '@/design-system/icons';
+import { BarChart3, Building2, CalendarDays, Package } from '@/design-system/icons';
 import { cn } from '@/utils';
 
 /**
@@ -15,7 +15,7 @@ import { cn } from '@/utils';
  * you lose track of on a page this tall.
  */
 
-export type ShipperTabKey = 'analytics' | 'shipments' | 'profile';
+export type ShipperTabKey = 'analytics' | 'monthly-report' | 'shipments' | 'profile';
 
 export interface ShipperTab {
   key: ShipperTabKey;
@@ -42,6 +42,7 @@ export function ShipperTabNav({
 
   const tabs: ShipperTab[] = [
     { key: 'analytics', label: 'Analytics', icon: <BarChart3 /> },
+    { key: 'monthly-report', label: 'Monthly Report', icon: <CalendarDays /> },
     { key: 'shipments', label: 'Active & Past Shipments', icon: <Package />, count: shipmentCount },
     { key: 'profile', label: 'Profile & compliance', icon: <Building2 />, count: documentCount },
   ];

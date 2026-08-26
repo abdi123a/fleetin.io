@@ -116,7 +116,9 @@ function WhichTable() {
 }
 
 /* ---------------------------------------------------------------------------
- * EnterpriseDataTable — the one real call site
+ * EnterpriseDataTable — formerly the shipper account's shipments tab, before
+ * that tab was rebuilt on `ShipmentsListView` (the Admin Shipments page's own
+ * component) instead. No live call site today; kept as a worked example.
  * ------------------------------------------------------------------------- */
 
 function EnterpriseTableExample() {
@@ -197,7 +199,7 @@ function EnterpriseTableExample() {
   return (
     <ShowcaseSubsection
       title="EnterpriseDataTable"
-      description="This example passes the same props the product's only call site passes, and nothing else."
+      description="This example passes the same props the shipper account's former shipments tab passed, and nothing else — that tab now renders ShipmentsListView instead."
     >
       <ShowcaseExample
         layout="bare"

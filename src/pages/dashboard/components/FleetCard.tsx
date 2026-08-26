@@ -31,7 +31,7 @@ export function FleetCard({ fleet, className }: { fleet: FleetModel; className?:
       [
         { label: 'Available', value: fleet.vehiclesAvailable, color: CHART_INK.teal },
         { label: 'In transit', value: fleet.vehiclesMoving, color: CHART_INK.tealLight },
-        { label: 'Off the road', value: fleet.vehiclesDown, color: CHART_INK.orange },
+        { label: 'Unavailable', value: fleet.vehiclesDown, color: CHART_INK.orange },
       ].filter((slice) => slice.value > 0),
     [fleet],
   );
@@ -50,7 +50,7 @@ export function FleetCard({ fleet, className }: { fleet: FleetModel; className?:
             return buildTooltipHtml(
               slice.label,
               [{ key: 'v', label: 'Vehicles', value: String(slice.value), color: slice.color }],
-              fleet.vehicles > 0 ? `${pct(slice.value / fleet.vehicles)} of the network` : undefined,
+              fleet.vehicles > 0 ? `${pct(slice.value / fleet.vehicles)} of the fleet` : undefined,
             );
           },
         },
@@ -63,8 +63,8 @@ export function FleetCard({ fleet, className }: { fleet: FleetModel; className?:
   return (
     <ConsolePanel
       className={className}
-      title="Fleet &amp; compliance"
-      subtitle={`${fleet.vehicles} vehicles and ${fleet.drivers} drivers across the partner network`}
+      title="Fleet Compliance"
+      subtitle={`${fleet.vehicles} vehicles · ${fleet.drivers} drivers`}
       action={
         <Link to={ROUTES.vehicles}>
           <PanelLink>Fleet</PanelLink>
@@ -75,21 +75,21 @@ export function FleetCard({ fleet, className }: { fleet: FleetModel; className?:
           {fleet.expired > 0 ? (
             <>
               <span className="font-bold text-foreground">
-                {fleet.expired} {fleet.expired === 1 ? 'paper is' : 'papers are'} already out of date
+                {fleet.expired} {fleet.expired === 1 ? 'document' : 'documents'} expired
               </span>{' '}
-              — the trucks and drivers behind them cannot legally run today, whatever the availability ring says.
+              — those vehicles and drivers are not compliant.
             </>
           ) : fleet.expiring > 0 ? (
             <>
               <span className="font-bold text-foreground">
-                {fleet.expiring} {fleet.expiring === 1 ? 'paper expires' : 'papers expire'} inside 30 days
-              </span>{' '}
-              — renew them before they ground a truck mid-consignment.
+                {fleet.expiring} {fleet.expiring === 1 ? 'document expires' : 'documents expire'} within 30 days
+              </span>
+              .
             </>
           ) : (
             <>
-              <span className="font-bold text-foreground">Every truck and driver is road-legal.</span> No paper is
-              expired and none expires inside the next 30 days.
+              <span className="font-bold text-foreground">Every vehicle and driver is compliant.</span> No document
+              expires within 30 days.
             </>
           )}
         </InsightNote>
@@ -97,7 +97,7 @@ export function FleetCard({ fleet, className }: { fleet: FleetModel; className?:
     >
       {fleet.vehicles === 0 ? (
         <p className="py-10 text-center text-sm font-semibold text-muted-foreground">
-          No vehicle is registered on the network yet.
+          No vehicles yet.
         </p>
       ) : (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
@@ -110,17 +110,17 @@ export function FleetCard({ fleet, className }: { fleet: FleetModel; className?:
               className="flex-col !items-start gap-y-2"
             />
             <p className="type-body-xs mt-3 text-muted-foreground">
-              {fleet.driversAvailable} of {fleet.drivers} drivers are available to take a load.
+              {fleet.driversAvailable} of {fleet.drivers} drivers available.
             </p>
           </div>
         </div>
       )}
 
       <div className="mt-4 border-t border-border-subtle pt-3.5">
-        <SectionLabel>Papers running out</SectionLabel>
+        <SectionLabel>Documents expiring</SectionLabel>
         {fleet.rows.length === 0 ? (
           <p className="type-body-xs mt-2 text-muted-foreground">
-            Nothing expires in the next 30 days.
+            No document expires within 30 days.
           </p>
         ) : (
           <div className="mt-2 flex flex-col gap-1">

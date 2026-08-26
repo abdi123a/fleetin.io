@@ -3,7 +3,8 @@ import { ArrowRight } from '@/design-system/icons';
 import { Card, CompanyAvatar } from '@/design-system';
 import { getTransporterLogoUrl } from '@/features/shipper-bi/mocks/transporterProfiles';
 import { MOCK_TRANSPORTERS } from '@/features/shipper-bi/mocks/dimensions';
-import { cn } from '@/utils';
+import type { ShipperShipmentRow } from '@/features/shipper-bi';
+import { cn, formatDate } from '@/utils';
 import { PanelHeader, PanelLink, PANEL_SURFACE } from './PanelHeader';
 
 /* ---------------------------------------------------------------------------
@@ -66,117 +67,6 @@ const ROOT_CAUSE_LABELS: Record<RootCause, string> = {
   force_majeure: 'Force majeure',
 };
 
-const MOCK_RETURNS: PendingReturn[] = [
-  // IMPORT — Detention
-  {
-    shipmentRef: 'SHP-2291',
-    containerNo: 'CNT-88213',
-    deliveredDate: 'Aug 2',
-    dueDate: 'Aug 5',
-    route: 'Doraleh Container Terminal → Doraleh Multi-Purpose Port',
-    status: 'overdue',
-    flow: 'import',
-    daysOverdue: 3,
-    delay: {
-      party: 'shipper',
-      cause: 'empty_return',
-    },
-  },
-  {
-    shipmentRef: 'SHP-2288',
-    containerNo: 'CNT-88190',
-    deliveredDate: 'Aug 3',
-    dueDate: 'Aug 6',
-    route: 'Port of Djibouti → Doraleh Container Terminal',
-    status: 'due_today',
-    flow: 'import',
-    delay: {
-      party: 'fleetin',
-      cause: 'documentation',
-    },
-  },
-  {
-    shipmentRef: 'SHP-2301',
-    containerNo: 'CNT-88240',
-    deliveredDate: 'Aug 4',
-    dueDate: 'Aug 7',
-    route: 'Damerjog Livestock Port → Port of Djibouti',
-    status: 'due_soon',
-    flow: 'import',
-    daysUntilDue: 1,
-    delay: {
-      party: 'transporter',
-      cause: 'dispatching',
-      transporterId: 'TRP-01',
-    },
-  },
-  {
-    shipmentRef: 'SHP-2305',
-    containerNo: 'CNT-88255',
-    deliveredDate: 'Aug 5',
-    dueDate: 'Aug 9',
-    route: 'Port of Tadjourah → Doraleh Container Terminal',
-    status: 'on_track',
-    flow: 'import',
-    daysUntilDue: 3,
-  },
-  // EXPORT — Demurrage
-  {
-    shipmentRef: 'SHP-2310',
-    containerNo: 'CNT-88271',
-    deliveredDate: 'Aug 1',
-    dueDate: 'Aug 4',
-    route: 'Doraleh Multi-Purpose Port → Port of Djibouti',
-    status: 'overdue',
-    flow: 'export',
-    daysOverdue: 4,
-    delay: {
-      party: 'transporter',
-      cause: 'empty_return',
-      transporterId: 'TRP-02',
-    },
-  },
-  {
-    shipmentRef: 'SHP-2318',
-    containerNo: 'CNT-88299',
-    deliveredDate: 'Aug 4',
-    dueDate: 'Aug 6',
-    route: 'Doraleh Container Terminal → Damerjog Livestock Port',
-    status: 'due_today',
-    flow: 'export',
-    delay: {
-      party: 'fleetin',
-      cause: 'force_majeure',
-    },
-  },
-  {
-    shipmentRef: 'SHP-2322',
-    containerNo: 'CNT-88304',
-    deliveredDate: 'Aug 5',
-    dueDate: 'Aug 8',
-    route: 'Port of Djibouti → Port of Tadjourah',
-    status: 'due_soon',
-    flow: 'export',
-    daysUntilDue: 2,
-    delay: {
-      party: 'shipper',
-      cause: 'communication',
-    },
-  },
-  {
-    shipmentRef: 'SHP-2330',
-    containerNo: 'CNT-88315',
-    deliveredDate: 'Aug 5',
-    dueDate: 'Aug 10',
-    route: 'Doraleh Container Terminal → Port of Djibouti',
-    status: 'on_track',
-    flow: 'export',
-    daysUntilDue: 4,
-  },
-];
-
-const IMPORT_TOTAL = 28;
-const EXPORT_TOTAL = 18;
 
 /** Shared by header + every row so columns stay locked left-to-right.
  *  No `auto` tracks — those shift Responsible/Root cause when Status width changes. */
@@ -261,6 +151,50 @@ export interface ContainerReturnStatusCardProps {
   /** Opens the full returns list. The link renders only when wired — a header
    *  affordance that navigates nowhere is a promise the card cannot keep. */
   onViewAll?: () => void;
+  /** The account's own containers — the source of every row and count here. */
+  rows: ShipperShipmentRow[];
+}
+
+/**
+ * The containers this shipper still owes the lines, worst first.
+ *
+ * Import vs export is read off the lane: a box coming *off* a terminal is an
+ * import to be stripped and returned; one going *to* a terminal is an export.
+ * Responsibility follows the same timestamps the mission report uses — the
+ * empty not ready inside free time is the consignee's depotage, a box ready in
+ * time but still out is the return leg.
+ */
+function toPendingReturns(rows: ShipperShipmentRow[]): PendingReturn[] {
+  const isTerminal = (place: string) => /terminal|port|dct|sgtd|horizon/i.test(place);
+
+  return rows
+    .filter((row) => row.containerNo && !row.returnedAt)
+    .map((row) => {
+      const overdue = row.emptyReturnOverdueDays;
+      const dueInHours = row.freeTimeHoursRemaining ?? 0;
+      const status: ReturnStatus =
+        overdue > 0 ? 'overdue' : dueInHours <= 24 ? 'due_today' : 'on_track';
+
+      return {
+        shipmentRef: row.parentReference ?? row.reference,
+        containerNo: row.containerNo as string,
+        deliveredDate: row.arrivalAt ? formatDate(row.arrivalAt, 'dateShort') : '—',
+        dueDate: row.freeTimeExpiresAt ? formatDate(row.freeTimeExpiresAt, 'dateShort') : '—',
+        route: `${row.origin} → ${row.destination}`,
+        status,
+        flow: isTerminal(row.origin) ? 'import' : 'export',
+        daysOverdue: overdue > 0 ? overdue : undefined,
+        daysUntilDue: overdue > 0 ? undefined : Math.max(0, Math.round(dueInHours / 24)),
+        delay:
+          overdue > 0
+            ? {
+                party: row.primaryDelayOwner?.startsWith('shipper') ? 'shipper' : 'transporter',
+                cause: 'empty_return',
+              }
+            : undefined,
+      } satisfies PendingReturn;
+    })
+    .sort((a, b) => (b.daysOverdue ?? -1) - (a.daysOverdue ?? -1));
 }
 
 export function ContainerReturnStatusCard({
@@ -268,17 +202,19 @@ export function ContainerReturnStatusCard({
   shipperName = 'Shipper',
   shipperLogoUrl,
   onViewAll,
+  rows,
 }: ContainerReturnStatusCardProps) {
   const [activeTab, setActiveTab] = useState<ActiveTab>('import');
 
+  const pending = useMemo(() => toPendingReturns(rows), [rows]);
   const filteredReturns = useMemo(
-    () => MOCK_RETURNS.filter((r) => r.flow === activeTab),
-    [activeTab],
+    () => pending.filter((r) => r.flow === activeTab),
+    [pending, activeTab],
   );
 
-  const total = activeTab === 'import' ? IMPORT_TOTAL : EXPORT_TOTAL;
+  const total = filteredReturns.length;
   const chargeLabel = activeTab === 'import' ? 'detention' : 'demurrage';
-  const alertCount = IMPORT_TOTAL + EXPORT_TOTAL;
+  const alertCount = pending.length;
 
   return (
     <Card
@@ -305,13 +241,13 @@ export function ContainerReturnStatusCard({
               active={activeTab === 'import'}
               onClick={() => setActiveTab('import')}
               label="Import"
-              count={IMPORT_TOTAL}
+              count={pending.filter((r) => r.flow === 'import').length}
             />
             <FlowTab
               active={activeTab === 'export'}
               onClick={() => setActiveTab('export')}
               label="Export"
-              count={EXPORT_TOTAL}
+              count={pending.filter((r) => r.flow === 'export').length}
             />
           </div>
 

@@ -33,7 +33,7 @@ export function NumberingSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Panel title="Scheme" subtitle="Shape of every reference the system mints">
+      <Panel title="Scheme" subtitle="Reference shape">
         <FieldGrid>
           <NumberField
             label="Digits"
@@ -41,29 +41,28 @@ export function NumberingSection() {
             onChange={(v) => update('numbering', { digits: v })}
             min={3}
             max={8}
-            hint={`Five digits gives ${(10 ** numbering.digits - 1).toLocaleString('en-GB')} references per prefix before the scheme runs out.`}
+            hint={`${(10 ** numbering.digits - 1).toLocaleString('en-GB')} references per prefix.`}
           />
           <TextField
             label="HR document pattern"
             value={numbering.hrReferencePattern}
             onChange={(v) => update('numbering', { hrReferencePattern: v })}
             mono
-            hint="Payroll and leave documents number separately. Tokens: {prefix} {seq} {yy} {yyyy}."
+            hint="Payroll and leave number separately. Tokens: {prefix} {seq} {yy} {yyyy}."
           />
           <ToggleField
             label="Restart sequences each year"
-            description="On, the counter returns to 1 every January and the year appears in the reference. Off, it runs continuously."
+            description="On, the counter restarts each January and the year appears in the reference."
             checked={numbering.resetYearly}
             onChange={(v) => update('numbering', { resetYearly: v })}
           />
           <SectionNote tone="warning">
-            Changing a prefix or the digit width affects the <strong>next</strong> reference minted and nothing
-            already issued. History is never renumbered — a reference quoted in an email has to keep working.
+            Affects the <strong>next</strong> reference minted only. History is never renumbered.
           </SectionNote>
         </FieldGrid>
       </Panel>
 
-      <Panel title="Prefixes" subtitle="Three letters per record type, with a live example">
+      <Panel title="Prefixes" subtitle="Three letters per record type">
         <div className="grid gap-x-5 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
           {kinds.map((kind) => {
             const prefix = numbering.prefixes[kind] ?? '';
@@ -87,10 +86,8 @@ export function NumberingSection() {
         </div>
 
         <p className="mt-5 text-xs leading-relaxed text-muted-foreground">
-          Shipper (<span className="font-mono">SHP</span>) and transporter (<span className="font-mono">PTR</span>)
-          keys are not listed: four modules join on them, so renaming one is a migration rather than a setting.
-          Container numbers, driving licences and client contract references belong to somebody else&rsquo;s
-          numbering system and are never rewritten. Today&rsquo;s shipment reads{' '}
+          Shipper (<span className="font-mono">SHP</span>), transporter (<span className="font-mono">PTR</span>) and
+          third-party numbers are never rewritten. Today&rsquo;s shipment reads{' '}
           <span className="font-mono text-foreground">{formatId('shipment', 412)}</span>.
         </p>
       </Panel>

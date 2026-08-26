@@ -70,7 +70,7 @@ export function FinanceClientPage() {
     return (
       <div className="mx-auto w-full max-w-[1600px] px-4 pt-6 sm:px-6">
         <Panel title="Loading…">
-          <EmptyState message="Fetching this client." />
+          <EmptyState message="Loading shipper…" />
         </Panel>
       </div>
     );
@@ -79,7 +79,7 @@ export function FinanceClientPage() {
   if (!shipper) {
     return (
       <div className="mx-auto w-full max-w-[1600px] px-4 pt-6 sm:px-6">
-        <Panel title="Client not found">
+        <Panel title="Shipper not found">
           <EmptyState message="No shipper with that reference." />
         </Panel>
       </div>
@@ -110,8 +110,8 @@ export function FinanceClientPage() {
       <ContractRemindersPanel shipperId={clientId} />
 
       <Panel
-        title="Projects & shipments"
-        subtitle="Grouped by agreement, or booked as a one-off — billed the same way either way"
+        title="Projects & Shipments"
+        subtitle="Grouped by contract, or booked individually"
         padded={false}
         dense
         action={
@@ -145,7 +145,7 @@ export function FinanceClientPage() {
                 />
               ))
             ) : (
-              <EmptyState message="No projects yet for this client — add one to start tracking a contract." />
+              <EmptyState message="No projects yet." />
             )}
           </div>
         ) : (
@@ -294,7 +294,7 @@ function ProjectCard({
       <div className="flex items-stretch gap-4 pl-[calc(2.25rem+0.75rem)]">
         <Stat label="Recovered" value={`${pct(collected)} of ${compactDjf(money.revenueDjf)}`} alarm={money.overdueDjf > 0} />
         <Divider />
-        <Stat label="Owed to transporters" value={owedOut > 0 ? compactDjf(owedOut) : 'Fully settled'} />
+        <Stat label="Payables" value={owedOut > 0 ? compactDjf(owedOut) : 'Fully settled'} />
       </div>
     </Link>
   );

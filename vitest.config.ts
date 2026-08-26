@@ -21,6 +21,14 @@ import { defineConfig } from 'vitest/config';
  * exception, `persist`'s use of `localStorage`, is satisfied by Node's own
  * global `localStorage` — no jsdom needed). Security-critical store logic
  * (auth's demo-mode gating) belongs under test same as business logic does.
+ *
+ * `src/components/reports` is included for its arithmetic, not its components:
+ * `missionReport.ts` and `monthlyReport.ts` are the definitions the shipper's
+ * mission and monthly reports are made of ("what is pickup waiting time a
+ * subtraction of", "how many detention days is a 40-hour overrun"), and they
+ * are pure TypeScript for exactly that reason. The `*View` components in the
+ * same folder are not tested here — that would need jsdom, which stays
+ * unconfigured.
  */
 export default defineConfig({
   resolve: {
@@ -29,7 +37,11 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['src/lib/**/*.test.ts', 'src/stores/**/*.test.ts'],
+    include: [
+      'src/lib/**/*.test.ts',
+      'src/stores/**/*.test.ts',
+      'src/components/reports/**/*.test.ts',
+    ],
     environment: 'node',
   },
 });

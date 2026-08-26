@@ -2,36 +2,46 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { RotateCcw } from 'lucide-react';
 import {
-  Bell,
   Download,
   Printer,
   MoreVertical,
-  FileText,
   FolderOpen,
   ChevronLeft,
   ChevronRight,
+  Package,
+  Route,
 } from '@/design-system/icons';
 import {
   Badge,
   Button,
   Card,
   CornerBadge,
-  PipelineFlowCard,
+  IconChip,
   VerificationBadge,
 } from '@/design-system';
 import { ROUTES } from '@/config/routes';
 import { BookingPreviewSheet, type BookingPreviewItem, type EmptyReturnStage } from './components';
 import { useShipment, useShipmentRaw } from '@/features/shipments/api/queries';
 import { useBookingsForShipment } from '@/features/bookings/api/queries';
-import { displayBookingStatus, statusIntentOf, type BookingRecord } from '@/features/bookings/api/bookingsService';
+import { ShipmentReportPanel } from '@/components/reports';
+import { type BookingRecord } from '@/features/bookings/api/bookingsService';
+import { displayShipmentStatus, statusIntentOf } from '@/lib/shipmentStatus';
 import { useCycles } from '@/features/empty-returns/api/queries';
 import type { EmptyReturnCycleRecord } from '@/features/empty-returns/api/emptyReturnsService';
 import { useProject } from '@/features/finance';
 
-const PAGE_SIZE = 3;
+/**
+ * Booking cards per page.
+ *
+ * Six, because the grid is one column on mobile, two at `sm` and three at `lg`:
+ * six divides by all three, so a page never ends in a ragged row. It was three,
+ * which sent the fourth container of a four-container shipment to page two and
+ * left a hole beside the third.
+ */
+const PAGE_SIZE = 6;
 
 /** Mirrors the backend's `DELIVERED_STATUSES` (`empty-return-status.util.ts`) — the same boundary Empty Return itself uses to decide when a booking's container is even eligible to go back. */
-const DELIVERED_STATUSES = ['Arrived', 'Unloading', 'POD Submitted', 'Completed'];
+const DELIVERED_STATUSES = ['Arrived', 'Unloading', 'POD Submitted', 'Empty Ready', 'Completed'];
 
 /**
  * Where this booking's own container sits on its way back — purely a
@@ -40,16 +50,28 @@ const DELIVERED_STATUSES = ['Arrived', 'Unloading', 'POD Submitted', 'Completed'
  * booking is delivered, since the question doesn't apply yet.
  */
 function emptyReturnStageOf(booking: BookingRecord, cycle: EmptyReturnCycleRecord | undefined): EmptyReturnStage | undefined {
+  // No box, no empty return. A bulk or machinery load has nothing to give
+  // back, so the row simply does not apply — it used to read "Awaiting match"
+  // on tipper loads, inventing an obligation that will never exist.
+  if (!booking.containerNumber) return undefined;
   if (!DELIVERED_STATUSES.includes(booking.status)) return undefined;
-  if (cycle) return cycle.status === 'completed' ? 'returned' : 'matched';
+  /* The return starts when Operations says the box was emptied — the "Empty
+   * Ready" rung — not when the truck pulled up. Until then the container is
+   * still being stripped and there is nothing to match it against. */
+  if (!booking.emptyReadyAt) return 'awaiting_empty';
+  // `returnedAt` is the fact that the box is home; the cycle's own status can
+  // read "completed" for the leg that carried it while the box itself is not
+  // yet logged back.
+  if (cycle) return cycle.returnedAt ? 'returned' : 'matched';
   if (booking.emptyReturnException) return 'standalone';
   return 'waiting_match';
 }
 
 /** Compact label for the booking card's own row — the full sentence lives in the preview sheet's Empty Return card. */
 const EMPTY_RETURN_STAGE_LABEL: Record<EmptyReturnStage, string> = {
-  waiting_match: 'Waiting Match',
-  matched: 'In Progress',
+  awaiting_empty: 'Not emptied yet',
+  waiting_match: 'Awaiting match',
+  matched: 'In progress',
   returned: 'Returned',
   standalone: 'Standalone',
 };
@@ -57,7 +79,6 @@ const EMPTY_RETURN_STAGE_LABEL: Record<EmptyReturnStage, string> = {
 /** One card per real `Booking` (one per container/trip) — no more single-tier Shipment-as-one-card synthesis now that Bookings are real (Phase 2). */
 function bookingToPreviewItem(booking: BookingRecord, cycle: EmptyReturnCycleRecord | undefined): BookingPreviewItem {
   const now = Date.now();
-  const podStep = booking.timeline?.find((step) => step.key === 'pod_upload' && step.status === 'completed');
   return {
     id: booking.id,
     bookingNumber: booking.reference.replace('BKG-', ''),
@@ -80,10 +101,8 @@ function bookingToPreviewItem(booking: BookingRecord, cycle: EmptyReturnCycleRec
     status: booking.status,
     statusIntent: statusIntentOf(booking.status),
     emptyReturnStage: emptyReturnStageOf(booking, cycle),
+    emptyReadyAt: booking.emptyReadyAt ?? undefined,
     emptyReturnCycleReference: cycle?.reference,
-    podDocument: podStep
-      ? { name: podStep.podFileUrl ?? 'Proof of Delivery', size: '—', uploadedAt: podStep.timestamp ?? '' }
-      : null,
   };
 }
 
@@ -104,10 +123,6 @@ export function ShipmentOverviewPage() {
     for (const cycle of cycles ?? []) map.set(cycle.bookingId, cycle);
     return map;
   }, [cycles]);
-  // Money moves per shipment, never per booking — one flag applies to every
-  // booking's card alike.
-  const payoutReleased = Boolean(shipmentRaw?.payoutReleasedAt);
-
   const [selectedBooking, setSelectedBooking] = useState<BookingPreviewItem | null>(null);
   const [isBookingSheetOpen, setIsBookingSheetOpen] = useState(false);
   const [bookingPage, setBookingPage] = useState(1);
@@ -154,6 +169,18 @@ export function ShipmentOverviewPage() {
   const pagedBookings = bookings.slice((bookingPage - 1) * PAGE_SIZE, bookingPage * PAGE_SIZE);
   const hasPagination = bookings.length > PAGE_SIZE;
 
+  /**
+   * Columns follow the count, so a page never ends in a lonely card: four
+   * containers read as a 2×2 block rather than three and a straggler. Three is
+   * the ceiling — wider cards than that lose the labels inside them.
+   */
+  const bookingColumnsClass =
+    pagedBookings.length === 4
+      ? 'lg:grid-cols-2'
+      : pagedBookings.length === 2
+        ? 'lg:grid-cols-2'
+        : 'lg:grid-cols-3';
+
   const handleBookingClick = (booking: BookingPreviewItem) => {
     setSelectedBooking(booking);
     setIsBookingSheetOpen(true);
@@ -173,54 +200,103 @@ export function ShipmentOverviewPage() {
       <div className="py-16 text-center space-y-3">
         <p className="text-sm font-semibold text-foreground">Shipment {id ? `"${id}"` : ''} not found.</p>
         <Button variant="outline" size="sm" onClick={() => navigate(ROUTES.missions)} className="rounded-lg">
-          Back to Shipments
+          Back to shipments
         </Button>
       </div>
     );
   }
 
+  /** The header badge speaks the same status vocabulary as the booking cards. */
+  const headerIntent = statusIntentOf(mission.status);
+  const headerStatusIntent =
+    headerIntent === 'green'
+      ? ('success' as const)
+      : headerIntent === 'blue'
+        ? ('info' as const)
+        : headerIntent === 'orange'
+          ? ('warning' as const)
+          : ('default' as const);
+
   return (
-    <div className="space-y-4 sm:space-y-6 pb-12 px-0">
+    /* `report-host`: printing the Shipment Report prints the report, not the page
+       around it — the print stylesheet hides every child of this element that
+       does not contain the report sheet. */
+    <div className="report-host space-y-4 sm:space-y-6 pb-12 px-0">
 
-      {/* ── HEADER ── */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground flex items-center gap-2">
-            <span className="text-primary">Shipment Overview</span>
-            {id && <span className="text-muted-foreground font-medium text-base sm:text-lg">({id})</span>}
-          </h1>
-          {linkedProject && (
-            <span className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-semibold text-muted-foreground">
-              <FolderOpen className="w-3.5 h-3.5" />
-              {linkedProject.name}
-              <span className="font-mono text-[11px] opacity-75">{linkedProject.reference}</span>
-            </span>
-          )}
+      {/*
+       * ── MASTHEAD ──
+       *
+       * A filled brand tile, the same fill the KPI strips use — a record page
+       * opening on a white heading read as an unfinished screen. The record
+       * leads inside it: the reference is the H1 and "Shipment Overview" steps
+       * back to an eyebrow, because the app's own breadcrumb already says where
+       * you are. Status and route ride along, since they are what every block
+       * below is about, and the status is a labelled chip, never colour alone.
+       */}
+      <header className="rounded-card bg-tile-teal text-tile-teal-foreground shadow-sm">
+        <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:p-5">
+          <div className="flex min-w-0 items-center gap-3.5">
+            <IconChip icon={Package} tint="on-teal" size={44} className="hidden sm:flex" />
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.11em] text-tile-teal-foreground/80">
+                Shipment Overview
+              </p>
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <h1 className="font-mono text-2xl font-extrabold leading-none tracking-tight text-tile-teal-foreground sm:text-[28px]">
+                  {id ?? mission.id}
+                </h1>
+                <Badge
+                  variant="solid"
+                  intent={headerStatusIntent}
+                  size="md"
+                  className="uppercase tracking-[0.08em]"
+                >
+                  {displayShipmentStatus(mission.status, 'shipment')}
+                </Badge>
+              </div>
+
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-tile-teal-foreground/85">
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <Route className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                  <span className="truncate">
+                    {mission.pickupLocation.name} → {mission.deliveryLocation.name}
+                  </span>
+                </span>
+                {linkedProject && (
+                  <>
+                    <span aria-hidden className="h-3 w-px bg-tile-teal-foreground/30" />
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <FolderOpen className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                      <span className="truncate font-semibold">{linkedProject.name}</span>
+                      <span className="font-mono text-[11px] opacity-80">
+                        {linkedProject.reference}
+                      </span>
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {/*
+             * On a filled tile the action inverts: white plate, teal ink — the
+             * same pair `IconChip`'s `on-teal` uses. Literal white, not
+             * `bg-card`, because the tile holds its colour in both themes and a
+             * dark-mode card on it would read as a hole.
+             */}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => navigate(ROUTES.emptyReturns)}
+              leadingIcon={<RotateCcw />}
+              className="cursor-pointer bg-white text-tile-teal shadow-xs hover:bg-white/90 active:bg-white/80"
+            >
+              Empty Returns
+            </Button>
+          </div>
         </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate(ROUTES.emptyReturns)}
-            className="rounded-lg text-xs h-9 px-3 gap-2 border-border cursor-pointer"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-primary" />
-            <span>Empty Returns</span>
-          </Button>
-          <button
-            type="button"
-            className="p-2 rounded-full border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors relative cursor-pointer shrink-0"
-            aria-label="Notifications"
-          >
-            <Bell className="w-4 h-4" />
-            <span className="absolute top-1 right-1 w-2 h-2 bg-destructive rounded-full ring-2 ring-card" />
-          </button>
-        </div>
-      </div>
-
-      {/* ── PIPELINE FLOW ── */}
-      <PipelineFlowCard bookings={bookings} onBookingClick={handleBookingClick} payoutReleased={payoutReleased} />
+      </header>
 
       {/* ── BOOKINGS CARD ── */}
       <Card className="p-4 sm:p-5 rounded-lg border border-border/80 bg-card space-y-3">
@@ -233,7 +309,7 @@ export function ShipmentOverviewPage() {
         </div>
 
         {/* Booking Items */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+        <div className={`grid grid-cols-1 gap-2.5 sm:grid-cols-2 ${bookingColumnsClass}`}>
           {pagedBookings.map(item => {
             const getBadgeIntent = () => {
               switch (item.statusIntent) {
@@ -257,13 +333,7 @@ export function ShipmentOverviewPage() {
 
                 {/* Status Badge */}
                 <div className="absolute top-2 right-2 flex items-center gap-1.5">
-                  {item.podDocument && (
-                    <span className="text-[10px] font-semibold text-success-subtle-foreground bg-success-subtle border border-success/20 px-1.5 py-0.5 rounded-sm flex items-center gap-1" title="POD Uploaded">
-                      <FileText className="w-3 h-3" />
-                      <span>POD</span>
-                    </span>
-                  )}
-                  <Badge variant="subtle" intent={getBadgeIntent()} size="sm">{displayBookingStatus(item.status)}</Badge>
+                  <Badge variant="subtle" intent={getBadgeIntent()} size="sm">{displayShipmentStatus(item.status)}</Badge>
                 </div>
 
                 {/* Fields */}
@@ -274,9 +344,7 @@ export function ShipmentOverviewPage() {
                       <span className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
                         {item.driverName}
                       </span>
-                      {item.driverVerified && (
-                        <VerificationBadge state="verified" size="sm" className="bg-transparent border-0 text-success font-bold px-0 shrink-0" />
-                      )}
+                      {item.driverVerified && <VerificationBadge state="verified" size="sm" />}
                     </div>
                   </div>
 
@@ -284,9 +352,7 @@ export function ShipmentOverviewPage() {
                     <span className="text-muted-foreground shrink-0">Vehicle No.</span>
                     <div className="flex items-center gap-1">
                       <span className="font-semibold text-foreground">{item.vehicleNumber}</span>
-                      {item.vehicleVerified && (
-                        <VerificationBadge state="verified" size="sm" className="bg-transparent border-0 text-success font-bold px-0 shrink-0" />
-                      )}
+                      {item.vehicleVerified && <VerificationBadge state="verified" size="sm" />}
                     </div>
                   </div>
 
@@ -369,6 +435,17 @@ export function ShipmentOverviewPage() {
           </div>
         </div>
       </Card>
+
+      {/* ── SHIPMENT REPORT ── */}
+      {/* The whole reporting system for this consignment: every container's
+          mission on one line, then the selected mission's own report —
+          overview, timeline, transport KPIs, container return, responsibility,
+          exceptions. Computed from recorded timestamps only, and downloadable
+          as PDF. The panel owns its heading, so there is none here. */}
+      <ShipmentReportPanel
+        bookings={bookingRecords ?? []}
+        cyclesByBookingId={cyclesByBookingId}
+      />
 
       {/* BOOKING PREVIEW SIDE SHEET */}
       <BookingPreviewSheet

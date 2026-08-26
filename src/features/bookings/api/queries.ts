@@ -4,9 +4,11 @@ import { emptyReturnQueryKeys } from '@/features/empty-returns/api/queries';
 import {
   createBookings,
   fetchBooking,
+  fetchBookings,
   fetchBookingsForShipment,
   updateBooking,
   updateBookingStatus,
+  type BookingListFilters,
   type CreateBookingItemPayload,
   type UpdateBookingPayload,
 } from './bookingsService';
@@ -14,7 +16,17 @@ import {
 export const bookingQueryKeys = {
   forShipment: (shipmentId: string) => ['bookings', 'shipment', shipmentId] as const,
   detail: (id: string) => ['bookings', 'detail', id] as const,
+  list: (filters: BookingListFilters) => ['bookings', 'list', filters] as const,
 };
+
+/** The booking book, filtered — the transporter workspace reads this with `partnerId`. */
+export function useBookings(filters: BookingListFilters, options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: bookingQueryKeys.list(filters),
+    queryFn: () => fetchBookings(filters),
+    enabled: options.enabled ?? true,
+  });
+}
 
 export function useBookingsForShipment(shipmentId: string | undefined) {
   return useQuery({
@@ -42,7 +54,8 @@ export function useBooking(id: string | undefined) {
 export function useUpdateBookingStatus() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) => updateBookingStatus(id, status),
+    mutationFn: ({ id, status, occurredAt }: { id: string; status: string; occurredAt?: string }) =>
+      updateBookingStatus(id, status, occurredAt),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: bookingQueryKeys.forShipment(data.shipmentId) });
       queryClient.invalidateQueries({ queryKey: emptyReturnQueryKeys.all });

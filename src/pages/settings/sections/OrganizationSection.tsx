@@ -20,7 +20,7 @@ export function OrganizationSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Panel title="Identity" subtitle="What the app calls itself, and what documents call the company">
+      <Panel title="Identity">
         <FieldGrid>
           <TextField
             label="Trading name"
@@ -32,7 +32,7 @@ export function OrganizationSection() {
             label="Registered name"
             value={org.legalName}
             onChange={(v) => set({ legalName: v })}
-            hint="Exactly as it appears on the trade register — this is what prints on an invoice."
+            hint="As registered. Prints on invoices."
           />
           <TextField
             label="Tagline"
@@ -49,7 +49,7 @@ export function OrganizationSection() {
         </FieldGrid>
       </Panel>
 
-      <Panel title="Registered office" subtitle="Printed as the address block on every document">
+      <Panel title="Registered office" subtitle="Printed on every document">
         <FieldGrid>
           <TextField label="Address line 1" value={org.addressLine1} onChange={(v) => set({ addressLine1: v })} />
           <TextField label="Address line 2" value={org.addressLine2} onChange={(v) => set({ addressLine2: v })} />
@@ -58,7 +58,7 @@ export function OrganizationSection() {
         </FieldGrid>
       </Panel>
 
-      <Panel title="Contact" subtitle="The lines a client uses to reach accounts">
+      <Panel title="Contact">
         <FieldGrid>
           <TextField label="Telephone" type="tel" value={org.phone} onChange={(v) => set({ phone: v })} />
           <TextField label="Mobile" type="tel" value={org.mobile} onChange={(v) => set({ mobile: v })} />
@@ -67,7 +67,7 @@ export function OrganizationSection() {
         </FieldGrid>
       </Panel>
 
-      <Panel title="Registration" subtitle="Statutory identifiers that must appear on issued documents">
+      <Panel title="Registration" subtitle="Statutory identifiers">
         <FieldGrid>
           <TextField
             label="Trade register"
@@ -90,8 +90,7 @@ export function OrganizationSection() {
             hint="Printed on payslips and employment certificates."
           />
           <SectionNote tone="warning">
-            The registration and tax numbers shipped as placeholders. A document carrying a wrong NIF or trade
-            register is one a client&rsquo;s accountant will reject — replace both before anything is sent out.
+            Registration and tax numbers ship as placeholders. Replace both before issuing a document.
           </SectionNote>
         </FieldGrid>
       </Panel>

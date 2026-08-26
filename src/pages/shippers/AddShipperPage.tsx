@@ -19,8 +19,8 @@ export function AddShipperPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6 pb-12">
       <PageHeader
-        title="New shipper company group"
-        description="Enter legal company name, address, logo, and legal identification details."
+        title="New Shipper"
+        description="Legal name, address and identification."
         actions={
           <Button
             variant="outline"
@@ -28,7 +28,7 @@ export function AddShipperPage() {
             onClick={() => navigate(ROUTES.shippers)}
             leadingIcon={<ArrowLeft className="h-4 w-4" />}
           >
-            Back to Shippers
+            Back to shippers
           </Button>
         }
       />

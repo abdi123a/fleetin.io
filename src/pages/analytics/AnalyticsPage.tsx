@@ -14,14 +14,18 @@ export function AnalyticsPage() {
   const { data: shipper } = useShipper(shipperId);
 
   return (
-    <div className="mx-auto flex max-w-[1600px] flex-col gap-5 pb-12">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="text-sm text-muted-foreground">Business intelligence</p>
-          <h1 className="text-[1.75rem] font-semibold leading-tight tracking-tight text-foreground">
-            {shipper?.companyLegalName ?? 'Loading…'} — Analytics
-          </h1>
-        </div>
+    <div className="mx-auto flex w-full min-w-0 max-w-[1600px] flex-col gap-5 px-4 pb-12 pt-1 sm:px-6">
+      <div>
+        <h1 className="text-[1.75rem] font-semibold leading-tight tracking-tight text-foreground">
+          Analytics
+        </h1>
+        {/* The account is named once, in the one line that says what the page
+            covers. The old header said it twice — an eyebrow reading "Business
+            intelligence" above a heading ending in "— Analytics", for a page
+            the sidebar had already labelled Analytics. */}
+        <p className="type-body-sm mt-1 text-muted-foreground">
+          Everything {shipper?.companyLegalName ?? 'your account'} has shipped, over time.
+        </p>
       </div>
 
       <ShipperAnalyticsSuite shipperId={shipperId} />

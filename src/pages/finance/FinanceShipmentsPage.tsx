@@ -23,10 +23,10 @@ interface ClientBookRow {
 
 const SORTS = {
   recent: { label: 'Recent', caption: 'Most recent shipment first', compare: (a: ClientBookRow, b: ClientBookRow) => b.lastShipmentAt.localeCompare(a.lastShipmentAt) },
-  shipments: { label: 'Shipments', caption: 'Most shipments moved first', compare: (a: ClientBookRow, b: ClientBookRow) => b.shipments.length - a.shipments.length },
-  value: { label: 'Value', caption: 'Highest billed value first', compare: (a: ClientBookRow, b: ClientBookRow) => b.money.revenueDjf - a.money.revenueDjf },
-  unpaid: { label: 'Unpaid', caption: 'Most money still owed to us first', compare: (a: ClientBookRow, b: ClientBookRow) => b.money.outstandingDjf - a.money.outstandingDjf },
-  late: { label: 'Late', caption: 'Most overdue money first', compare: (a: ClientBookRow, b: ClientBookRow) => b.money.overdueDjf - a.money.overdueDjf },
+  shipments: { label: 'Shipments', caption: 'Most shipments first', compare: (a: ClientBookRow, b: ClientBookRow) => b.shipments.length - a.shipments.length },
+  value: { label: 'Billed', caption: 'Highest billed first', compare: (a: ClientBookRow, b: ClientBookRow) => b.money.revenueDjf - a.money.revenueDjf },
+  unpaid: { label: 'Receivables', caption: 'Highest receivables first', compare: (a: ClientBookRow, b: ClientBookRow) => b.money.outstandingDjf - a.money.outstandingDjf },
+  late: { label: 'Overdue', caption: 'Highest overdue first', compare: (a: ClientBookRow, b: ClientBookRow) => b.money.overdueDjf - a.money.overdueDjf },
 } as const;
 
 type SortKey = keyof typeof SORTS;
@@ -110,15 +110,15 @@ export function FinanceShipmentsPage() {
           fill="teal"
           label="Shipments"
           value={`${totalShipments}`}
-          hint={`Across ${rows.length} client${rows.length === 1 ? '' : 's'}`}
-          badge={<TileBadge fill="teal">{rows.length} clients</TileBadge>}
+          hint={`Across ${rows.length} shipper${rows.length === 1 ? '' : 's'}`}
+          badge={<TileBadge fill="teal">{rows.length} shippers</TileBadge>}
         />
-        <StatCard icon={Coins} fill="sky" label="Project value" value={compactDjf(revenue)} hint="Billed on priced shipments" badge={<TileBadge fill="sky">Money in</TileBadge>} />
-        <StatCard icon={Hourglass} fill="peach" label="Unpaid by clients" value={compactDjf(unpaid)} hint="Invoiced, not yet settled" badge={<TileBadge fill="peach">Owed to us</TileBadge>} />
-        <StatCard icon={Truck} fill="pink" label="Owed to transporters" value={compactDjf(owedOut)} hint="Every unpaid leg on the book" badge={<TileBadge fill="pink">Money out</TileBadge>} />
+        <StatCard icon={Coins} fill="sky" label="Billed" value={compactDjf(revenue)} hint="Priced shipments only" badge={<TileBadge fill="sky">Credit</TileBadge>} />
+        <StatCard icon={Hourglass} fill="peach" label="Receivables" value={compactDjf(unpaid)} hint="Invoiced, not yet settled" badge={<TileBadge fill="peach">Open</TileBadge>} />
+        <StatCard icon={Truck} fill="pink" label="Payables" value={compactDjf(owedOut)} hint="Unsettled transport cost" badge={<TileBadge fill="pink">Debit</TileBadge>} />
       </div>
 
-      <Panel title="Clients" subtitle={SORTS[sort].caption} padded={false} action={<Pill tone="neutral">{rows.length} on this channel</Pill>}>
+      <Panel title="Shippers" subtitle={SORTS[sort].caption} padded={false} action={<Pill tone="neutral">{rows.length} on this channel</Pill>}>
         <div className="flex flex-wrap items-center gap-3 px-5 pb-4">
           <span className="text-xs font-extrabold uppercase tracking-[0.06em] text-muted-foreground">Sort by</span>
           <FilterPills options={SORT_KEYS.map((key) => ({ key, label: SORTS[key].label }))} active={sort} onChange={setSort} />
@@ -128,7 +128,7 @@ export function FinanceShipmentsPage() {
           <DataTable minWidth={900}>
             <thead>
               <tr>
-                <Th>Client</Th>
+                <Th>Shipper</Th>
                 <Th align="right">Shipments</Th>
                 <Th align="right">Project value</Th>
                 <Th align="right">Unpaid</Th>

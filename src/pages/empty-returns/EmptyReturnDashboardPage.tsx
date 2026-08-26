@@ -9,8 +9,8 @@ import {
   startEmptyReturnClock,
   useEmptyReturnStore,
 } from '@/stores/emptyReturn.store';
-import { useAvailableEmpties, useCycles } from '@/features/empty-returns/api/queries';
-import { cycleToRow, emptyBookingToRow } from '@/features/empty-returns/mappers';
+import { useAvailableEmpties, useCycles, useOpenFullLoads } from '@/features/empty-returns/api/queries';
+import { bookingToFullLoadMission, cycleToRow, emptyBookingToRow } from '@/features/empty-returns/mappers';
 import type { EmptyReturnFilters } from '@/types/emptyReturn';
 
 import { DualTransactionsRecommendationsModal } from './components/DualTransactionsRecommendationsModal';
@@ -18,7 +18,6 @@ import {
   EmptyReturnConsoleHeader,
   ReturnKpiTiles,
   ReturnPlanningCalendarCard,
-  ReturnsOutstandingCard,
   buildEmptyReturnConsoleModel,
 } from './components/console';
 
@@ -54,6 +53,14 @@ export function EmptyReturnDashboardPage() {
       ...(availableEmptiesQuery.data ?? []).map((booking) => emptyBookingToRow(booking, now)),
     ],
     [cyclesQuery.data, availableEmptiesQuery.data, now],
+  );
+  /* The inbound fulls still looking for a truck. An unmatched empty at one of
+   * these yards has something it could be paired with — which is what separates
+   * "Planned Full" from "Awaiting Full" on the calendar. */
+  const openFullLoadsQuery = useOpenFullLoads();
+  const openFullLoads = useMemo(
+    () => (openFullLoadsQuery.data ?? []).map(bookingToFullLoadMission),
+    [openFullLoadsQuery.data],
   );
   const applyFilterPreset = useEmptyReturnStore((state) => state.applyFilterPreset);
   const focusRecord = useEmptyReturnStore((state) => state.focusRecord);
@@ -153,17 +160,15 @@ export function EmptyReturnDashboardPage() {
         onSelect={(preset) => goCycles(preset)}
       />
 
-      {/* Everything still out, and how loudly each clock is ticking */}
-      <section className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
-        <div className="flex min-w-0 flex-col">
-          <ReturnsOutstandingCard data={model.outstanding} />
-        </div>
-      </section>
-
-      {/* The same work as dates: when each of those clocks actually lands */}
+      {/* The month, full width and full height — the centre of this console.
+          The tiles above say how bad it is; this says *when*, which is the
+          question a dispatcher acts on. It opens on the month rather than the
+          week because an empty-return deadline is usually a week or two out,
+          and a seven-day window hides the ones worth planning for. */}
       <ReturnPlanningCalendarCard
         records={records}
         now={now}
+        openFullLoads={openFullLoads}
         onSelectRecord={(record) => {
           focusRecord(record.id, record.container);
           navigate(ROUTES.emptyReturnsCycles);

@@ -221,7 +221,7 @@ export function FinanceAccountsPage() {
     <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 px-4 pb-8 pt-1 sm:px-6">
       <PageHead
         title="Bank Accounts"
-        subtitle="Every account real money moves through — shipper payments land in one, transporter payouts and drawdowns leave from one."
+        subtitle="Accounts receipts land in and settlements leave from"
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -267,15 +267,15 @@ export function FinanceAccountsPage() {
               tint="teal"
               label={`Balance (${currency})`}
               value={formatMoneyMinorUnits(total, currency)}
-              hint="Summed across accounts in this currency"
+              hint="Across accounts in this currency"
             />
           ))
         )}
       </div>
 
       <Panel
-        title="Registered accounts"
-        subtitle="Balances move only through a recorded movement, an invoice payment or a payout — never by editing"
+        title="Accounts"
+        subtitle="Balances move only through a recorded movement"
         padded={false}
       >
         {isLoading ? (
@@ -284,7 +284,7 @@ export function FinanceAccountsPage() {
           </div>
         ) : accounts.length === 0 ? (
           <div className="px-5 py-6">
-            <EmptyState message="No bank account registered yet. Click “New Account” to add the first one." />
+            <EmptyState message="No accounts yet." />
           </div>
         ) : (
           <DataTable minWidth={860}>
@@ -362,12 +362,12 @@ export function FinanceAccountsPage() {
 
       <Panel
         title="Movements"
-        subtitle="Every deposit, withdrawal and transfer leg the desk has recorded"
+        subtitle="Deposits, withdrawals and transfers"
         padded={false}
       >
         {movements.length === 0 ? (
           <div className="px-5 py-6">
-            <EmptyState message="No movement recorded yet. Deposits, withdrawals and transfers appear here." />
+            <EmptyState message="No movements yet." />
           </div>
         ) : (
           <DataTable minWidth={860}>

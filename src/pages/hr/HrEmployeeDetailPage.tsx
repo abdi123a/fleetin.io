@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { ROUTES } from '@/config/routes';
+import { useBreadcrumbLabel } from '@/hooks/useBreadcrumbLabel';
 import {
   Archive,
   ArrowLeft,
@@ -37,7 +38,15 @@ import {
 
 import { DocumentVault } from './components/DocumentVault';
 import { EmployeeFormModal } from './components/EmployeeFormModal';
-import { EMPLOYEE_LABEL, EMPLOYEE_TONE, LEAVE_TONE, frDate } from './hrFormat';
+import { LoadError } from './components/form';
+import {
+  EMPLOYEE_LABEL,
+  EMPLOYEE_TONE,
+  LEAVE_LABEL,
+  LEAVE_TONE,
+  LEAVE_TYPE_LABEL,
+  frDate,
+} from './hrFormat';
 
 /**
  * One staff record: the contract, the file, the leave balance and everything
@@ -51,7 +60,7 @@ import { EMPLOYEE_LABEL, EMPLOYEE_TONE, LEAVE_TONE, frDate } from './hrFormat';
 export function HrEmployeeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { data: employee, isLoading } = useEmployee(id);
+  const { data: employee, isLoading, error } = useEmployee(id);
   const { data: leaveRecords = [] } = useLeaveRecords({ employeeId: id });
   const { data: issued = [] } = useIssuedDocuments({ employeeId: id });
   /* The catalogue is the only place a template's French label lives; without
@@ -61,12 +70,28 @@ export function HrEmployeeDetailPage() {
 
   const [editing, setEditing] = useState(false);
 
+  /* The URL carries the database's own key, which is not a thing anyone can
+     read. The matricule is this record's reference in the app-wide AAA-#####
+     scheme, so that is what the trail says. */
+  useBreadcrumbLabel(employee?.matricule);
+
+  if (error) {
+    return (
+      <div className="w-full min-w-0 space-y-6">
+        <PageHead title="Employee" subtitle="This record could not be opened" />
+        <Panel title="Record" padded={false}>
+          <LoadError error={error} noun="this employee record" />
+        </Panel>
+      </div>
+    );
+  }
+
   if (isLoading || !employee) {
     return (
-      <div className="space-y-6">
+      <div className="w-full min-w-0 space-y-6">
         <PageHead title="Employee" subtitle="Loading…" />
         <Panel title="Record">
-          <EmptyState message="Loading the record…" />
+          <EmptyState message="Loading…" />
         </Panel>
       </div>
     );
@@ -77,7 +102,7 @@ export function HrEmployeeDetailPage() {
   const terminated = employee.status === 'TERMINATED';
 
   return (
-    <div className="space-y-6">
+    <div className="w-full min-w-0 space-y-6">
       <PageHead
         title={employee.fullName}
         subtitle={`${employee.profession}${employee.department ? ` · ${employee.department}` : ''} · ${employee.matricule}`}
@@ -115,8 +140,8 @@ export function HrEmployeeDetailPage() {
         <div className="flex items-center gap-3 rounded-card border border-border bg-surface-sunken px-4 py-3">
           <Archive aria-hidden className="size-4 shrink-0 text-muted-foreground" />
           <p className="text-sm font-semibold text-muted-foreground">
-            Archived{employee.terminationDate ? ` on ${frDate(employee.terminationDate)}` : ''}. The
-            record is kept for labour-inspection and CNSS purposes and can still be read.
+            Archived{employee.terminationDate ? ` on ${frDate(employee.terminationDate)}` : ''}.
+            Kept for labour inspection and CNSS.
           </p>
         </div>
       ) : null}
@@ -135,7 +160,7 @@ export function HrEmployeeDetailPage() {
               fmtDjfPlain(employee.baseSalary ?? 0)
             )
           }
-          hint={salaryHidden ? 'Your role cannot see salary figures' : 'Monthly gross, DJF'}
+          hint={salaryHidden ? 'Salary hidden for this role' : 'Monthly gross, DJF'}
           fill={salaryHidden ? undefined : 'teal'}
         />
         <StatCard
@@ -165,7 +190,7 @@ export function HrEmployeeDetailPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1.15fr]">
-        <Panel title="Record" subtitle="What every generated document reads from">
+        <Panel title="Record" subtitle="Source for every generated document">
           <dl className="grid gap-x-6 gap-y-3.5 sm:grid-cols-2">
             <Detail label="Matricule" value={employee.matricule} mono />
             <Detail label="Nationality" value={employee.nationality} />
@@ -180,7 +205,7 @@ export function HrEmployeeDetailPage() {
               value={
                 employee.redacted?.includes('bankAccount') ? (
                   <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                    <Lock aria-hidden className="size-3.5" /> Hidden for your role
+                    <Lock aria-hidden className="size-3.5" /> Hidden for this role
                   </span>
                 ) : (
                   (employee.bankAccount ?? '—')
@@ -203,7 +228,7 @@ export function HrEmployeeDetailPage() {
 
       <Panel
         title="Leave"
-        subtitle="Accrual runs continuously from the joining date — no annual reset, no cap"
+        subtitle="Accrues from the joining date, uncapped"
         action={
           <Link to={ROUTES.hrLeave}>
             <ActionButton icon={CalendarDays}>Planning grid</ActionButton>
@@ -213,10 +238,10 @@ export function HrEmployeeDetailPage() {
       >
         {leaveRecords.length === 0 ? (
           <div className="px-5 pb-5">
-            <EmptyState message="No leave has been requested for this employee." />
+            <EmptyState message="No leave requests yet." />
           </div>
         ) : (
-          <DataTable minWidth={720}>
+          <DataTable className="w-0 min-w-full" minWidth={720}>
             <thead>
               <tr>
                 <Th>From</Th>
@@ -235,9 +260,9 @@ export function HrEmployeeDetailPage() {
                   <Td align="right">
                     <span className="tabular-nums">{record.days}</span>
                   </Td>
-                  <Td>{record.type}</Td>
+                  <Td>{LEAVE_TYPE_LABEL[record.type] ?? record.type}</Td>
                   <Td>
-                    <Pill tone={LEAVE_TONE[record.status]}>{record.status}</Pill>
+                    <Pill tone={LEAVE_TONE[record.status]}>{LEAVE_LABEL[record.status]}</Pill>
                   </Td>
                   <Td>
                     <span className="text-muted-foreground">{record.reason ?? '—'}</span>
@@ -250,16 +275,16 @@ export function HrEmployeeDetailPage() {
       </Panel>
 
       <Panel
-        title="Issued documents"
-        subtitle="Every attestation, payslip and settlement issued in this name. Nothing is ever overwritten."
+        title="Issued Documents"
+        subtitle="Nothing is ever overwritten"
         padded={false}
       >
         {issued.length === 0 ? (
           <div className="px-5 pb-5">
-            <EmptyState message="Nothing has been issued to this employee yet." />
+            <EmptyState message="No documents issued yet." />
           </div>
         ) : (
-          <DataTable minWidth={720}>
+          <DataTable className="w-0 min-w-full" minWidth={720}>
             <thead>
               <tr>
                 <Th>Reference</Th>

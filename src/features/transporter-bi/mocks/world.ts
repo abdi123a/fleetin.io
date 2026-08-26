@@ -254,7 +254,7 @@ export const BACKHAUL_MATCH_BASE: Record<string, number> = {
 };
 
 export const MOCK_CUSTOMERS: Customer[] = [
-  { id: 'SHP-101', name: 'AMINA FZCO', industry: 'Consumer goods' },
+  { id: 'SHP-101', name: 'CMA-CGM', industry: 'Consumer goods' },
   { id: 'SHP-102', name: 'Al-Baraka Logistics Ltd', industry: 'Freight forwarding' },
   { id: 'SHP-103', name: 'Red Sea Cargo Group', industry: 'Commodities' },
   { id: 'SHP-104', name: 'East Africa Beverages', industry: 'Beverages' },

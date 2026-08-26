@@ -97,7 +97,7 @@ export function AdministrationPage() {
     <div className="space-y-5 pb-12">
       <PageHeader
         title="Administration"
-        description="Review access requests and approve the accounts they create."
+        description="Access requests and account approvals"
       />
 
       <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
@@ -152,8 +152,8 @@ export function AdministrationPage() {
             <h3 className="text-base font-bold text-foreground">No Access Requests</h3>
             <p className="mt-1 max-w-sm text-xs text-muted-foreground">
               {statusFilter === 'all'
-                ? 'Requests submitted from the Request Access page will show up here.'
-                : `No requests are currently ${statusFilter.toLowerCase()}.`}
+                ? 'Submitted requests appear here.'
+                : `No ${statusFilter.toLowerCase()} requests.`}
             </p>
           </div>
         )}

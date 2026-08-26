@@ -20,9 +20,9 @@ import type { AttentionItem } from '../model';
  */
 export function AttentionQueueCard({
   items,
-  title = 'Needs a decision',
-  clearMessage = 'Every module reports clear',
-  emptyNote = 'No breached deadline, no frozen payout and no expiring paper across any module.',
+  title = 'Action Required',
+  clearMessage = 'All clear',
+  emptyNote = 'No overdue deadline, hold or expiring document.',
   className,
 }: {
   items: AttentionItem[];
@@ -40,15 +40,15 @@ export function AttentionQueueCard({
       subtitle={
         items.length === 0
           ? clearMessage
-          : `${items.length} open ${items.length === 1 ? 'item' : 'items'}, worst first`
+          : `${items.length} open · most urgent first`
       }
       action={
         breaches.length > 0 ? (
           <StatusChip tone="critical" pulse>
-            {breaches.length} breached
+            {breaches.length} overdue
           </StatusChip>
         ) : (
-          <StatusChip tone="calm">Nothing breached</StatusChip>
+          <StatusChip tone="calm">None overdue</StatusChip>
         )
       }
       bodyClassName="gap-2"
@@ -56,7 +56,7 @@ export function AttentionQueueCard({
       {items.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-10 text-center">
           <CheckCircle2 aria-hidden className="size-8 text-primary" />
-          <p className="text-sm font-bold text-foreground">Nothing is waiting on you</p>
+          <p className="text-sm font-bold text-foreground">Nothing pending</p>
           <p className="type-body-xs max-w-xs text-muted-foreground">{emptyNote}</p>
         </div>
       ) : (

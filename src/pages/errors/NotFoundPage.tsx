@@ -20,7 +20,7 @@ export function NotFoundPage() {
         size="lg"
         icon={Compass}
         title="Page not found"
-        description="The page you are looking for does not exist, or has been moved to a different module."
+        description="This page does not exist, or has moved to another module."
         action={
           <Button asChild>
             <Link to={ROUTES.dashboard}>Back to Dashboard</Link>

@@ -135,8 +135,8 @@ export function DriversSection({
 
       {hasRatingTrend ? (
         <ChartCard
-          title="Average rating over time"
-          subtitle="Customer ratings on completed trips"
+          title="Rating Trend"
+          subtitle="Shipper ratings on completed trips"
           icon={<Star className="size-4" />}
           bodyHeight={TREND_PLOT_HEIGHT + X_AXIS_HEIGHT}
           tableRows={ratingTrend.points}
@@ -170,7 +170,7 @@ export function DriversSection({
       ) : null}
 
       <ChartCard
-        title="Driver leaderboard"
+        title="Driver Leaderboard"
         subtitle={`${leaderboard.length} drivers with trips in this period`}
         icon={<Users className="size-4" />}
         isEmpty={leaderboard.length === 0}

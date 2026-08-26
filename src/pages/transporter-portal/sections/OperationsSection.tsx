@@ -274,7 +274,7 @@ export function OperationsSection({
 
       <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-2">
         <ChartCard
-          title="Fleet utilisation"
+          title="Fleet Utilisation"
           subtitle={`${(fleet.utilization * 100).toFixed(1)}% utilised · ${formatCompact(fleet.vehicleDays)} vehicle-days`}
           icon={<Gauge className="size-4" />}
           isEmpty={fleet.vehicleDays === 0}
@@ -304,7 +304,7 @@ export function OperationsSection({
               <RateGauge
                 value={fleet.utilization}
                 target={utilizationTarget()}
-                label="Fleet utilisation"
+                label="Fleet Utilisation"
                 size={160}
               />
               <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
@@ -323,8 +323,8 @@ export function OperationsSection({
         </ChartCard>
 
         <ChartCard
-          title="Backhaul status mix"
-          subtitle="How return legs resolved in this period"
+          title="Backhaul Mix"
+          subtitle="Return legs by outcome"
           icon={<RotateCcw className="size-4" />}
           isEmpty={backhaulTotal === 0}
           emptyMessage="No trips in this period."
@@ -360,8 +360,8 @@ export function OperationsSection({
       </div>
 
       <ChartCard
-        title="Fleet utilisation over time"
-        subtitle="Active, idle, and maintenance vehicle-days per period"
+        title="Fleet Utilisation Trend"
+        subtitle="Active, idle and maintenance vehicle-days by period"
         icon={<Truck className="size-4" />}
         isEmpty={!hasFleetTrend}
         emptyMessage="No fleet activity logged in this period."
@@ -391,8 +391,8 @@ export function OperationsSection({
       </ChartCard>
 
       <ChartCard
-        title="Route profitability"
-        subtitle="Earnings, empty km, waiting, and yield by corridor"
+        title="Route Profitability"
+        subtitle="Earnings, empty km and yield by corridor"
         icon={<Route className="size-4" />}
         isEmpty={routeProfitability.length === 0}
         emptyMessage="No completed trips in this period."
@@ -472,7 +472,7 @@ export function OperationsSection({
       </ChartCard>
 
       <ChartCard
-        title="Empty return risk"
+        title="Empty Return Risk"
         subtitle={`${riskRows.length} live trips scoring ${emptyRiskAlert()}+ without a return load`}
         icon={<AlertTriangle className="size-4" />}
         isEmpty={riskRows.length === 0}
@@ -554,7 +554,7 @@ export function OperationsSection({
       </ChartCard>
 
       <ChartCard
-        title="Backhaul opportunities now"
+        title="Backhaul Opportunities"
         subtitle={`${opportunities.length} return loads on the board`}
         icon={<Package className="size-4" />}
         isEmpty={opportunities.length === 0}

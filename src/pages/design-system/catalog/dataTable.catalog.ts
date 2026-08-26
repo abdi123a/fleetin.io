@@ -3,11 +3,13 @@ import type { Guideline, PropDefinition } from '@/design-system/showcase';
 /**
  * Reference content for the Tables section.
  *
- * Only props with a live app call site are listed. `EnterpriseDataTable` has
- * exactly one consumer in the product — `src/pages/shippers/components/
- * ShipmentsPanel.tsx` — and the rows below are the props it passes, plus the
- * column `meta` keys those columns set. Everything the component can do but
- * nothing calls is named once, in prose, rather than documented as a pattern.
+ * Only props with a real usage precedent are listed. `EnterpriseDataTable` has
+ * no live call site in the product right now — the shipper account's shipments
+ * tab, its one consumer, was rebuilt on the same `ShipmentsListView` the Admin
+ * Shipments page uses, in favour of one row-card design over two. The rows
+ * below are that former call site's props, plus the column `meta` keys those
+ * columns set. Everything the component can do but nothing calls is named
+ * once, in prose, rather than documented as a pattern.
  */
 
 /* ---------------------------------------------------------------------------

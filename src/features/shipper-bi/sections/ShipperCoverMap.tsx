@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Skeleton } from '@/design-system';
 import { useBiFilters } from '../filters';
-import { useOverviewSection } from '../api/queries';
-import { peekDataset } from '../api/biService';
+import { useOverviewSection, useBiDataset } from '../api/queries';
 import { MapSearchField, TrackingMap } from '../charts';
 import type { LiveShipment } from '../contracts';
 
@@ -31,7 +30,7 @@ export function ShipperCoverMap({ shipperId, now, height = 300 }: ShipperCoverMa
   const [query, setQuery] = useState('');
 
   const { filters } = useBiFilters(asOf);
-  const dataset = useMemo(() => peekDataset(shipperId, asOf), [shipperId, asOf]);
+  const { data: dataset } = useBiDataset(shipperId, asOf);
   const { data } = useOverviewSection({ shipperId, filters, now: asOf });
 
   const visible = useMemo<LiveShipment[]>(() => {
@@ -54,7 +53,7 @@ export function ShipperCoverMap({ shipperId, now, height = 300 }: ShipperCoverMa
     <TrackingMap
       shipments={visible}
       bounds={data.mapBounds}
-      routes={dataset.routes}
+      routes={dataset?.routes ?? []}
       height={height}
       showCountPill={false}
       className="rounded-none border-0"

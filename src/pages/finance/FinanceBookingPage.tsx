@@ -43,7 +43,7 @@ export function FinanceBookingPage() {
     return (
       <div className="mx-auto w-full max-w-[1600px] px-4 pt-6 sm:px-6">
         <Panel title="Loading…">
-          <EmptyState message="Fetching this booking." />
+          <EmptyState message="Loading booking…" />
         </Panel>
       </div>
     );
@@ -130,8 +130,8 @@ export function FinanceBookingPage() {
         {/* ── Status — read-only, advanced from Operations ────────────────── */}
         <Panel
           className="xl:col-span-2"
-          title="Delivery status"
-          subtitle="Advanced from the shipment's own booking view in Operations — Finance only reads it"
+          title="Delivery Status"
+          subtitle="Read-only, advanced from Operations"
           action={
             proven ? (
               <Pill tone="teal" icon={CircleCheck}>
@@ -161,13 +161,13 @@ export function FinanceBookingPage() {
               ))}
             </div>
           ) : (
-            <EmptyState message="No timeline recorded yet." />
+            <EmptyState message="No timeline yet." />
           )}
         </Panel>
 
         {/* ── What this booking is worth ───────────────────────────────────── */}
         <div className="flex flex-col gap-4">
-          <Panel title="This booking">
+          <Panel title="Booking">
             <dl className="flex flex-col gap-3">
               <Econ label="Transporter cost">
                 {booking.transporterCostMinorUnits != null ? (
@@ -181,12 +181,12 @@ export function FinanceBookingPage() {
               </Econ>
             </dl>
             <p className="mt-4 rounded-card-nested bg-surface-sunken px-3.5 py-3 text-xs font-semibold leading-relaxed text-muted-foreground">
-              Nothing is invoiced at booking level — the shipment carries the client rate and the real margin. This
-              booking only carries the transporter's own cost, auto-priced from their pricing grid.
+              Nothing is invoiced at booking level. The shipment carries the shipper rate and the margin; this booking
+              carries only the transporter cost, priced from their rate list.
             </p>
           </Panel>
 
-          <Panel title="Belongs to">
+          <Panel title="Linked To">
             <dl className="flex flex-col gap-3">
               <Econ label="Shipment">
                 <Link to={shipmentHref} className="font-mono text-sm font-bold text-foreground hover:underline">

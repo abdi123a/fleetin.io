@@ -131,7 +131,7 @@ export function WhatYouHaulCard({
   return (
     <ConsolePanel
       className={className}
-      title="What You Haul"
+      title="Cargo Mix"
       subtitle={`Moves per day by cargo type · ${totalMoves} moves, ${djfCard(totalRevenue)}`}
       action={
         <Legend

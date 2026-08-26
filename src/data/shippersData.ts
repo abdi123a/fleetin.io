@@ -11,13 +11,17 @@ export const MOCK_SHIPPERS: ShipperRecord[] = [
   {
     id: 'SHP-101',
     reference: 'SHP-101',
-    companyLegalName: 'AMINA FZCO',
+    companyLegalName: 'CMA-CGM',
     registrationNumber: 'DJ-REG-2022-4482',
     industry: 'Logistics & Freight',
     companySize: 'Medium (51-250)',
     country: 'Djibouti',
     address: 'PK12 Free Zone Commercial Complex, Djibouti City',
-    logoUrl: 'https://images.unsplash.com/photo-1560179707-f14e90ef3623?w=120&auto=format&fit=crop&q=80',
+    /* The real mark, shipped with the app, so every surface that reads this
+       record — Empty Return's company lookup included — shows the account's own
+       logo rather than a stock photograph. The live record carries the same file
+       uploaded to `/shippers/:id/logo`. */
+    logoUrl: '/logo/cma-cgm.svg',
     projectsCount: 5,
     activeShipments: 4,
     pastShipments: 28,

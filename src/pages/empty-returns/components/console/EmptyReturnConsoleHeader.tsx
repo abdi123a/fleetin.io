@@ -33,7 +33,7 @@ export function EmptyReturnConsoleHeader({ onExportCsv, onCreateMatch }: EmptyRe
           Empty Returns
         </h1>
         <p className="type-body-sm mt-1 text-muted-foreground">
-          Every empty tracked to its return deadline, matched to a full load before the cutoff.
+          Empties tracked to their return deadline.
         </p>
       </div>
 
@@ -57,7 +57,7 @@ export function EmptyReturnConsoleHeader({ onExportCsv, onCreateMatch }: EmptyRe
           className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-xs transition-colors hover:bg-primary-hover"
         >
           <Plus className="h-3.5 w-3.5" />
-          <span>Create Match</span>
+          <span>Open matching</span>
         </button>
       </div>
     </div>

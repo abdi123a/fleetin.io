@@ -47,12 +47,12 @@ export function RiskAlertsCard({ rows, onOpenShipment, onViewAll }: RiskAlertsCa
         />
         <div className="min-w-0 flex-1 basis-40">
           <h2 className="truncate text-[15px] font-semibold leading-tight text-foreground">
-            Needs Your Attention
+            Needs Attention
           </h2>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
             {atRisk.length === 0
-              ? 'No open shipment is flagged right now'
-              : `${atRisk.length} open ${atRisk.length === 1 ? 'shipment' : 'shipments'} predicted to slip or accrue charges`}
+              ? 'No open shipment flagged.'
+              : `${atRisk.length} open ${atRisk.length === 1 ? 'shipment' : 'shipments'} at risk of charges`}
           </p>
         </div>
         {onViewAll ? (
@@ -69,7 +69,7 @@ export function RiskAlertsCard({ rows, onOpenShipment, onViewAll }: RiskAlertsCa
 
       {shown.length === 0 ? (
         <p className="rounded-card-nested border border-border-subtle bg-success-subtle/40 px-4 py-6 text-center text-xs text-muted-foreground">
-          Everything in flight is tracking to plan and inside its free time.
+          All shipments on plan, inside free time.
         </p>
       ) : (
         <div className="-mx-1 overflow-x-auto">

@@ -47,7 +47,7 @@ export function AvailableLoadsCard({ loads, onViewAll, className }: AvailableLoa
     <ConsolePanel
       className={className}
       title="Available Loads Nearby"
-      subtitle="Shipper job orders matched to trucks finishing soon"
+      subtitle="Shipper orders matched to vehicles finishing soon"
       action={
         <div className="flex gap-5 text-[11.5px] font-semibold text-muted-foreground">
           <span>Offer</span>

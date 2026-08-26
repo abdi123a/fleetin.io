@@ -39,8 +39,8 @@ export function ShipmentFlowCard({
   return (
     <ConsolePanel
       className={className}
-      title="Shipment flow"
-      subtitle={`${total} shipments on the book · ${operations.containers} containers under the live ones`}
+      title="Shipment Flow"
+      subtitle={`${total} shipments · ${operations.containers} containers live`}
       action={
         <Link to={ROUTES.shipmentsList}>
           <PanelLink>Open shipments</PanelLink>
@@ -51,22 +51,21 @@ export function ShipmentFlowCard({
           {awaiting > 0 ? (
             <>
               <span className="font-bold text-foreground">
-                {awaiting} delivered {awaiting === 1 ? 'shipment has' : 'shipments have'} no proof of delivery back
+                {awaiting} delivered {awaiting === 1 ? 'shipment' : 'shipments'} missing POD
               </span>{' '}
-              — every franc owed on them is frozen until the paper lands.
+              — settlement frozen.
             </>
           ) : operations.awaitingRelease > 0 ? (
             <>
               <span className="font-bold text-foreground">
-                {operations.awaitingRelease} {operations.awaitingRelease === 1 ? 'shipment is' : 'shipments are'}{' '}
-                proven and waiting on a payout release
+                {operations.awaitingRelease} {operations.awaitingRelease === 1 ? 'shipment' : 'shipments'} pending
+                release
               </span>{' '}
-              — the paperwork is done, the decision is the desk&rsquo;s.
+              — POD filed.
             </>
           ) : (
             <>
-              <span className="font-bold text-foreground">Nothing is stuck.</span> No delivered shipment is missing
-              its proof, and nothing proven is waiting on a release.
+              <span className="font-bold text-foreground">All clear.</span> No missing POD, no release pending.
             </>
           )}
         </InsightNote>
@@ -74,7 +73,7 @@ export function ShipmentFlowCard({
     >
       {total === 0 ? (
         <p className="py-10 text-center text-sm font-semibold text-muted-foreground">
-          No shipment has been created yet.
+          No shipments yet.
         </p>
       ) : (
         <>
@@ -103,24 +102,24 @@ export function ShipmentFlowCard({
 
           <div className="mt-4 grid gap-2.5 sm:grid-cols-3">
             <StatBox
-              label="Awaiting proof"
+              label="Awaiting POD"
               value={String(awaiting)}
-              note="Delivered, no paper back"
+              note="Delivered, POD not filed"
               tone={awaiting > 0 ? 'attention' : 'neutral'}
             />
             <StatBox
-              label="Waiting on release"
+              label="Pending release"
               value={String(operations.awaitingRelease)}
-              note="Proven, money not yet freed"
+              note="POD filed, not released"
               tone={operations.awaitingRelease > 0 ? 'attention' : 'neutral'}
             />
             <StatBox
-              label="Delivered, not failed"
+              label="Completion rate"
               value={operations.completionRate !== null ? pct(operations.completionRate) : '—'}
               note={
                 operations.completionRate !== null
-                  ? 'Of everything that finished'
-                  : 'Nothing has finished yet'
+                  ? 'Of finished shipments'
+                  : 'Nothing finished yet'
               }
             />
           </div>

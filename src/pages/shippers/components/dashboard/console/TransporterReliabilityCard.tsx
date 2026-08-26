@@ -62,13 +62,13 @@ export function TransporterReliabilityCard({
   return (
     <Card variant="default" padding="lg" className={cn('h-full gap-5', PANEL_SURFACE)}>
       <PanelHeader
-        title="Carrier Reliability"
+        title="Transporter Reliability"
         action={<PanelLink onClick={onViewAll}>Compare</PanelLink>}
       />
 
       {ranked.length === 0 ? (
         <p className="type-body-sm text-muted-foreground">
-          No carrier moved {MIN_SAMPLE} or more loads in this window.
+          No transporter moved {MIN_SAMPLE} or more shipments in this window.
         </p>
       ) : (
         <ul className="flex flex-1 flex-col justify-between gap-3.5">
@@ -106,7 +106,7 @@ export function TransporterReliabilityCard({
                       {(carrier.rate * 100).toFixed(0)}%
                     </span>
                     <span className="type-body-xs ml-1.5 text-muted-foreground">
-                      {carrier.loads} loads
+                      {carrier.loads} shipments
                     </span>
                   </span>
                 </div>
@@ -135,7 +135,7 @@ export function TransporterReliabilityCard({
 
       {withheld > 0 ? (
         <p className="type-body-xs text-muted-foreground">
-          {withheld} carrier{withheld === 1 ? '' : 's'} under {MIN_SAMPLE} loads not ranked.
+          {withheld} transporter{withheld === 1 ? '' : 's'} under {MIN_SAMPLE} shipments not ranked.
         </p>
       ) : null}
     </Card>

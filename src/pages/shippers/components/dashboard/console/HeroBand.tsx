@@ -48,7 +48,7 @@ export function HeroBand({
                 'bg-destructive-subtle px-3 py-1.5 text-xs font-bold text-destructive-subtle-foreground transition-all cursor-pointer',
                 'hover:bg-destructive/20 hover:border-destructive/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/30 active:scale-95 shrink-0 shadow-2xs',
               )}
-              title="Click to view pending empty return shipments data"
+              title="View pending empty returns"
             >
               <span className="relative flex h-2 w-2 shrink-0">
                 <span className="animate-ping motion-reduce:animate-none absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75"></span>

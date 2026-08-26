@@ -19,7 +19,7 @@ export function AccessSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Panel title="Sessions" subtitle="How long a signed-in tab stays signed in">
+      <Panel title="Sessions" subtitle="Session lifetime">
         <FieldGrid>
           <NumberField
             label="Idle timeout"
@@ -29,18 +29,18 @@ export function AccessSection() {
             max={1440}
             step={5}
             suffix="min"
-            hint="0 never signs a user out. On a shared dispatch machine, 15 is more honest than 480."
+            hint="0 never signs a user out."
           />
           <ToggleField
             label="Require two-factor authentication"
-            description="Everybody, not only administrators. Users without a second factor are prompted to set one up on next sign-in."
+            description="Applies to everybody, not only administrators."
             checked={access.requireTwoFactor}
             onChange={(v) => set({ requireTwoFactor: v })}
           />
         </FieldGrid>
       </Panel>
 
-      <Panel title="Passwords" subtitle="The floor every account has to clear">
+      <Panel title="Passwords" subtitle="Minimum requirements">
         <FieldGrid>
           <NumberField
             label="Minimum length"
@@ -49,7 +49,7 @@ export function AccessSection() {
             min={6}
             max={64}
             suffix="chars"
-            hint="Length beats character classes. Ten is a reasonable floor; twelve is better."
+            hint="Ten is a reasonable floor; twelve is better."
           />
           <NumberField
             label="Expire after"
@@ -58,7 +58,7 @@ export function AccessSection() {
             min={0}
             max={730}
             suffix="days"
-            hint="0 never expires. Forced rotation mostly produces predictable variations of the same password."
+            hint="0 never expires."
           />
           <ToggleField
             label="Require mixed case, a digit and a symbol"
@@ -69,11 +69,11 @@ export function AccessSection() {
         </FieldGrid>
       </Panel>
 
-      <Panel title="Joining" subtitle="What happens when somebody asks for an account">
+      <Panel title="Joining" subtitle="Account request handling">
         <FieldGrid>
           <ToggleField
             label="Auto-approve requests from allowed domains"
-            description="A request whose email matches the list below becomes an account without a human decision. Anything else still queues in Administration."
+            description="A matching request becomes an account without a human decision."
             checked={access.autoApproveAccessRequests}
             onChange={(v) => set({ autoApproveAccessRequests: v })}
           />
@@ -82,12 +82,12 @@ export function AccessSection() {
             value={access.allowedEmailDomains}
             onChange={(v) => set({ allowedEmailDomains: v })}
             placeholder="fleetin.dj"
-            hint="One per line, or comma-separated. Empty means every domain may request — requests still queue for approval unless auto-approve is on."
+            hint="One per line or comma-separated. Empty allows every domain."
           />
         </FieldGrid>
       </Panel>
 
-      <Panel title="Audit & network" subtitle="What is kept, and from where the app may be reached">
+      <Panel title="Audit & network" subtitle="Retention and IP restrictions">
         <FieldGrid>
           <NumberField
             label="Audit retention"
@@ -96,18 +96,17 @@ export function AccessSection() {
             min={30}
             max={3650}
             suffix="days"
-            hint="Every view, upload, edit and deletion of an employee, document or payroll line is recorded. Keep it at least as long as the payroll records it explains."
+            hint="Keep at least as long as the payroll records it explains."
           />
           <ListField
             label="IP allowlist"
             value={access.ipAllowlist}
             onChange={(v) => set({ ipAllowlist: v })}
             placeholder="41.203.0.0/16"
-            hint="CIDR ranges, one per line. Empty places no restriction — get this wrong and you lock yourself out."
+            hint="CIDR ranges, one per line. Empty places no restriction."
           />
           <SectionNote tone="warning">
-            These are declarations of policy. The backend enforces sessions, passwords and network rules, and has to
-            be configured to match — setting a value here does not by itself stop anybody.
+            Policy declarations only. The backend enforces these and has to be configured to match.
           </SectionNote>
         </FieldGrid>
       </Panel>

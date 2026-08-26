@@ -416,8 +416,8 @@ export function generateDataset({
       positions.push({
         shipmentId,
         vehicleId: vehicle.id,
-        lat: interpolate(route.originLat, route.destinationLat, progress) + rng.float(-0.12, 0.12),
-        lng: interpolate(route.originLng, route.destinationLng, progress) + rng.float(-0.12, 0.12),
+        lat: interpolate(route.originLat ?? 0, route.destinationLat ?? 0, progress) + rng.float(-0.12, 0.12),
+        lng: interpolate(route.originLng ?? 0, route.destinationLng ?? 0, progress) + rng.float(-0.12, 0.12),
         speedKph: currentStage === 'in_transit' ? Math.round(rng.float(38, 82)) : 0,
         heading: Math.round(rng.float(0, 360)),
         recordedAt: iso(subDays(asOf, rng.float(0, 0.02))),
@@ -488,12 +488,12 @@ const interpolate = (from: number, to: number, t: number) => from + (to - from) 
 
 function latForStage(stage: StageKey, route: (typeof MOCK_ROUTES)[number], rng: Rng): number {
   const t = stageProgress(stage);
-  return interpolate(route.originLat, route.destinationLat, t) + rng.float(-0.08, 0.08);
+  return interpolate(route.originLat ?? 0, route.destinationLat ?? 0, t) + rng.float(-0.08, 0.08);
 }
 
 function lngForStage(stage: StageKey, route: (typeof MOCK_ROUTES)[number], rng: Rng): number {
   const t = stageProgress(stage);
-  return interpolate(route.originLng, route.destinationLng, t) + rng.float(-0.08, 0.08);
+  return interpolate(route.originLng ?? 0, route.destinationLng ?? 0, t) + rng.float(-0.08, 0.08);
 }
 
 function containerStatusFor(stage: StageKey): ContainerStatus {

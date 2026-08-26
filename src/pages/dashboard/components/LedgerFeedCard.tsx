@@ -31,8 +31,8 @@ export function LedgerFeedCard({
   return (
     <ConsolePanel
       className={className}
-      title="What the book did"
-      subtitle="Every movement posted to the ledger, newest first"
+      title="Ledger Activity"
+      subtitle="Newest first"
       action={
         <Link to={ROUTES.finance}>
           <PanelLink>Finance</PanelLink>
@@ -41,7 +41,7 @@ export function LedgerFeedCard({
     >
       {entries.length === 0 ? (
         <p className="py-10 text-center text-sm font-semibold text-muted-foreground">
-          Nothing has been posted to the ledger yet.
+          No ledger entries yet.
         </p>
       ) : (
         <div className="flex flex-col">
@@ -77,7 +77,7 @@ export function LedgerFeedCard({
                 </span>
                 <span className="flex shrink-0 items-center gap-1.5">
                   <Glyph
-                    aria-label={out ? 'Money out' : 'Money in'}
+                    aria-label={out ? 'Outgoing' : 'Incoming'}
                     className={
                       out
                         ? 'size-3.5 shrink-0 text-accent-subtle-foreground'

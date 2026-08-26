@@ -88,7 +88,7 @@ const STEPS: [StepDef, ...StepDef[]] = [
     id: 2,
     title: 'Compliance Documents',
     shortTitle: 'Document',
-    description: 'Upload required compliance files (Grey Card, Vehicle Registration, etc.).',
+    description: 'Required compliance documents.',
     icon: FileText,
   },
 ];
@@ -486,8 +486,7 @@ export function AddPartnerForm({ initialData, isEdit = false, onSuccess, onCance
                   Transporter Compliance Documents
                 </h4>
                 <p className="type-caption text-muted-foreground mt-0.5">
-                  Upload a file for each document type below. New types you define here are saved and
-                  reused for every transporter onboarded after this one.
+                  New document types apply to every future transporter.
                 </p>
               </div>
               <Button
@@ -498,7 +497,7 @@ export function AddPartnerForm({ initialData, isEdit = false, onSuccess, onCance
                 leadingIcon={<Plus className="h-3.5 w-3.5" />}
                 className="text-xs font-semibold rounded-full shrink-0"
               >
-                {showAddDocType ? 'Cancel' : 'Add Document Type'}
+                {showAddDocType ? 'Cancel' : 'Add document type'}
               </Button>
             </div>
 
@@ -530,7 +529,7 @@ export function AddPartnerForm({ initialData, isEdit = false, onSuccess, onCance
                     disabled={!newDocTypeLabel.trim()}
                     className="bg-primary text-primary-foreground font-semibold text-xs rounded-full px-4"
                   >
-                    Save Document Type
+                    Save document type
                   </Button>
                 </div>
               </div>
@@ -621,7 +620,7 @@ export function AddPartnerForm({ initialData, isEdit = false, onSuccess, onCance
 
               {docTypes.length === 0 && (
                 <div className="p-6 rounded-lg border border-dashed border-border/80 text-center text-xs text-muted-foreground">
-                  No document types yet. Click &quot;Add Document Type&quot; to create the first one.
+                  No document types yet.
                 </div>
               )}
             </div>

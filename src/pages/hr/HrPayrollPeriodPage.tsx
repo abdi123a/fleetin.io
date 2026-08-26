@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 
 import { TablePager, usePagedRows } from '@/components';
 import { ROUTES } from '@/config/routes';
+import { useBreadcrumbLabel } from '@/hooks/useBreadcrumbLabel';
 import {
   ArrowLeft,
   Calculator,
@@ -34,7 +35,8 @@ import {
 } from '@/pages/finance/components/kit';
 import { cn } from '@/utils';
 
-import { money2, monthLabelFr, PERIOD_LABEL, PERIOD_TONE } from './hrFormat';
+import { LoadError } from './components/form';
+import { money2, monthLabel, monthLabelFr, PERIOD_LABEL, PERIOD_TONE } from './hrFormat';
 
 /**
  * One payroll run.
@@ -46,7 +48,11 @@ import { money2, monthLabelFr, PERIOD_LABEL, PERIOD_TONE } from './hrFormat';
  */
 export function HrPayrollPeriodPage() {
   const { periodId } = useParams<{ periodId: string }>();
-  const { data: period, isLoading } = usePayrollPeriod(periodId);
+  const { data: period, isLoading, error: loadError } = usePayrollPeriod(periodId);
+
+  /* Same reason as the employee record: the URL is a database key, and the
+     period is known by its month. */
+  useBreadcrumbLabel(period ? monthLabel(period.month, period.year) : undefined);
 
   const calculate = useCalculatePayroll();
   const approve = useApprovePayroll();
@@ -76,9 +82,20 @@ export function HrPayrollPeriodPage() {
     (markPaid.error as Error | null) ??
     (setOvertime.error as Error | null);
 
+  if (loadError) {
+    return (
+      <div className="w-full min-w-0 space-y-6">
+        <PageHead title="Payroll period" subtitle="This run could not be opened" />
+        <Panel title="Lines" padded={false}>
+          <LoadError error={loadError} noun="this payroll period" />
+        </Panel>
+      </div>
+    );
+  }
+
   if (isLoading || !period) {
     return (
-      <div className="space-y-6">
+      <div className="w-full min-w-0 space-y-6">
         <PageHead title="Payroll period" subtitle="Loading…" />
         <Panel title="Lines">
           <EmptyState message="Loading the run…" />
@@ -88,7 +105,7 @@ export function HrPayrollPeriodPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="w-full min-w-0 space-y-6">
       <PageHead
         title={monthLabelFr(period.month, period.year)}
         subtitle={period.config.label}
@@ -207,7 +224,7 @@ export function HrPayrollPeriodPage() {
               <EmptyState message="Not calculated yet. Enter any overtime first, then calculate." />
             </div>
           ) : (
-            <DataTable minWidth={1560}>
+            <DataTable className="w-0 min-w-full" minWidth={1560}>
               <thead>
                 <tr>
                   <Th>Matricule</Th>
@@ -372,7 +389,7 @@ function OvertimePanel({
           <EmptyState message="Calculate the period once to list its employees here." />
         </div>
       ) : (
-        <DataTable minWidth={840}>
+        <DataTable className="w-0 min-w-full" minWidth={840}>
           <thead>
             <tr>
               <Th>Matricule</Th>

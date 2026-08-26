@@ -53,7 +53,7 @@ export function DetentionStatusCard({
     <ConsolePanel
       className={className}
       title="Detention & Empty Return Status"
-      subtitle="Containers only — shipper-owned boxes on a detention clock; bulk and special jobs carry none"
+      subtitle="Shipper-owned containers on a detention clock"
       action={onViewAll ? <PanelLink onClick={onViewAll}>View all</PanelLink> : undefined}
       bodyClassName="px-0 pt-0 pb-0"
       footer={
@@ -74,12 +74,12 @@ export function DetentionStatusCard({
           />
           {onClock > 0 ? (
             <StatusChip tone="critical" pulse>
-              {onClock} on your clock right now
+              {onClock} on the clock now
             </StatusChip>
           ) : null}
         </div>
         <p className="type-body-xs text-muted-foreground">
-          Sorted by urgency — detention exposure · who is responsible · root cause
+          Sorted by urgency
         </p>
       </div>
 
@@ -88,7 +88,7 @@ export function DetentionStatusCard({
         aria-hidden
       >
         <span className="type-label text-muted-foreground">Container</span>
-        <span className="type-label text-muted-foreground">Move</span>
+        <span className="type-label text-muted-foreground">Booking</span>
         <span className="type-label text-muted-foreground">Dates</span>
         <span className="type-label text-muted-foreground">Status</span>
         <span className="type-label text-muted-foreground">Responsible</span>
@@ -98,7 +98,7 @@ export function DetentionStatusCard({
       <ul className="flex flex-col divide-y divide-border-subtle">
         {visible.length === 0 ? (
           <li className="type-body-xs px-5 py-6 text-muted-foreground">
-            No {flow} containers on a clock right now.
+            No {flow} containers on a clock.
           </li>
         ) : (
           visible.map((row) => (

@@ -23,15 +23,12 @@ export function FleetWeekCard({ data, onOpenFleet, className }: FleetWeekCardPro
   const movable = data.segments
     .filter((segment) => segment.key === 'empty' || segment.key === 'waiting')
     .reduce((sum, segment) => sum + segment.days, 0);
-  const parked = data.segments
-    .filter((segment) => segment.key === 'idle' || segment.key === 'workshop')
-    .reduce((sum, segment) => sum + segment.days, 0);
 
   return (
     <ConsolePanel
       className={className}
-      title="Where the Fleet’s Week Went"
-      subtitle={`${data.truckDays} truck-days available in this window`}
+      title="Fleet Week"
+      subtitle={`${data.truckDays} vehicle-days available in this window`}
       action={
         <div>
           <p className="text-xl font-extrabold tracking-tight tabular-nums text-foreground">
@@ -43,9 +40,8 @@ export function FleetWeekCard({ data, onOpenFleet, className }: FleetWeekCardPro
       footer={
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="type-body-xs text-muted-foreground">
-            Empty running and waiting together burn{' '}
-            <span className="font-bold text-foreground">{movable} truck-days</span> —{' '}
-            {movable > parked ? 'more' : 'less'} than idle and workshop combined.
+            <span className="font-bold text-foreground">{movable} vehicle-days</span> lost to empty
+            running and waiting.
           </p>
           {onOpenFleet ? <PanelOutlineLink onClick={onOpenFleet}>Fleet detail →</PanelOutlineLink> : null}
         </div>
@@ -74,7 +70,7 @@ export function FleetWeekCard({ data, onOpenFleet, className }: FleetWeekCardPro
               <span className="truncate">{segment.label}</span>
             </p>
             <p className="type-body-xs mt-1 pl-4 text-muted-foreground">
-              {segment.days} truck-days
+              {segment.days} vehicle-days
             </p>
           </div>
         ))}
@@ -82,7 +78,7 @@ export function FleetWeekCard({ data, onOpenFleet, className }: FleetWeekCardPro
 
       <div className="mt-5 grid grid-cols-1 gap-6 border-t border-border-subtle pt-4 lg:grid-cols-2">
         <div>
-          <SectionLabel>Paid against unpaid time</SectionLabel>
+          <SectionLabel>Paid Against Unpaid Time</SectionLabel>
           <div className="mt-3 flex flex-col gap-2.5">
             <MeterRow
               label="Earning"
@@ -105,11 +101,11 @@ export function FleetWeekCard({ data, onOpenFleet, className }: FleetWeekCardPro
         </div>
 
         <div>
-          <SectionLabel>Trucks sitting still longest</SectionLabel>
+          <SectionLabel>Longest Idle Vehicles</SectionLabel>
           <ul className="mt-3 flex flex-col gap-2">
             {data.stillest.length === 0 ? (
               <li className="type-body-xs text-muted-foreground">
-                Nothing parked — every truck worked every day in this window.
+                No idle vehicles.
               </li>
             ) : (
               data.stillest.map((truck) => (

@@ -153,7 +153,7 @@ export function DelaysSection({
       </div>
 
       <ChartCard
-        title="Delay minutes by cause"
+        title="Delay Minutes by Cause"
         subtitle={`${formatCompact(delayData.delayedTrips)} delayed trips · ${formatDuration(delayData.totalMinutes)} lost`}
         icon={<Clock className="size-4" />}
         isEmpty={delayData.causes.length === 0}
@@ -231,8 +231,8 @@ export function DelaysSection({
 
       <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-2">
         <ChartCard
-          title="Delay by party"
-          subtitle="Who owns the lost minutes"
+          title="Delay Responsibility"
+          subtitle="Hours lost by party"
           icon={<AlertTriangle className="size-4" />}
           className="h-full"
           isEmpty={delayData.parties.length === 0}
@@ -265,8 +265,8 @@ export function DelaysSection({
         </ChartCard>
 
         <ChartCard
-          title="Waiting hours by location"
-          subtitle="Where vehicles sit before wheels can roll"
+          title="Waiting Time by Location"
+          subtitle="Where vehicles wait before departure"
           icon={<MapPin className="size-4" />}
           className="h-full"
           isEmpty={waitingSlices.length === 0}
@@ -292,8 +292,8 @@ export function DelaysSection({
       </div>
 
       <ChartCard
-        title="Most delayed trips"
-        subtitle="Highest delay minutes in the current period"
+        title="Most Delayed Trips"
+        subtitle="Highest delay minutes this period"
         icon={<Clock className="size-4" />}
         isEmpty={topDelayed.length === 0}
         emptyMessage="No delayed trips in this period."

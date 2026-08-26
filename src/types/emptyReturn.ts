@@ -80,6 +80,12 @@ export interface LinkedFullLoad {
   type: ContainerFormat;
   missionId?: string;
   client?: string;
+  /**
+   * The outbound booking's own live status. The cycle advances by moving this
+   * booking along the real ladder, so the UI needs its actual position to
+   * offer a legal next step — and to say nothing at all once it is terminal.
+   */
+  status?: string;
   /** Set when the full load is a real shipment — the cycle reports back to it. */
   shipmentId?: string;
   /** The shipment's human-readable `MSN-#####` — for display and as the `/shipments/:id` route param (the backend accepts either). */
@@ -91,6 +97,13 @@ export interface LinkedFullLoad {
 export interface EmptyReturnRecord {
   /** A matched cycle's own reference (`CYC-2026-#####`) once `cycleId` is set, otherwise the underlying booking's own reference. */
   id: string;
+  /**
+   * The booking this row is about, always — the one reference that does not
+   * change when the container gets matched. The row used to be titled by `id`,
+   * so the same physical box was called `BKG-01194` while it waited and
+   * `CYC-00034` the moment somebody paired it.
+   */
+  bookingReference: string;
   /** The empty box going back. */
   container: string;
   type: ContainerFormat;

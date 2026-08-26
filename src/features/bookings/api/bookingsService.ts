@@ -25,6 +25,26 @@ export interface BookingDriverSummary {
   licenseExpiry: string;
 }
 
+/** The parent shipment, joined onto every booking the API returns — a booking on its own can't say who the shipper is or where it runs. */
+export interface BookingShipmentContext {
+  id: string;
+  reference: string;
+  shipperId: string;
+  customerName: string;
+  customerCompany: string;
+  partnerId: string;
+  pickupLocationName: string;
+  deliveryLocationName: string;
+  estimatedDistanceKm: number;
+  cargoType: string;
+  totalWeightKg: number;
+  scheduledPickupTime: string;
+  paymentStatus: string;
+  source: string;
+  dpcsReference: string;
+  payoutReleasedAt: string | null;
+}
+
 /** Raw shape returned by the backend. */
 export interface BookingRecord {
   id: string;
@@ -44,6 +64,8 @@ export interface BookingRecord {
   emptyReturnException: string | null;
   scheduledPickupTime: string | null;
   completedAt: string | null;
+  /** When this booking's container was emptied — set on the "Empty Ready" rung, and what the empty return counts from. */
+  emptyReadyAt?: string | null;
   /** Auto-computed from the assigned partner's pricing grid the moment `partnerId` is set — never manually entered. Nullable when that partner has no matching pricing-tier row. */
   transporterCostMinorUnits: string | null;
   transporterCostCurrency: string | null;
@@ -53,6 +75,7 @@ export interface BookingRecord {
   updatedAt: string;
   deletedAt: string | null;
   /** Only populated when the backend's `bookingDetailInclude` is joined — every endpoint here does. */
+  shipment?: BookingShipmentContext | null;
   partner?: BookingPartnerSummary | null;
   vehicle?: BookingVehicleSummary | null;
   driver?: BookingDriverSummary | null;
@@ -86,6 +109,38 @@ export async function createBookings(shipmentId: string, bookings: CreateBooking
   return res.data;
 }
 
+export interface BookingListFilters {
+  partnerId?: string;
+  shipmentId?: string;
+  status?: string;
+  containerNumber?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface PaginatedBookings {
+  items: BookingRecord[];
+  meta: { total: number; page: number; limit: number; totalPages: number };
+}
+
+/**
+ * The booking book, filtered — `partnerId` is what the transporter workspace
+ * reads. It used to filter *shipments* by `transporter.id` instead, which
+ * showed one row per job rather than per container and reported the shipment's
+ * status as the transporter's own delivery record.
+ */
+export async function fetchBookings(filters: BookingListFilters = {}): Promise<PaginatedBookings> {
+  const params = new URLSearchParams();
+  if (filters.partnerId) params.set('partnerId', filters.partnerId);
+  if (filters.shipmentId) params.set('shipmentId', filters.shipmentId);
+  if (filters.status && filters.status !== 'all') params.set('status', filters.status);
+  if (filters.containerNumber) params.set('containerNumber', filters.containerNumber);
+  params.set('page', String(filters.page ?? 1));
+  params.set('limit', String(filters.limit ?? 500));
+  const res = await apiClient.get<PaginatedBookings>(`/bookings?${params.toString()}`, token());
+  return res.data;
+}
+
 export async function fetchBookingsForShipment(shipmentId: string): Promise<BookingRecord[]> {
   const res = await apiClient.get<BookingRecord[]>(`/shipments/${shipmentId}/bookings`, token());
   return res.data;
@@ -97,9 +152,23 @@ export async function fetchBooking(id: string): Promise<BookingRecord> {
   return res.data;
 }
 
-/** Same ladder as a shipment's — see `shipment-status.util.ts` on the backend. */
-export async function updateBookingStatus(id: string, status: string): Promise<BookingRecord> {
-  const res = await apiClient.patch<BookingRecord>(`/bookings/${id}/status`, { status }, token());
+/**
+ * Same ladder as a shipment's — see `shipment-status.util.ts` on the backend.
+ *
+ * `occurredAt` reports when the change actually happened. "Empty Ready" asks
+ * for it outright: the box is stripped at the consignee's yard hours before
+ * anyone records it, and detention is counted from that moment, not the click.
+ */
+export async function updateBookingStatus(
+  id: string,
+  status: string,
+  occurredAt?: string,
+): Promise<BookingRecord> {
+  const res = await apiClient.patch<BookingRecord>(
+    `/bookings/${id}/status`,
+    occurredAt ? { status, occurredAt } : { status },
+    token(),
+  );
   return res.data;
 }
 
@@ -121,6 +190,33 @@ export async function updateBooking(id: string, payload: UpdateBookingPayload): 
 }
 
 /**
+ * The happy-path ladder in order — the frontend's copy of the backend's
+ * `LADDER_RANK`. Order is meaningful: it is what "one step back" means.
+ */
+export const BOOKING_LADDER: readonly string[] = [
+  'Pending',
+  'Assigned',
+  'Driver Assigned',
+  'Heading to Pickup',
+  'At Pickup',
+  'Loading',
+  'Loaded',
+  'En Route',
+  'Arrived',
+  'Unloading',
+  'POD Submitted',
+  /* The box is off the truck and empty. Recorded by hand with the time it
+     actually happened, because this is what opens the empty return: matching
+     offers the container from here, and its detention clock runs from here. */
+  'Empty Ready',
+  /* A truck has the empty and is running it back to the depot. Between "the
+     box is free" and "the box is home" there was nothing, so a container in
+     transit looked identical to one still sitting at the consignee's yard. */
+  'Empty Picked Up',
+  'Completed',
+];
+
+/**
  * One step forward on the real ladder — the same map `MissionRowCard.tsx`
  * uses for a shipment's own status, since a booking's status is the
  * identical vocabulary (`shipment-status.util.ts` on the backend, reused
@@ -129,41 +225,17 @@ export async function updateBooking(id: string, payload: UpdateBookingPayload): 
 export const NEXT_BOOKING_STATUS: Partial<Record<string, string>> = {
   Pending: 'Assigned',
   Assigned: 'Driver Assigned',
-  'Driver Assigned': 'En Route',
+  'Driver Assigned': 'Heading to Pickup',
+  'Heading to Pickup': 'At Pickup',
+  'At Pickup': 'Loading',
+  Loading: 'Loaded',
+  Loaded: 'En Route',
   'En Route': 'Arrived',
   Arrived: 'Unloading',
   Unloading: 'POD Submitted',
-  'POD Submitted': 'Completed',
+  'POD Submitted': 'Empty Ready',
+  'Empty Ready': 'Completed',
 };
 
-/** A display-only colour intent for a real status — used wherever a status renders as a badge, never a fake vocabulary of its own. */
-export function statusIntentOf(status: string): 'green' | 'orange' | 'blue' | 'slate' {
-  if (status === 'Completed' || status === 'POD Submitted') return 'green';
-  if (status === 'En Route' || status === 'Arrived' || status === 'Unloading') return 'blue';
-  if (status === 'Pending' || status === 'Assigned' || status === 'Driver Assigned' || status === 'Payment Pending') {
-    return 'orange';
-  }
-  return 'slate';
-}
-
-/**
- * Plain-language grouping for whatever renders as "the status" to a
- * dispatcher — the granular ladder above still drives every real
- * transition, guard (driver/vehicle required), and Empty Return/invoicing
- * rule untouched; this only changes what the word on the badge says, since
- * eight near-identical status names made "what stage is this at" harder to
- * read at a glance than it needs to be. `POD Submitted` and `Completed`
- * are left as-is — they're already one plain idea each.
- */
-const DISPLAY_STATUS_GROUP: Record<string, string> = {
-  Pending: 'Booked',
-  Assigned: 'Booked',
-  'Driver Assigned': 'Out for Delivery',
-  'En Route': 'Out for Delivery',
-  Arrived: 'Out for Delivery',
-  Unloading: 'Out for Delivery',
-};
-
-export function displayBookingStatus(status: string): string {
-  return DISPLAY_STATUS_GROUP[status] ?? status;
-}
+// A booking speaks the same status vocabulary as its shipment; both render it
+// through `@/lib/shipmentStatus`, which is where those helpers now live.

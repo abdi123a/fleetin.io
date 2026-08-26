@@ -54,7 +54,7 @@ export function LocalizationSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Panel title="Language & region" subtitle="What the interface speaks, and which clock it keeps">
+      <Panel title="Language & region" subtitle="Interface language and time zone">
         <FieldGrid>
           <SelectField
             label="Interface language"
@@ -75,12 +75,12 @@ export function LocalizationSection() {
               { value: 'Africa/Nairobi', label: 'Africa/Nairobi (EAT, UTC+3)' },
               { value: 'UTC', label: 'UTC' },
             ]}
-            hint="Milestone timestamps are stored in UTC and rendered in this zone."
+            hint="Timestamps are stored in UTC and rendered in this zone."
           />
         </FieldGrid>
       </Panel>
 
-      <Panel title="Formats" subtitle="How a date, a time and a number are written">
+      <Panel title="Formats" subtitle="Date, time and number">
         <FieldGrid>
           <SelectField
             label="Date format"
@@ -90,7 +90,7 @@ export function LocalizationSection() {
               value: format,
               label: `${format} — ${sampleDate(format)}`,
             }))}
-            hint="A day-first numeric format and a month-first one are indistinguishable until the 13th. The spelled-out month never is."
+            hint="A spelled-out month is never ambiguous."
           />
           <SelectField
             label="Time format"
@@ -114,7 +114,7 @@ export function LocalizationSection() {
         </FieldGrid>
       </Panel>
 
-      <Panel title="Calendar" subtitle="Where a week and a financial year start">
+      <Panel title="Calendar" subtitle="Week & financial year">
         <FieldGrid>
           <SelectField
             label="Week starts on"
@@ -125,14 +125,14 @@ export function LocalizationSection() {
               { value: '0', label: 'Sunday' },
               { value: '6', label: 'Saturday' },
             ]}
-            hint="Drives every week bucket in the analytics suite, so changing it re-cuts historical charts."
+            hint="Changing this re-cuts historical week buckets."
           />
           <SelectField
             label="Financial year opens"
             value={String(localization.fiscalYearStartMonth)}
             onChange={(v) => set({ fiscalYearStartMonth: Number(v) })}
             options={MONTHS}
-            hint="Year-to-date figures across Finance count from the first day of this month."
+            hint="Year-to-date counts from the first of this month."
           />
         </FieldGrid>
       </Panel>

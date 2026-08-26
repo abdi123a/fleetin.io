@@ -6,11 +6,10 @@ import {
   MapPin,
   Pencil,
   Phone,
-  ShieldCheck,
   Upload,
   XCircle,
 } from '@/design-system/icons';
-import { Badge, Button, Card, IconButton, Tooltip } from '@/design-system';
+import { Badge, Button, Card, IconButton, Tooltip, VerificationBadge } from '@/design-system';
 import { ShipperCoverMap } from '@/features/shipper-bi';
 import type { ApprovalStatus, ShipperRecord } from '@/types/shipper';
 import { formatDate } from '@/utils/format';
@@ -124,7 +123,7 @@ export function ShipperIdentityHeader({
             {shipper.address}, {shipper.country}
           </span>
           <Separator />
-          <span>Customer since {formatDate(shipper.registrationDate)}</span>
+          <span>Shipper since {formatDate(shipper.registrationDate)}</span>
         </div>
       </div>
     </Card>
@@ -141,13 +140,11 @@ function Separator() {
 
 function ApprovalBadge({ status }: { status: ApprovalStatus }) {
   switch (status) {
+    // The same bare tick every other verified record gets — see
+    // `VerificationBadge`. This used to be its own solid pill reading
+    // "Verified shipper," a third visual style for the same fact.
     case 'Verified':
-      return (
-        <Badge intent="success" size="sm">
-          <ShieldCheck aria-hidden />
-          Verified shipper
-        </Badge>
-      );
+      return <VerificationBadge state="verified" size="lg" />;
     case 'Pending':
       return (
         <Badge intent="warning" size="sm">

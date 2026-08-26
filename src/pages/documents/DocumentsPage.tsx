@@ -14,7 +14,7 @@ export function DocumentsPage() {
   return (
     <PlaceholderPage
       title="Documents"
-      description="Central repository for operational and compliance documents."
+      description="Operational and compliance documents."
       icon={FileText}
       upcoming="Document upload, categorisation and expiry monitoring are delivered in Phase 2."
     />

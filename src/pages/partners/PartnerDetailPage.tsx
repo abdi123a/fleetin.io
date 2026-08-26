@@ -29,7 +29,7 @@ import {
   Users,
 } from 'lucide-react';
 import { PageHeader, TablePager, usePagedRows } from '@/components';
-import { IconChip } from '@/design-system';
+import { IconChip, useConfirm } from '@/design-system';
 import {
   Badge,
   Button,
@@ -41,8 +41,10 @@ import {
   SheetDescription,
   SheetTitle,
   ShipmentCard,
+  VerificationBadge,
 } from '@/design-system';
 import { ROUTES, buildPath } from '@/config/routes';
+import { isDriverVerified, isVehicleVerified } from '@/utils';
 import {
   type PartnerDriver,
   type PartnerVehicle,
@@ -69,8 +71,9 @@ import {
 } from '@/features/documents/api/queries';
 import { downloadDocument, toDisplayDocument } from '@/features/documents/api/documentsService';
 import { useBreadcrumbLabel } from '@/hooks/useBreadcrumbLabel';
-import { useShipmentStore } from '@/stores/shipment.store';
-import type { Mission } from '@/types/mission';
+import { useBookings } from '@/features/bookings/api/queries';
+import type { BookingRecord } from '@/features/bookings/api/bookingsService';
+import { displayShipmentStatus, statusIntentOf } from '@/lib/shipmentStatus';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -103,14 +106,21 @@ const STATUS_OPTIONS: { value: OperationalStatus; label: string }[] = [
   { value: 'Out of Service', label: 'Out of Service' },
 ];
 
-/** A Mission, spoken in the Shipments & Cargo tab's display vocabulary. */
-function shipmentDisplayStatus(
-  mission: Mission,
-): 'PAYMENT_RELEASED' | 'DELIVERED' | 'IN_TRANSIT' | 'REGISTERED' {
-  if (mission.status === 'Completed' && mission.paymentStatus === 'Paid') return 'PAYMENT_RELEASED';
-  if (mission.status === 'Completed' || mission.status === 'POD Submitted') return 'DELIVERED';
-  if (['En Route', 'Arrived', 'Loading', 'Unloading'].includes(mission.status)) return 'IN_TRANSIT';
-  return 'REGISTERED';
+/**
+ * This tab's own filter buckets. Deliberately *not* a fifth status
+ * vocabulary: the words shown on a row come from `displayShipmentStatus`
+ * like everywhere else, and these are only the coarse groups the filter
+ * strip offers. The version this replaced invented `REGISTERED`/`IN_TRANSIT`
+ * labels from the *shipment's* status, which is why a transporter with five
+ * delivered containers read "Delivered 0".
+ */
+type BookingBucket = 'PAID' | 'DELIVERED' | 'IN_TRANSIT' | 'OPEN';
+
+function bookingBucket(booking: BookingRecord): BookingBucket {
+  if (booking.status === 'Completed' && booking.shipment?.payoutReleasedAt) return 'PAID';
+  if (['Completed', 'POD Submitted', 'Empty Ready'].includes(booking.status)) return 'DELIVERED';
+  if (['Driver Assigned', 'Heading to Pickup', 'At Pickup', 'Loading', 'Loaded', 'En Route', 'Arrived', 'Unloading'].includes(booking.status)) return 'IN_TRANSIT';
+  return 'OPEN';
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -197,18 +207,26 @@ export function PartnerDetailPage() {
     const route = newRoute.trim();
     addPricingTierMutation.mutate(
       { partnerId: partner.id, payload: { route, vehicleType: newPriceVehicle, basePrice: parseFloat(newBasePrice) || 0, currency: 'USD' } },
-      { onSuccess: () => showSuccess(`Rate tier for "${route}" added successfully.`) },
+      { onSuccess: () => showSuccess(`Rate tier "${route}" added.`) },
     );
     setNewRoute('');
     setNewBasePrice('');
     setShowAddPrice(false);
   };
 
-  const handleDeletePriceRate = (tierId: string) => {
+  const { confirm, confirmDialog } = useConfirm();
+
+  const handleDeletePriceRate = async (tierId: string) => {
     if (!partner) return;
+    const ok = await confirm({
+      title: 'Remove this rate tier?',
+      description: 'New bookings will no longer be priced from it. Bookings already priced keep their rate.',
+      confirmLabel: 'Remove',
+    });
+    if (!ok) return;
     removePricingTierMutation.mutate(
       { partnerId: partner.id, tierId },
-      { onSuccess: () => showSuccess('Contracted rate tier removed.') },
+      { onSuccess: () => showSuccess('Rate tier removed.') },
     );
   };
 
@@ -242,7 +260,7 @@ export function PartnerDetailPage() {
           },
         },
       },
-      { onSuccess: () => showSuccess('Partner profile updated successfully.') },
+      { onSuccess: () => showSuccess('Transporter profile updated.') },
     );
     setIsEditOpen(false);
   };
@@ -263,13 +281,19 @@ export function PartnerDetailPage() {
           joinDate: (newDriver.joinDate ?? new Date().toISOString().split('T')[0]) as string,
         },
       },
-      { onSuccess: () => showSuccess(`Driver "${fullName}" added successfully.`) },
+      { onSuccess: () => showSuccess(`Driver "${fullName}" added.`) },
     );
     setNewDriver({ status: 'Available', joinDate: new Date().toISOString().split('T')[0] });
     setShowAddDriver(false);
   };
 
-  const handleDeleteDriver = (drvId: string) => {
+  const handleDeleteDriver = async (drvId: string) => {
+    const ok = await confirm({
+      title: 'Remove this driver?',
+      description: 'They will be removed from this transporter and unassigned from any future bookings.',
+      confirmLabel: 'Remove',
+    });
+    if (!ok) return;
     deleteDriverMutation.mutate(drvId, { onSuccess: () => showSuccess('Driver removed.') });
   };
 
@@ -295,83 +319,105 @@ export function PartnerDetailPage() {
           model: newVehicle.model,
         },
       },
-      { onSuccess: () => showSuccess(`Vehicle "${plateNumber}" registered successfully.`) },
+      { onSuccess: () => showSuccess(`Vehicle "${plateNumber}" registered.`) },
     );
     setNewVehicle({ truckType: '40ft Container', ownershipType: 'Owned', operationalStatus: 'Available', hasGPS: false });
     setShowAddVehicle(false);
   };
 
-  const handleDeleteVehicle = (vehId: string) => {
-    deleteVehicleMutation.mutate(vehId, { onSuccess: () => showSuccess('Vehicle removed from registry.') });
+  const handleDeleteVehicle = async (vehId: string) => {
+    const ok = await confirm({
+      title: 'Remove this vehicle?',
+      description: 'It will leave the fleet and be unassigned from any future bookings.',
+      confirmLabel: 'Remove',
+    });
+    if (!ok) return;
+    deleteVehicleMutation.mutate(vehId, { onSuccess: () => showSuccess('Vehicle removed.') });
   };
 
   const handleAddDoc = () => {
     if (!newDocFile) return;
     uploadDocumentMutation.mutate(
       { category: newDocCategory, file: newDocFile },
-      { onSuccess: () => showSuccess('Document uploaded successfully.') },
+      { onSuccess: () => showSuccess('Document uploaded.') },
     );
     setNewDocFile(null);
     setShowAddDoc(false);
   };
 
-  const handleDeleteDoc = (docId: string) => {
+  const handleDeleteDoc = async (docId: string) => {
+    const ok = await confirm({
+      title: 'Delete this document?',
+      description: 'The file will be permanently removed from the vault.',
+    });
+    if (!ok) return;
     deleteDocumentMutation.mutate(docId, { onSuccess: () => showSuccess('Document removed.') });
   };
 
-  // This partner's real shipments, live from the operations store — the same
-  // records the Shipments page manages and the Empty Return module derives
-  // from. Cancelled/failed loads are excluded: this tab is the working book.
-  const missions = useShipmentStore((s) => s.missions);
+  /**
+   * The containers this transporter is actually carrying — real `Booking`
+   * rows, filtered server-side by `partnerId`.
+   *
+   * This used to read the shipment store and filter by `transporter.id`,
+   * which was wrong twice over: a shipment names one primary transporter
+   * even when its containers are split across several, and its status is the
+   * *job's*, not this carrier's. That is why a transporter with five
+   * delivered containers displayed "Delivered 0". Cancelled/failed bookings
+   * are excluded — this tab is the working book.
+   */
+  const { data: bookingPage } = useBookings({ partnerId: partner?.id }, { enabled: Boolean(partner?.id) });
   const partnerShipments = useMemo(
     () =>
-      missions
-        .filter(
-          (m) =>
-            m.transporter.id === partner?.id &&
-            m.status !== 'Cancelled' &&
-            m.status !== 'Failed',
-        )
-        .map((m) => ({
-          id: m.id,
-          bookingId: m.bookingId,
-          origin: m.pickupLocation.name,
-          destination: m.deliveryLocation.name,
-          status: shipmentDisplayStatus(m),
-          date: m.scheduledPickupTime.split(' ')[0] ?? m.scheduledPickupTime,
-          time: m.scheduledPickupTime.split(' ')[1] ?? '',
-          amount: `FDJ ${m.rateFDJ.toLocaleString()}`,
-          rateFDJ: m.rateFDJ,
-          carrier: m.driver
-            ? `${m.transporter.company} (Driver: ${m.driver.name})`
-            : m.transporter.company,
-          goodsType: m.cargoType,
-        })),
-    [missions, partner?.id],
+      (bookingPage?.items ?? [])
+        .filter((b) => b.status !== 'Cancelled' && b.status !== 'Failed')
+        .map((b) => {
+          const scheduled = b.scheduledPickupTime ?? b.shipment?.scheduledPickupTime ?? '';
+          const cost = b.transporterCostMinorUnits ? Number(b.transporterCostMinorUnits) : 0;
+          return {
+            id: b.reference,
+            shipmentReference: b.shipment?.reference ?? '',
+            containerNumber: b.containerNumber ?? '',
+            origin: b.shipment?.pickupLocationName ?? '—',
+            destination: b.shipment?.deliveryLocationName ?? '—',
+            shipperCompany: b.shipment?.customerCompany ?? 'Unknown shipper',
+            shipperContact: b.shipment?.customerName ?? '',
+            rawStatus: b.status,
+            bucket: bookingBucket(b),
+            date: scheduled.split('T')[0] ?? scheduled,
+            time: (scheduled.split('T')[1] ?? '').slice(0, 5),
+            // What this transporter earns on this container — their own cost
+            // line, not the shipment-level aggregate that sums every carrier.
+            amount: cost ? `FDJ ${cost.toLocaleString()}` : 'Not priced',
+            rateFDJ: cost,
+            driverName: b.driver?.fullName ?? '',
+            goodsType: b.cargoType,
+          };
+        }),
+    [bookingPage],
   );
 
   const shipmentStats = useMemo(() => {
-    const inTransit = partnerShipments.filter((s) => s.status === 'IN_TRANSIT').length;
-    const delivered = partnerShipments.filter(
-      (s) => s.status === 'DELIVERED' || s.status === 'PAYMENT_RELEASED',
-    ).length;
+    const inTransit = partnerShipments.filter((s) => s.bucket === 'IN_TRANSIT').length;
+    const delivered = partnerShipments.filter((s) => s.bucket === 'DELIVERED' || s.bucket === 'PAID').length;
     const totalFdj = partnerShipments.reduce((sum, s) => sum + s.rateFDJ, 0);
     return { total: partnerShipments.length, inTransit, delivered, totalFdj };
   }, [partnerShipments]);
 
   const filteredShipments = partnerShipments.filter((shp) => {
+    const needle = shipmentSearch.toLowerCase();
     const matchesSearch =
-      shp.id.toLowerCase().includes(shipmentSearch.toLowerCase()) ||
-      shp.bookingId.toLowerCase().includes(shipmentSearch.toLowerCase()) ||
-      shp.destination.toLowerCase().includes(shipmentSearch.toLowerCase()) ||
-      shp.origin.toLowerCase().includes(shipmentSearch.toLowerCase());
+      shp.id.toLowerCase().includes(needle) ||
+      shp.shipmentReference.toLowerCase().includes(needle) ||
+      shp.containerNumber.toLowerCase().includes(needle) ||
+      shp.shipperCompany.toLowerCase().includes(needle) ||
+      shp.destination.toLowerCase().includes(needle) ||
+      shp.origin.toLowerCase().includes(needle);
 
     const matchesFilter =
       shipmentFilter === 'ALL' ||
-      (shipmentFilter === 'IN_TRANSIT' && shp.status === 'IN_TRANSIT') ||
-      (shipmentFilter === 'DELIVERED' &&
-        (shp.status === 'DELIVERED' || shp.status === 'PAYMENT_RELEASED')) ||
-      (shipmentFilter === 'REGISTERED' && shp.status === 'REGISTERED');
+      (shipmentFilter === 'IN_TRANSIT' && shp.bucket === 'IN_TRANSIT') ||
+      (shipmentFilter === 'DELIVERED' && (shp.bucket === 'DELIVERED' || shp.bucket === 'PAID')) ||
+      (shipmentFilter === 'REGISTERED' && shp.bucket === 'OPEN');
 
     return matchesSearch && matchesFilter;
   });
@@ -388,7 +434,7 @@ export function PartnerDetailPage() {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
         <p className="text-xs text-muted-foreground">
-          {isPartnerLoading ? 'Loading partner…' : 'Partner not found.'}
+          {isPartnerLoading ? 'Loading transporter…' : 'Transporter not found.'}
         </p>
       </div>
     );
@@ -396,6 +442,7 @@ export function PartnerDetailPage() {
 
   return (
     <div className="space-y-6">
+      {confirmDialog}
       {/* Toast Notification */}
       {successNotice && (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-success/30 bg-success-subtle p-4 text-success-subtle-foreground shadow-sm animate-in fade-in">
@@ -412,14 +459,14 @@ export function PartnerDetailPage() {
       {/* Top Header */}
       <PageHeader
         title="Transporter Workspace"
-        description={`Partner ID ${partner.id} · ${partner.country}`}
+        description={`Transporter ${partner.reference ?? partner.id} · ${partner.country}`}
         actions={
           <div className="flex items-center gap-3">
             <Button variant="outline" size="sm" onClick={() => navigate(ROUTES.partners)} leadingIcon={<ArrowLeft className="h-4 w-4" />} className="rounded-full">
-              Back to Partners
+              Back to transporters
             </Button>
             <Button size="sm" onClick={() => setIsEditOpen(true)} leadingIcon={<Pencil className="h-4 w-4" />} className="bg-primary hover:bg-primary-hover text-primary-foreground font-semibold rounded-full">
-              Edit Profile
+              Edit profile
             </Button>
           </div>
         }
@@ -428,8 +475,8 @@ export function PartnerDetailPage() {
       {/* Edit Drawer */}
       <Sheet open={isEditOpen} onOpenChange={setIsEditOpen}>
         <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto p-6 sm:p-8 bg-background border-l border-border">
-          <SheetTitle className="sr-only">Edit Partner Profile</SheetTitle>
-          <SheetDescription className="sr-only">Modify partner company details and compliance information.</SheetDescription>
+          <SheetTitle className="sr-only">Edit Transporter Profile</SheetTitle>
+          <SheetDescription className="sr-only">Transporter details and compliance.</SheetDescription>
           <AddPartnerForm
             initialData={{
               companyLegalName: partner.companyLegalName,
@@ -477,9 +524,7 @@ export function PartnerDetailPage() {
                   <h3 className="font-extrabold text-foreground text-lg truncate" title={partner.companyLegalName}>
                     {partner.companyLegalName}
                   </h3>
-                  {partner.partnerStatus === 'Active' && (
-                    <BadgeCheck className="h-5 w-5 text-success-subtle-foreground shrink-0" />
-                  )}
+                  <VerificationBadge state={partner.partnerStatus === 'Active' ? 'verified' : 'unverified'} size="lg" />
                 </div>
                 <div className="mt-0.5">
                   <Badge intent={partner.partnerStatus === 'Active' ? 'success' : 'warning'} size="sm">
@@ -610,7 +655,7 @@ export function PartnerDetailPage() {
                   </div>
 
                   <div>
-                    <span className="text-muted-foreground font-medium block mb-1.5">Vehicle Fleet Types</span>
+                    <span className="text-muted-foreground font-medium block mb-1.5">Vehicle Types</span>
                     <div className="flex flex-wrap gap-1.5">
                       {partner.vehicleTypes.map((vt) => (
                         <Badge key={vt} intent="primary" size="sm">
@@ -627,7 +672,7 @@ export function PartnerDetailPage() {
                 <div className="flex items-center justify-between border-b border-border/60 pb-3">
                   <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
                     <DollarSign className="h-4.5 w-4.5 text-primary" />
-                    Contracted Freight Rates & Pricing
+                    Contracted Rates
                   </h4>
                   <Button
                     size="sm"
@@ -635,14 +680,14 @@ export function PartnerDetailPage() {
                     leadingIcon={<Plus className="h-3.5 w-3.5" />}
                     className="bg-primary text-primary-foreground text-xs font-semibold rounded-full shrink-0"
                   >
-                    {showAddPrice ? 'Cancel' : 'Add Rate'}
+                    {showAddPrice ? 'Cancel' : 'Add rate'}
                   </Button>
                 </div>
 
                 {/* Add Price Rate Inline Subform */}
                 {showAddPrice && (
                   <div className="p-3.5 rounded-lg border border-primary/30 bg-primary/5 space-y-2.5 animate-in fade-in">
-                    <h5 className="text-xs font-bold text-primary">Add Contracted Route Rate</h5>
+                    <h5 className="text-xs font-bold text-primary">New Route Rate</h5>
                     <div className="space-y-2 text-xs">
                       <Input
                         placeholder="Route (e.g. Djibouti → Dire Dawa)"
@@ -664,7 +709,7 @@ export function PartnerDetailPage() {
                       </div>
                       <div className="flex justify-end pt-1">
                         <Button size="sm" onClick={handleAddPriceRate} className="bg-primary text-primary-foreground text-xs rounded-full px-4">
-                          Save Rate
+                          Save rate
                         </Button>
                       </div>
                     </div>
@@ -687,7 +732,7 @@ export function PartnerDetailPage() {
                             type="button"
                             onClick={() => handleDeletePriceRate(tier.id)}
                             className="p-1 rounded-sm text-muted-foreground hover:text-destructive transition-colors"
-                            title="Delete Rate"
+                            title="Delete rate"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -695,7 +740,7 @@ export function PartnerDetailPage() {
                       </div>
                     ))
                   ) : (
-                    <p className="text-xs text-muted-foreground col-span-full">No contracted rate tiers defined yet.</p>
+                    <p className="text-xs text-muted-foreground col-span-full">No rate tiers yet.</p>
                   )}
                 </div>
               </Card>
@@ -706,11 +751,8 @@ export function PartnerDetailPage() {
                   <div>
                     <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
                       <Users className="h-4.5 w-4.5 text-primary" />
-                      Assigned Drivers Roster ({drivers.length})
+                      Drivers ({drivers.length})
                     </h4>
-                    <p className="type-caption text-muted-foreground mt-0.5">
-                      Registered commercial drivers under this transporter account.
-                    </p>
                   </div>
                   <Button
                     size="sm"
@@ -718,14 +760,14 @@ export function PartnerDetailPage() {
                     leadingIcon={<Plus className="h-4 w-4" />}
                     className="bg-primary text-primary-foreground text-xs font-semibold rounded-full shrink-0"
                   >
-                    {showAddDriver ? 'Cancel' : 'Add New Driver'}
+                    {showAddDriver ? 'Cancel' : 'Add driver'}
                   </Button>
                 </div>
 
                 {/* Add Driver Inline Form */}
                 {showAddDriver && (
                   <div className="p-4 rounded-lg border border-primary/30 bg-primary/5 space-y-3 animate-in fade-in">
-                    <h5 className="text-xs font-bold text-primary">Register New Fleet Driver</h5>
+                    <h5 className="text-xs font-bold text-primary">New Driver</h5>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                       <Input
                         placeholder="Full Name (e.g. Abdi Yusuf)"
@@ -756,7 +798,7 @@ export function PartnerDetailPage() {
                     </div>
                     <div className="flex justify-end pt-1">
                       <Button size="sm" onClick={handleAddDriver} className="bg-primary text-primary-foreground font-semibold text-xs rounded-full px-4">
-                        Save Driver
+                        Save driver
                       </Button>
                     </div>
                   </div>
@@ -778,7 +820,7 @@ export function PartnerDetailPage() {
                           <div className="min-w-0">
                             <div className="flex items-center gap-1">
                               <span className="font-bold text-foreground block truncate">{drv.fullName}</span>
-                              <BadgeCheck className="h-3.5 w-3.5 text-success-subtle-foreground shrink-0" />
+                              <VerificationBadge state={isDriverVerified(drv) ? 'verified' : 'unverified'} size="sm" />
                             </div>
                             <span className="text-[10px] text-muted-foreground font-mono">{drv.phone}</span>
                           </div>
@@ -793,7 +835,7 @@ export function PartnerDetailPage() {
                         </div>
                         {drv.assignedVehiclePlate && (
                           <div className="flex justify-between">
-                            <span className="text-muted-foreground">Assigned Truck:</span>
+                            <span className="text-muted-foreground">Assigned Vehicle:</span>
                             <span className="font-bold text-primary">{drv.assignedVehiclePlate}</span>
                           </div>
                         )}
@@ -896,7 +938,7 @@ export function PartnerDetailPage() {
                   <span className="text-2xl sm:text-3xl font-black text-foreground tabular-nums block">
                     {documents.filter((d) => d.status === 'Verified').length}
                   </span>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Verified compliance docs</span>
+                  <span className="text-[10px] text-muted-foreground font-medium block">Verified documents</span>
                 </Card>
 
                 {/* Card 4: Compliance Alerts */}
@@ -910,7 +952,7 @@ export function PartnerDetailPage() {
                   <span className="text-2xl sm:text-3xl font-black text-warning-subtle-foreground tabular-nums block">
                     {complianceAlerts.length}
                   </span>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Active attention items</span>
+                  <span className="text-[10px] text-muted-foreground font-medium block">Open items</span>
                 </Card>
               </div>
 
@@ -920,10 +962,10 @@ export function PartnerDetailPage() {
                   <div>
                     <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
                       <Truck className="h-4.5 w-4.5 text-primary" />
-                      Registered Vehicles Registry ({vehicles.length})
+                      Vehicles ({vehicles.length})
                     </h4>
                     <p className="type-caption text-muted-foreground mt-0.5">
-                      Commercial truck fleet, plate numbers, capacities, and assigned drivers.
+                      Plates, capacities and assigned drivers.
                     </p>
                   </div>
                   <Button
@@ -932,14 +974,14 @@ export function PartnerDetailPage() {
                     leadingIcon={<Plus className="h-4 w-4" />}
                     className="bg-primary text-primary-foreground text-xs font-semibold rounded-full shrink-0"
                   >
-                    {showAddVehicle ? 'Cancel' : 'Register Vehicle'}
+                    {showAddVehicle ? 'Cancel' : 'Register vehicle'}
                   </Button>
                 </div>
 
                 {/* Add Vehicle Inline Form */}
                 {showAddVehicle && (
                   <div className="p-4 rounded-lg border border-primary/30 bg-primary/5 space-y-3 animate-in fade-in">
-                    <h5 className="text-xs font-bold text-primary">Register New Fleet Vehicle</h5>
+                    <h5 className="text-xs font-bold text-primary">New Vehicle</h5>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                       <Input
                         placeholder="Plate Number (e.g. DJ-ABJ-9922)"
@@ -959,7 +1001,7 @@ export function PartnerDetailPage() {
                     </div>
                     <div className="flex justify-end pt-1">
                       <Button size="sm" onClick={handleAddVehicle} className="bg-primary text-primary-foreground font-semibold text-xs rounded-full px-4">
-                        Save Vehicle
+                        Save vehicle
                       </Button>
                     </div>
                   </div>
@@ -973,7 +1015,7 @@ export function PartnerDetailPage() {
                         <div className="min-w-0">
                           <div className="flex items-center gap-1">
                             <span className="font-extrabold text-foreground text-sm block font-mono">{veh.plateNumber}</span>
-                            <BadgeCheck className="h-3.5 w-3.5 text-success-subtle-foreground shrink-0" />
+                            <VerificationBadge state={isVehicleVerified(veh) ? 'verified' : 'unverified'} size="sm" />
                           </div>
                           <span className="text-[11px] text-muted-foreground block">{veh.truckType}</span>
                         </div>
@@ -1024,10 +1066,10 @@ export function PartnerDetailPage() {
                   <div>
                     <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
                       <FileText className="h-4.5 w-4.5 text-primary" />
-                      Compliance & Grey Card Documents Vault
+                      Compliance Documents
                     </h4>
                     <p className="type-caption text-muted-foreground mt-0.5">
-                      Upload and manage company Grey Card (Carte Grise) and vehicle registration files.
+                      Grey Card and vehicle registration documents.
                     </p>
                   </div>
                   <Button
@@ -1036,14 +1078,14 @@ export function PartnerDetailPage() {
                     leadingIcon={<Upload className="h-4 w-4" />}
                     className="bg-primary text-primary-foreground text-xs font-semibold rounded-full shrink-0"
                   >
-                    {showAddDoc ? 'Cancel' : 'Upload Document'}
+                    {showAddDoc ? 'Cancel' : 'Upload document'}
                   </Button>
                 </div>
 
                 {/* Add Doc Form */}
                 {showAddDoc && (
                   <div className="p-4 rounded-lg border border-primary/30 bg-primary/5 space-y-3 animate-in fade-in">
-                    <h5 className="text-xs font-bold text-primary">Upload Transporter Compliance Document</h5>
+                    <h5 className="text-xs font-bold text-primary">New Document</h5>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <label className="flex items-center gap-1.5 px-3 py-2 rounded-md border border-dashed border-primary/40 bg-primary/5 text-primary text-xs font-semibold hover:bg-primary/10 transition-colors cursor-pointer">
                         <Upload className="h-3.5 w-3.5 shrink-0" />
@@ -1063,7 +1105,7 @@ export function PartnerDetailPage() {
                     </div>
                     <div className="flex justify-end pt-1">
                       <Button size="sm" onClick={handleAddDoc} disabled={!newDocFile} className="bg-primary text-primary-foreground font-semibold text-xs rounded-full px-4">
-                        Save Document File
+                        Save document
                       </Button>
                     </div>
                   </div>
@@ -1101,7 +1143,7 @@ export function PartnerDetailPage() {
                           type="button"
                           onClick={() => void downloadDocument(doc.id, doc.name)}
                           className="p-1.5 rounded-md text-muted-foreground hover:text-primary transition-colors"
-                          title="Download file"
+                          title="Download document"
                         >
                           <Download className="h-4 w-4" />
                         </button>
@@ -1109,7 +1151,7 @@ export function PartnerDetailPage() {
                           type="button"
                           onClick={() => handleDeleteDoc(doc.id)}
                           className="p-1.5 rounded-md text-muted-foreground hover:text-destructive transition-colors"
-                          title="Delete file"
+                          title="Delete document"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -1141,7 +1183,7 @@ export function PartnerDetailPage() {
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <Card className="p-4 border border-border/80 bg-card rounded-lg shadow-2xs space-y-2">
                   <div className="flex items-center justify-between text-muted-foreground">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Total Cargo Jobs</span>
+                    <span className="text-[11px] font-bold uppercase tracking-wider">Total Bookings</span>
                     <div className="p-2 rounded-lg bg-primary/10 text-primary">
                       <Package className="w-4 h-4" />
                     </div>
@@ -1154,7 +1196,7 @@ export function PartnerDetailPage() {
 
                 <Card className="p-4 border border-border/80 bg-card rounded-lg shadow-2xs space-y-2">
                   <div className="flex items-center justify-between text-muted-foreground">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Active In Transit</span>
+                    <span className="text-[11px] font-bold uppercase tracking-wider">In Transit</span>
                     <div className="p-2 rounded-lg bg-warning-subtle text-warning-subtle-foreground">
                       <Truck className="w-4 h-4" />
                     </div>
@@ -1175,7 +1217,7 @@ export function PartnerDetailPage() {
                   <span className="text-2xl sm:text-3xl font-black text-success-subtle-foreground tabular-nums block">
                     {shipmentStats.delivered}
                   </span>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Successfully completed</span>
+                  <span className="text-[10px] text-muted-foreground font-medium block">Completed</span>
                 </Card>
 
                 <Card className="p-4 border border-border/80 bg-card rounded-lg shadow-2xs space-y-2">
@@ -1188,7 +1230,7 @@ export function PartnerDetailPage() {
                   <span className="text-2xl sm:text-3xl font-black text-foreground tabular-nums block">
                     FDJ {shipmentStats.totalFdj.toLocaleString()}
                   </span>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Gross freight earnings</span>
+                  <span className="text-[10px] text-muted-foreground font-medium block">Gross revenue</span>
                 </Card>
               </div>
 
@@ -1198,7 +1240,7 @@ export function PartnerDetailPage() {
                   <div>
                     <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
                       <Package className="h-4.5 w-4.5 text-primary" />
-                      Transporter Assigned Shipments
+                      Assigned Shipments
                     </h4>
                     <p className="type-caption text-muted-foreground mt-0.5">
                       Active, delivered, and registered shipments for {partner.companyLegalName}.
@@ -1210,7 +1252,7 @@ export function PartnerDetailPage() {
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                       <Input
                         type="text"
-                        placeholder="Search shipment..."
+                        placeholder="Search shipments..."
                         value={shipmentSearch}
                         onChange={(e) => setShipmentSearch(e.target.value)}
                         className="pl-8 text-xs h-9 rounded-lg"
@@ -1250,44 +1292,40 @@ export function PartnerDetailPage() {
                     // is costs more than it saves.
                     <ShipmentCard
                       key={shp.id}
-                      shipmentNumber={shp.id}
-                      bookingNumber={shp.bookingId}
+                      shipmentNumber={shp.shipmentReference}
+                      bookingNumber={shp.id}
                       origin={shp.origin}
                       destination={shp.destination}
-                      organization={partner.companyLegalName}
+                      // The shipper, not this carrier. Both of these printed
+                      // the transporter's own name before, so a Red Sea Cargo
+                      // Group job read as if Al-Baraka had booked it.
+                      organization={shp.shipperCompany}
                       date={shp.date}
                       time={shp.time}
                       goodsType={shp.goodsType}
                       goodsWeight={shp.amount}
-                      vehicleType={shp.carrier}
-                      totalBids={2}
-                      createdBy={partner.companyLegalName}
-                      createdByInitials={partner.companyLegalName
+                      vehicleType={partner.companyLegalName}
+                      driverName={shp.driverName || undefined}
+                      createdBy={shp.shipperContact || shp.shipperCompany}
+                      createdByInitials={shp.shipperCompany
                         .split(/\s+/)
                         .map((word) => word.charAt(0))
                         .join('')
                         .slice(0, 2)
                         .toUpperCase()}
-                      status={shp.status.replace('_', ' ')}
-                      statusIntent={
-                        shp.status === 'PAYMENT_RELEASED'
-                          ? 'green'
-                          : shp.status === 'DELIVERED'
-                            ? 'blue'
-                            : shp.status === 'IN_TRANSIT'
-                              ? 'orange'
-                              : 'slate'
-                      }
+                      status={displayShipmentStatus(shp.rawStatus, 'shipment')}
+                      statusIntent={statusIntentOf(shp.rawStatus)}
                       verified={true}
                       clickable
-                      onClick={() => navigate(buildPath(ROUTES.shipmentOverview, { id: shp.id }))}
+                      onClick={() =>
+                        navigate(buildPath(ROUTES.shipmentOverview, { id: shp.shipmentReference }))
+                      }
                     />
                   ))}
 
                   {filteredShipments.length === 0 && (
                     <div className="p-10 text-center text-sm text-muted-foreground border border-dashed border-border/70 rounded-lg">
-                      No shipments for {partner.companyLegalName} match this view yet — new ones
-                      appear here the moment they are created on the Shipments page.
+                      No shipments yet.
                     </div>
                   )}
 

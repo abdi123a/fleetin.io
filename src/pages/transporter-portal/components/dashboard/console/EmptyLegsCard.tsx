@@ -70,7 +70,7 @@ export function EmptyLegsCard({ data, onOpenBackhaul, className }: EmptyLegsCard
     <ConsolePanel
       className={className}
       title="Empty Legs"
-      subtitle="Return leg of every completed move"
+      subtitle="Return leg of every completed booking"
       action={
         <span className="type-body-xs inline-flex items-center gap-1.5 text-muted-foreground">
           <span className="size-1.5 rounded-full bg-destructive" aria-hidden />

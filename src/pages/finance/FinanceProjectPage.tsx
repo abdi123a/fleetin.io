@@ -35,7 +35,7 @@ export function FinanceProjectPage() {
     return (
       <div className="mx-auto w-full max-w-[1600px] px-4 pt-6 sm:px-6">
         <Panel title="Loading…">
-          <EmptyState message="Fetching this project." />
+          <EmptyState message="Loading project…" />
         </Panel>
       </div>
     );
@@ -77,7 +77,7 @@ export function FinanceProjectPage() {
       {/* Identity + timing */}
       <div className="grid gap-3 rounded-card border border-border bg-card p-4 shadow-card sm:grid-cols-2 lg:grid-cols-4">
         <Meta label="Project ref" value={project.reference} mono />
-        <Meta label="Client" value={clientName} avatar={shipper?.logoUrl} />
+        <Meta label="Shipper" value={clientName} avatar={shipper?.logoUrl} />
         <Meta label="Started" value={`${fmtShortDate(project.startedAt)} · running ${daysRunning}d`} />
         <Meta
           label="Contract ends"
@@ -102,7 +102,7 @@ export function FinanceProjectPage() {
 
       <ContractRemindersPanel projectId={project.id} />
 
-      <Panel title="Shipments" subtitle="One consignment — its bookings are released, billed and settled together" padded={false} dense>
+      <Panel title="Shipments" subtitle="Bookings released, billed and settled together" padded={false} dense>
         <ShipmentsTable shipments={project.shipments} invoices={invoices} />
       </Panel>
     </div>

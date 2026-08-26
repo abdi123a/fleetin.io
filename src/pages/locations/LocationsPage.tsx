@@ -8,6 +8,7 @@ import {
   SheetContent,
   SheetDescription,
   SheetTitle,
+  useConfirm,
 } from '@/design-system';
 import { AddLocationForm, type LocationFormData } from './AddLocationForm';
 
@@ -87,12 +88,21 @@ export function LocationsPage() {
     setTimeout(() => setSuccessNotice(null), 5000);
   };
 
-  const handleDeleteLocation = (id: string) => {
+  const { confirm, confirmDialog } = useConfirm();
+
+  const handleDeleteLocation = async (id: string) => {
+    const ok = await confirm({
+      title: 'Remove this location?',
+      description: 'It will no longer be offered when planning a pickup or delivery.',
+      confirmLabel: 'Remove',
+    });
+    if (!ok) return;
     setLocations((prev) => prev.filter((item) => item.id !== id));
   };
 
   return (
     <div className="space-y-6 pb-12">
+      {confirmDialog}
       {/* Toast Notification Alert */}
       {successNotice && (
         <div className="flex items-center justify-between p-4 rounded-lg bg-success-subtle border border-success text-success-subtle-foreground text-sm animate-in fade-in slide-in-from-top-2 shadow-xs">

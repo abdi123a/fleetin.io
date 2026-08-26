@@ -23,6 +23,8 @@ export interface MiniGaugeProps {
   /** Short qualifier under the label — "units", "of 15 containers". */
   caption?: string;
   size?: number;
+  /** Overrides the intent colour, for pages with their own palette. */
+  color?: string;
   onClick?: () => void;
   className?: string;
 }
@@ -38,11 +40,12 @@ export function MiniGauge({
   intent = 'neutral',
   caption,
   size = 104,
+  color: colorOverride,
   onClick,
   className,
 }: MiniGaugeProps) {
   const clamped = Math.max(0, Math.min(1, value));
-  const color = intentColor(intent);
+  const color = colorOverride ?? intentColor(intent);
 
   const body = (
     <>

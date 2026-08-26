@@ -93,7 +93,7 @@ export function KpiTiles({ kpis, className }: KpiTilesProps) {
       value: pct(kpis.onTime),
       delta: kpis.onTimeDelta,
       icon: CheckCircle2,
-      description: `${kpis.onTimeCount} of ${kpis.judgedCount} moves on slot`,
+      description: `${kpis.onTimeCount} of ${kpis.judgedCount} bookings on slot`,
       tone: 'peach' as const,
     },
     {

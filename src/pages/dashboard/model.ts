@@ -63,11 +63,15 @@ const STAGE_OF: Record<string, ShipmentStageKey> = {
   'Payment Pending': 'scheduled',
   Assigned: 'scheduled',
   'Driver Assigned': 'scheduled',
-  'En Route': 'moving',
+  'Heading to Pickup': 'moving',
+  'At Pickup': 'moving',
   Loading: 'moving',
+  Loaded: 'moving',
+  'En Route': 'moving',
   Arrived: 'awaiting_pod',
   Unloading: 'awaiting_pod',
   'POD Submitted': 'proof_in',
+  'Empty Ready': 'proof_in',
   Completed: 'closed',
   Cancelled: 'stopped',
   Failed: 'stopped',
@@ -76,25 +80,25 @@ const STAGE_OF: Record<string, ShipmentStageKey> = {
 const STAGE_META: Record<ShipmentStageKey, { label: string; caption: string; color: string; fg: string }> = {
   scheduled: {
     label: 'Scheduled',
-    caption: 'Booked, not yet rolling',
+    caption: 'Booked, not yet moving',
     color: 'var(--chart-other)',
     fg: 'var(--fl-neutral-950)',
   },
   moving: {
-    label: 'On the road',
+    label: 'In transit',
     caption: 'Loading or en route',
     color: 'var(--fl-teal-400)',
     fg: 'var(--fl-neutral-950)',
   },
   awaiting_pod: {
-    label: 'Awaiting proof',
-    caption: 'Delivered, no paper back',
+    label: 'Awaiting POD',
+    caption: 'Delivered, POD not filed',
     color: 'var(--accent-bold)',
     fg: 'var(--fl-neutral-950)',
   },
   proof_in: {
-    label: 'Proof in',
-    caption: 'PoD filed, money can move',
+    label: 'POD filed',
+    caption: 'Release can proceed',
     color: 'var(--fl-teal-600)',
     fg: 'var(--fl-neutral-0)',
   },
@@ -259,10 +263,10 @@ function buildEmptyReturns(
     kpis: selectKpis(records, now),
     stillOut: stillOut.length,
     buckets: [
-      { key: 'overdue', label: 'Past deadline', count: counts.overdue, color: 'var(--destructive)' },
+      { key: 'overdue', label: 'Overdue', count: counts.overdue, color: 'var(--destructive)' },
       { key: 'critical', label: 'Critical', count: counts.critical, color: 'var(--accent-bold)' },
       { key: 'watch', label: 'Watch', count: counts.watch, color: 'var(--fl-orange-300)' },
-      { key: 'safe', label: 'Comfortable', count: counts.safe, color: 'var(--primary)' },
+      { key: 'safe', label: 'Safe', count: counts.safe, color: 'var(--primary)' },
       { key: 'none', label: 'No deadline', count: counts.none, color: 'var(--chart-other)' },
     ],
     returnedOnTime,
@@ -381,8 +385,8 @@ function buildMoney(
     ...position,
     ageing: [
       { key: 'current', label: 'Within terms', count: ageingCounts.current, amountDjf: ageingAmounts.current, color: 'var(--primary)' },
-      { key: 'd30', label: '1–30 days late', count: ageingCounts.d30, amountDjf: ageingAmounts.d30, color: 'var(--fl-orange-300)' },
-      { key: 'd60', label: '31–60 days late', count: ageingCounts.d60, amountDjf: ageingAmounts.d60, color: 'var(--accent-bold)' },
+      { key: 'd30', label: '1–30 days overdue', count: ageingCounts.d30, amountDjf: ageingAmounts.d30, color: 'var(--fl-orange-300)' },
+      { key: 'd60', label: '31–60 days overdue', count: ageingCounts.d60, amountDjf: ageingAmounts.d60, color: 'var(--accent-bold)' },
       { key: 'd60plus', label: 'Over 60 days', count: ageingCounts.d60plus, amountDjf: ageingAmounts.d60plus, color: 'var(--destructive)' },
     ],
     openInvoices,
@@ -686,7 +690,7 @@ export interface AttentionItem {
   id: string;
   severity: AttentionSeverity;
   /** Which module owns the fix. */
-  module: 'Shipments' | 'Empty returns' | 'Finance' | 'People' | 'Fleet';
+  module: 'Shipments' | 'Empty Returns' | 'Finance' | 'HR' | 'Fleet';
   title: string;
   detail: string;
   count: number;
@@ -817,9 +821,9 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
   push({
     id: 'returns-overdue',
     severity: 'breach',
-    module: 'Empty returns',
-    title: 'Containers past their return deadline',
-    detail: 'Demurrage is already accruing against these boxes.',
+    module: 'Empty Returns',
+    title: 'Containers past return deadline',
+    detail: 'Demurrage accruing.',
     count: returns.kpis.overdue,
     to: routes.emptyReturnCycles,
   });
@@ -827,10 +831,10 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     id: 'invoices-overdue',
     severity: 'breach',
     module: 'Finance',
-    title: 'Invoices past their contract date',
+    title: 'Overdue invoices',
     detail: overdueBucket && overdueBucket.count > 0
-      ? `${overdueBucket.count} of them over 60 days late.`
-      : 'Money billed and not collected.',
+      ? `${overdueBucket.count} over 60 days overdue.`
+      : 'Billed, not collected.',
     count: money.overdueInvoices,
     to: routes.financeInvoices,
   });
@@ -838,8 +842,8 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     id: 'fleet-expired',
     severity: 'breach',
     module: 'Fleet',
-    title: 'Vehicle and driver papers out of date',
-    detail: 'A truck or driver in this list cannot legally run today.',
+    title: 'Expired vehicle and driver documents',
+    detail: 'Not compliant to run today.',
     count: fleet.expired,
     to: routes.vehicles,
   });
@@ -847,17 +851,17 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     id: 'drawdowns-overdue',
     severity: 'breach',
     module: 'Finance',
-    title: 'Drawdowns past their due date',
-    detail: 'Borrowed capital that should already have been repaid.',
+    title: 'Overdue drawdowns',
+    detail: 'Repayment date passed.',
     count: money.drawdownsOverdue,
     to: routes.finance,
   });
   push({
     id: 'returns-critical',
     severity: 'ask',
-    module: 'Empty returns',
-    title: 'Containers inside the critical window',
-    detail: 'Under six hours of margin left against the line’s deadline.',
+    module: 'Empty Returns',
+    title: 'Containers in critical window',
+    detail: 'Under six hours of margin left.',
     count: returns.kpis.critical,
     to: routes.emptyReturnCycles,
   });
@@ -865,8 +869,8 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     id: 'holds-open',
     severity: 'ask',
     module: 'Finance',
-    title: 'Payouts stopped by an open hold',
-    detail: 'Transporter money frozen until the hold is cleared.',
+    title: 'Settlements on hold',
+    detail: 'Blocked until the hold clears.',
     count: money.openHolds,
     to: routes.finance,
   });
@@ -874,8 +878,8 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     id: 'released-unpriced',
     severity: 'ask',
     module: 'Finance',
-    title: 'Released shipments carrying no client price',
-    detail: 'Money went out and nothing can be billed against it yet.',
+    title: 'Unpriced released shipments',
+    detail: 'Released, nothing billable yet.',
     count: operations.releasedUnpriced,
     to: routes.finance,
   });
@@ -883,35 +887,35 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     id: 'awaiting-release',
     severity: 'ask',
     module: 'Shipments',
-    title: 'Delivered shipments waiting on a payout release',
-    detail: 'Proof is in — the desk has to release the transporter’s money.',
+    title: 'Shipments pending release',
+    detail: 'POD filed, release pending.',
     count: operations.awaitingRelease,
     to: routes.shipments,
   });
   push({
     id: 'returns-matchable',
     severity: 'ask',
-    module: 'Empty returns',
-    title: 'Empties that could be matched to a full load',
-    detail: `${returns.sameDepotPairs} of them sit at a depot with an open load waiting.`,
+    module: 'Empty Returns',
+    title: 'Empties ready to match',
+    detail: `${returns.sameDepotPairs} at a depot with an open load.`,
     count: returns.matchable,
     to: routes.emptyReturns,
   });
   push({
     id: 'hr-expiring',
     severity: 'ask',
-    module: 'People',
-    title: 'Employee documents expiring inside 30 days',
-    detail: 'Contracts, trial periods and identity papers coming due.',
+    module: 'HR',
+    title: 'Employee documents expiring',
+    detail: 'Expiring within 30 days.',
     count: workforce?.expiring.in30 ?? 0,
     to: routes.hrEmployees,
   });
   push({
     id: 'leave-pending',
     severity: 'ask',
-    module: 'People',
-    title: 'Leave requests waiting on a decision',
-    detail: 'Nobody has approved or refused these yet.',
+    module: 'HR',
+    title: 'Leave requests pending',
+    detail: 'No decision recorded yet.',
     count: workforce?.leave.pendingRequests ?? 0,
     to: routes.hr,
   });
@@ -919,8 +923,8 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     id: 'fleet-expiring',
     severity: 'ask',
     module: 'Fleet',
-    title: 'Vehicle and driver papers expiring inside 30 days',
-    detail: 'Renew before they ground the truck.',
+    title: 'Vehicle and driver documents expiring',
+    detail: 'Expiring within 30 days.',
     count: fleet.expiring,
     to: routes.vehicles,
   });
@@ -928,8 +932,8 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     id: 'unassigned',
     severity: 'ask',
     module: 'Shipments',
-    title: 'Live shipments with no vehicle attached',
-    detail: 'Nothing is scheduled to physically move these.',
+    title: 'Shipments with no vehicle',
+    detail: 'No vehicle assigned yet.',
     count: operations.unassigned,
     to: routes.shipments,
   });

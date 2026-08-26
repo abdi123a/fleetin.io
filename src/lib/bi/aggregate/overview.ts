@@ -236,8 +236,17 @@ function buildMapView(
 
     const ping = latestPing.get(fact.shipmentId);
     const progress = stageProgress(fact.currentStage);
-    const lat = ping?.lat ?? route.originLat + (route.destinationLat - route.originLat) * progress;
-    const lng = ping?.lng ?? route.originLng + (route.destinationLng - route.originLng) * progress;
+    // Without a ping, position is interpolated along the corridor — which
+    // needs both ends placed. A route whose free-text location didn't resolve
+    // to a point is left off the map rather than drawn at a guessed one.
+    const placed =
+      route.originLat != null &&
+      route.originLng != null &&
+      route.destinationLat != null &&
+      route.destinationLng != null;
+    if (!ping && !placed) return [];
+    const lat = ping?.lat ?? route.originLat! + (route.destinationLat! - route.originLat!) * progress;
+    const lng = ping?.lng ?? route.originLng! + (route.destinationLng! - route.originLng!) * progress;
 
     const shipment = shipmentById.get(fact.shipmentId);
     const vehicle = shipment?.vehicleId ? vehicleById.get(shipment.vehicleId) : undefined;
@@ -263,12 +272,13 @@ function buildMapView(
 
   // Fall back to the corridor's own extent when nothing is in flight, so the
   // map still shows the shipper's geography rather than the whole globe.
+  const isPoint = (value: number | null): value is number => value != null;
   const lats = liveShipments.length
     ? liveShipments.map((s) => s.lat)
-    : context.dataset.routes.flatMap((r) => [r.originLat, r.destinationLat]);
+    : context.dataset.routes.flatMap((r) => [r.originLat, r.destinationLat]).filter(isPoint);
   const lngs = liveShipments.length
     ? liveShipments.map((s) => s.lng)
-    : context.dataset.routes.flatMap((r) => [r.originLng, r.destinationLng]);
+    : context.dataset.routes.flatMap((r) => [r.originLng, r.destinationLng]).filter(isPoint);
 
   return {
     liveShipments,

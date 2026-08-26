@@ -8,17 +8,17 @@ import {
   MoreVertical,
   Pencil,
   Plus,
-  ShieldCheck,
   Trash2,
   User,
   Clock,
   Search,
   Truck,
   X,
+  XCircle,
 } from '@/design-system/icons';
 import { Grid, List, RotateCcw, BadgeCheck } from 'lucide-react';
 import { PageHeader, TablePager, usePagedRows } from '@/components';
-import { IconChip } from '@/design-system';
+import { IconChip, VerificationBadge, useConfirm } from '@/design-system';
 import {
   Badge,
   Button,
@@ -103,6 +103,7 @@ export function ShippersPage() {
   const createShipper = useCreateShipper();
   const updateShipper = useUpdateShipper();
   const deleteShipper = useDeleteShipper();
+  const { confirm, confirmDialog } = useConfirm();
   const uploadLogo = useUploadShipperLogo();
 
   const [drawerState, setDrawerState] = useState<DrawerState>({ mode: 'closed' });
@@ -157,8 +158,14 @@ export function ShippersPage() {
     setTimeout(() => setSuccessNotice(null), 5000);
   };
 
-  const handleDelete = (id: string, e?: React.MouseEvent) => {
+  const handleDelete = async (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
+    const ok = await confirm({
+      title: 'Remove this shipper?',
+      description: 'The account will be removed. Shipments already booked under it keep their record.',
+      confirmLabel: 'Remove',
+    });
+    if (!ok) return;
     deleteShipper.mutate(id);
     if (drawerState.mode !== 'closed' && 'shipper' in drawerState && drawerState.shipper.id === id) {
       setDrawerState({ mode: 'closed' });
@@ -173,13 +180,11 @@ export function ShippersPage() {
 
   const renderApprovalBadge = (status: ApprovalStatus) => {
     switch (status) {
+      // The same bare tick every other verified record gets — see
+      // `VerificationBadge`. This used to be its own pill reading "Verified,"
+      // a different visual style from every other verified mark in the app.
       case 'Verified':
-        return (
-          <Badge intent="success" variant="subtle" size="sm" className="font-medium gap-1 text-[11px] py-0.5 px-2 shrink-0">
-            <BadgeCheck className="h-3 w-3 text-success-subtle-foreground" />
-            <span>Verified</span>
-          </Badge>
-        );
+        return <VerificationBadge state="verified" size="sm" />;
       case 'Pending':
         return (
           <Badge intent="warning" variant="subtle" size="sm" className="font-medium gap-1 text-[11px] py-0.5 px-2 shrink-0">
@@ -190,7 +195,7 @@ export function ShippersPage() {
       case 'Canceled':
         return (
           <Badge intent="destructive" variant="subtle" size="sm" className="font-medium gap-1 text-[11px] py-0.5 px-2 shrink-0">
-            <ShieldCheck className="h-3 w-3" />
+            <XCircle className="h-3 w-3" />
             <span>Canceled</span>
           </Badge>
         );
@@ -262,6 +267,7 @@ export function ShippersPage() {
 
   return (
     <div className="space-y-5 pb-12">
+      {confirmDialog}
       {/* Toast Notification Banner */}
       {successNotice && (
         <div className="flex items-center justify-between rounded-lg border border-success/30 bg-success-subtle p-3.5 text-success-subtle-foreground shadow-2xs animate-in fade-in">
@@ -282,7 +288,7 @@ export function ShippersPage() {
       {/* Page Header */}
       <PageHeader
         title="Shippers"
-        description="Manage shipper profiles, registration numbers, executive contacts, and compliance documents vault."
+        description="Profiles, contacts and compliance documents."
         actions={
           <Button
             onClick={() => setDrawerState({ mode: 'create' })}
@@ -290,7 +296,7 @@ export function ShippersPage() {
             leadingIcon={<Plus className="h-4 w-4" />}
             className="bg-primary hover:bg-primary-hover text-primary-foreground font-semibold px-4 py-2 text-xs shadow-xs"
           >
-            Add Shipper
+            Add shipper
           </Button>
         }
       />
@@ -300,7 +306,7 @@ export function ShippersPage() {
         <StatisticCard
           title="Total Shippers"
           value={totalShippersCount}
-          subtitle="Corporate Accounts"
+          subtitle="Corporate accounts"
           variant="teal"
           trend="up"
           percentage="100%"
@@ -309,7 +315,7 @@ export function ShippersPage() {
         <StatisticCard
           title="Verified Shippers"
           value={verifiedCount}
-          subtitle="Compliance Approved"
+          subtitle="Compliance approved"
           variant="blue"
           trend="up"
           percentage={`${Math.round((verifiedCount / (totalShippersCount || 1)) * 100)}%`}
@@ -318,7 +324,7 @@ export function ShippersPage() {
         <StatisticCard
           title="Active Shipments"
           value={totalActiveShipments}
-          subtitle="Current Loads"
+          subtitle="In transit now"
           variant="peach"
           trend="up"
           percentage="+14%"
@@ -327,7 +333,7 @@ export function ShippersPage() {
         <StatisticCard
           title="Pending Review"
           value={pendingReviewCount}
-          subtitle="Requires Action"
+          subtitle="Requires action"
           variant="pink"
           trend={pendingReviewCount > 0 ? 'down' : 'neutral'}
           percentage={pendingReviewCount > 0 ? `${pendingReviewCount} pending` : '0'}
@@ -423,7 +429,7 @@ export function ShippersPage() {
             options={[
               { value: 'name-asc', label: 'Sort: Name (A-Z)' },
               { value: 'name-desc', label: 'Sort: Name (Z-A)' },
-              { value: 'shipments-desc', label: 'Sort: Active Freight' },
+              { value: 'shipments-desc', label: 'Sort: Active Shipments' },
               { value: 'date-desc', label: 'Sort: Reg Date' },
             ]}
             className="text-2xs py-1 rounded-md"
@@ -539,7 +545,7 @@ export function ShippersPage() {
                     leadingIcon={<Pencil className="h-3.5 w-3.5" />}
                     className="bg-primary hover:bg-primary-hover text-primary-foreground px-4 py-2 text-xs font-semibold rounded-full shrink-0"
                   >
-                    Edit Profile
+                    Edit profile
                   </Button>
                 </div>
               </div>
@@ -610,7 +616,7 @@ export function ShippersPage() {
                   leadingIcon={<ExternalLink className="h-4 w-4" />}
                   className="w-full bg-primary hover:bg-primary-hover text-primary-foreground py-3 font-semibold text-xs rounded-full shadow-xs"
                 >
-                  Open Full Dossier & Profile
+                  Open full profile
                 </Button>
               </div>
             </div>
@@ -685,7 +691,7 @@ export function ShippersPage() {
                   leadingIcon={<ExternalLink className="h-3 w-3" />}
                   className="text-xs font-medium h-7 px-3 flex-1 lg:flex-initial justify-center"
                 >
-                  Dossier
+                  Profile
                 </Button>
 
                 <DropdownMenu>
@@ -702,7 +708,7 @@ export function ShippersPage() {
                   <DropdownMenuContent align="end" className="w-48">
                     <DropdownMenuItem onClick={(e) => handleViewDetail(shipper.reference, e)} className="cursor-pointer gap-2 text-xs">
                       <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span>View Profile Dossier</span>
+                      <span>View profile</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={(e) => {
@@ -712,14 +718,14 @@ export function ShippersPage() {
                       className="cursor-pointer gap-2 text-xs"
                     >
                       <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span>Edit Profile</span>
+                      <span>Edit profile</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={(e) => handleDelete(shipper.id, e)}
                       className="cursor-pointer gap-2 text-xs text-destructive focus:text-destructive"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
-                      <span>Delete Shipper</span>
+                      <span>Delete shipper</span>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -767,7 +773,7 @@ export function ShippersPage() {
                   <DropdownMenuContent align="end" className="w-48">
                     <DropdownMenuItem onClick={(e) => handleViewDetail(shipper.reference, e)} className="cursor-pointer gap-2 text-xs">
                       <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span>View Dossier</span>
+                      <span>View profile</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={(e) => {
@@ -777,7 +783,7 @@ export function ShippersPage() {
                       className="cursor-pointer gap-2 text-xs"
                     >
                       <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span>Edit Profile</span>
+                      <span>Edit profile</span>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -799,8 +805,8 @@ export function ShippersPage() {
                   <span className="font-medium text-foreground truncate block">{shipper.primaryContact.name}</span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Active Freight</span>
-                  <span className="font-semibold text-foreground">{shipper.activeShipments} Active</span>
+                  <span className="text-[10px] text-muted-foreground font-medium block">Active Shipments</span>
+                  <span className="font-semibold text-foreground">{shipper.activeShipments} active</span>
                 </div>
               </div>
 
@@ -816,7 +822,7 @@ export function ShippersPage() {
                   leadingIcon={<ExternalLink className="h-3 w-3" />}
                   className="text-xs font-medium text-primary hover:text-primary-hover p-0 h-auto"
                 >
-                  Dossier
+                  Profile
                 </Button>
               </div>
             </Card>
@@ -845,7 +851,7 @@ export function ShippersPage() {
           <IconChip icon={Building2} tint="neutral" className="mb-3" />
           <h3 className="text-base font-bold text-foreground">No Shippers Found</h3>
           <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-            We couldn't find any shipper matching your current search criteria or active status filters.
+            No shipper matches the current filters.
           </p>
           {hasActiveFilters && (
             <Button
@@ -854,7 +860,7 @@ export function ShippersPage() {
               leadingIcon={<RotateCcw className="h-3.5 w-3.5" />}
               className="mt-4 rounded-full text-xs font-medium"
             >
-              Clear Filters
+              Clear filters
             </Button>
           )}
         </div>

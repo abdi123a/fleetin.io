@@ -45,13 +45,13 @@ export const DEMO_PRESETS: DemoPresetUser[] = [
     lastName: 'Knight',
   },
   {
-    label: 'Shipper (AMINA FZCO)',
+    label: 'Shipper (CMA-CGM)',
     email: 'm.amin@amina-fzco.dj',
     role: 'SHIPPER',
     firstName: 'Mohamed',
     lastName: 'Amin',
     shipperId: 'SHP-101',
-    companyName: 'AMINA FZCO',
+    companyName: 'CMA-CGM',
   },
   {
     label: 'Shipper (Al-Baraka)',

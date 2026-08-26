@@ -20,6 +20,7 @@ export * from './Separator';
 export * from './Sheet';
 export * from './Skeleton';
 export * from './Spinner';
+export * from './Feedback';
 export * from './Tooltip';
 export * from './Form';
 export * from './FormWizard';

@@ -77,7 +77,7 @@ export function FinanceShipmentPage() {
     return (
       <div className="mx-auto w-full max-w-[1600px] px-4 pt-6 sm:px-6">
         <Panel title="Loading…">
-          <EmptyState message="Fetching this shipment's finance detail." />
+          <EmptyState message="Loading shipment…" />
         </Panel>
       </div>
     );
@@ -204,15 +204,15 @@ export function FinanceShipmentPage() {
 
       {/* ── The money path ────────────────────────────────────────────────── */}
       <Panel
-        title="Paying this shipment"
-        subtitle="Every booking proven → release the consignment → pay each transporter once"
+        title="Settlement"
+        subtitle="POD filed → shipment released → each transporter settled once"
         dense
       >
         <ol className="flex flex-col gap-2.5">
           <PayStep
             index={1}
             icon={FileText}
-            title="Proof of delivery"
+            title="POD filed"
             state={bookings.length > 0 && unproven.length === 0 ? 'done' : 'current'}
             detail={
               bookings.length === 0
@@ -250,12 +250,12 @@ export function FinanceShipmentPage() {
           <PayStep
             index={2}
             icon={Banknote}
-            title="Release the shipment"
+            title="Release"
             state={shipment.payoutReleasedAt ? 'done' : unproven.length > 0 ? 'waiting' : 'current'}
             detail={releaseDetail(shipment, unproven, held)}
             action={
               shipment.payoutReleasedAt ? null : unproven.length > 0 ? null : held ? (
-                <HeldChip label="Blocked by hold" />
+                <HeldChip label="On hold" />
               ) : (
                 <ActionButton
                   variant="primary"
@@ -272,7 +272,7 @@ export function FinanceShipmentPage() {
           <PayStep
             index={3}
             icon={Receipt}
-            title={`Pay ${settlements.length === 1 ? 'the transporter' : 'each transporter'}`}
+            title={settlements.length === 1 ? 'Settle transporter' : 'Settle transporters'}
             state={
               settlements.length > 0 && settledCount === settlements.length
                 ? 'done'
@@ -335,8 +335,8 @@ export function FinanceShipmentPage() {
 
       {/* ── Settlement table ─────────────────────────────────────────────── */}
       <Panel
-        title="Transporter settlements"
-        subtitle="One row per transporter: everything they carried on this shipment, paid in one transfer"
+        title="Transporter Settlements"
+        subtitle="One row per transporter, settled in one transfer"
         padded={false}
         dense
         action={
@@ -348,7 +348,7 @@ export function FinanceShipmentPage() {
         }
       >
         {settlements.length === 0 ? (
-          <EmptyState message="No transporter costs recorded against this shipment yet." />
+          <EmptyState message="No transporter costs on this shipment." />
         ) : (
           <DataTable minWidth={900}>
             <thead>
@@ -412,7 +412,7 @@ export function FinanceShipmentPage() {
         <Panel
           className="xl:col-span-2"
           title="Bookings"
-          subtitle="One container or one vehicle each — delivered and proven separately, paid together"
+          subtitle="One container or vehicle each, settled together"
           padded={false}
           dense
           action={
@@ -472,7 +472,7 @@ export function FinanceShipmentPage() {
 
         {invoice ? (
           <Panel
-            title="Client invoice"
+            title="Shipper Invoice"
             dense
             action={
               <Link to={`${ROUTES.financeInvoices}/${invoice.id}`}>
@@ -500,11 +500,11 @@ export function FinanceShipmentPage() {
             </dl>
           </Panel>
         ) : (
-          <Panel title="Client invoice" dense>
+          <Panel title="Shipper Invoice" dense>
             {shipment.clientRateMinorUnits == null ? (
               settingRate ? (
                 <form onSubmit={handleSetRate} className="flex flex-col gap-2.5">
-                  <label className="text-[11px] font-bold text-foreground block">Client rate (what the shipper is billed)</label>
+                  <label className="text-[11px] font-bold text-foreground block">Shipper rate</label>
                   <Input type="number" min={0} value={rateInput} onChange={(e) => setRateInput(e.target.value)} placeholder="e.g. 250000" />
                   <div className="flex items-center gap-2">
                     <Button type="submit" size="sm" disabled={setClientRate.isPending} className="rounded-lg bg-primary px-4 font-semibold text-primary-foreground">
@@ -551,7 +551,7 @@ export function FinanceShipmentPage() {
               </div>
             ) : (
               <p className="text-xs font-semibold leading-relaxed text-muted-foreground">
-                Priced. It goes onto the client's end-of-month statement — Fleetin funds it until then.
+                Priced. On the shipper's month-end statement; Fleetin funds it until then.
               </p>
             )}
           </Panel>
@@ -633,7 +633,7 @@ function releaseDetail(
     return `Released ${formatDate(shipment.payoutReleasedAt)}. The whole shipment's money is authorised to leave.`;
   }
   if (unproven.length > 0) {
-    return `Blocked: ${unproven.length} booking${unproven.length === 1 ? '' : 's'} ${unproven.length === 1 ? 'has' : 'have'} no proof of delivery yet. One unproven booking freezes the entire shipment.`;
+    return `Blocked: ${unproven.length} booking${unproven.length === 1 ? '' : 's'} ${unproven.length === 1 ? 'has' : 'have'} not been delivered yet. One undelivered booking freezes the entire shipment.`;
   }
   if (held) return 'A hold is open. Clear it and this releases immediately.';
   return 'Ready now — every booking is proven.';

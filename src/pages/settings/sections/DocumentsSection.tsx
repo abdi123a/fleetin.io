@@ -51,7 +51,7 @@ export function DocumentsSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Panel title="Letterhead" subtitle="How the header and footer print on every document">
+      <Panel title="Letterhead" subtitle="Header and footer">
         <FieldGrid>
           <NumberField
             label="Logo height"
@@ -65,14 +65,14 @@ export function DocumentsSection() {
           />
           <ToggleField
             label="Print the icon mark and legal name in the footer"
-            description="Off leaves the footer as a plain line of registration and contact details."
+            description="Off prints registration and contact details only."
             checked={documents.showFooterMark}
             onChange={(v) => update('documents', { showFooterMark: v })}
           />
         </FieldGrid>
       </Panel>
 
-      <Panel title="Signatories" subtitle="Name, role and scanned signature for each signing position">
+      <Panel title="Signatories" subtitle="Name, role and signature">
         <div className="flex flex-col gap-4">
           {SIGNATORY_ORDER.map(({ key, title, hint }) => {
             const person = documents.signatories[key];
@@ -96,7 +96,7 @@ export function DocumentsSection() {
                     label="Scanned signature"
                     value={person.signatureSrc}
                     onChange={(v) => setSignatory(key, { signatureSrc: v })}
-                    hint="Optional. Sits above the rule; without it the rule prints blank for a wet signature."
+                    hint="Optional. Without it the rule prints blank."
                   />
                 </div>
               </div>
@@ -105,31 +105,30 @@ export function DocumentsSection() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <BlockPicker
-              title="Signature blocks on a client invoice"
+              title="Invoice signature blocks"
               selected={documents.signatureBlocks.invoice}
               onToggle={(key) => toggleBlock('invoice', key)}
             />
             <BlockPicker
-              title="Signature blocks on a payment voucher"
+              title="Voucher signature blocks"
               selected={documents.signatureBlocks.voucher}
               onToggle={(key) => toggleBlock('voucher', key)}
             />
           </div>
 
           <SectionNote>
-            A signatory with no name never prints, whichever blocks are selected — so an unfilled position leaves
-            the document clean rather than printing an empty box.
+            A signatory with no name never prints, whichever blocks are selected.
           </SectionNote>
         </div>
       </Panel>
 
-      <Panel title="Company stamp" subtitle="Applied to the document when it prints or is exported">
+      <Panel title="Company stamp" subtitle="Applied on print and export">
         <FieldGrid>
           <ImageField
             label="Stamp image"
             value={documents.stamp.src}
             onChange={(v) => setStamp({ src: v })}
-            hint="A transparent PNG of the seal. Scan at 300 dpi and export with the background removed."
+            hint="Transparent PNG of the seal, scanned at 300 dpi."
           />
           <SelectField
             label="Placement"
@@ -156,24 +155,24 @@ export function DocumentsSection() {
             min={10}
             max={100}
             suffix="%"
-            hint="A stamp at full strength hides the figures under it. 85% reads as ink without obscuring."
+            hint="85% reads as ink without hiding the figures."
           />
           <ToggleField
             label="Stamp client invoices"
-            description="The invoice disclaimer changes to acknowledge the stamp when this is on."
+            description="Changes the invoice disclaimer to acknowledge the stamp."
             checked={documents.stamp.onInvoice}
             onChange={(v) => setStamp({ onInvoice: v })}
           />
           <ToggleField
             label="Stamp payment vouchers"
-            description="The voucher a transporter signs on collection."
+            description="Signed by the transporter on collection."
             checked={documents.stamp.onVoucher}
             onChange={(v) => setStamp({ onVoucher: v })}
           />
         </FieldGrid>
       </Panel>
 
-      <Panel title="Wording" subtitle="Printed verbatim — nothing here is templated or substituted">
+      <Panel title="Wording" subtitle="Printed verbatim">
         <FieldGrid>
           <TextAreaField
             label="Invoice terms"
@@ -196,7 +195,7 @@ export function DocumentsSection() {
         </FieldGrid>
       </Panel>
 
-      <Panel title="Remittance" subtitle="Where an invoice asks the client to send money">
+      <Panel title="Remittance" subtitle="Bank account printed on invoices">
         <FieldGrid>
           <SelectField
             label="Default bank account"
@@ -211,11 +210,10 @@ export function DocumentsSection() {
                   label: `${account.bankName} · ${account.accountNumber} (${account.currency})`,
                 })),
             ]}
-            hint="Pre-selected on a new invoice; it can still be changed per document."
+            hint="Pre-selected on a new invoice; changeable per document."
           />
           <SectionNote tone="warning">
-            An invoice carrying the wrong account number sends a client&rsquo;s money to a stranger. Accounts are
-            managed in Finance → Accounts; this only decides which one an invoice reaches for first.
+            A wrong account number misdirects payment. Accounts are managed in Finance → Accounts.
           </SectionNote>
         </FieldGrid>
       </Panel>

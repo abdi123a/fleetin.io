@@ -6,8 +6,13 @@ import type { PillTone } from '@/pages/finance/components/kit';
  *
  * Money reuses `@/lib/finance` — payroll is DJF like the rest of the system
  * and a second currency formatter would drift from it. What lives here is
- * only what payroll needs and finance does not: the French month labels the
- * documents use, and the status→tone maps.
+ * only what payroll needs and finance does not: the month labels and the
+ * status→tone maps.
+ *
+ * The screen is English end to end, so every month a user reads comes from
+ * `monthLabel`. `monthLabelFr` is kept for the French document path — the
+ * templates print `Août 2026`, and a period label that says otherwise would
+ * disagree with the paper it was filed on.
  */
 
 const MONTHS_FR = [
@@ -25,13 +30,33 @@ const MONTHS_FR = [
   'Décembre',
 ];
 
+const MONTHS_EN = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+/** French — documents only. The UI never renders this. */
 export function monthLabelFr(month: number, year: number): string {
   return `${MONTHS_FR[month - 1]} ${year}`;
 }
 
+export function monthLabel(month: number, year: number): string {
+  return `${MONTHS_EN[month - 1]} ${year}`;
+}
+
 export function shortMonthLabel(key: string): string {
   const [year = '', month = ''] = key.split('-');
-  return `${(MONTHS_FR[Number(month) - 1] ?? '').slice(0, 3)} ${year.slice(-2)}`;
+  return `${(MONTHS_EN[Number(month) - 1] ?? '').slice(0, 3)} ${year.slice(-2)}`;
 }
 
 /** `dd/mm/yyyy`, read off the UTC calendar so a date never shifts a day. */
@@ -98,6 +123,21 @@ export const LEAVE_TONE: Record<LeaveStatus, PillTone> = {
   APPROVED: 'teal',
   REJECTED: 'red',
   CANCELLED: 'neutral',
+};
+
+export const LEAVE_LABEL: Record<LeaveStatus, string> = {
+  REQUESTED: 'Pending',
+  APPROVED: 'Approved',
+  REJECTED: 'Rejected',
+  CANCELLED: 'Cancelled',
+};
+
+export const LEAVE_TYPE_LABEL: Record<string, string> = {
+  ANNUAL: 'Annual',
+  SICK: 'Sick',
+  UNPAID: 'Unpaid',
+  MATERNITY: 'Maternity',
+  OTHER: 'Other',
 };
 
 /** Nearer expiry reads hotter. Past due is the only red. */

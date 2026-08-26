@@ -17,9 +17,9 @@ import {
 } from '@/design-system/icons';
 import { DocumentViewerModal, type DocumentToView } from '@/components/DocumentViewerModal';
 import { triggerDocumentDownload } from '@/components/documentDownload';
-import { Grid, List, RotateCcw, AlertTriangle, Navigation, Building2, BadgeCheck, Check } from 'lucide-react';
+import { Grid, List, RotateCcw, AlertTriangle, Navigation, Building2, Check } from 'lucide-react';
 import { PageHeader, TablePager, usePagedRows } from '@/components';
-import { IconChip } from '@/design-system';
+import { IconChip, useConfirm } from '@/design-system';
 import {
   Badge,
   Button,
@@ -32,6 +32,7 @@ import {
   Input,
   Select,
   StatisticCard,
+  VerificationBadge,
 } from '@/design-system';
 import { ROUTES, buildPath } from '@/config/routes';
 import type { EnrichedVehicle } from '@/data/partnerData';
@@ -41,7 +42,7 @@ import { useAssignDriver, useCreateVehicle, useUpdateVehicle, useVehicles } from
 import { useDrivers } from '@/features/drivers/api/queries';
 import { useDocuments, useCreateDocumentType, useDocumentTypes, useUploadDocument, useDeleteDocument } from '@/features/documents/api/queries';
 import { toDisplayDocument, uploadDocument, type DocumentTypeRecord } from '@/features/documents/api/documentsService';
-import { cn } from '@/utils';
+import { cn, isVehicleVerified } from '@/utils';
 
 function StatusPill({ status }: { status: OperationalStatus }) {
   switch (status) {
@@ -164,7 +165,7 @@ function DocumentTypeList({
                     type="button"
                     onClick={() => onRemove(existing.id)}
                     className="p-1 rounded-md text-muted-foreground hover:text-destructive transition-colors shrink-0"
-                    title="Remove file"
+                    title="Remove document"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -191,7 +192,7 @@ function DocumentTypeList({
 
       {types.length === 0 && (
         <div className="p-6 rounded-lg border border-dashed border-border/80 text-center text-xs text-muted-foreground">
-          No document types yet. Click &quot;Add Document Type&quot; to create the first one.
+          No document types yet.
         </div>
       )}
     </div>
@@ -229,7 +230,7 @@ function AddDocumentTypeBox({
           disabled={!labelValue.trim()}
           className="bg-primary text-primary-foreground font-semibold text-xs rounded-full px-4"
         >
-          Save Document Type
+          Save document type
         </Button>
       </div>
     </div>
@@ -330,7 +331,7 @@ export function VehiclesPage() {
       insuranceStartDate: '',
     });
 
-    setAddSuccessNotice(`Vehicle "${created.plateNumber}" registered directly to ${partner.companyLegalName}!`);
+    setAddSuccessNotice(`Vehicle "${created.plateNumber}" registered to ${partner.companyLegalName}.`);
     setTimeout(() => setAddSuccessNotice(null), 5000);
   };
 
@@ -405,15 +406,21 @@ export function VehiclesPage() {
       { category: type.label, file },
       {
         onSuccess: (doc) => {
-          setDocNotice(`Document "${doc.name}" uploaded successfully!`);
+          setDocNotice(`Document "${doc.name}" uploaded.`);
           setTimeout(() => setDocNotice(null), 4000);
         },
       },
     );
   };
 
-  const handleDeleteVehicleDoc = (_vehicleId: string, docId: string) => {
-    deleteDoc.mutate(docId);
+  const { confirm, confirmDialog } = useConfirm();
+
+  const handleDeleteVehicleDoc = async (_vehicleId: string, docId: string) => {
+    const ok = await confirm({
+      title: 'Delete this document?',
+      description: 'The file will be permanently removed from the vault.',
+    });
+    if (ok) deleteDoc.mutate(docId);
   };
 
   const handleDownloadVehicleDoc = (doc: VehicleDocRow) => {
@@ -446,7 +453,7 @@ export function VehiclesPage() {
   const partnerOptions = useMemo(() => {
     const unique = Array.from(new Set(vehicles.map((v) => v.partnerName)));
     return [
-      { value: 'all', label: 'All Partners' },
+      { value: 'all', label: 'All transporters' },
       ...unique.map((name) => ({ value: name, label: name })),
     ];
   }, [vehicles]);
@@ -504,10 +511,11 @@ export function VehiclesPage() {
 
   return (
     <div className="space-y-5 pb-12">
+      {confirmDialog}
       {/* Page Header */}
       <PageHeader
         title="Vehicles"
-        description="Fleet registry covering vehicle records, capacity, and compliance across all partners."
+        description="Vehicle records, capacity and compliance."
         actions={
           <Button
             onClick={() => setIsAddVehicleOpen(true)}
@@ -515,7 +523,7 @@ export function VehiclesPage() {
             leadingIcon={<Plus className="h-4 w-4" />}
             className="bg-primary hover:bg-primary-hover text-primary-foreground font-semibold px-4 py-2 text-xs shadow-xs cursor-pointer"
           >
-            Add Vehicle
+            Add vehicle
           </Button>
         }
       />
@@ -541,10 +549,10 @@ export function VehiclesPage() {
         >
           <div className="shrink-0 space-y-1 border-b border-border/40 px-6 pb-4 pt-6 sm:px-8 sm:pt-8">
             <SheetTitle className="flex items-center gap-2 text-xl font-extrabold tracking-tight text-foreground">
-              <Truck className="h-5 w-5 text-primary" /> Register New Vehicle / Truck
+              <Truck className="h-5 w-5 text-primary" /> Register Vehicle
             </SheetTitle>
             <SheetDescription className="text-xs text-muted-foreground">
-              Select the Transport Partner / Fleet Owner who owns this truck. The vehicle will be added directly to the Partner's profile fleet list.
+              Registered to the selected transporter's fleet.
             </SheetDescription>
           </div>
 
@@ -552,11 +560,11 @@ export function VehiclesPage() {
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5 sm:px-8">
           <div className="space-y-4">
             <div className="space-y-1.5 p-3.5 rounded-lg border border-primary/30 bg-primary/5">
-              <label className="text-[11px] font-bold text-primary block uppercase tracking-wider">Fleet Owner / Transporter *</label>
+              <label className="text-[11px] font-bold text-primary block uppercase tracking-wider">Transporter *</label>
               <Select
                 value={newVehicle.partnerId}
                 options={[
-                  { value: '', label: 'Select a partner…' },
+                  { value: '', label: 'Select a transporter…' },
                   ...partners.map((p) => ({
                     value: p.id,
                     label: `${p.companyLegalName} (${p.country})`,
@@ -564,9 +572,6 @@ export function VehiclesPage() {
                 ]}
                 onChange={(e) => setNewVehicle((prev) => ({ ...prev, partnerId: e.target.value }))}
               />
-              <span className="text-[10px] text-muted-foreground block">
-                This vehicle will be linked directly to this partner's profile page.
-              </span>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -580,7 +585,7 @@ export function VehiclesPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-foreground block">Truck Type *</label>
+                <label className="text-[11px] font-bold text-foreground block">Vehicle Type *</label>
                 <Select
                   value={newVehicle.truckType}
                   options={[
@@ -624,7 +629,7 @@ export function VehiclesPage() {
                     Vehicle Compliance Documents
                   </h4>
                   <p className="type-caption text-muted-foreground mt-0.5">
-                    Optional — attach files now, or upload them later from the vehicle's Documents tab.
+                    Optional; can be added later.
                   </p>
                 </div>
                 <Button
@@ -635,7 +640,7 @@ export function VehiclesPage() {
                   leadingIcon={<Plus className="h-3.5 w-3.5" />}
                   className="text-xs font-semibold rounded-full shrink-0"
                 >
-                  {showAddDocType ? 'Cancel' : 'Add Document Type'}
+                  {showAddDocType ? 'Cancel' : 'Add document type'}
                 </Button>
               </div>
 
@@ -690,7 +695,7 @@ export function VehiclesPage() {
         <StatisticCard
           title="Total Fleet"
           value={totalVehicles}
-          subtitle="Registered Vehicles"
+          subtitle="Registered vehicles"
           variant="teal"
           trend="up"
           percentage="100%"
@@ -699,7 +704,7 @@ export function VehiclesPage() {
         <StatisticCard
           title="Available"
           value={availableCount}
-          subtitle="Ready for Dispatch"
+          subtitle="Ready for dispatch"
           variant="blue"
           trend="up"
           percentage={`${Math.round((availableCount / (totalVehicles || 1)) * 100)}%`}
@@ -708,7 +713,7 @@ export function VehiclesPage() {
         <StatisticCard
           title="In Transit"
           value={inTransitCount}
-          subtitle="Active Cargo Loads"
+          subtitle="On active bookings"
           variant="peach"
           trend="up"
           percentage="+12%"
@@ -717,10 +722,10 @@ export function VehiclesPage() {
         <StatisticCard
           title="Maintenance"
           value={maintenanceCount}
-          subtitle="Requires Attention"
+          subtitle="Requires attention"
           variant="pink"
           trend={maintenanceCount > 0 ? 'down' : 'neutral'}
-          percentage={`${maintenanceCount} units`}
+          percentage={`${maintenanceCount} vehicles`}
           icon={<AlertTriangle className="h-5 w-5" />}
         />
       </div>
@@ -808,7 +813,7 @@ export function VehiclesPage() {
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
             options={[
-              { value: 'all', label: 'All Truck Types' },
+              { value: 'all', label: 'All Vehicle Types' },
               { value: '40ft Container', label: '40ft Container' },
               { value: '20ft Container', label: '20ft Container' },
               { value: 'Flatbed', label: 'Flatbed' },
@@ -827,7 +832,7 @@ export function VehiclesPage() {
             options={[
               { value: 'plate-asc', label: 'Sort: Plate No' },
               { value: 'partner-asc', label: 'Sort: Transporter' },
-              { value: 'type-asc', label: 'Sort: Truck Type' },
+              { value: 'type-asc', label: 'Sort: Vehicle Type' },
             ]}
             className="text-2xs py-1 rounded-md"
           />
@@ -861,7 +866,7 @@ export function VehiclesPage() {
       <Sheet open={Boolean(selectedVehicle)} onOpenChange={(open) => !open && setSelectedVehicle(null)}>
         <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto p-6 bg-background border-l border-border space-y-6">
           <SheetTitle className="sr-only">Vehicle Details & Documents</SheetTitle>
-          <SheetDescription className="sr-only">View, edit vehicle specifications, and upload vehicle documents.</SheetDescription>
+          <SheetDescription className="sr-only">Vehicle specifications and documents.</SheetDescription>
           {selectedVehicle && (
             <div className="space-y-6">
               {/* Header */}
@@ -871,7 +876,7 @@ export function VehiclesPage() {
                   <div className="space-y-1">
                     <h3 className="text-xl font-black font-mono text-foreground tracking-wide flex items-center gap-2">
                       {selectedVehicle.plateNumber}
-                      <BadgeCheck className="h-5 w-5 text-success-subtle-foreground shrink-0" />
+                      <VerificationBadge state={isVehicleVerified(selectedVehicle) ? 'verified' : 'unverified'} size="lg" />
                     </h3>
                     <p className="text-xs text-muted-foreground font-medium">{selectedVehicle.truckType} {selectedVehicle.make ? `· ${selectedVehicle.make} ${selectedVehicle.model || ''}` : ''}</p>
                     <div className="pt-1"><StatusPill status={selectedVehicle.operationalStatus} /></div>
@@ -915,7 +920,7 @@ export function VehiclesPage() {
               {drawerTab === 'view' && (
                 <div className="space-y-5">
                   <Card className="p-4 border border-primary/20 bg-primary/5 rounded-lg space-y-2">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Owner / Transporter</span>
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Transporter</span>
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <Building2 className="h-4 w-4 text-primary shrink-0" />
@@ -982,7 +987,6 @@ export function VehiclesPage() {
                         <IconChip icon={User} size={36} />
                         <div>
                           <p className="font-bold text-foreground">{selectedVehicle.assignedDriverName}</p>
-                          <p className="text-[10px] text-muted-foreground font-mono">ID: {selectedVehicle.assignedDriverId}</p>
                         </div>
                       </div>
                     </div>
@@ -994,7 +998,7 @@ export function VehiclesPage() {
                       leadingIcon={<Pencil className="h-4 w-4" />}
                       className="w-full bg-primary text-primary-foreground font-semibold text-xs rounded-lg py-2.5"
                     >
-                      Edit Vehicle Specs
+                      Edit vehicle specs
                     </Button>
                   </div>
                 </div>
@@ -1013,7 +1017,7 @@ export function VehiclesPage() {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-foreground block">Truck Type</label>
+                      <label className="text-[11px] font-bold text-foreground block">Vehicle Type</label>
                       <Select
                         value={editForm.truckType || '40ft Container'}
                         options={[
@@ -1135,7 +1139,7 @@ export function VehiclesPage() {
                       onChange={(e) => handleAssignDriver(e.target.value)}
                     />
                     <p className="text-[10px] text-muted-foreground">
-                      Only drivers from this vehicle's own partner can be assigned. Takes effect immediately.
+                      Only drivers from this transporter.
                     </p>
                   </div>
 
@@ -1160,8 +1164,7 @@ export function VehiclesPage() {
                         Vehicle Compliance Documents
                       </h4>
                       <p className="type-caption text-muted-foreground mt-0.5">
-                        Upload a file for each document type below. New types you define here are saved and
-                        reused for every vehicle after this one.
+                        New document types apply to every future vehicle.
                       </p>
                     </div>
                     <Button
@@ -1208,8 +1211,8 @@ export function VehiclesPage() {
       {viewMode === 'list' ? (
         <div className="space-y-2 pt-1">
           <div className="hidden lg:grid grid-cols-12 gap-4 px-5 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-            <div className="col-span-3">Plate & Truck Type</div>
-            <div className="col-span-3">Transporter / Partner</div>
+            <div className="col-span-3">Plate & Vehicle Type</div>
+            <div className="col-span-3">Transporter</div>
             <div className="col-span-3">Assigned Driver & GPS</div>
             <div className="col-span-2">Expiries</div>
             <div className="col-span-1 text-right">Status</div>
@@ -1226,7 +1229,7 @@ export function VehiclesPage() {
                 <div className="flex flex-col min-w-0">
                   <span className="text-sm font-black font-mono tracking-wider text-foreground group-hover:text-primary transition-colors flex items-center gap-1">
                     {vehicle.plateNumber}
-                    <BadgeCheck className="h-3.5 w-3.5 text-success-subtle-foreground shrink-0" />
+                    <VerificationBadge state={isVehicleVerified(vehicle) ? 'verified' : 'unverified'} size="sm" />
                   </span>
                   <span className="text-2xs text-muted-foreground truncate">
                     {vehicle.truckType} {vehicle.containerCapacity ? `(${vehicle.containerCapacity})` : ''}
@@ -1286,7 +1289,7 @@ export function VehiclesPage() {
                   <div className="flex flex-col min-w-0">
                     <h3 className="text-base font-black font-mono tracking-wider text-foreground group-hover:text-primary transition-colors truncate flex items-center gap-1">
                       {vehicle.plateNumber}
-                      <BadgeCheck className="h-3.5 w-3.5 text-success-subtle-foreground shrink-0" />
+                      <VerificationBadge state={isVehicleVerified(vehicle) ? 'verified' : 'unverified'} size="sm" />
                     </h3>
                     <span className="text-2xs text-muted-foreground">{vehicle.truckType}</span>
                   </div>
@@ -1345,7 +1348,7 @@ export function VehiclesPage() {
           <IconChip icon={Truck} tint="neutral" className="mb-3" />
           <h3 className="text-base font-bold text-foreground">No Vehicles Found</h3>
           <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-            No vehicle matched your current search or filter parameters.
+            No vehicle matched the current filters.
           </p>
           {hasActiveFilters && (
             <Button
@@ -1354,7 +1357,7 @@ export function VehiclesPage() {
               leadingIcon={<RotateCcw className="h-3.5 w-3.5" />}
               className="mt-4 rounded-full text-xs font-medium"
             >
-              Clear Filters
+              Clear filters
             </Button>
           )}
         </div>

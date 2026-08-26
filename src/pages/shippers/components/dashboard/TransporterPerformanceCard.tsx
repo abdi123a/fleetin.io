@@ -37,17 +37,17 @@ export function TransporterPerformanceCard({
         <IconChip icon={Truck} size={36} />
         <div className="min-w-0">
           <h2 className="truncate text-[15px] font-semibold leading-tight text-foreground">
-            Carrier Reliability
+            Transporter Reliability
           </h2>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
-            On-time rate against your {Math.round(target * 100)}% target
+            On-time rate against the {Math.round(target * 100)}% target
           </p>
         </div>
       </div>
 
       {ranked.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          No carrier has completed a delivery in this period.
+          No transporter deliveries yet.
         </p>
       ) : (
         <ol className="flex flex-col gap-3.5">

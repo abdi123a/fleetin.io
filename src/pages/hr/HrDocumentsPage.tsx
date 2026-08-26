@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 
+import { TablePager, usePagedRows } from '@/components';
+import { ROUTES, buildPath } from '@/config/routes';
 import {
   BadgeCheck,
   Download,
@@ -12,9 +14,15 @@ import {
   List,
   LogOut,
   Receipt,
+  RefreshCw,
+  Search,
   Sun,
 } from '@/design-system/icons';
-import type { DocumentTemplate, DocumentTemplateField } from '@/features/hr/api/hrService';
+import type {
+  DocumentTemplate,
+  DocumentTemplateField,
+  IssuedDocument,
+} from '@/features/hr/api/hrService';
 import {
   downloadBordereauXlsx,
   issuedDocumentFile,
@@ -25,13 +33,24 @@ import {
   useDocumentTemplates,
   useEmployees,
   useIssueDocument,
+  useIssuedDocuments,
   useLeaveRecords,
   usePayrollPeriods,
 } from '@/features/hr/api/queries';
-import { ActionButton, EmptyState, PageHead, Panel, Pill } from '@/pages/finance/components/kit';
+import {
+  ActionButton,
+  DataTable,
+  EmptyState,
+  FilterPills,
+  PageHead,
+  Panel,
+  Pill,
+  Td,
+  Th,
+} from '@/pages/finance/components/kit';
 import { cn } from '@/utils';
 
-import { Field, FormError, inputClass } from './components/form';
+import { Field, FormError, LoadError, inputClass } from './components/form';
 import { frDate, monthLabelFr } from './hrFormat';
 
 /**
@@ -72,6 +91,16 @@ const TEMPLATE_SUB: Record<string, string> = {
   ordre_virement: 'Salary transfer letter to the bank',
 };
 
+/** The catalogue's French labels are too long for a filter pill. */
+const TEMPLATE_SHORT: Record<string, string> = {
+  attestation_travail: 'Employment',
+  attestation_conge: 'Leave',
+  indemnite_fin: 'End of service',
+  bulletin_paie: 'Payslip',
+  bordereau_cnss: 'CNSS',
+  ordre_virement: 'Transfer',
+};
+
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
 /** `default: 'today'` in the seed means "the day it is issued", not a literal. */
@@ -89,7 +118,8 @@ function initialFields(template: DocumentTemplate): Record<string, unknown> {
 
 export function HrDocumentsPage() {
   const [searchParams] = useSearchParams();
-  const { data: templates = [], isLoading: templatesLoading } = useDocumentTemplates();
+  const { data: templates = [], isLoading: templatesLoading, error: templatesError } =
+    useDocumentTemplates();
   const { data: employeePage } = useEmployees({ status: 'ACTIVE', limit: 200 });
   const { data: periods = [] } = usePayrollPeriods();
 
@@ -102,11 +132,36 @@ export function HrDocumentsPage() {
 
   const template = templates.find((entry) => entry.key === templateKey) ?? null;
 
-  /* Arriving from an employee's file — "issue a document for this person". */
+  /*
+   * Arriving from somewhere else in the module with a starting position:
+   * an employee's file says "issue a document for this person", and the
+   * register's Issue-another says "the same document, for the same person".
+   *
+   * Applied once per distinct query rather than once per mount. Both callers
+   * are same-route links, so the page is not remounted between them — keying
+   * on the query string is what makes a second Issue-another actually move
+   * the form, while still leaving the user free to change the selection
+   * afterwards without the effect snapping it back.
+   */
+  const appliedQuery = useRef<string | null>(null);
   useEffect(() => {
-    const requested = searchParams.get('employeeId');
-    if (requested) setEmployeeId(requested);
-  }, [searchParams]);
+    const query = searchParams.toString();
+    if (query === '' || appliedQuery.current === query) return;
+    /* The catalogue decides whether a requested template exists, so wait for
+       it before spending the query — otherwise a deep link that lands before
+       the fetch resolves is silently dropped. */
+    if (searchParams.get('template') && templates.length === 0) return;
+
+    appliedQuery.current = query;
+
+    const requestedEmployee = searchParams.get('employeeId');
+    if (requestedEmployee) setEmployeeId(requestedEmployee);
+
+    const match = templates.find((entry) => entry.key === searchParams.get('template'));
+    if (match) chooseTemplate(match);
+    // `chooseTemplate` is a stable local closure over two setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, templates]);
 
   /* The period a payroll document defaults to is the newest one that has
      actually been calculated; a DRAFT period has no lines to file. */
@@ -180,7 +235,7 @@ export function HrDocumentsPage() {
   }, [templateKey, employeeId, periodId, fields]);
 
   return (
-    <div className="space-y-6">
+    <div className="w-full min-w-0 space-y-6">
       <PageHead
         title="Documents"
         subtitle="Every document is rendered from one template on the server — the preview and the filed PDF cannot drift."
@@ -194,9 +249,31 @@ export function HrDocumentsPage() {
             subtitle="Scope decides what the next step asks for"
             padded={false}
           >
-            {templatesLoading ? (
+            {templatesError ? (
+              <LoadError error={templatesError} noun="the document catalogue" />
+            ) : templatesLoading ? (
               <div className="px-5 pb-5">
                 <EmptyState message="Loading the catalogue…" />
+              </div>
+            ) : templates.length === 0 ? (
+              /*
+               * An empty catalogue used to render an empty box — no list, no
+               * message, nothing to click. The templates live in the database
+               * rather than in this bundle, so "none" is a real state of the
+               * environment and has to be said out loud, with the reason,
+               * because the fix is a seed and not a retry.
+               */
+              <div className="px-5 pb-5">
+                <div className="rounded-card border border-warning-subtle bg-warning-subtle px-4 py-3.5">
+                  <p className="text-sm font-extrabold text-warning-subtle-foreground">
+                    This environment has no document templates.
+                  </p>
+                  <p className="mt-1 text-xs font-semibold leading-snug text-warning-subtle-foreground">
+                    The server answered with an empty catalogue, so there is nothing to issue. The
+                    six templates ship in the HR seed — until it has been run against this
+                    database, document generation stays switched off.
+                  </p>
+                </div>
               </div>
             ) : (
               <div className="space-y-4 px-5 pb-5">
@@ -410,7 +487,225 @@ export function HrDocumentsPage() {
           missing={missingRequired.map((field) => field.label)}
         />
       </div>
+
+      <DocumentRegister templates={templates} />
     </div>
+  );
+}
+
+/**
+ * Everything this company has ever issued, newest first.
+ *
+ * Without it the page could mint a document and then lose it: the PDF opened
+ * once on issue and the only way back to it was through the one employee it
+ * belonged to. A register is also the thing an inspection actually asks for —
+ * the reference series, in order, with who each number was spent on.
+ *
+ * The list is read from the server rather than accumulated in the page, so a
+ * document issued by somebody else this morning is in it too.
+ */
+function DocumentRegister({ templates }: { templates: DocumentTemplate[] }) {
+  const [templateKey, setTemplateKey] = useState<string>('all');
+  const [search, setSearch] = useState('');
+  const [pageSize, setPageSize] = useState(10);
+
+  /* Filtered on the server when a type is chosen — the register is unbounded
+     and grows by a row per document for the life of the company. */
+  const { data: documents = [], isLoading, error } = useIssuedDocuments(
+    templateKey === 'all' ? {} : { templateKey },
+  );
+
+  const label = useMemo(() => {
+    const map = new Map(templates.map((entry) => [entry.key, entry.label]));
+    return (key: string) => map.get(key) ?? key.replaceAll('_', ' ');
+  }, [templates]);
+
+  const rows = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return documents;
+    return documents.filter(
+      (document) =>
+        document.referenceNo.toLowerCase().includes(needle) ||
+        (document.employee?.fullName ?? '').toLowerCase().includes(needle) ||
+        (document.employee?.matricule ?? '').toLowerCase().includes(needle),
+    );
+  }, [documents, search]);
+
+  const paged = usePagedRows(rows, { pageSize, resetKey: `${templateKey}|${search}` });
+
+  return (
+    <Panel
+      title="Document Register"
+      subtitle="Every issued reference, newest first — nothing is ever overwritten"
+      action={
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <label className="relative w-full sm:w-56">
+            <span className="sr-only">Search the register</span>
+            <Search
+              aria-hidden
+              className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            />
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Reference, name, matricule…"
+              className="h-9 w-full rounded-lg border border-border bg-card pl-8 pr-3 text-xs font-semibold text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+          </label>
+          <FilterPills<string>
+            options={[
+              { key: 'all', label: 'All' },
+              ...templates.map((entry) => ({
+                key: entry.key,
+                label: TEMPLATE_SHORT[entry.key] ?? entry.label,
+              })),
+            ]}
+            active={templateKey}
+            onChange={setTemplateKey}
+          />
+        </div>
+      }
+      padded={false}
+    >
+      {error ? (
+        <LoadError error={error} noun="the document register" />
+      ) : isLoading ? (
+        <div className="px-5 pb-5">
+          <EmptyState message="Loading the register…" />
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="px-5 pb-5">
+          <EmptyState
+            message={
+              documents.length === 0
+                ? 'Nothing issued yet. The first document you issue lands here.'
+                : 'No issued document matches that search.'
+            }
+          />
+        </div>
+      ) : (
+        <>
+          <div className="hidden lg:block">
+            <DataTable className="w-0 min-w-full" minWidth={760}>
+              <thead>
+                <tr>
+                  <Th>Reference</Th>
+                  <Th>Document</Th>
+                  <Th>Issued for</Th>
+                  <Th>Issued</Th>
+                  <Th align="right" />
+                </tr>
+              </thead>
+              <tbody>
+                {paged.rows.map((document) => (
+                  <tr key={document.id} className="hover:bg-surface-sunken">
+                    <Td>
+                      <span className="font-mono text-xs font-bold text-foreground">
+                        {document.referenceNo}
+                      </span>
+                    </Td>
+                    <Td>{label(document.templateKey)}</Td>
+                    <Td>
+                      <IssuedFor document={document} />
+                    </Td>
+                    <Td>{frDate(document.issueDate)}</Td>
+                    <Td align="right">
+                      <div className="flex justify-end gap-2">
+                        <IssueAnother document={document} />
+                        <OpenPdf document={document} />
+                      </div>
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </DataTable>
+          </div>
+
+          <ul className="divide-y divide-border-subtle border-t border-border lg:hidden">
+            {paged.rows.map((document) => (
+              <li
+                key={document.id}
+                className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3.5 sm:px-5"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-extrabold text-foreground">
+                    {label(document.templateKey)}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs font-semibold text-muted-foreground">
+                    <span className="font-mono">{document.referenceNo}</span> ·{' '}
+                    {frDate(document.issueDate)}
+                  </p>
+                  <p className="mt-1 truncate text-xs font-bold text-foreground">
+                    <IssuedFor document={document} />
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <IssueAnother document={document} />
+                  <OpenPdf document={document} />
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          <TablePager
+            paged={paged}
+            noun="documents"
+            pageSize={pageSize}
+            onPageSizeChange={setPageSize}
+            className="px-5 pb-4"
+          />
+        </>
+      )}
+    </Panel>
+  );
+}
+
+/** The person a document was written for, linked back to their file. */
+function IssuedFor({ document }: { document: IssuedDocument }) {
+  if (!document.employee) {
+    return <span className="text-muted-foreground">Whole company</span>;
+  }
+  return (
+    <Link
+      to={buildPath(ROUTES.hrEmployeeDetail, { id: document.employee.id })}
+      className="font-bold text-foreground hover:underline"
+    >
+      {document.employee.fullName}
+    </Link>
+  );
+}
+
+function OpenPdf({ document }: { document: IssuedDocument }) {
+  return (
+    <ActionButton
+      icon={Download}
+      onClick={() =>
+        void openDocumentBlob(
+          () => issuedDocumentFile(document.id),
+          `${document.referenceNo}.pdf`,
+        )
+      }
+    >
+      Open PDF
+    </ActionButton>
+  );
+}
+
+/**
+ * Back to the generator with this row's document and person already chosen.
+ *
+ * Reissuing rather than reopening is a real need — the paper was lost, or a
+ * date was wrong — and it mints a new reference rather than editing the old
+ * one, which is why this is a link into the form and not a one-click action.
+ */
+function IssueAnother({ document }: { document: IssuedDocument }) {
+  const params = new URLSearchParams({ template: document.templateKey });
+  if (document.employeeId) params.set('employeeId', document.employeeId);
+  return (
+    <Link to={`${ROUTES.hrDocuments}?${params.toString()}`}>
+      <ActionButton icon={RefreshCw}>Issue another</ActionButton>
+    </Link>
   );
 }
 

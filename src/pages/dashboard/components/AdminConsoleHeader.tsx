@@ -45,7 +45,7 @@ export function AdminConsoleHeader({
             </p>
             <h1 className="type-h2 mt-0.5 truncate text-foreground">{userName}</h1>
             <p className="type-body-xs mt-1 text-muted-foreground">
-              Signed in as {userRole} ·{' '}
+              {userRole} ·{' '}
               {date.toLocaleString('en-GB', {
                 weekday: 'long',
                 day: '2-digit',
@@ -60,13 +60,13 @@ export function AdminConsoleHeader({
         <div className="flex flex-wrap items-center gap-2">
           {breaches > 0 ? (
             <StatusChip tone="critical" pulse>
-              {breaches} already breached
+              {breaches} overdue
             </StatusChip>
           ) : (
-            <StatusChip tone="calm">Nothing breached</StatusChip>
+            <StatusChip tone="calm">None overdue</StatusChip>
           )}
           {asks > 0 ? (
-            <StatusChip tone="attention">{asks} waiting on a decision</StatusChip>
+            <StatusChip tone="attention">{asks} pending</StatusChip>
           ) : (
             <StatusChip tone="quiet">Nothing pending</StatusChip>
           )}

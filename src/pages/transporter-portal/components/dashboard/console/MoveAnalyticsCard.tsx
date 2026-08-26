@@ -111,7 +111,7 @@ export function MoveAnalyticsCard({
   return (
     <ConsolePanel
       className={className}
-      title="Move Analytics"
+      title="Booking Analytics"
       subtitle={
         <>
           Moves completed: <span className="font-bold text-foreground">{totalMoves}</span> ·

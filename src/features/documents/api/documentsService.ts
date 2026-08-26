@@ -2,7 +2,14 @@ import { apiClient, type ApiResponse } from '@/services/api.client';
 import { useAuthStore } from '@/stores/auth.store';
 import { formatDate, formatFileSize } from '@/utils/format';
 
-export type DocumentOwnerType = 'SHIPPER' | 'PARTNER' | 'VEHICLE' | 'DRIVER';
+export type DocumentOwnerType = 'SHIPPER' | 'PARTNER' | 'VEHICLE' | 'DRIVER' | 'BOOKING';
+
+/**
+ * The one category a booking owns, and the string the backend gates on. A
+ * booking's proof of delivery is what unlocks its container's empty return —
+ * see `hasProofOfDelivery` on the backend.
+ */
+export const PROOF_OF_DELIVERY = 'Proof of Delivery';
 
 export interface DocumentRecord {
   id: string;
@@ -59,6 +66,20 @@ export async function uploadDocument(params: {
 
 export async function deleteDocument(id: string): Promise<void> {
   await apiClient.delete(`/documents/${id}`, token());
+}
+
+/**
+ * The stored file itself, as an object URL for previewing in place.
+ *
+ * Separate from `downloadDocument` because the viewer shows the document
+ * rather than saving it — and because the caller has to revoke the URL when
+ * the preview closes.
+ */
+export async function fetchDocumentObjectUrl(
+  id: string,
+): Promise<{ url: string; mimeType: string }> {
+  const { blob } = await apiClient.downloadBlob(`/documents/${id}/download`, token());
+  return { url: URL.createObjectURL(blob), mimeType: blob.type };
 }
 
 export async function downloadDocument(id: string, fallbackName: string): Promise<void> {

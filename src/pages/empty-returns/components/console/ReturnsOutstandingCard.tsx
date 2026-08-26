@@ -46,7 +46,7 @@ export function ReturnsOutstandingCard({ data, className }: ReturnsOutstandingCa
     <ConsolePanel
       className={className}
       title="Returns Outstanding"
-      subtitle="Every box not yet back at the hub"
+      subtitle="Containers not yet returned"
       footer={
         <p className="type-body-xs leading-relaxed text-muted-foreground">
           Slack = return deadline − predicted gate-in. At the 6 h safety cutoff, matching stops and
@@ -129,7 +129,7 @@ export function ReturnsOutstandingCard({ data, className }: ReturnsOutstandingCa
 
       <div className="mt-4 grid grid-cols-2 gap-3">
         <StatBox
-          label="Back on time"
+          label="Returned on time"
           value={data.returnedOnTime}
           note="protected — cannot regress"
         />

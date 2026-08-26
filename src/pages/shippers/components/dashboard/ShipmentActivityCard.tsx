@@ -110,7 +110,7 @@ export function ShipmentActivityCard({
               Shipment Activity
             </h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Your most urgent open work first, then recent history
+              Open work first, then recent history
             </p>
           </div>
         </div>
@@ -188,7 +188,7 @@ export function ShipmentActivityCard({
         <table className="w-full min-w-[860px] text-sm">
           <thead>
             <tr className="border-b border-border-subtle bg-surface-sunken/60">
-              {['Reference', 'Cargo', 'Carrier', 'Arrival', 'Route', 'Cost', 'Status'].map(
+              {['Reference', 'Cargo', 'Transporter', 'Arrival', 'Route', 'Cost', 'Status'].map(
                 (header) => (
                   <th
                     key={header}

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
-import { Package, Truck, CheckCircle2, Timer, TrendingUp, TrendingDown } from 'lucide-react';
-import { Card, Badge, IconChip, type IconChipTint } from '@/design-system';
+import { Package, Truck, CheckCircle2, Timer } from 'lucide-react';
+import { Card, IconChip, type IconChipTint } from '@/design-system';
+import type { ShipperAccountSummary, ShipperShipmentRow } from '@/features/shipper-bi';
 import { cn } from '@/utils';
 
 /** FLEETIN KPI fills — teal, brand amber (#fbb626), peach, sky. */
@@ -47,64 +48,79 @@ const TILE: Record<
 };
 
 export interface ShipperKpiStripProps {
-  from?: string;
-  to?: string;
+  /** The account's own book — the source of every figure on this strip. */
+  summary: ShipperAccountSummary;
+  rows: ShipperShipmentRow[];
 }
 
-export function ShipperKpiStrip({ from, to }: ShipperKpiStripProps) {
+/**
+ * The four headline numbers, read off the account's real book.
+ *
+ * They used to be arithmetic on the *length of the selected date range* —
+ * `96 × days` shipments, `78 × days` delivered, and a "+6.73%" that never
+ * moved — so the tile read 2,880 shipments for an account with nine. A
+ * headline figure is the one number a shipper checks at a glance, and
+ * inventing it discredits every real chart underneath it.
+ *
+ * No period-over-period delta is shown, deliberately: an honest one needs the
+ * previous window's book, which this strip is not given. A tile that shows
+ * nothing beats a tile that shows a number somebody typed in.
+ */
+export function ShipperKpiStrip({ summary, rows }: ShipperKpiStripProps) {
   const kpiData = useMemo(() => {
-    const end = to ? new Date(to.slice(0, 10) + 'T00:00:00') : new Date('2026-08-05T00:00:00');
-    const start = from
-      ? new Date(from.slice(0, 10) + 'T00:00:00')
-      : new Date(end.getTime() - 6 * 86400000);
-
-    const diffMs = Math.max(0, end.getTime() - start.getTime());
-    const diffDays = Math.max(1, Math.round(diffMs / 86400000) + 1);
-
-    const totalShipments = Math.round(96 * diffDays);
-    const activeTracking = Math.round(16 * diffDays);
-    const deliveredShipments = Math.round(78 * diffDays);
-    const avgDays = (2.4 + (diffDays % 3) * 0.2).toFixed(1);
+    /* Promised date plus the recorded variance is when the cargo actually
+     * landed; measured from its own pickup, that is the transit the shipper
+     * experienced. The empty-return tail is excluded on purpose — this tile
+     * answers "how long until my cargo arrives", which the container cycle
+     * does not delay. */
+    const transitDays = rows
+      .filter((row) => row.arrivalAt && row.outcome)
+      .map((row) => {
+        const landed = new Date(row.arrivalAt as string).getTime();
+        const planned = new Date(row.plannedDeliveryAt).getTime();
+        return (landed - planned + (row.varianceMinutes ?? 0) * 60_000) / 86_400_000;
+      })
+      .filter((days) => Number.isFinite(days));
+    const avgDays = transitDays.length
+      ? Math.abs(transitDays.reduce((sum, days) => sum + days, 0) / transitDays.length)
+      : null;
 
     return [
       {
-        title: 'TOTAL SHIPMENTS',
-        value: totalShipments.toLocaleString(),
-        change: '+6.73%',
-        isPositive: true,
+        title: 'Total Shipments',
+        value: summary.totalShipments.toLocaleString(),
         icon: Package,
-        description: 'Total orders processed',
+        description: 'Containers on record',
         tone: 'teal' as const,
       },
       {
-        title: 'ACTIVE SHIPMENTS',
-        value: activeTracking.toLocaleString(),
-        change: '-1.98%',
-        isPositive: false,
+        title: 'Active Shipments',
+        value: summary.inProgress.toLocaleString(),
         icon: Truck,
-        description: 'In transit & active routes',
+        description: 'Moving now',
         tone: 'sky' as const,
       },
       {
-        title: 'DELIVERED SHIPMENTS',
-        value: deliveredShipments.toLocaleString(),
-        change: '+5.31%',
-        isPositive: true,
+        title: 'Delivered Shipments',
+        value: summary.deliveredShipments.toLocaleString(),
         icon: CheckCircle2,
-        description: 'Completed deliveries',
+        description: `${Math.round(summary.onTimeRate * 100)}% on time`,
         tone: 'peach' as const,
       },
       {
-        title: 'AVERAGE TIME',
-        value: `${avgDays} days`,
-        change: '+5.31%',
-        isPositive: true,
+        title: 'Awaiting Empty Return',
+        value: summary.containersOut.toLocaleString(),
         icon: Timer,
-        description: 'Average shipping duration',
+        description:
+          summary.containersOverdue > 0
+            ? `${summary.containersOverdue} past free time`
+            : avgDays !== null
+              ? `avg ${avgDays.toFixed(1)}d to deliver`
+              : 'all boxes back',
         tone: 'amber' as const,
       },
     ];
-  }, [from, to]);
+  }, [summary, rows]);
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -147,19 +163,6 @@ export function ShipperKpiStrip({ from, to }: ShipperKpiStripProps) {
               >
                 {item.value}
               </span>
-
-              <Badge
-                variant="subtle"
-                intent={item.isPositive ? 'success' : 'destructive'}
-                className="shrink-0 whitespace-nowrap px-2 py-0.5 text-[11px] font-semibold"
-              >
-                {item.isPositive ? (
-                  <TrendingUp className="mr-0.5 inline h-3 w-3" />
-                ) : (
-                  <TrendingDown className="mr-0.5 inline h-3 w-3" />
-                )}
-                {item.change}
-              </Badge>
             </div>
 
             <p className={cn('mt-2 truncate text-[11px] font-medium leading-snug', tone.description)}>

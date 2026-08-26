@@ -15,7 +15,8 @@ import {
   Th,
 } from '@/pages/finance/components/kit';
 
-import { frDate, monthLabelFr, PERIOD_LABEL, PERIOD_TONE } from './hrFormat';
+import { LoadError } from './components/form';
+import { frDate, monthLabel, PERIOD_LABEL, PERIOD_TONE } from './hrFormat';
 
 const MONTHS = [
   'January',
@@ -44,20 +45,20 @@ export function HrPayrollPage() {
   const [month, setMonth] = useState(now.getUTCMonth() + 1);
   const [year, setYear] = useState(now.getUTCFullYear());
 
-  const { data: periods = [], isLoading } = usePayrollPeriods();
+  const { data: periods = [], isLoading, error } = usePayrollPeriods();
   const createPeriod = useCreatePayrollPeriod();
 
   return (
-    <div className="space-y-6">
+    <div className="w-full min-w-0 space-y-6">
       <PageHead
         title="Payroll"
-        subtitle="Draft → calculated → approved → paid. Approved periods are immutable."
-        badge={<Pill tone="teal">{periods.length} periods</Pill>}
+        subtitle="Approved periods are immutable"
+        badge={<Pill tone="teal">{periods.length} pay periods</Pill>}
       />
 
       <Panel
-        title="Open a period"
-        subtitle="Rates are resolved from the period's own end date, not from today"
+        title="Open a Pay Period"
+        subtitle="Rates come from the period end date"
       >
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1.5">
@@ -100,17 +101,19 @@ export function HrPayrollPage() {
         </div>
       </Panel>
 
-      <Panel title="Periods" subtitle="Newest first" padded={false}>
-        {isLoading ? (
+      <Panel title="Pay Periods" subtitle="Newest first" padded={false}>
+        {error ? (
+          <LoadError error={error} noun="the pay periods" />
+        ) : isLoading ? (
           <div className="px-5 pb-5">
-            <EmptyState message="Loading periods…" />
+            <EmptyState message="Loading…" />
           </div>
         ) : periods.length === 0 ? (
           <div className="px-5 pb-5">
-            <EmptyState message="No payroll period has been opened yet." />
+            <EmptyState message="No pay period yet." />
           </div>
         ) : (
-          <DataTable minWidth={920}>
+          <DataTable className="w-0 min-w-full" minWidth={920}>
             <thead>
               <tr>
                 <Th>Period</Th>
@@ -130,7 +133,7 @@ export function HrPayrollPage() {
                       to={buildPath(ROUTES.hrPayrollPeriod, { periodId: period.id })}
                       className="font-bold text-foreground hover:underline"
                     >
-                      {monthLabelFr(period.month, period.year)}
+                      {monthLabel(period.month, period.year)}
                     </Link>
                   </Td>
                   <Td>

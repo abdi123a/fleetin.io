@@ -16,9 +16,12 @@ import { PanelHeader, PANEL_SURFACE } from './PanelHeader';
  * fleet. Delivered shipments stay on the board because a week's plan is only
  * legible next to what already landed.
  *
- * The page's two-colour rule holds here: teal reports what happened, amber asks
- * about what is still open and drifting. No red — a shipment running late is a
- * forecast, not an expired clock, and this dashboard never shouts.
+ * The board reads in two states only — on plan, and delivered. A third
+ * "drifting past the promise" band was tried and removed: predicted arrival is
+ * a forecast, it moved a shipment in and out of the band between refreshes, and
+ * the calendar's job here is to say what is planned for which day rather than
+ * to grade it. Punctuality is reported where it can be evidenced — the mission
+ * report and the on-time rate above.
  */
 
 export interface DeliveryPlanningCalendarCardProps {
@@ -27,9 +30,6 @@ export interface DeliveryPlanningCalendarCardProps {
   onSelectShipment?: (row: ShipperShipmentRow) => void;
   className?: string;
 }
-
-/** Anything drifting past this much of the promise is worth asking about. */
-const DRIFT_ASK_MINUTES = 60;
 
 export function DeliveryPlanningCalendarCard({
   rows,
@@ -49,7 +49,6 @@ export function DeliveryPlanningCalendarCard({
       index.set(row.shipmentId, row);
 
       const landed = row.status === 'delivered' || row.status === 'closed';
-      const drifting = (row.varianceMinutes ?? 0) > DRIFT_ASK_MINUTES;
 
       list.push({
         id: row.shipmentId,
@@ -57,7 +56,7 @@ export function DeliveryPlanningCalendarCard({
         title: row.reference,
         subtitle: `${row.routeName} · ${row.transporter}`,
         meta: landed ? (row.outcomeLabel ?? 'Delivered') : row.stageLabel,
-        tone: landed ? 'done' : drifting ? 'soon' : 'planned',
+        tone: landed ? 'done' : 'planned',
       });
     }
 
@@ -72,16 +71,16 @@ export function DeliveryPlanningCalendarCard({
     >
       <PanelHeader
         title="Delivery Planning Calendar"
-        hint="Every shipment on the day it is expected to land"
+        hint="Shipments on their expected delivery date"
       />
       <div className="mt-4 flex min-h-0 flex-1 flex-col">
         <PlanningCalendar
           events={events}
           now={now}
+          defaultView="month"
           unitLabel={{ one: 'shipment', many: 'shipments' }}
           legend={[
             { tone: 'planned', label: 'On plan' },
-            { tone: 'soon', label: 'Drifting past the promise' },
             { tone: 'done', label: 'Delivered' },
           ]}
           onSelectEvent={(event) => {

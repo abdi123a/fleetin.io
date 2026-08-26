@@ -57,7 +57,7 @@ const FLEETIN_BASES: Record<
   GoodsType,
   { spot: number; volatility: number; min: number; max: number }
 > = {
-  containers: { spot: 42_500, volatility: 0.2, min: 40_500, max: 45_000 },
+  containers: { spot: 48_000, volatility: 0.2, min: 41_000, max: 50_000 },
   bulk_commodities: { spot: 43_000, volatility: 0.22, min: 40_500, max: 45_500 },
   bulk_steel: { spot: 44_000, volatility: 0.22, min: 41_000, max: 46_500 },
   livestock: { spot: 42_000, volatility: 0.2, min: 40_000, max: 44_500 },

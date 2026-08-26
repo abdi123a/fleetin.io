@@ -1,36 +1,45 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { CheckCircle2, X } from '@/design-system/icons';
-import { Card, IconButton, Sheet, SheetContent, SheetDescription, SheetTitle } from '@/design-system';
+import {
+  Card,
+  IconButton,
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+  useConfirm,
+} from '@/design-system';
 import {
   DocumentViewerModal,
   type DocumentToView,
 } from '@/components/DocumentViewerModal';
 import { triggerDocumentDownload } from '@/components/documentDownload';
-import { ROUTES, buildPath } from '@/config/routes';
-import { useShipperAccount, type ShipmentFilterKey } from '@/features/shipper-bi';
+import { useShipperAccount } from '@/features/shipper-bi';
 import type { ShipperDocument } from '@/types/shipper';
 import { useShipper, useUpdateShipper, useUploadShipperLogo, shipperQueryKeys } from '@/features/shippers/api/queries';
 import { deleteDocument, uploadDocument } from '@/features/documents/api/documentsService';
 import { useAuthStore } from '@/stores';
+import { useShipmentStore } from '@/stores/shipment.store';
 import { useBreadcrumbLabel } from '@/hooks/useBreadcrumbLabel';
 import { AddShipperForm, type ShipperFormData } from './AddShipperForm';
 import { ShipperAnalyticsSuite } from '@/pages/analytics';
+import { MonthlyReportPanel } from '@/components/reports';
+import { ShipmentsListView } from '@/pages/missions/components/ShipmentsListView';
 import {
-  AccountHealthStrip,
   AttentionRail,
   CompliancePanel,
-  ShipmentsPanel,
   ShipperIdentityHeader,
   ShipperTabNav,
   type ShipperTabKey,
 } from './components';
 
+const SHIPPER_TABS: ShipperTabKey[] = ['analytics', 'monthly-report', 'shipments', 'profile'];
+
 export function ShipperDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
 
   // For Shipper user, default to their own shipperId
@@ -39,11 +48,11 @@ export function ShipperDetailPage() {
 
   const tabParam = searchParams.get('tab') as ShipperTabKey | null;
   const [activeTab, setActiveTab] = useState<ShipperTabKey>(
-    tabParam && ['analytics', 'shipments', 'profile'].includes(tabParam) ? tabParam : 'shipments'
+    tabParam && SHIPPER_TABS.includes(tabParam) ? tabParam : 'shipments'
   );
 
   useEffect(() => {
-    if (tabParam && ['analytics', 'shipments', 'profile'].includes(tabParam)) {
+    if (tabParam && SHIPPER_TABS.includes(tabParam)) {
       setActiveTab(tabParam);
     } else if (!tabParam) {
       setActiveTab('shipments');
@@ -58,7 +67,6 @@ export function ShipperDetailPage() {
     }, { replace: true });
   };
 
-  const [shipmentFilter, setShipmentFilter] = useState<ShipmentFilterKey | undefined>(undefined);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [viewingDoc, setViewingDoc] = useState<DocumentToView | null>(null);
@@ -76,7 +84,15 @@ export function ShipperDetailPage() {
   const [localDocuments, setLocalDocuments] = useState<ShipperDocument[]>([]);
   const documents = [...(shipper?.uploadedDocuments ?? []), ...localDocuments];
 
-  const { summary, rows } = useShipperAccount({ shipperId: shipperId ?? '' });
+  const { summary } = useShipperAccount({ shipperId: shipperId ?? '' });
+
+  // The Shipments tab renders the exact same view as the Admin Shipments
+  // page — only this filtered slice of the store differs.
+  const missions = useShipmentStore((s) => s.missions);
+  const shipperMissions = useMemo(
+    () => missions.filter((mission) => mission.customer.id === shipperId),
+    [missions, shipperId],
+  );
 
   const announce = (message: string) => {
     setNotice(message);
@@ -134,11 +150,18 @@ export function ShipperDetailPage() {
     announce(`"${document.name}" queued for verification.`);
   };
 
+  const { confirm, confirmDialog } = useConfirm();
+
   const handleDeleteDocument = async (documentId: string) => {
     if (documentId.startsWith('local-')) {
       setLocalDocuments((prev) => prev.filter((document) => document.id !== documentId));
       return;
     }
+    const ok = await confirm({
+      title: 'Delete this document?',
+      description: 'The file will be permanently removed from this shipper\u2019s vault.',
+    });
+    if (!ok) return;
     await deleteDocument(documentId);
     if (shipperId) queryClient.invalidateQueries({ queryKey: shipperQueryKeys.detail(shipperId) });
   };
@@ -151,9 +174,8 @@ export function ShipperDetailPage() {
   }
 
   /** An alert or a KPI sends the reader to the tab that explains it. */
-  const goToTab = (tab: ShipperTabKey, filter?: ShipmentFilterKey) => {
+  const goToTab = (tab: ShipperTabKey) => {
     handleTabChange(tab);
-    if (filter) setShipmentFilter(filter);
     if (tab === 'profile') setIsDocFormOpen(false);
   };
 
@@ -162,8 +184,47 @@ export function ShipperDetailPage() {
     setIsDocFormOpen(true);
   };
 
+  // A shipper reading their own record already has a dedicated sidebar link to
+  // each section (Dashboard, Analytics, Account Settings) — this page's own tab
+  // bar would just be a second switcher for the same two destinations it still
+  // owns (Shipments, Profile). Stray links to the other two collapse to
+  // Shipments rather than a blank page.
+  const effectiveTab: ShipperTabKey =
+    isShipperUser && (activeTab === 'analytics' || activeTab === 'monthly-report')
+      ? 'shipments'
+      : activeTab;
+
+  const shipmentsContent = (
+    <ShipmentsListView missions={shipperMissions} canCreateShipment={false} />
+  );
+
+  const profileContent = (
+    <div className="space-y-6">
+      <ShipperIdentityHeader
+        shipper={shipper}
+        onEdit={() => setIsEditOpen(true)}
+        onUploadDocument={openUploadForm}
+      />
+      <CompliancePanel
+        shipper={shipper}
+        documents={documents}
+        docFormOpen={isDocFormOpen}
+        onDocFormOpenChange={setIsDocFormOpen}
+        onAddDocument={handleAddDocument}
+        onViewDocument={setViewingDoc}
+        onDownloadDocument={(document) => {
+          void triggerDocumentDownload(document.id, document.name);
+          announce(`Downloading "${document.name}"…`);
+        }}
+        onDeleteDocument={handleDeleteDocument}
+        onEdit={() => setIsEditOpen(true)}
+      />
+    </div>
+  );
+
   return (
     <div className="flex flex-col gap-5 pb-10">
+      {confirmDialog}
       <DocumentViewerModal
         open={Boolean(viewingDoc)}
         onOpenChange={(open) => !open && setViewingDoc(null)}
@@ -177,7 +238,7 @@ export function ShipperDetailPage() {
         >
           <SheetTitle className="sr-only">Edit shipper profile</SheetTitle>
           <SheetDescription className="sr-only">
-            Modify corporate details, country, address, contact person and compliance documents.
+            Company details, contacts and compliance documents.
           </SheetDescription>
           <AddShipperForm
             initialData={{
@@ -224,76 +285,59 @@ export function ShipperDetailPage() {
         </Card>
       )}
 
-      <ShipperTabNav
-        active={activeTab}
-        onChange={handleTabChange}
-        shipmentCount={rows.length}
-        documentCount={documents.length}
-      />
+      {isShipperUser ? (
+        // Reached straight from its own sidebar link (Shipments or Account
+        // Settings), so the section itself is the page — no in-page tab bar
+        // switching to destinations that already have their own link.
+        <div
+          key={effectiveTab}
+          className="animate-in fade-in duration-200"
+        >
+          {effectiveTab === 'profile' ? profileContent : shipmentsContent}
+        </div>
+      ) : (
+        <>
+          <ShipperTabNav
+            active={activeTab}
+            onChange={handleTabChange}
+            shipmentCount={shipperMissions.length}
+            documentCount={documents.length}
+          />
 
-      {activeTab === 'analytics' && (
-        <TabPanel tab="analytics">
-          <div className="space-y-6">
-            {/* No AccountHealthStrip on this tab: all four of its tiles reappear in
-                the suite's KPI strip, and one number should live in one place. The
-                strip stays on the Shipments tab, which its tiles open anyway. */}
-            <AttentionRail alerts={summary.alerts} onNavigate={goToTab} />
-            {/* Subject-tab offset = --fl-header-height (the token behind `top-header`)
-                + 41px of ShipperTabNav (2×py-2.5 + 20px text line + 1px border), so
-                the suite's tabs pin in a tier below the page tabs instead of
-                colliding with them. */}
-            <ShipperAnalyticsSuite
-              shipperId={shipper.id}
-              subjectNavTopClass="top-[calc(var(--fl-header-height)+41px)]"
-            />
-          </div>
-        </TabPanel>
-      )}
+          {activeTab === 'analytics' && (
+            <TabPanel tab="analytics">
+              <div className="space-y-6">
+                {/* No AccountHealthStrip on this tab: its four tiles are the same
+                    figures the suite opens with, and one number should live in
+                    one place. */}
+                <AttentionRail alerts={summary.alerts} onNavigate={goToTab} />
+                {/* The suite no longer pins anything, so there is no second
+                    sticky tier to offset against ShipperTabNav. */}
+                <ShipperAnalyticsSuite shipperId={shipper.id} />
+              </div>
+            </TabPanel>
+          )}
 
-      {activeTab === 'shipments' && (
-        <TabPanel tab="shipments">
-          <div className="space-y-5">
-            <AccountHealthStrip summary={summary} onNavigate={goToTab} />
-            <AttentionRail alerts={summary.alerts} onNavigate={goToTab} />
-            <ShipmentsPanel
-              rows={rows}
-              initialFilter={shipmentFilter}
-              onOpenShipment={(row) =>
-                navigate(
-                  buildPath(ROUTES.shipmentOverview, {
-                    id: row.shipmentId.replace(/^SHP-0*/, '') || '1',
-                  }),
-                )
-              }
-            />
-          </div>
-        </TabPanel>
-      )}
+          {activeTab === 'monthly-report' && (
+            <TabPanel tab="monthly-report">
+              <MonthlyReportPanel
+                shipperId={shipper.id}
+                shipperName={shipper.companyLegalName}
+                shipperLogoUrl={shipper.logoUrl}
+              />
+            </TabPanel>
+          )}
 
-      {activeTab === 'profile' && (
-        <TabPanel tab="profile">
-          <div className="space-y-6">
-            <ShipperIdentityHeader
-              shipper={shipper}
-              onEdit={() => setIsEditOpen(true)}
-              onUploadDocument={openUploadForm}
-            />
-            <CompliancePanel
-              shipper={shipper}
-              documents={documents}
-              docFormOpen={isDocFormOpen}
-              onDocFormOpenChange={setIsDocFormOpen}
-              onAddDocument={handleAddDocument}
-              onViewDocument={setViewingDoc}
-              onDownloadDocument={(document) => {
-                void triggerDocumentDownload(document.id, document.name);
-                announce(`Downloading "${document.name}"…`);
-              }}
-              onDeleteDocument={handleDeleteDocument}
-              onEdit={() => setIsEditOpen(true)}
-            />
-          </div>
-        </TabPanel>
+          {activeTab === 'shipments' && (
+            <TabPanel tab="shipments">
+              {/* The exact Admin Shipments page — KPI strip, filter toolbar, row/grid
+                  views, pagination — scoped to this shipper's own missions. */}
+              {shipmentsContent}
+            </TabPanel>
+          )}
+
+          {activeTab === 'profile' && <TabPanel tab="profile">{profileContent}</TabPanel>}
+        </>
       )}
     </div>
   );

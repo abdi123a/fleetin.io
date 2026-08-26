@@ -78,11 +78,11 @@ export function MoneyFlowCard({ movement, className }: { movement: MovementModel
             return buildTooltipHtml(
               month.label,
               [
-                { key: 'rev', label: 'Billed to clients', value: fmtDjf(month.revenueDjf), color: CHART_INK.teal },
-                { key: 'cost', label: 'Paid to transporters', value: fmtDjf(month.costDjf), color: CHART_INK.grey },
-                { key: 'com', label: 'Fleetin kept', value: fmtDjf(month.commissionDjf), color: CHART_INK.orange },
+                { key: 'rev', label: 'Billed', value: fmtDjf(month.revenueDjf), color: CHART_INK.teal },
+                { key: 'cost', label: 'Transport cost', value: fmtDjf(month.costDjf), color: CHART_INK.grey },
+                { key: 'com', label: 'Commission', value: fmtDjf(month.commissionDjf), color: CHART_INK.orange },
               ],
-              `${month.shipments} shipments${rate !== null ? ` · ${pct(rate, 1)} kept` : ''}`,
+              `${month.shipments} shipments${rate !== null ? ` · ${pct(rate, 1)} commission` : ''}`,
             );
           },
         },
@@ -93,7 +93,7 @@ export function MoneyFlowCard({ movement, className }: { movement: MovementModel
   const series = useMemo(
     () => [
       { name: 'Billed', type: 'column', data: movement.months.map((month) => Math.round(month.revenueDjf)) },
-      { name: 'Paid out', type: 'column', data: movement.months.map((month) => Math.round(month.costDjf)) },
+      { name: 'Transport cost', type: 'column', data: movement.months.map((month) => Math.round(month.costDjf)) },
       { name: 'Commission', type: 'line', data: movement.months.map((month) => Math.round(month.commissionDjf)) },
     ],
     [movement.months],
@@ -105,8 +105,8 @@ export function MoneyFlowCard({ movement, className }: { movement: MovementModel
   return (
     <ConsolePanel
       className={className}
-      title="Billed, paid out, kept"
-      subtitle="Six months of client billing against transporter cost — the gap is Fleetin's commission"
+      title="Revenue &amp; Commission"
+      subtitle="Billed, transport cost and commission by month"
       action={
         <div className="text-right">
           <p className="type-body-xs text-muted-foreground">This month</p>
@@ -118,24 +118,25 @@ export function MoneyFlowCard({ movement, className }: { movement: MovementModel
       footer={
         <InsightNote tone={movement.revenueDelta !== null && movement.revenueDelta < 0 ? 'attention' : 'neutral'}>
           {!hasAnything ? (
-            'Nothing has been billed or paid in the last six months, so there is no trend to read yet.'
+            'No billing in the last six months.'
           ) : lastMonth && lastMonth.revenueDjf > 0 ? (
             <>
               <span className="font-bold text-foreground">
                 {compactDjf(thisMonth.revenueDjf)} billed this month
               </span>{' '}
-              against {compactDjf(lastMonth.revenueDjf)} last, keeping{' '}
-              {movement.marginThisMonth !== null ? pct(movement.marginThisMonth, 1) : '—'} of it.
+              vs {compactDjf(lastMonth.revenueDjf)} last ·{' '}
+              {movement.marginThisMonth !== null ? pct(movement.marginThisMonth, 1) : '—'} commission
               {movement.marginLastMonth !== null && movement.marginThisMonth !== null
-                ? ` Last month it kept ${pct(movement.marginLastMonth, 1)}.`
+                ? ` (${pct(movement.marginLastMonth, 1)} last month)`
                 : ''}
+              .
             </>
           ) : (
             <>
               <span className="font-bold text-foreground">
-                {compactDjf(thisMonth.revenueDjf)} billed so far this month
+                {compactDjf(thisMonth.revenueDjf)} billed this month
               </span>{' '}
-              across {thisMonth.shipments} shipments. No prior month carries revenue to compare against.
+              across {thisMonth.shipments} shipments.
             </>
           )}
         </InsightNote>
@@ -147,9 +148,9 @@ export function MoneyFlowCard({ movement, className }: { movement: MovementModel
       <Legend
         className="mt-2"
         items={[
-          { label: 'Billed to clients', color: CHART_INK.teal, shape: 'square' },
-          { label: 'Paid to transporters', color: CHART_INK.grey, shape: 'square' },
-          { label: 'Commission kept', color: CHART_INK.orange },
+          { label: 'Billed', color: CHART_INK.teal, shape: 'square' },
+          { label: 'Transport cost', color: CHART_INK.grey, shape: 'square' },
+          { label: 'Commission', color: CHART_INK.orange },
         ]}
       />
     </ConsolePanel>

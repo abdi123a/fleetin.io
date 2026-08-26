@@ -103,7 +103,7 @@ export function CompliancePanel({
           <CardHeader>
             <CardTitle className="inline-flex items-center gap-2">
               <Building2 className="size-4 text-muted-foreground" aria-hidden />
-              Registration & facilities
+              Registration & Facilities
             </CardTitle>
             <Button variant="ghost" size="sm" onClick={onEdit} leadingIcon={<Pencil className="size-3.5" />}>
               Edit
@@ -120,7 +120,7 @@ export function CompliancePanel({
               <DescriptionItem label="Country" value={shipper.country} />
               <DescriptionItem label="Industry" value={shipper.industry} />
               <DescriptionItem label="Company scale" value={shipper.companySize} />
-              <DescriptionItem label="Customer since" value={formatDate(shipper.registrationDate)} />
+              <DescriptionItem label="Shipper since" value={formatDate(shipper.registrationDate)} />
             </DescriptionList>
 
             <DescriptionItem
@@ -162,7 +162,7 @@ export function CompliancePanel({
             <div className="min-w-0 space-y-0.5">
               <CardTitle className="inline-flex items-center gap-2">
                 <FileText className="size-4 text-muted-foreground" aria-hidden />
-                Document vault
+                Document Vault
               </CardTitle>
               <p className="type-body-xs text-muted-foreground">
                 {documents.filter((doc) => doc.status === 'Verified').length} of {documents.length}{' '}
@@ -207,8 +207,8 @@ export function CompliancePanel({
             {documents.length === 0 ? (
               <EmptyState
                 icon={FileText}
-                title="No documents held"
-                description="Upload the business licence to start the compliance file."
+                title="No documents yet."
+                description="Upload the business licence to start."
                 size="sm"
               />
             ) : (
@@ -283,7 +283,7 @@ export function CompliancePanel({
 
         <Card>
           <CardHeader>
-            <CardTitle>Profile completeness</CardTitle>
+            <CardTitle>Profile Completeness</CardTitle>
             <span className="type-body-sm font-medium tabular-nums text-foreground">
               {completion.percentage}%
             </span>
@@ -297,8 +297,7 @@ export function CompliancePanel({
               aria-label="Profile completeness"
             />
             <p className="type-caption text-muted-foreground">
-              {completion.completedItemsCount} of {completion.totalItems} required fields held on
-              file.
+              {completion.completedItemsCount} of {completion.totalItems} required fields held.
             </p>
 
             {completion.remainingFields.length > 0 && (

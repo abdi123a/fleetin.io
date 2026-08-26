@@ -60,8 +60,8 @@ export function VolumeCard({ movement, className }: { movement: MovementModel; c
   return (
     <ConsolePanel
       className={className}
-      title="What the platform moved"
-      subtitle="Shipments booked each month, and the containers underneath them"
+      title="Volume"
+      subtitle="Shipments and containers by month"
       action={
         <div className="text-right">
           <p className="type-body-xs text-muted-foreground">This month</p>
@@ -73,18 +73,17 @@ export function VolumeCard({ movement, className }: { movement: MovementModel; c
           {shipmentsDelta !== null && lastMonth ? (
             <>
               <span className="font-bold text-foreground">
-                {thisMonth.shipments} shipments booked this month
+                {thisMonth.shipments} shipments this month
               </span>{' '}
-              against {lastMonth.shipments} last —{' '}
-              {shipmentsDelta >= 0 ? 'up' : 'down'} {Math.abs(shipmentsDelta * 100).toFixed(0)}%, carrying{' '}
-              {thisMonth.containers} containers.
+              vs {lastMonth.shipments} last · {shipmentsDelta >= 0 ? 'up' : 'down'}{' '}
+              {Math.abs(shipmentsDelta * 100).toFixed(0)}% · {thisMonth.containers} containers.
             </>
           ) : (
             <>
               <span className="font-bold text-foreground">
-                {thisMonth.shipments} shipments booked so far this month
-              </span>
-              , carrying {thisMonth.containers} containers. No prior month has volume to compare against.
+                {thisMonth.shipments} shipments this month
+              </span>{' '}
+              · {thisMonth.containers} containers.
             </>
           )}
         </InsightNote>

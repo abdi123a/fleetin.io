@@ -27,7 +27,7 @@ import {
 } from '@/pages/finance/components/kit';
 import { cn } from '@/utils';
 
-import { Field, FormError, ModalShell, inputClass } from './components/form';
+import { Field, FormError, LoadError, ModalShell, inputClass } from './components/form';
 import { LEAVE_TONE, frDate, shortMonthLabel } from './hrFormat';
 
 const LEAVE_TYPES = ['ANNUAL', 'SICK', 'UNPAID', 'MATERNITY', 'OTHER'] as const;
@@ -46,7 +46,7 @@ export function HrLeavePage() {
   const [tab, setTab] = useState<Tab>('planning');
   const [requesting, setRequesting] = useState(false);
 
-  const { data: grid, isLoading } = useLeavePlanning(undefined, 12);
+  const { data: grid, isLoading, error } = useLeavePlanning(undefined, 12);
   const { data: pending = [] } = useLeaveRecords({ status: 'REQUESTED' });
   const { data: allRecords = [] } = useLeaveRecords();
 
@@ -69,7 +69,7 @@ export function HrLeavePage() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="w-full min-w-0 space-y-6">
       <PageHead
         title="Leave"
         subtitle="A rolling 13-month window. Accrual is continuous from the joining date."
@@ -134,7 +134,9 @@ export function HrLeavePage() {
           subtitle="Days taken per employee per month. Requested days are shown before approval."
           padded={false}
         >
-          {isLoading ? (
+          {error ? (
+            <LoadError error={error} noun="the leave planning grid" />
+          ) : isLoading ? (
             <div className="px-5 pb-5">
               <EmptyState message="Loading the grid…" />
             </div>
@@ -143,7 +145,7 @@ export function HrLeavePage() {
               <EmptyState message="No employees to plan for." />
             </div>
           ) : (
-            <DataTable minWidth={260 + grid.months.length * 64 + 200}>
+            <DataTable className="w-0 min-w-full" minWidth={260 + grid.months.length * 64 + 200}>
               <thead>
                 <tr>
                   <Th>Employee</Th>
@@ -232,7 +234,7 @@ function RequestsPanel({ records }: { records: LeaveRecord[] }) {
           <EmptyState message="No leave has been requested." />
         </div>
       ) : (
-        <DataTable minWidth={960}>
+        <DataTable className="w-0 min-w-full" minWidth={960}>
           <thead>
             <tr>
               <Th>Employee</Th>

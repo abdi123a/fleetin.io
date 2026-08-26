@@ -63,8 +63,8 @@ interface SectionSpec {
 const SECTIONS: readonly [SectionSpec, ...SectionSpec[]] = [
   {
     id: 'organization',
-    label: 'Organization',
-    blurb: 'Legal name, address, registration and tax identifiers',
+    label: 'Organisation',
+    blurb: 'Legal entity, address and identifiers',
     icon: Building2,
     Component: OrganizationSection,
     group: 'Company',
@@ -80,7 +80,7 @@ const SECTIONS: readonly [SectionSpec, ...SectionSpec[]] = [
   {
     id: 'documents',
     label: 'Documents',
-    blurb: 'Letterhead, signatories, company stamp and printed wording',
+    blurb: 'Letterhead, signatories, stamp and wording',
     icon: FileText,
     Component: DocumentsSection,
     group: 'Company',
@@ -88,7 +88,7 @@ const SECTIONS: readonly [SectionSpec, ...SectionSpec[]] = [
   {
     id: 'commission',
     label: 'Commission & billing',
-    blurb: "Fleetin's cut, billing cycle and rounding",
+    blurb: 'Commission rate, billing cycle and rounding',
     icon: Percent,
     Component: CommissionSection,
     group: 'Money',
@@ -96,7 +96,7 @@ const SECTIONS: readonly [SectionSpec, ...SectionSpec[]] = [
   {
     id: 'finance',
     label: 'Finance policy',
-    blurb: 'Currency, payment terms, payout rules and detention',
+    blurb: 'Currency, terms, release rules and detention',
     icon: Wallet,
     Component: FinanceSection,
     group: 'Money',
@@ -104,7 +104,7 @@ const SECTIONS: readonly [SectionSpec, ...SectionSpec[]] = [
   {
     id: 'operations',
     label: 'Operations',
-    blurb: 'On-time grace, targets, risk weights and corridor costs',
+    blurb: 'Thresholds, targets and corridor costs',
     icon: Gauge,
     Component: OperationsSection,
     group: 'Operations',
@@ -128,7 +128,7 @@ const SECTIONS: readonly [SectionSpec, ...SectionSpec[]] = [
   {
     id: 'notifications',
     label: 'Notifications',
-    blurb: 'Which events reach whom, on which channel',
+    blurb: 'Events, recipients and channels',
     icon: Bell,
     Component: NotificationsSection,
     group: 'Platform',
@@ -143,8 +143,8 @@ const SECTIONS: readonly [SectionSpec, ...SectionSpec[]] = [
   },
   {
     id: 'localization',
-    label: 'Localization',
-    blurb: 'Language, time zone, formats and the financial year',
+    label: 'Localisation',
+    blurb: 'Language, time zone, formats and calendar',
     icon: Languages,
     Component: LocalizationSection,
     group: 'Platform',
@@ -199,7 +199,6 @@ export function SettingsPage() {
     <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-4 px-4 pb-8 pt-1 sm:px-6">
       <PageHead
         title="Settings"
-        subtitle="Everything in the system that is a decision rather than a fact"
         actions={
           <>
             <input
@@ -264,7 +263,7 @@ export function SettingsPage() {
             onClick={() => {
               if (
                 window.confirm(
-                  `Reset "${current.label}" to the values the app shipped with? Other sections are untouched.`,
+                  `Reset "${current.label}" to defaults? Other sections are untouched.`,
                 )
               ) {
                 reset(current.id);
@@ -286,10 +285,8 @@ export function SettingsPage() {
           <Section />
 
           <p className="mt-6 text-xs leading-relaxed text-muted-foreground">
-            Changes save as you make them. Apart from the commission, which the server owns, settings are stored in
-            this browser — so they are per-machine, a cleared cache resets them, and{' '}
-            <strong className="font-bold text-foreground">Export</strong> above is the only backup. Use it before
-            reinstalling, and Import to put the same configuration on a second machine.
+            Changes save as you type. Settings are stored in this browser, so{' '}
+            <strong className="font-bold text-foreground">Export</strong> is the only backup.
           </p>
         </div>
       </div>

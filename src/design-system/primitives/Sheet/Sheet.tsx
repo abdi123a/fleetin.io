@@ -1,10 +1,10 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { cva, type VariantProps } from 'class-variance-authority';
-import { X } from '@/design-system/icons';
 
 import { forwardRef, type ComponentPropsWithoutRef, type ElementRef } from 'react';
 
 import { cn } from '@/utils';
+import { CloseButton } from '../Button/CloseButton';
 
 /**
  * Sheet — an edge-anchored overlay panel built on Radix Dialog.
@@ -78,15 +78,10 @@ export const SheetContent = forwardRef<
       >
         {children}
         {!hideCloseButton && (
-          <DialogPrimitive.Close
-            className={cn(
-              'absolute right-4 top-4 rounded-sm p-1 text-muted-foreground',
-              'transition-colors duration-fast hover:bg-muted hover:text-foreground',
-              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
-            )}
-          >
-            <X className="size-4" />
-            <span className="sr-only">Close</span>
+          /* The app's one close control (`CloseButton`), so a sheet dismisses
+             the same way as every panel that draws its own. */
+          <DialogPrimitive.Close asChild>
+            <CloseButton className="absolute right-4 top-4" />
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Content>

@@ -41,7 +41,7 @@ export function EmptyReturnCard({
       donutOptions({
         labels: buckets.map((bucket) => bucket.label),
         colors: buckets.map((bucket) => bucket.color),
-        centreLabel: 'still out',
+        centreLabel: 'outstanding',
         centreValue: String(returns.stillOut),
         tooltip: {
           custom: ({ seriesIndex }) => {
@@ -51,7 +51,7 @@ export function EmptyReturnCard({
             return buildTooltipHtml(
               bucket.label,
               [{ key: 'count', label: 'Containers', value: String(bucket.count), color: bucket.color }],
-              `${pct(share)} of everything still out`,
+              `${pct(share)} of containers outstanding`,
             );
           },
         },
@@ -64,8 +64,8 @@ export function EmptyReturnCard({
   return (
     <ConsolePanel
       className={className}
-      title="Containers going back"
-      subtitle={`${returns.chains} chains running · ${returns.matchable} empties cleared for matching`}
+      title="Empty Returns"
+      subtitle={`${returns.chains} chains running · ${returns.matchable} empties ready to match`}
       action={
         <Link to={ROUTES.emptyReturns}>
           <PanelLink>Empty returns</PanelLink>
@@ -76,28 +76,24 @@ export function EmptyReturnCard({
           {returns.kpis.overdue > 0 ? (
             <>
               <span className="font-bold text-foreground">
-                {returns.kpis.overdue} {returns.kpis.overdue === 1 ? 'box is' : 'boxes are'} past the line&rsquo;s
-                deadline
+                {returns.kpis.overdue} {returns.kpis.overdue === 1 ? 'container' : 'containers'} overdue
               </span>{' '}
-              and demurrage is accruing on {returns.kpis.overdue === 1 ? 'it' : 'them'} right now.
-              {returns.sameDepotPairs > 0
-                ? ` ${returns.sameDepotPairs} same-depot pairings are available to shorten the next cycle.`
-                : ''}
+              — demurrage accruing.
+              {returns.sameDepotPairs > 0 ? ` ${returns.sameDepotPairs} same-depot pairings available.` : ''}
             </>
           ) : returns.kpis.critical > 0 ? (
             <>
               <span className="font-bold text-foreground">
-                {returns.kpis.critical} {returns.kpis.critical === 1 ? 'box has' : 'boxes have'} under six hours of
-                margin left
+                {returns.kpis.critical} {returns.kpis.critical === 1 ? 'container' : 'containers'} critical
               </span>{' '}
-              — they need a truck assigned before the window closes.
+              — under six hours of margin.
             </>
           ) : (
             <>
-              <span className="font-bold text-foreground">Every outstanding box is inside its deadline.</span>{' '}
+              <span className="font-bold text-foreground">No container overdue.</span>{' '}
               {returns.noDeadline > 0
-                ? `${returns.noDeadline} of them carry no deadline at all, so that verdict does not cover them.`
-                : 'Every one of them has a deadline recorded against it.'}
+                ? `${returns.noDeadline} carry no deadline.`
+                : 'All carry a deadline.'}
             </>
           )}
         </InsightNote>
@@ -105,7 +101,7 @@ export function EmptyReturnCard({
     >
       {returns.stillOut === 0 ? (
         <p className="py-10 text-center text-sm font-semibold text-muted-foreground">
-          No container is currently outstanding.
+          No outstanding containers yet.
         </p>
       ) : (
         <>
@@ -125,7 +121,7 @@ export function EmptyReturnCard({
 
               <div className="mt-4">
                 <div className="flex items-baseline justify-between gap-3">
-                  <SectionLabel>Returned inside the deadline</SectionLabel>
+                  <SectionLabel>Returned within deadline</SectionLabel>
                   <span className="text-sm font-extrabold tabular-nums text-foreground">
                     {returns.onTimeRate !== null ? pct(returns.onTimeRate) : '—'}
                   </span>
@@ -148,7 +144,7 @@ export function EmptyReturnCard({
 
           {returns.breached.length > 0 ? (
             <div className="mt-4 border-t border-border-subtle pt-3.5">
-              <SectionLabel>Worst clocks right now</SectionLabel>
+              <SectionLabel>Closest to deadline</SectionLabel>
               <div className="mt-2 flex flex-col gap-1">
                 {returns.breached.slice(0, 3).map((record) => (
                   <Link

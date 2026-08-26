@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:local": "vite --mode localapi",
+    "dev:cloud": "vite --mode cloud",
+    "dev:backend": "pnpm --dir ../fleetin-backend run start:dev",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",

@@ -85,9 +85,9 @@ export function ShipmentOverviewChart({
           point.fullLabel,
           [
             { key: 'shipments', label: 'Shipments', value: String(point.value), color: primary },
-            { key: 'trucks', label: 'Trucks used', value: String(point.trucks), color: primaryBold },
+            { key: 'trucks', label: 'Vehicles', value: String(point.trucks), color: primaryBold },
           ],
-          point.trucks > 0 ? `${(point.value / point.trucks).toFixed(1)} loads per truck` : undefined,
+          point.trucks > 0 ? `${(point.value / point.trucks).toFixed(1)} shipments per vehicle` : undefined,
         );
       },
     },
@@ -100,7 +100,7 @@ export function ShipmentOverviewChart({
         action={
           <div className="flex shrink-0 items-center gap-4">
             <Legend color={primary} label="Shipments" />
-            <Legend color={primaryBold} label="Trucks used" dashed />
+            <Legend color={primaryBold} label="Vehicles" dashed />
             <span className="type-body-xs hidden font-medium text-muted-foreground sm:inline">
               {rangeLabel}
             </span>
@@ -113,7 +113,7 @@ export function ShipmentOverviewChart({
           type="line"
           series={[
             { name: 'Shipments', type: 'area', data: buckets.map((b) => b.value) },
-            { name: 'Trucks used', type: 'line', data: buckets.map((b) => b.trucks) },
+            { name: 'Vehicles', type: 'line', data: buckets.map((b) => b.trucks) },
           ]}
           options={options}
           height="100%"

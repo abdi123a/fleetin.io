@@ -51,10 +51,15 @@ const REAL_DELIVERY_STAGE: Record<string, number> = {
   Pending: 0,
   Assigned: 0,
   'Driver Assigned': 1,
+  'Heading to Pickup': 1,
+  'At Pickup': 1,
+  Loading: 1,
+  Loaded: 1,
   'En Route': 1,
   Arrived: 2,
   Unloading: 2,
   'POD Submitted': 2,
+  'Empty Ready': 2,
 };
 
 export function getStageIndex(
@@ -103,7 +108,13 @@ export function PipelineFlowCard<T extends PipelineBookingItem = PipelineBooking
       activeCount: activeBookings.length,
       passedBookings,
       activeBookings,
-      avgHours: stageName === 'Pending Empty Return' ? 47 : 12,
+      /* Unknown, and left that way. This used to read `47` for Pending Empty
+       * Return and `12` for every other stage — the same two numbers on every
+       * shipment in the system, printed as "12h avg dwell" beside real counts
+       * where they were indistinguishable from a measurement. The per-stage
+       * dwell of one shipment's containers is a real figure, but it lives in
+       * the booking timelines, which this card is not given. */
+      avgHours: undefined as number | undefined,
     };
   });
 
@@ -123,8 +134,14 @@ export function PipelineFlowCard<T extends PipelineBookingItem = PipelineBooking
     ? (bookings || []).length
     : stagesToRender.reduce((sum, s) => sum + s.count, 0);
 
-  const maxHours = Math.max(...stagesToRender.map((s) => s.avgHours));
-  const slowest = stagesToRender.reduce((a, b) => (b.avgHours > a.avgHours ? b : a));
+  const timedStages = stagesToRender.filter(
+    (stage): stage is typeof stage & { avgHours: number } => typeof stage.avgHours === 'number',
+  );
+  const maxHours = timedStages.length > 0 ? Math.max(...timedStages.map((s) => s.avgHours)) : 0;
+  const slowest =
+    timedStages.length > 0
+      ? timedStages.reduce((a, b) => (b.avgHours > a.avgHours ? b : a))
+      : null;
 
   return (
     <section className="rounded-lg border border-border bg-card p-4 shadow-xs sm:p-5">
@@ -139,10 +156,12 @@ export function PipelineFlowCard<T extends PipelineBookingItem = PipelineBooking
             )}
           </p>
         </div>
-        <div className="flex items-center gap-1.5 rounded-md bg-warning-subtle px-2 py-1 type-caption font-medium text-warning-subtle-foreground">
-          <Timer className="h-3.5 w-3.5 text-warning-active" strokeWidth={2} />
-          {slowest.stage} is the slowest stage — {slowest.avgHours}h avg
-        </div>
+        {slowest && (
+          <div className="flex items-center gap-1.5 rounded-md bg-warning-subtle px-2 py-1 type-caption font-medium text-warning-subtle-foreground">
+            <Timer className="h-3.5 w-3.5 text-warning-active" strokeWidth={2} />
+            {slowest.stage} is the slowest stage — {slowest.avgHours}h avg
+          </div>
+        )}
       </div>
 
       {/* Progress Bar — each segment width = % of bookings that passed through that stage */}
@@ -184,7 +203,7 @@ export function PipelineFlowCard<T extends PipelineBookingItem = PipelineBooking
       <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6 xl:gap-2">
         {stagesToRender.map((stage, i) => {
           const pct = totalCount > 0 ? (stage.count / totalCount) * 100 : 0;
-          const isSlowest = stage.stage === slowest.stage;
+          const isSlowest = slowest !== null && stage.stage === slowest.stage;
           const isLast = i === stagesToRender.length - 1;
 
           return (
@@ -237,29 +256,31 @@ export function PipelineFlowCard<T extends PipelineBookingItem = PipelineBooking
                   )}
                 </div>
 
-                {/* Stage Footer Bar */}
-                <div className="mt-3 border-t border-border pt-2">
-                  <div className="h-1 overflow-hidden rounded-full bg-muted">
-                    {ready && (
-                      <div
-                        className={`animate-grow-x h-full rounded-full ${
-                          isSlowest ? 'bg-warning' : 'bg-primary'
-                        }`}
-                        style={{
-                          width: `${(stage.avgHours / maxHours) * 100}%`,
-                          ['--d' as string]: `${250 + i * 80}ms`,
-                        }}
-                      />
-                    )}
+                {/* Stage Footer Bar — only where a dwell was actually measured. */}
+                {typeof stage.avgHours === 'number' && (
+                  <div className="mt-3 border-t border-border pt-2">
+                    <div className="h-1 overflow-hidden rounded-full bg-muted">
+                      {ready && (
+                        <div
+                          className={`animate-grow-x h-full rounded-full ${
+                            isSlowest ? 'bg-warning' : 'bg-primary'
+                          }`}
+                          style={{
+                            width: `${maxHours > 0 ? (stage.avgHours / maxHours) * 100 : 0}%`,
+                            ['--d' as string]: `${250 + i * 80}ms`,
+                          }}
+                        />
+                      )}
+                    </div>
+                    <div
+                      className={`mt-1.5 type-caption tabular-nums font-medium ${
+                        isSlowest ? 'text-warning-subtle-foreground' : 'text-muted-foreground'
+                      }`}
+                    >
+                      {stage.avgHours}h avg dwell
+                    </div>
                   </div>
-                  <div
-                    className={`mt-1.5 type-caption tabular-nums font-medium ${
-                      isSlowest ? 'text-warning-subtle-foreground' : 'text-muted-foreground'
-                    }`}
-                  >
-                    {stage.avgHours}h avg dwell
-                  </div>
-                </div>
+                )}
               </div>
             </div>
           );

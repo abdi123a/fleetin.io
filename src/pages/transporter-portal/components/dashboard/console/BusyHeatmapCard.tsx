@@ -36,8 +36,8 @@ export function BusyHeatmapCard({ data, onPlanSlots, className }: BusyHeatmapCar
   return (
     <ConsolePanel
       className={className}
-      title="When Your Trucks Are Busy"
-      subtitle="Moves started per hour, all cargo types"
+      title="Fleet Activity"
+      subtitle="Bookings started per hour, all cargo types"
       action={
         <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground">
           Quiet
@@ -97,7 +97,7 @@ export function BusyHeatmapCard({ data, onPlanSlots, className }: BusyHeatmapCar
                       <div
                         className="h-[22px] rounded-[4px]"
                         style={{ background: RAMP[band(value)] }}
-                        title={`${day.label} ${String(hour).padStart(2, '0')}:00 — ${value} ${value === 1 ? 'move' : 'moves'}`}
+                        title={`${day.label} ${String(hour).padStart(2, '0')}:00 — ${value} ${value === 1 ? 'booking' : 'bookings'}`}
                       />
                     </td>
                   );

@@ -131,8 +131,8 @@ export function RateVsNetworkCard({ tabs, className }: RateVsNetworkCardProps) {
   return (
     <ConsolePanel
       className={className}
-      title="Your Rate vs Network"
-      subtitle={`DJF per move · ${tab.label} · you against the Fleetin network`}
+      title="Rate vs Network"
+      subtitle={`DJF per booking · ${tab.label} · against the Fleetin network`}
       action={
         <div className="space-y-0.5">
           <p className="type-body-xs font-extrabold tabular-nums text-foreground">
@@ -148,7 +148,7 @@ export function RateVsNetworkCard({ tabs, className }: RateVsNetworkCardProps) {
             )}
           >
             {gap >= 0 ? '▲' : '▼'} {fmtDjfSigned(gap)} ({signedPct(gapPct)})
-            <span className="ml-1.5 font-medium text-muted-foreground">· {tab.moves} moves</span>
+            <span className="ml-1.5 font-medium text-muted-foreground">· {tab.moves} bookings</span>
           </p>
         </div>
       }

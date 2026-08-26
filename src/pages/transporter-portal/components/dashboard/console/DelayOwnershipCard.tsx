@@ -108,7 +108,7 @@ export function DelayOwnershipCard({
   return (
     <ConsolePanel
       className={className}
-      title="Delay responsibility"
+      title="Delay Responsibility"
       subtitle={`${data.delayedMoves} delayed · ${formatHours(data.hoursLost, 0)} lost`}
       action={onOpenAnalytics ? <PanelLink onClick={onOpenAnalytics}>Open analytics</PanelLink> : undefined}
       band={
@@ -132,7 +132,7 @@ export function DelayOwnershipCard({
       <SectionLabel>Who is responsible</SectionLabel>
       {partyRows.length === 0 ? (
         <p className="type-body-xs mt-3.5 text-muted-foreground">
-          No delayed moves in this group — nothing to attribute.
+          No delayed bookings in this group.
         </p>
       ) : (
         <DelayPartyList

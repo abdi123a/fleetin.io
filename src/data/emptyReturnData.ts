@@ -63,7 +63,7 @@ export const CRITICAL_THRESHOLD_MS = 6 * HOUR_MS;
  * ------------------------------------------------------------------------- */
 
 /** The single hub every empty goes back to and every full load is collected from. */
-export const EMPTY_RETURN_HUB = 'Doraleh Container Terminal — Main Return Hub (configurable)';
+export const EMPTY_RETURN_HUB = 'Doraleh Container Terminal';
 
 /**
  * The three exception strings, as constants.
@@ -103,7 +103,7 @@ export const EMPTY_RETURN_STATUS_META: Record<EmptyReturnStatus, EmptyReturnStat
     chipClassName: 'bg-card text-muted-foreground border-border',
   },
   preparing: {
-    label: 'Preparing Full Load',
+    label: 'Preparing',
     dotClassName: 'bg-accent',
     chipClassName: 'bg-card text-muted-foreground border-border',
   },
@@ -113,12 +113,12 @@ export const EMPTY_RETURN_STATUS_META: Record<EmptyReturnStatus, EmptyReturnStat
     chipClassName: 'bg-card text-muted-foreground border-border',
   },
   in_progress: {
-    label: 'Cycle In Progress',
+    label: 'In progress',
     dotClassName: 'bg-accent',
     chipClassName: 'bg-card text-muted-foreground border-border',
   },
   completed: {
-    label: 'Cycle Completed',
+    label: 'Completed',
     dotClassName: 'bg-success',
     chipClassName: 'bg-card text-muted-foreground border-border',
   },
@@ -163,7 +163,10 @@ export const RETURN_RISK_META: Record<ReturnRiskLevel, ReturnRiskMeta> = {
       'bg-urgency-overdue-bg text-urgency-overdue-fg border-urgency-overdue-border animate-pulse motion-reduce:animate-none',
   },
   protected: {
-    label: 'Protected',
+    /* The box is home and it beat its deadline, so no detention can ever be
+     * charged on it and that cannot change. "Protected" described the *effect*
+     * — nobody reading the board knew what it was protected from. */
+    label: 'Returned on time',
     className: 'bg-urgency-protected-bg text-urgency-protected-fg border-transparent',
   },
 };
@@ -200,7 +203,7 @@ export const DEFAULT_EMPTY_RETURN_FILTERS: EmptyReturnFilters = {
 /** `Assigned` sits directly under `All statuses`, mirroring `Critical + At risk` on risk. */
 export const EMPTY_RETURN_STATUS_FILTER_OPTIONS: readonly EmptyReturnFilterOption<EmptyReturnStatusFilter>[] = [
   { value: 'all', label: 'All statuses' },
-  { value: 'assigned', label: 'Assigned (Ready + In Progress)' },
+  { value: 'assigned', label: 'Assigned (Ready + In progress)' },
   ...EMPTY_RETURN_STATUS_ORDER.map((status) => ({
     value: status as EmptyReturnStatusFilter,
     label: EMPTY_RETURN_STATUS_META[status].label,
@@ -209,12 +212,12 @@ export const EMPTY_RETURN_STATUS_FILTER_OPTIONS: readonly EmptyReturnFilterOptio
 
 /** Deliberately offers no standalone `Critical` or `At risk` — `crit` bundles both. */
 export const EMPTY_RETURN_RISK_FILTER_OPTIONS: readonly EmptyReturnFilterOption<EmptyReturnRiskFilter>[] = [
-  { value: 'all', label: 'All risks' },
-  { value: 'crit', label: 'Critical + At risk' },
+  { value: 'all', label: 'All urgencies' },
+  { value: 'crit', label: 'Critical + at risk' },
   { value: 'overdue', label: 'Overdue' },
   { value: 'watch', label: 'Watch' },
   { value: 'safe', label: 'Safe' },
-  { value: 'protected', label: 'Protected' },
+  { value: 'protected', label: 'Returned on time' },
 ];
 
 /* ---------------------------------------------------------------------------

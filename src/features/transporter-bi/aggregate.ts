@@ -140,7 +140,7 @@ export function aggregateOverview(
   const kpis: TransporterOverviewKpis = {
     fleetUtilization: buildKpi({
       key: 'fleet_utilization',
-      label: 'Fleet Utilization',
+      label: 'Fleet Utilisation',
       value: fleet.utilization,
       unit: 'percent',
       polarity: 'higher_is_better',

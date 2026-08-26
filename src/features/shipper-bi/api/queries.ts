@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import type { BiFilters } from '../contracts';
-import { fetchOverview } from './biService';
+import { fetchDataset, fetchOverview } from './biService';
 
 /**
  * Query hooks, one per section.
@@ -25,6 +25,20 @@ interface SectionArgs {
 }
 
 const dayOf = (now: Date) => now.toISOString().slice(0, 10);
+
+/**
+ * The raw dataset, for the few consumers that need it rather than an
+ * aggregated section — the cover map wants the corridor geometry itself.
+ * Shares its key with `useShipperAccount`, so one fetch serves both.
+ */
+export function useBiDataset(shipperId: string, now: Date) {
+  return useQuery({
+    queryKey: [...biQueryKeys.all(shipperId), 'dataset', dayOf(now)] as const,
+    queryFn: () => fetchDataset(shipperId, now),
+    enabled: Boolean(shipperId),
+    staleTime: Infinity,
+  });
+}
 
 export function useOverviewSection({ shipperId, filters, now, enabled = true }: SectionArgs) {
   return useQuery({

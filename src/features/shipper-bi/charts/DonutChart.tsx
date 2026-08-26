@@ -31,6 +31,15 @@ export interface DonutChartProps {
   /** Formats each callout's value. Defaults to the raw count. */
   formatValue?: (value: number) => string;
   onSelect?: (slice: CategorySlice) => void;
+  /**
+   * Explicit colour per slice, overriding the intent/positional rule.
+   *
+   * For rings whose categories are neither pure identity nor the system's
+   * good/warning/critical scale — a brand-led outcome split, an all-bad
+   * breakdown ranked by depth of one hue. Same length and order as `slices`;
+   * a missing entry falls back to the default rule.
+   */
+  colors?: Array<string | undefined>;
   size?: number;
   className?: string;
 }
@@ -50,6 +59,7 @@ export function DonutChart({
   centerLabel,
   formatValue = (value) => String(value),
   onSelect,
+  colors,
   size = 300,
   className,
 }: DonutChartProps) {
@@ -78,7 +88,7 @@ export function DonutChart({
       share,
       dash: Math.max(0.4, share - gap),
       offset: -cursor,
-      color: sliceColor(slice.intent as Intent | undefined, index),
+      color: colors?.[index] ?? sliceColor(slice.intent as Intent | undefined, index),
       rad,
       isRight: Math.cos(rad) >= 0,
     };

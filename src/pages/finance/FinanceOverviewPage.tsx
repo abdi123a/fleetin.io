@@ -100,14 +100,14 @@ export function FinanceOverviewPage() {
         items.push({
           id: `unpriced-released-${shipment.id}`,
           title: `${shipment.reference} released, still unpriced`,
-          detail: 'Released to transporters but carries no price — price it from the transporter\'s price list.',
+          detail: 'Price it from the transporter\'s price list.',
           direction: 'in',
         });
       } else if (!shipment.payoutReleasedAt && shipment.clientRateMinorUnits == null && ['POD Submitted', 'Completed'].includes(shipment.status)) {
         items.push({
           id: `unpriced-pending-${shipment.id}`,
           title: `${shipment.reference} delivered, still unpriced`,
-          detail: 'Delivered but carries no price — price it from the transporter\'s price list.',
+          detail: 'Price it from the transporter\'s price list.',
           direction: 'in',
         });
       }
@@ -134,12 +134,12 @@ export function FinanceOverviewPage() {
     <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 px-4 pb-8 pt-1 sm:px-6">
       <PageHead
         title="Finance"
-        subtitle="Payouts against drawn capital, receivables closing the loop."
-        badge={queue.length > 0 ? <Pill tone="red">{queue.length} need a decision</Pill> : <Pill tone="teal">Nothing urgent</Pill>}
+        subtitle="Releases, receivables and facility drawdowns"
+        badge={queue.length > 0 ? <Pill tone="red">{queue.length} pending</Pill> : <Pill tone="teal">All clear</Pill>}
         actions={
           <Link to={ROUTES.financeShipments}>
             <ActionButton variant="primary" icon={ArrowRight}>
-              Open shipment book
+              Open shipments
             </ActionButton>
           </Link>
         }
@@ -156,47 +156,47 @@ export function FinanceOverviewPage() {
                   <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-white text-tile-teal">
                     <Landmark aria-hidden className="size-5" />
                   </span>
-                  <span className="text-sm font-bold text-tile-teal-foreground">Drawn on credit facilities</span>
+                  <span className="text-sm font-bold text-tile-teal-foreground">Outstanding Drawdowns</span>
                 </div>
                 <p className="mt-4 font-mono text-[40px] font-extrabold leading-none tracking-tight tabular-nums text-tile-teal-foreground">{fmtDjf(bankDrawnTotal)}</p>
                 <p className="mt-3 flex flex-wrap items-center gap-2 text-xs font-semibold text-tile-teal-foreground/75">
                   <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1 font-bold text-tile-teal-foreground">
                     <TrendingUp aria-hidden className="size-3.5" />
-                    {pct(utilisation)} of ceilings
+                    {pct(utilisation)} of limit
                   </span>
-                  {fmtDjf(bankCeilingTotal - bankDrawnTotal)} headroom left across {facilities.length} facilit{facilities.length === 1 ? 'y' : 'ies'}
+                  {fmtDjf(bankCeilingTotal - bankDrawnTotal)} available across {facilities.length} facilit{facilities.length === 1 ? 'y' : 'ies'}
                 </p>
               </div>
-              <Ring value={utilisation} label={pct(utilisation)} caption="used" tone="onFill" size={118} className="[&_span]:text-tile-teal-foreground" />
+              <Ring value={utilisation} label={pct(utilisation)} caption="drawn" tone="onFill" size={118} className="[&_span]:text-tile-teal-foreground" />
             </div>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <StatCard icon={Banknote} tint="orange" label="Payable now" value={compactDjf(money.payableDjf)} hint="Released, not yet paid" badge={<Pill tone="orange">Money out</Pill>} />
+            <StatCard icon={Banknote} tint="orange" label="Payable now" value={compactDjf(money.payableDjf)} hint="Released, not yet settled" badge={<Pill tone="orange">Debit</Pill>} />
             <StatCard
               icon={PauseCircle}
               tint="amber"
               label="Open holds"
               value={String(openHolds.length)}
-              hint="Disputes freezing a payout"
+              hint="Disputes stopping settlement"
               tone={openHolds.length > 0 ? 'held' : 'plain'}
-              badge={<Pill tone="amber">Held</Pill>}
+              badge={<Pill tone="amber">On hold</Pill>}
             />
-            <StatCard icon={Receipt} tint="teal" label="Receivables open" value={compactDjf(money.outstandingDjf)} hint={`${invoices.filter((i) => i.status !== 'Paid').length} invoices out`} badge={<Pill tone="teal">Money in</Pill>} />
+            <StatCard icon={Receipt} tint="teal" label="Receivables" value={compactDjf(money.outstandingDjf)} hint={`${invoices.filter((i) => i.status !== 'Paid').length} invoices open`} badge={<Pill tone="teal">Credit</Pill>} />
             <StatCard
               icon={Clock}
               tint="red"
-              label="Past due"
+              label="Overdue"
               value={compactDjf(money.overdueDjf)}
               hint="Invoiced, deadline passed"
               tone={money.overdueDjf > 0 ? 'critical' : 'plain'}
-              badge={<Pill tone="red">Chase</Pill>}
+              badge={<Pill tone="red">Receivables</Pill>}
             />
           </div>
 
           <Panel
-            title="Client exposure"
-            subtitle={`${compactDjf(money.outstandingDjf)} open · ${compactDjf(money.overdueDjf)} of it past due`}
+            title="Shipper Exposure"
+            subtitle={`${compactDjf(money.outstandingDjf)} receivables · ${compactDjf(money.overdueDjf)} overdue`}
             action={
               <div className="flex items-center gap-4 text-xs font-bold text-muted-foreground">
                 <span className="inline-flex items-center gap-1.5">
@@ -205,7 +205,7 @@ export function FinanceOverviewPage() {
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <span aria-hidden className="size-2 rounded-full bg-accent" />
-                  Past due
+                  Overdue
                 </span>
               </div>
             }
@@ -215,15 +215,12 @@ export function FinanceOverviewPage() {
                 <ExposureChart points={exposure} />
                 <p className="mt-2 text-xs font-semibold leading-relaxed text-muted-foreground">
                   {worstClient ? (
-                    <>
-                      <span className="text-foreground">
-                        {worstClient.label} carries the most late money — {compactDjf(worstClient.pastDueDjf)} of {compactDjf(worstClient.withinTermsDjf + worstClient.pastDueDjf)} is past its due
-                        date.
-                      </span>{' '}
-                      Anything below the line is money the facility is still funding.
-                    </>
+                    <span className="text-foreground">
+                      {worstClient.label} — {compactDjf(worstClient.pastDueDjf)} overdue of{' '}
+                      {compactDjf(worstClient.withinTermsDjf + worstClient.pastDueDjf)}
+                    </span>
                   ) : (
-                    'Every client is inside their agreed terms.'
+                    'Every shipper is within terms.'
                   )}
                 </p>
               </>
@@ -233,8 +230,8 @@ export function FinanceOverviewPage() {
           </Panel>
 
           <Panel
-            title="Capacity by funding source"
-            subtitle="An exhausted ceiling stops transporter payouts"
+            title="Facilities"
+            subtitle="Drawn against each limit"
             action={
               <Link to={ROUTES.financeFunding}>
                 <ActionButton variant="quiet">Funding</ActionButton>
@@ -243,7 +240,7 @@ export function FinanceOverviewPage() {
           >
             <div className="flex flex-col gap-4">
               {facilities.length === 0 ? (
-                <EmptyState message="No credit facilities registered yet." />
+                <EmptyState message="No facilities yet." />
               ) : (
                 facilities.map((facility) => {
                   const facilityDrawdowns = drawdowns.filter((d) => d.facilityId === facility.id);
@@ -262,7 +259,7 @@ export function FinanceOverviewPage() {
                       </div>
                       <Bar value={util} tone={hot ? 'orange' : 'teal'} />
                       <p className="mt-1.5 text-xs font-semibold text-muted-foreground">
-                        {pct(util)} used · {compactDjf(Math.max(0, limit - drawn))} available{hot ? ' · running hot' : ''}
+                        {pct(util)} drawn · {compactDjf(Math.max(0, limit - drawn))} available{hot ? ' · near limit' : ''}
                       </p>
                     </div>
                   );
@@ -280,7 +277,7 @@ export function FinanceOverviewPage() {
               <FilterPills
                 options={[
                   { key: 'queue', label: 'To decide', count: queue.length, tone: 'orange' },
-                  { key: 'paid', label: 'Paid', count: paidOrders.length, tone: 'teal' },
+                  { key: 'paid', label: 'Settled', count: paidOrders.length, tone: 'teal' },
                 ]}
                 active={feed}
                 onChange={setFeed}
@@ -304,7 +301,7 @@ export function FinanceOverviewPage() {
                     />
                   ))
                 ) : (
-                  <EmptyState message="Nothing waiting on a human." />
+                  <EmptyState message="Nothing to decide." />
                 )
               ) : paidOrders.length > 0 ? (
                 paidOrders.slice(0, 4).map((payment) => (
@@ -317,12 +314,12 @@ export function FinanceOverviewPage() {
                   />
                 ))
               ) : (
-                <EmptyState message="No payments yet." />
+                <EmptyState message="No settlements yet." />
               )}
             </div>
             <div className="border-t border-border-subtle px-5 py-3">
               <Link to={ROUTES.financeShipments}>
-                <ActionButton variant="quiet">Open the shipment book</ActionButton>
+                <ActionButton variant="quiet">Open shipments</ActionButton>
               </Link>
             </div>
           </Panel>
@@ -332,11 +329,9 @@ export function FinanceOverviewPage() {
               listed here predates that, so the fix is one button, not nine
               trips into nine shipments to type a figure. */}
           <Panel
-            title="Unpriced work"
+            title="Unpriced Work"
             subtitle={
-              unpricedShipments.length > 0
-                ? 'Created before pricing was automatic — the price list can fill these in'
-                : undefined
+              unpricedShipments.length > 0 ? 'Created before automatic pricing' : undefined
             }
             padded={false}
           >
@@ -369,8 +364,8 @@ export function FinanceOverviewPage() {
                         <FileText aria-hidden className="size-[18px] text-accent-bold-foreground" />
                       </span>
                     }
-                    sub={`${shipment.customerCompany} · ${compactDjf(Number(shipment.rateMinorUnits))} cost committed`}
-                    right={shipment.payoutReleasedAt ? <Pill tone="orange">Money out</Pill> : <Pill tone="neutral">No price</Pill>}
+                    sub={`${shipment.customerCompany} · ${compactDjf(Number(shipment.rateMinorUnits))} transport cost`}
+                    right={shipment.payoutReleasedAt ? <Pill tone="orange">Released</Pill> : <Pill tone="neutral">Unpriced</Pill>}
                     tone={shipment.payoutReleasedAt ? 'attention' : 'plain'}
                     action={
                       <Link to={buildPath(ROUTES.financeShipmentDetail, { shipmentId: shipment.id })}>

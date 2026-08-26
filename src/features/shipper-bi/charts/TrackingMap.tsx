@@ -434,11 +434,17 @@ function FallbackCorridor({
               </div>
               <div className="relative h-1.5 rounded-full bg-border">
                 {onRoute.map((shipment) => {
-                  const span = route.destinationLng - route.originLng || 1;
-                  const progress = Math.min(
-                    1,
-                    Math.max(0, (shipment.lng - route.originLng) / span),
-                  );
+                  // An unplaced corridor has no axis to lay progress along, so
+                  // the pip sits at the start rather than at a computed NaN.
+                  const originLng = route.originLng;
+                  const span =
+                    route.destinationLng != null && originLng != null
+                      ? route.destinationLng - originLng || 1
+                      : 1;
+                  const progress =
+                    originLng == null
+                      ? 0
+                      : Math.min(1, Math.max(0, (shipment.lng - originLng) / span));
                   return (
                     <span
                       key={shipment.shipmentId}

@@ -9,6 +9,30 @@ import { toTitleCase } from '@/utils';
 import { useBreadcrumbLabelStore } from '@/stores/breadcrumbLabel.store';
 
 /**
+ * A backend primary key, as opposed to a slug someone chose.
+ *
+ * A UUID must never reach `toTitleCase`, which splits it on its dashes and
+ * capitalises each chunk — `/hr/employees/4044e182-179d-…` came out as
+ * "4044e182 179d 4861 89b5 C80e7aeb6d80", which is worse than the raw id and
+ * is not what a breadcrumb is for. A reference like `EMP-00001` is the
+ * readable form of itself and is handled by `parseId` instead.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * What to call a record whose page has not named it yet.
+ *
+ * The parent segment already says what kind of thing this is — `employees`,
+ * `shippers`, `invoices` — so the singular of its label is both accurate and
+ * stable, and it is what the trail settles on if the record fails to load at
+ * all. A page that knows better overrides it through `useBreadcrumbLabel`.
+ */
+function unnamedRecordLabel(parentLabel: string | undefined): string {
+  if (!parentLabel) return 'Record';
+  return parentLabel.endsWith('s') ? parentLabel.slice(0, -1) : parentLabel;
+}
+
+/**
  * Derives the breadcrumb trail from the current URL.
  *
  * Segments are labelled from the navigation config where a match exists, and
@@ -44,12 +68,21 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
       const navItem = NAV_ITEMS_BY_PATH.get(path);
       const decoded = decodeURIComponent(segment);
 
+      const parentPath = `/${segments.slice(0, index).join('/')}`;
+      const parentNav = NAV_ITEMS_BY_PATH.get(parentPath);
+
+      const fallback = UUID.test(decoded)
+        ? unnamedRecordLabel(parentNav?.breadcrumbLabel ?? parentNav?.label)
+        : parseId(decoded)
+          ? decoded
+          : toTitleCase(decoded);
+
       return {
         label:
           navItem?.breadcrumbLabel ??
           navItem?.label ??
           labelOverrides[path] ??
-          (parseId(decoded) ? decoded : toTitleCase(decoded)),
+          fallback,
         // The current page renders as plain text; intermediate segments link.
         path: isCurrent ? undefined : path,
         isCurrent,

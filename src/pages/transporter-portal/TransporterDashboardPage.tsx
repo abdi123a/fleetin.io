@@ -128,15 +128,31 @@ export function TransporterDashboardPage() {
         onEmptyReturnClick={() => goAnalytics('operations')}
       />
 
-      {/* Today's numbers — the four operating figures beside the empty-leg split */}
+      {/* Today's four operating figures — the state of the fleet in one line,
+          before anything asks the reader to plan. */}
+      <section className="min-w-0">
+        <KpiTiles kpis={model.kpis} />
+      </section>
+
+      {/* Then what the fleet still owes, by the day it is due. Everything below
+          explains how the fleet has been doing; this is the only panel that
+          says what to do next, so it comes before all of it. */}
+      <section className="min-w-0">
+        <FleetPlanningCalendarCard
+          dataset={dataset}
+          now={now.getTime()}
+          onSelectTrip={() => goAnalytics('trips')}
+        />
+      </section>
+
+      {/* Rate against the network, beside the empty-leg split */}
       <ConsoleRow
         main={
-          <div className="flex min-w-0 flex-col gap-4">
-            <KpiTiles kpis={model.kpis} />
-            {model.rate.length > 0 ? (
-              <RateVsNetworkCard tabs={model.rate} className="flex-1" />
-            ) : null}
-          </div>
+          model.rate.length > 0 ? (
+            <RateVsNetworkCard tabs={model.rate} className="h-full" />
+          ) : (
+            <div className="min-w-0" />
+          )
         }
         side={
           <EmptyLegsCard
@@ -226,15 +242,6 @@ export function TransporterDashboardPage() {
         <NetworkComparisonCard
           data={model.network}
           onOpenDetails={() => goAnalytics('network')}
-        />
-      </section>
-
-      {/* The same commitments as dates — where the week is stacked */}
-      <section className="min-w-0">
-        <FleetPlanningCalendarCard
-          dataset={dataset}
-          now={now.getTime()}
-          onSelectTrip={() => goAnalytics('trips')}
         />
       </section>
 

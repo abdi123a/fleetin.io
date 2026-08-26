@@ -8,10 +8,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   XCircle,
-  FileWarning,
   RotateCcw,
   Timer,
-  FileText,
   Truck,
   DollarSign,
   Zap,
@@ -121,7 +119,7 @@ function DeliveryPerformanceCard({ bookings }: { bookings: BookingPreviewItem[] 
 
   const onTimeData = [
     { name: 'Completed', value: Math.round((onTime / total) * 100), fill: BRAND_COLORS.success },
-    { name: 'In Progress', value: Math.round((inTransit / total) * 100), fill: BRAND_COLORS.primary },
+    { name: 'In progress', value: Math.round((inTransit / total) * 100), fill: BRAND_COLORS.primary },
     { name: 'Pending / Delayed', value: Math.round((delayed / total) * 100), fill: BRAND_COLORS.accent },
   ].filter(d => d.value > 0);
 
@@ -278,7 +276,7 @@ function ContainerBreakdownCard({ bookings }: { bookings: BookingPreviewItem[] }
   const returnStatus = [
     { label: 'Returned', count: returned, color: BRAND_COLORS.success, icon: CheckCircle2 },
     { label: 'Pending Return', count: pendingReturn, color: BRAND_COLORS.accent, icon: RotateCcw },
-    { label: 'In Progress / Other', count: total - returned - pendingReturn, color: BRAND_COLORS.primary, icon: Clock },
+    { label: 'In progress / other', count: total - returned - pendingReturn, color: BRAND_COLORS.primary, icon: Clock },
   ].filter(s => s.count > 0);
 
   const returnedPct = Math.round((returned / total) * 100);
@@ -422,20 +420,17 @@ function FinancialSummaryCard({ bookings }: { bookings: BookingPreviewItem[] }) 
 
   const total = bookings.length;
   const completedCount = bookings.filter(b => b.statusIntent === 'green').length;
-  const docsCount = bookings.filter(b => b.podDocument).length;
   const onTimePct = Math.round((completedCount / (total || 1)) * 100);
   const minutesSaved = total * 20;
   const hoursSaved = Math.round(minutesSaved / 60);
   const partners = new Set(bookings.map(b => b.partnerName).filter((n): n is string => !!n)).size;
-  const totalDocs = total * 3;
 
   const kpis = [
     { icon: Truck, color: 'text-primary', bg: 'bg-primary/10', label: 'Bookings Managed', value: total, suffix: '', delay: 0.05 },
     { icon: Timer, color: 'text-info', bg: 'bg-info/10', label: 'Hours Saved', value: hoursSaved, suffix: 'h', delay: 0.1 },
     { icon: DollarSign, color: 'text-success-subtle-foreground', bg: 'bg-success-subtle', label: 'Est. Savings', value: total * 28, prefix: '$', delay: 0.15 },
     { icon: CheckCircle2, color: 'text-success', bg: 'bg-success/10', label: 'Completion Rate', value: onTimePct, suffix: '%', delay: 0.2 },
-    { icon: FileText, color: 'text-primary', bg: 'bg-primary/10', label: 'PODs Uploaded', value: docsCount, suffix: '', delay: 0.25 },
-    { icon: ShieldCheck, color: 'text-accent', bg: 'bg-accent/10', label: 'Transport Partners', value: partners, suffix: '', delay: 0.3 },
+    { icon: ShieldCheck, color: 'text-accent', bg: 'bg-accent/10', label: 'Transporters', value: partners, suffix: '', delay: 0.3 },
     { icon: Truck, color: 'text-accent', bg: 'bg-accent/10', label: 'Vehicles Deployed', value: total, suffix: '', delay: 0.35 },
     { icon: Zap, color: 'text-warning-subtle-foreground', bg: 'bg-warning-subtle', label: 'Total Min Saved', value: minutesSaved, suffix: 'm', delay: 0.4 },
   ];
@@ -479,9 +474,6 @@ function FinancialSummaryCard({ bookings }: { bookings: BookingPreviewItem[] }) 
           </div>
         ))}
       </div>
-      <p className="text-center text-[11px] text-muted-foreground -mt-1">
-        <span className="font-bold text-primary">{totalDocs}</span> Logistics Documents Managed in Total
-      </p>
     </motion.div>
   );
 }
@@ -507,14 +499,12 @@ function ExceptionSummaryCard({ bookings }: { bookings: BookingPreviewItem[] }) 
   const delayed = bookings.filter(b => b.statusIntent === 'orange' && !b.status.toLowerCase().includes('pending')).length;
   const cancelled = bookings.filter(b => b.status.toLowerCase().includes('cancelled')).length;
   const pendingReturn = bookings.filter(b => b.status.toLowerCase().includes('pending')).length;
-  const missingDocs = bookings.filter(b => !b.podDocument && ['green', 'blue'].includes(b.statusIntent)).length;
   const unverifiedDrivers = bookings.filter(b => !b.driverVerified).length;
 
   const exceptions = [
-    { icon: AlertTriangle, label: 'Delayed / In Progress', count: delayed, color: 'text-warning-subtle-foreground', bg: 'bg-warning-subtle', borderColor: 'border-warning/25', description: 'Bookings still dispatched or at port' },
+    { icon: AlertTriangle, label: 'Delayed / In progress', count: delayed, color: 'text-warning-subtle-foreground', bg: 'bg-warning-subtle', borderColor: 'border-warning/25', description: 'Bookings still dispatched or at port' },
     { icon: XCircle, label: 'Cancelled Bookings', count: cancelled, color: 'text-destructive-subtle-foreground', bg: 'bg-destructive-subtle', borderColor: 'border-destructive/25', description: 'Terminated before completion' },
     { icon: RotateCcw, label: 'Pending Empty Return', count: pendingReturn, color: 'text-info-subtle-foreground', bg: 'bg-info-subtle', borderColor: 'border-info/25', description: 'Container return not yet confirmed' },
-    { icon: FileWarning, label: 'Missing POD Documents', count: missingDocs, color: 'text-primary', bg: 'bg-primary/10', borderColor: 'border-primary/25', description: 'Delivered but no POD uploaded' },
     { icon: ShieldCheck, label: 'Unverified Drivers', count: unverifiedDrivers, color: 'text-accent', bg: 'bg-accent/10', borderColor: 'border-accent/25', description: 'Driver verification incomplete' },
   ];
 
@@ -772,8 +762,8 @@ function PartnerFleetVerificationCard({ bookings }: { bookings: BookingPreviewIt
       <div className="flex items-center gap-2.5">
         <IconChip icon={Building2} tint="blue" size={36} />
         <div>
-          <p className="text-sm font-bold text-foreground">Partner Fleet Compliance</p>
-          <p className="text-[11px] text-muted-foreground">Verified vs. unverified driver & vehicle credentials</p>
+          <p className="text-sm font-bold text-foreground">Transporter Fleet Compliance</p>
+          <p className="text-[11px] text-muted-foreground">Verified vs unverified driver and vehicle documents</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
           <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
@@ -836,12 +826,10 @@ function OperationalEfficiencyRadarCard({ bookings }: { bookings: BookingPreview
   const total = bookings.length || 1;
 
   const completed = bookings.filter(b => b.statusIntent === 'green').length;
-  const docs = bookings.filter(b => b.podDocument).length;
   const drivers = bookings.filter(b => b.driverVerified).length;
 
   const radarData = [
     { subject: 'On-Time Arrival', score: Math.round((completed / total) * 100) || 95 },
-    { subject: 'Doc Compliance', score: Math.round((docs / total) * 100) || 90 },
     { subject: 'Driver Verification', score: Math.round((drivers / total) * 100) || 85 },
     { subject: 'Route Efficiency', score: 92 },
     { subject: 'Capacity Fill', score: 88 },

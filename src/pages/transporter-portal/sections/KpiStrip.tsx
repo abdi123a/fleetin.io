@@ -40,7 +40,7 @@ export function KpiStrip({ data, overdueAmount, onOpenDetail }: KpiStripProps) {
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
       <MetricTile
         metric={kpis.fleetUtilization}
-        label="Fleet Utilization"
+        label="Fleet Utilisation"
         icon={<Gauge className="size-4" />}
         subAnalysis={`Target ${(utilizationTarget() * 100).toFixed(0)}.0%`}
         badge={

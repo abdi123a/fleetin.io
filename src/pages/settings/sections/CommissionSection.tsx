@@ -41,15 +41,12 @@ export function CommissionSection() {
     <div className="flex flex-col gap-4">
       <Panel
         title="Fleetin commission"
-        subtitle="Applies to every transporter alike — this is not negotiated per partner"
+        subtitle="Applies to every transporter"
       >
         <div className="flex flex-col gap-5">
           <p className="max-w-[68ch] text-sm leading-relaxed text-muted-foreground">
-            A transporter&rsquo;s price list is what the{' '}
-            <strong className="font-bold text-foreground">shipper pays</strong> — containers &times; the per-mission
-            price for that transporter. Fleetin&rsquo;s share is already inside that figure, so the transporter is
-            paid the total <strong className="font-bold text-foreground">minus</strong> this percentage. Changing it
-            re-prices future shipments only; money already booked is never restated.
+            The transporter is paid the shipper total{' '}
+            <strong className="font-bold text-foreground">minus</strong> this percentage. Future shipments only.
           </p>
 
           <div className="flex flex-wrap items-end gap-3">
@@ -108,7 +105,7 @@ export function CommissionSection() {
         </div>
       </Panel>
 
-      <Panel title="Billing" subtitle="When a shipper is invoiced, and how the figure is rounded">
+      <Panel title="Billing" subtitle="Invoice timing and rounding">
         <FieldGrid>
           <SelectField
             label="Billing cycle"
@@ -119,7 +116,7 @@ export function CommissionSection() {
               { value: 'biweekly', label: 'Every two weeks' },
               { value: 'weekly', label: 'Weekly' },
             ]}
-            hint="A shipper is billed once per period for everything moved, not once per shipment."
+            hint="One invoice per period, not one per shipment."
           />
           <NumberField
             label="Invoice issue day"
@@ -127,7 +124,7 @@ export function CommissionSection() {
             onChange={(v) => update('commission', { invoiceIssueDay: v })}
             min={0}
             max={28}
-            hint="Day of month the invoice is cut. 0 means the last day, which is what month-end billing wants."
+            hint="Day of month the invoice is issued. 0 means the last day."
           />
           <NumberField
             label="Rounding unit"
@@ -135,7 +132,7 @@ export function CommissionSection() {
             onChange={(v) => update('commission', { roundingUnitDjf: v })}
             min={1}
             suffix="DJF"
-            hint="Document totals round to this. 1 keeps whole francs; 100 rounds to the nearest hundred."
+            hint="Document totals round to this. 1 keeps whole DJF."
           />
           <NumberField
             label="Minimum invoice"
@@ -143,11 +140,10 @@ export function CommissionSection() {
             onChange={(v) => update('commission', { minimumInvoiceDjf: v })}
             min={0}
             suffix="DJF"
-            hint="Below this, nothing is raised and the balance rolls into the next period. 0 always invoices."
+            hint="Below this, nothing is issued and the balance rolls forward."
           />
           <SectionNote>
-            Billing rules are stored in this browser until the API grows to hold them — the commission above is the
-            only figure here the server owns today.
+            Billing rules are stored in this browser. Only the commission above is server-owned.
           </SectionNote>
         </FieldGrid>
       </Panel>
@@ -173,7 +169,7 @@ function WorkedExample({ pct }: { pct: number }) {
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
         <ExampleLeg label="Shipper is billed" value={total} tone="in" />
         <ExampleLeg label="Transporter is paid" value={transporter} tone="out" />
-        <ExampleLeg label="Fleetin keeps" value={fleetin} tone="keep" />
+        <ExampleLeg label="Fleetin commission" value={fleetin} tone="keep" />
       </div>
     </div>
   );

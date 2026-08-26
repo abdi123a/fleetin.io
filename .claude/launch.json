@@ -2,11 +2,34 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "fleetin-dev",
+      "name": "web → local API (:3000)",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev:local"
+      ],
       "port": 5173,
+      "autoPort": false
+    },
+    {
+      "name": "fleetin-dev-local-api",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "VITE_API_BASE_URL=http://localhost:3000/api/v1 npx vite --port 5199"
+      ],
+      "port": 5199,
       "autoPort": true
+    },
+    {
+      "name": "fleetin-dev-local-api-verify",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "VITE_API_BASE_URL=http://localhost:3000/api/v1 npx vite --port 5299 --strictPort"
+      ],
+      "port": 5299,
+      "autoPort": false
     },
     {
       "name": "fleetin-backend",

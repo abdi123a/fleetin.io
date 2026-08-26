@@ -28,7 +28,6 @@ import {
   DatePicker,
   TimePicker,
   Avatar,
-  Checkbox,
   Sheet,
   SheetContent,
   SheetTitle,
@@ -39,11 +38,10 @@ import { ROUTES, buildPath } from '@/config/routes';
 import { useShippers } from '@/features/shippers/api/queries';
 import { usePartners } from '@/features/partners/api/queries';
 import { useCreateShipment } from '@/features/shipments/api/queries';
-import { useCreateBookings } from '@/features/bookings/api/queries';
 import type { CreateBookingItemPayload } from '@/features/bookings/api/bookingsService';
-import { useProjects } from '@/features/finance';
-import { useSettings } from '@/features/settings';
+import { useCreateProject, useProjects } from '@/features/finance';
 import { usdToDjf } from '@/features/transporter-bi/config';
+import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
 import type { PartnerRecord } from '@/types/partner';
 import { cn } from '@/utils';
 import { IconChip } from '@/design-system';
@@ -82,9 +80,9 @@ function resolvePartnerRateFDJ(partner: PartnerRecord | undefined, vehicleType: 
  */
 function buildBookingItems(params: {
   isContainer: boolean;
-  containerNumbers: string[];
+  /** One entry per container, each carrying its own size — a shipment may mix 40ft and 20ft. */
+  containerEntries: { number: string; size: ContainerSizeType }[];
   transporterAssignments: { partnerId: string; vehicles: number; bookingIds: string[] }[];
-  isDpcsSource: boolean;
   cargoType: string;
   shipmentCategory: string;
   shippingLine?: string;
@@ -95,9 +93,8 @@ function buildBookingItems(params: {
 }): CreateBookingItemPayload[] {
   const {
     isContainer,
-    containerNumbers,
+    containerEntries,
     transporterAssignments,
-    isDpcsSource,
     cargoType,
     shipmentCategory,
     shippingLine,
@@ -109,7 +106,15 @@ function buildBookingItems(params: {
 
   if (!isContainer) {
     const first = transporterAssignments[0];
-    return [{ cargoType, shipmentCategory, partnerId: first?.partnerId || undefined, scheduledPickupTime }];
+    return [
+      {
+        reference: first?.bookingIds[0]?.trim() || undefined,
+        cargoType,
+        shipmentCategory,
+        partnerId: first?.partnerId || undefined,
+        scheduledPickupTime,
+      },
+    ];
   }
 
   const slots: { partnerId: string; reference?: string }[] = [];
@@ -117,18 +122,20 @@ function buildBookingItems(params: {
     for (let i = 0; i < assignment.vehicles; i += 1) {
       slots.push({
         partnerId: assignment.partnerId,
-        reference: isDpcsSource ? assignment.bookingIds[i] : undefined,
+        reference: assignment.bookingIds[i],
       });
     }
   }
 
-  return containerNumbers.filter(Boolean).map((containerNumber, index) => {
+  return containerEntries.map((entry, index) => {
     const slot = slots[index];
     return {
       reference: slot?.reference?.trim() || undefined,
-      cargoType,
+      // Per booking, never the shipment's mixed label — this one container is
+      // one size, and Empty Return keys its depot rules off exactly that.
+      cargoType: `Container (${entry.size})`,
       shipmentCategory,
-      containerNumber,
+      containerNumber: entry.number,
       shippingLine,
       partnerId: slot?.partnerId || undefined,
       containerReturnDepot,
@@ -147,6 +154,26 @@ export const CONTAINER_SIZES = [
 ] as const;
 
 export type ContainerSizeType = (typeof CONTAINER_SIZES)[number]['value'];
+
+/**
+ * One size's worth of containers on the shipment. A shipment carries one group
+ * per size it actually ships, so a mixed load — say two 40ft and one 20ft —
+ * is a normal shipment rather than something the wizard refuses to describe.
+ * Each group owns its own count and its own container numbers, because a 20ft
+ * number is not interchangeable with a 40ft one.
+ */
+export interface ContainerGroup {
+  size: ContainerSizeType;
+  quantity: number;
+  numbers: string[];
+}
+
+const CONTAINER_SIZE_ORDER = CONTAINER_SIZES.map((s) => s.value);
+
+/** "2x 40ft + 1x 20ft" — the whole mix in one phrase, in the canonical size order. */
+function describeContainerMix(groups: ContainerGroup[], separator = ' + '): string {
+  return groups.map((g) => `${g.quantity}x ${g.size}`).join(separator);
+}
 
 // Pickup locations: ONLY Djibouti Ports
 export const PICKUP_LOCATION_OPTIONS = [
@@ -222,37 +249,6 @@ const SHIPPING_LINES = [
   'Pacific International Lines (PIL)', 'COSCO Shipping',
   'Ocean Network Express (ONE)', 'Hapag-Lloyd',
 ];
-
-const DOCUMENT_OPTIONS = [
-  'DPCS Clearance',
-  'Bill of Lading',
-  'Certificate of Origin',
-  'Commercial Invoice',
-  'Packing List',
-  'Insurance Certificate',
-];
-
-// Custom document types the user adds are remembered locally, so a document
-// typed once shows up as a plain checkbox on every later shipment.
-const CUSTOM_DOCUMENTS_STORAGE_KEY = 'fleetin.customRequiredDocuments';
-
-function loadCustomDocuments(): string[] {
-  try {
-    const raw = localStorage.getItem(CUSTOM_DOCUMENTS_STORAGE_KEY);
-    const parsed: unknown = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.filter((d): d is string => typeof d === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveCustomDocuments(docs: string[]): void {
-  try {
-    localStorage.setItem(CUSTOM_DOCUMENTS_STORAGE_KEY, JSON.stringify(docs));
-  } catch {
-    // Storage unavailable (private browsing, quota) — the session still works, it just won't persist.
-  }
-}
 
 // Custom bulk categories the user adds are remembered locally, so a category
 // typed once shows up as a normal option on every later shipment.
@@ -369,6 +365,7 @@ export function CreateShipmentModal() {
         id: s.id,
         name: s.primaryContact?.name ?? '',
         company: s.companyLegalName,
+        logoUrl: s.logoUrl,
         phone: s.primaryContact?.phone ?? '',
         email: s.primaryContact?.email ?? '',
       })),
@@ -380,10 +377,17 @@ export function CreateShipmentModal() {
   const defaultTransporter = partners[0];
 
   const createShipmentMutation = useCreateShipment();
-  const createBookingsMutation = useCreateBookings();
 
   const [shipmentSource, setShipmentSource] = useState<'dpcs' | 'custom' | null>(null);
   const isDpcsSource = shipmentSource === 'dpcs';
+
+  /**
+   * The shipment's reference, typed by hand. Fleetin does not mint one: the
+   * operator numbers the shipment and each of its bookings themselves, and the
+   * server only refuses a number that is already taken. Empty by design —
+   * a prefilled default is a generated number wearing a text box.
+   */
+  const [shipmentReference, setShipmentReference] = useState<string>('');
 
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [completedSteps, setCompletedSteps] = useState<number[]>([]);
@@ -393,11 +397,12 @@ export function CreateShipmentModal() {
   // Form Fields State: Category (Container, Bulk, Machinery)
   const [shipmentCategory, setShipmentCategory] = useState<'containerized' | 'bulk' | 'machinery'>('containerized');
 
-  // Container Specifics: 40ft, 20ft
-  const [containerSize, setContainerSize] = useState<ContainerSizeType>('40ft');
+  // Container Specifics — one group per size shipped, so a mixed 40ft/20ft load
+  // is expressible. Never empty: at least one size stays selected.
+  const [containerGroups, setContainerGroups] = useState<ContainerGroup[]>([
+    { size: '40ft', quantity: 1, numbers: ['MSKU-998210-4'] },
+  ]);
   const [shippingLine, setShippingLine] = useState<string>('Maersk Line');
-  const [containerQuantity, setContainerQuantity] = useState<number>(1);
-  const [containerNumbers, setContainerNumbers] = useState<string[]>(['MSKU-998210-4']);
 
   // Container Return (Date & Time section)
   const [returnDeadline, setReturnDeadline] = useState<string>('2026-08-04');
@@ -456,16 +461,67 @@ export function CreateShipmentModal() {
   // if any — '' means a one-off. Sent as `projectId` on the real create payload.
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const { data: clientProjects = [] } = useProjects({ shipperId: selectedShipperId, status: 'active' }, { enabled: Boolean(selectedShipperId) });
+
+  // A shipper with no project yet shouldn't force the operator out to Finance
+  // and back. The project is created against the same `POST /projects` the
+  // Finance module uses, so it lands there — and on the client's page — as a
+  // real project the moment it's made, not a placeholder this wizard invented.
+  const createProjectMutation = useCreateProject();
+  const [newProjectName, setNewProjectName] = useState<string>('');
+  const [newProjectStart, setNewProjectStart] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [newProjectEnd, setNewProjectEnd] = useState<string>('');
+  const [newProjectEstimate, setNewProjectEstimate] = useState<string>('');
+  const [projectError, setProjectError] = useState<string | null>(null);
+  const isCreatingProject = selectedProjectId === ADD_CUSTOM_OPTION;
+  /** The sentinel is a UI state, never an id — it must not reach the payload. */
+  const resolvedProjectId = isCreatingProject ? '' : selectedProjectId;
+
   useEffect(() => {
     setSelectedProjectId('');
+    setProjectError(null);
   }, [selectedShipperId]);
 
+  const handleCreateProject = async () => {
+    const name = newProjectName.trim();
+    if (!name || !selectedShipperId || createProjectMutation.isPending) return;
+    setProjectError(null);
+    const estimate = Number(newProjectEstimate);
+    try {
+      const created = await createProjectMutation.mutateAsync({
+        shipperId: selectedShipperId,
+        name,
+        startedAt: new Date(newProjectStart).toISOString(),
+        contractEndAt: newProjectEnd ? new Date(newProjectEnd).toISOString() : undefined,
+        monthlyEstimate:
+          newProjectEstimate.trim() !== '' && Number.isFinite(estimate) && estimate >= 0 ? estimate : undefined,
+      });
+      setSelectedProjectId(created.id);
+      setNewProjectName('');
+      setNewProjectEnd('');
+      setNewProjectEstimate('');
+    } catch (error) {
+      setProjectError(
+        error instanceof Error ? error.message : 'Could not create the project. Please try again.',
+      );
+    }
+  };
+
   // Fleet
+  /**
+   * Derived, never picked. `applyContainerGroups` sets it from the container
+   * sizes and `handleCategorySelect` from the cargo category, so it always
+   * follows what is actually being shipped. The wizard used to offer a nine-
+   * option "Preferred Vehicle Type" list next to the transporter rows; it was
+   * removed because the cargo already decides the answer, and the only thing
+   * a mismatched pick changed was which pricing tier the shipment matched.
+   */
   const [vehicleType, setVehicleType] = useState<string>('Container Chassis Skeleton Carrier (40ft)');
   const [transporterAssignments, setTransporterAssignments] = useState<
     { id: string; partnerId: string; vehicles: number; bookingIds: string[] }[]
-  >([{ id: 'TA-1', partnerId: '', vehicles: 3, bookingIds: [] }]);
+  >([{ id: 'TA-1', partnerId: '', vehicles: 1, bookingIds: [] }]);
   const transporterIdCounter = useRef(1);
+  /** Once the operator types a vehicle count, the wizard stops guessing it. */
+  const vehiclesTouched = useRef(false);
 
   // Both lists load asynchronously — seed the defaults once they arrive
   // rather than baking a mock id into the initial state.
@@ -488,42 +544,60 @@ export function CreateShipmentModal() {
   const [paymentStatus, setPaymentStatus] = useState<'Paid' | 'Pending'>('Pending');
   // Fleetin's house commission, for the payout split shown in the review step.
   // Read-only here: the wizard displays where the money lands, it never sets it.
-  const { data: settings } = useSettings();
   // Normally empty — the price comes from the transporters' own price lists.
   // Filled only when an operator explicitly overrides with a negotiated figure.
   const [clientRateInput, setClientRateInput] = useState<string>('');
   /** Off by default: the price list decides, so the wizard cannot leave a shipment unpriced. */
   const [overridePrice, setOverridePrice] = useState(false);
-  const [requiredDocuments, setRequiredDocuments] = useState<string[]>(['DPCS Clearance', 'Bill of Lading']);
-  const [customDocuments, setCustomDocuments] = useState<string[]>(() => loadCustomDocuments());
-  const [newDocumentName, setNewDocumentName] = useState<string>('');
-  const [dpcsReference, setDpcsReference] = useState<string>('DPCS-DJ-2026-9901');
-  const documentOptions = [...DOCUMENT_OPTIONS, ...customDocuments];
-
-  const resolveVehicleType = (size: ContainerSizeType, quantity: number): string => {
-    return quantity > 1
-      ? `Multi-Container Chassis Trailer (${quantity}x ${size})`
-      : `Container Chassis Skeleton Carrier (${size})`;
+  const resolveVehicleType = (groups: ContainerGroup[]): string => {
+    const total = groups.reduce((sum, g) => sum + g.quantity, 0);
+    const only = groups[0];
+    return groups.length === 1 && only && total <= 1
+      ? `Container Chassis Skeleton Carrier (${only.size})`
+      : `Multi-Container Chassis Trailer (${describeContainerMix(groups)})`;
   };
 
-  const handleContainerNumbersChange = (numbers: string[]) => {
-    setContainerNumbers(numbers);
+  /** The single writer for the groups, so the default vehicle type never drifts. */
+  const applyContainerGroups = (next: ContainerGroup[]) => {
+    setContainerGroups(next);
+    setVehicleType(resolveVehicleType(next));
+  };
+
+  const updateContainerGroup = (size: ContainerSizeType, patch: Partial<Omit<ContainerGroup, 'size'>>) => {
+    applyContainerGroups(containerGroups.map((g) => (g.size === size ? { ...g, ...patch } : g)));
+  };
+
+  const toggleContainerSize = (size: ContainerSizeType) => {
+    if (containerGroups.some((g) => g.size === size)) {
+      // The last size stays put — a container shipment with no size is nothing.
+      if (containerGroups.length === 1) return;
+      applyContainerGroups(containerGroups.filter((g) => g.size !== size));
+      return;
+    }
+    applyContainerGroups(
+      [...containerGroups, { size, quantity: 1, numbers: [] }].sort(
+        (a, b) => CONTAINER_SIZE_ORDER.indexOf(a.size) - CONTAINER_SIZE_ORDER.indexOf(b.size),
+      ),
+    );
   };
 
   const handleBookingIdsChange = (assignmentId: string, ids: string[]) => {
     updateTransporterAssignment(assignmentId, { bookingIds: ids });
   };
 
-  const handleContainerQuantitySelect = (quantity: number) => {
-    setContainerQuantity(quantity);
-    setVehicleType(resolveVehicleType(containerSize, quantity));
-  };
-
   const containerFileInputRef = useRef<HTMLInputElement>(null);
+  /** Which size's list the pending upload fills — the file input itself is shared. */
+  const containerUploadTarget = useRef<ContainerSizeType>('40ft');
+
+  const openContainerNumbersUpload = (size: ContainerSizeType) => {
+    containerUploadTarget.current = size;
+    containerFileInputRef.current?.click();
+  };
 
   const handleContainerNumbersFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const size = containerUploadTarget.current;
     const reader = new FileReader();
     reader.onload = () => {
       const text = String(reader.result ?? '');
@@ -532,9 +606,7 @@ export function CreateShipmentModal() {
         .map((n) => n.trim().toUpperCase())
         .filter(Boolean);
       if (numbers.length > 0) {
-        setContainerNumbers(numbers);
-        setContainerQuantity(numbers.length);
-        setVehicleType(resolveVehicleType(containerSize, numbers.length));
+        updateContainerGroup(size, { numbers, quantity: numbers.length });
       }
     };
     reader.readAsText(file);
@@ -545,17 +617,12 @@ export function CreateShipmentModal() {
   const handleCategorySelect = (category: 'containerized' | 'bulk' | 'machinery') => {
     setShipmentCategory(category);
     if (category === 'containerized') {
-      setVehicleType(resolveVehicleType(containerSize, containerQuantity));
+      setVehicleType(resolveVehicleType(containerGroups));
     } else if (category === 'bulk') {
       setVehicleType('Heavy Tipper Bulk Truck (Side/Rear Dump)');
     } else if (category === 'machinery') {
       setVehicleType('Heavy Lowbed Equipment Transport Trailer + Escort');
     }
-  };
-
-  const handleContainerSizeSelect = (size: ContainerSizeType) => {
-    setContainerSize(size);
-    setVehicleType(resolveVehicleType(size, containerQuantity));
   };
 
   useEffect(() => {
@@ -586,13 +653,26 @@ export function CreateShipmentModal() {
         setDeliveryLocation(match?.value ?? delivLoc);
       }
       if (prefillData.deliveryCity) setDeliveryCity(prefillData.deliveryCity);
-      if (prefillData.cargoType) {
-        setContainerSize(prefillData.cargoType.includes('20') ? '20ft' : '40ft');
-      }
       if (prefillData.totalWeightKg) setTotalWeightKg(prefillData.totalWeightKg);
-      if (prefillData.containerNumber) {
-        setContainerNumbers([prefillData.containerNumber]);
-        setContainerQuantity(1);
+      // A prefilled shipment describes one container of one size, so it collapses
+      // the groups back to a single one rather than adding to whatever is there.
+      const prefilledSize: ContainerSizeType | null = prefillData.cargoType
+        ? prefillData.cargoType.includes('20')
+          ? '20ft'
+          : '40ft'
+        : null;
+      const prefilledNumber = prefillData.containerNumber;
+      if (prefilledSize || prefilledNumber) {
+        setContainerGroups((prev) => {
+          const base = prev[0] ?? { size: '40ft' as ContainerSizeType, quantity: 1, numbers: [] };
+          return [
+            {
+              size: prefilledSize ?? base.size,
+              quantity: prefilledNumber ? 1 : base.quantity,
+              numbers: prefilledNumber ? [prefilledNumber] : base.numbers,
+            },
+          ];
+        });
       }
     }
   }, [prefillData, sampleShippers]);
@@ -605,10 +685,24 @@ export function CreateShipmentModal() {
     setSuccessToast(null);
     setSubmitError(null);
     setShipmentSource(null);
+    setShipmentReference('');
+    setTransporterAssignments((prev) => prev.map((a) => ({ ...a, bookingIds: [] })));
   };
 
   const isContainer = shipmentCategory === 'containerized';
-  const containerNumberDiff = containerNumbers.length - containerQuantity;
+  const isMixedContainerSizes = containerGroups.length > 1;
+  const containerQuantity = containerGroups.reduce((sum, g) => sum + g.quantity, 0);
+  /** Flattened, in group order — the order the bookings are minted in. */
+  const containerEntries = useMemo(
+    () =>
+      containerGroups.flatMap((g) =>
+        g.numbers.filter(Boolean).map((number) => ({ number, size: g.size })),
+      ),
+    [containerGroups],
+  );
+  const containerNumbers = useMemo(() => containerEntries.map((e) => e.number), [containerEntries]);
+  /** How far one size's number list is off its own count. Negative = short. */
+  const containerGroupDiff = (group: ContainerGroup) => group.numbers.filter(Boolean).length - group.quantity;
   const duplicateContainerNumbers = useMemo(() => {
     const seen = new Set<string>();
     const dupes = new Set<string>();
@@ -627,8 +721,46 @@ export function CreateShipmentModal() {
   // One vehicle per container; bulk/machinery shipments default to a single dedicated vehicle.
   const vehiclesNeeded = isContainer ? containerQuantity : 1;
   const vehicleDiff = vehicleCount - vehiclesNeeded;
-  const dpcsFieldsMissing =
-    isDpcsSource && (!dpcsReference.trim() || transporterAssignments.some((a) => a.bookingIds.length === 0));
+
+  // Until the operator sets a count by hand, the single fleet row follows what
+  // the containers actually need. The wizard used to open on a fixed 3, which
+  // contradicted the 1 container it also opened on and flagged its own default
+  // as "2 extra vehicles assigned".
+  useEffect(() => {
+    if (vehiclesTouched.current) return;
+    setTransporterAssignments((prev) => {
+      const only = prev[0];
+      if (prev.length !== 1 || !only || only.vehicles === vehiclesNeeded) return prev;
+      return [{ ...only, vehicles: vehiclesNeeded }];
+    });
+  }, [vehiclesNeeded]);
+  /**
+   * Every reference on this shipment is typed, never minted — so the wizard
+   * has to say exactly which one is missing. A booking number per vehicle,
+   * because one vehicle carries one container and one container is one
+   * booking; the same 1:1 the fleet count is already checked against.
+   */
+  const bookingNumbers = transporterAssignments.flatMap((a) =>
+    a.bookingIds.map((b) => b.trim()).filter(Boolean),
+  );
+  const duplicateBookingNumbers = useMemo(() => {
+    const seen = new Set<string>();
+    const dupes = new Set<string>();
+    for (const n of bookingNumbers) {
+      if (seen.has(n)) dupes.add(n);
+      seen.add(n);
+    }
+    return dupes;
+  }, [bookingNumbers.join('\u0000')]);
+  const shipmentReferenceMissing = !shipmentReference.trim();
+  const bookingNumbersShort = transporterAssignments.filter(
+    (a) => a.bookingIds.filter((b) => b.trim()).length < a.vehicles,
+  );
+  const bookingNumbersLong = transporterAssignments.filter(
+    (a) => a.bookingIds.filter((b) => b.trim()).length > a.vehicles,
+  );
+  const referenceFieldsMissing =
+    shipmentReferenceMissing || bookingNumbersShort.length > 0 || bookingNumbersLong.length > 0;
   // The shipment's price, and the whole of the pricing rule: containers times
   // the per-mission price on the chosen transporter's own list. This is what
   // the shipper is billed — Fleetin's commission is already inside it, and the
@@ -637,36 +769,71 @@ export function CreateShipmentModal() {
     const partner = partners.find((p) => p.id === a.partnerId);
     return sum + a.vehicles * resolvePartnerRateFDJ(partner, vehicleType);
   }, 0);
-  const commissionPct = settings?.fleetinCommissionPct ?? 0;
-  const fleetinCutFDJ = Math.round((totalCostFDJ * commissionPct) / 100);
-  const transporterPayoutFDJ = totalCostFDJ - fleetinCutFDJ;
 
   // Every reason "Confirm & Create" can't be pressed yet — shown together near
   // the submit button so a missing field is never a silent no-op click (the
   // step-2 inline banners above say the same things, but by step 3 they're
   // scrolled out of view).
-  const validationIssues: string[] = [];
-  if (!activeShipper) validationIssues.push('Select a shipper.');
-  if (transporterAssignments.some((a) => !a.partnerId)) validationIssues.push('Assign a transporter to every fleet row.');
-  if (isContainer && containerNumberDiff !== 0) {
-    validationIssues.push(
-      containerNumberDiff < 0
-        ? `Add ${Math.abs(containerNumberDiff)} more container number(s) to match the ${containerQuantity} selected.`
-        : `Remove ${containerNumberDiff} extra container number(s), or increase the container count.`,
-    );
+  /**
+   * Each blocker carries the step that FIXES it, not the step it is read on.
+   * The list lives in the step-3 footer, so a container-count problem was
+   * being read next to the transporter rows that happened to be on screen —
+   * an operator who had just changed transporters reasonably concluded the
+   * transporters were the problem. Naming the step (and letting the line jump
+   * there) is the difference between a blocker and a riddle.
+   */
+  const validationIssues: { step: number; text: string }[] = [];
+  const blocker = (step: number, text: string) => validationIssues.push({ step, text });
+
+  if (shipmentReferenceMissing) {
+    blocker(1, isDpcsSource ? 'Enter the DPCS Shipment ID.' : 'Enter the shipment number.');
+  }
+  if (!activeShipper) blocker(1, 'Select a shipper.');
+  if (isContainer) {
+    for (const group of containerGroups) {
+      const diff = containerGroupDiff(group);
+      if (diff === 0) continue;
+      // Name the size only on a mixed load — on a single-size shipment it just
+      // repeats what the one panel above already says.
+      const sized = isMixedContainerSizes ? `${group.size} ` : '';
+      blocker(
+        1,
+        diff < 0
+          ? `Add ${Math.abs(diff)} more ${sized}container number(s) — you set the count to ${group.quantity}.`
+          : `Remove ${diff} extra ${sized}container number(s), or raise the count above ${group.quantity}.`,
+      );
+    }
   }
   if (hasDuplicateContainerNumbers) {
-    validationIssues.push('Remove the duplicate container number(s) — each one must be unique.');
+    blocker(1, 'Remove the duplicate container number(s) — each one must be unique.');
+  }
+  if (isCreatingProject) {
+    blocker(1, 'Finish creating the new project, or pick an existing one.');
+  }
+  if (transporterAssignments.some((a) => !a.partnerId)) {
+    blocker(2, 'Assign a transporter to every fleet row.');
   }
   if (vehicleDiff !== 0) {
-    validationIssues.push(
+    // Say where the target comes from: it is the container count from step 1,
+    // not anything chosen on the transporter rows this sits next to.
+    blocker(
+      2,
       vehicleDiff < 0
-        ? `Assign ${Math.abs(vehicleDiff)} more vehicle(s) to match the ${vehiclesNeeded} needed.`
-        : `Remove ${vehicleDiff} extra vehicle(s), or increase what's needed.`,
+        ? `Assign ${Math.abs(vehicleDiff)} more vehicle(s) — ${vehiclesNeeded} container(s) need ${vehiclesNeeded}.`
+        : `Remove ${vehicleDiff} extra vehicle(s) — ${vehiclesNeeded} container(s) need ${vehiclesNeeded}.`,
     );
   }
-  if (dpcsFieldsMissing) {
-    validationIssues.push("Enter the DPCS Shipment ID and each transporter's Booking ID(s).");
+  if (bookingNumbersShort.length > 0) {
+    blocker(2, 'Enter a booking number for every vehicle — one per container.');
+  }
+  if (bookingNumbersLong.length > 0) {
+    blocker(2, 'Remove the extra booking number(s) — there is one per vehicle.');
+  }
+  if (duplicateBookingNumbers.size > 0) {
+    blocker(
+      2,
+      `Booking number${duplicateBookingNumbers.size > 1 ? 's' : ''} ${[...duplicateBookingNumbers].join(', ')} ${duplicateBookingNumbers.size > 1 ? 'are' : 'is'} used twice — each booking needs its own.`,
+    );
   }
 
   const addTransporterAssignment = () => {
@@ -688,23 +855,6 @@ export function CreateShipmentModal() {
     patch: Partial<{ partnerId: string; vehicles: number; bookingIds: string[] }>,
   ) => {
     setTransporterAssignments((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
-  };
-
-  const toggleRequiredDocument = (doc: string) => {
-    setRequiredDocuments((prev) => (prev.includes(doc) ? prev.filter((d) => d !== doc) : [...prev, doc]));
-  };
-
-  const handleAddCustomDocument = () => {
-    const trimmed = newDocumentName.trim();
-    if (!trimmed) return;
-    const alreadyKnown = documentOptions.some((d) => d.toLowerCase() === trimmed.toLowerCase());
-    if (!alreadyKnown) {
-      const next = [...customDocuments, trimmed];
-      setCustomDocuments(next);
-      saveCustomDocuments(next);
-    }
-    setRequiredDocuments((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
-    setNewDocumentName('');
   };
 
   const handleAddCustomBulkCommodity = () => {
@@ -764,8 +914,10 @@ export function CreateShipmentModal() {
     setCurrentStep((prev) => Math.min(prev + 1, STEPS.length));
   };
 
-  // DPCS only moves containers, and the port settles payment on its own —
-  // so a DPCS shipment always starts out Container / Paid, non-negotiably.
+  // DPCS only moves containers, and the shipper's side is already settled
+  // through the port — so a DPCS shipment always starts out Container / Paid,
+  // non-negotiably. "Paid" is the shipper's payment only: it lands in Fleetin's
+  // account, and the transporter is paid out of it after the delivery.
   const handleChooseSource = (source: 'dpcs' | 'custom') => {
     setShipmentSource(source);
     if (source === 'dpcs') {
@@ -788,9 +940,17 @@ export function CreateShipmentModal() {
     }
   };
 
+  /**
+   * "40ft" for a single-size load — the label every existing shipment already
+   * carries — and "2x 40ft, 1x 20ft" once there is a genuine mix to spell out.
+   */
+  const containerMixLabel = isMixedContainerSizes
+    ? describeContainerMix(containerGroups, ', ')
+    : (containerGroups[0]?.size ?? '40ft');
+
   const getResolvedCargoLabel = (): string => {
     if (isContainer) {
-      return `Container (${containerSize})`;
+      return `Container (${containerMixLabel})`;
     }
     if (shipmentCategory === 'bulk') {
       const commodityName = bulkCommodity.split('(')[0]?.trim() || bulkCommodity;
@@ -816,7 +976,11 @@ export function CreateShipmentModal() {
     try {
       const created = await createShipmentMutation.mutateAsync({
         shipmentSource: shipmentSource ?? 'custom',
-        dpcsReference: isDpcsSource ? dpcsReference.trim() : undefined,
+        // The operator's own number, on every shipment. On a DPCS job that is
+        // DPCS's id and it goes in both columns, exactly as before; on a
+        // Fleetin-direct one it is simply the number they chose.
+        reference: shipmentReference.trim(),
+        dpcsReference: isDpcsSource ? shipmentReference.trim() : undefined,
         bookingId: !isDpcsSource ? prefillData?.bookingId : undefined,
         shipperId: activeShipper.id,
         transporterAssignments: transporterAssignments.map((a) => ({
@@ -837,7 +1001,6 @@ export function CreateShipmentModal() {
         cargoType: getResolvedCargoLabel(),
         shipmentCategory: shipmentCategory === 'machinery' ? 'bulky_goods' : shipmentCategory,
         machineryType: shipmentCategory === 'machinery' ? machineryClassification : undefined,
-        requiredDocuments: requiredDocuments.length > 0 ? requiredDocuments : undefined,
         bulkCommodity: shipmentCategory === 'bulk' ? bulkCommodity : undefined,
         containerNumber: resolvedContainerNumber,
         shippingLine: isContainer ? shippingLine : undefined,
@@ -846,7 +1009,7 @@ export function CreateShipmentModal() {
         containerReturnFreeDays: isContainer ? freeDays : undefined,
         goodsDescription:
           isContainer
-            ? `Container Cargo (${containerSize})`
+            ? `Container Cargo (${containerMixLabel})`
             : shipmentCategory === 'bulk'
             ? bulkCommodity
             : machineryClassification,
@@ -854,19 +1017,16 @@ export function CreateShipmentModal() {
         paymentStatus,
         scheduledPickupTime: scheduledPickupTimeIso,
         clientRateMinorUnits: clientRateInput.trim() ? Number(clientRateInput) : undefined,
-        projectId: selectedProjectId || undefined,
-      });
-
-      // One real booking per container (or one, for bulk/machinery) — the
-      // shipment above is the shipper's request; these are what Empty Return
-      // and per-container tracking actually key off. See `buildBookingItems`.
-      await createBookingsMutation.mutateAsync({
-        shipmentId: created.id,
+        projectId: resolvedProjectId || undefined,
+        // One real booking per container (or one, for bulk/machinery) — the
+        // shipment above is the shipper's request; these are what Empty Return
+        // and per-container tracking actually key off. Sent in the same request
+        // so the two can't half-succeed: this used to be a second call, and a
+        // failure there left a shipment behind with no containers at all.
         bookings: buildBookingItems({
           isContainer,
-          containerNumbers,
+          containerEntries,
           transporterAssignments,
-          isDpcsSource,
           cargoType: getResolvedCargoLabel(),
           shipmentCategory: shipmentCategory === 'machinery' ? 'bulky_goods' : shipmentCategory,
           shippingLine: isContainer ? shippingLine : undefined,
@@ -939,7 +1099,7 @@ export function CreateShipmentModal() {
           <div className="flex flex-1 flex-col justify-center gap-8 overflow-y-auto px-6 py-10 sm:px-8">
             <div className="space-y-1 text-center">
               <h2 className="text-xl font-extrabold tracking-tight text-foreground">How is this shipment being booked?</h2>
-              <p className="text-xs text-muted-foreground">This decides who assigns the Shipment ID and Booking ID.</p>
+              <p className="text-xs text-muted-foreground">This decides where the shipment came from — you enter its number and its bookings’ numbers either way.</p>
             </div>
             <div className="space-y-3">
               <button
@@ -949,7 +1109,7 @@ export function CreateShipmentModal() {
               >
                 <div className="text-sm font-bold text-foreground">Shipment from DPCS</div>
                 <img src="/logo/dpcs-logo.png" alt="DPCS" className="h-12 w-auto object-contain" />
-                <p className="text-xs text-muted-foreground">DPCS already assigned the IDs — you enter them.</p>
+                <p className="text-xs text-muted-foreground">DPCS already assigned the numbers — enter them as they are.</p>
               </button>
 
               <button
@@ -959,7 +1119,7 @@ export function CreateShipmentModal() {
               >
                 <div className="text-sm font-bold text-foreground">Custom Shipment</div>
                 <img src="/logo/fleetin-wordmark.png" alt="FLEETIN" className="h-12 w-auto object-contain" />
-                <p className="text-xs text-muted-foreground">Fleetin assigns the IDs automatically.</p>
+                <p className="text-xs text-muted-foreground">Fleetin-direct — you choose the shipment and booking numbers.</p>
               </button>
             </div>
           </div>
@@ -1049,6 +1209,23 @@ export function CreateShipmentModal() {
               {/* ─ STEP 1: Shipment Details ─ */}
               {currentStep === 1 && (
                 <div className="space-y-5">
+                  {/* Shipment Number — typed, never minted. See `handleCreateShipment`. */}
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block">
+                      {isDpcsSource ? 'DPCS Shipment ID *' : 'Shipment Number *'}
+                    </label>
+                    <Input
+                      value={shipmentReference}
+                      onChange={(e) => setShipmentReference(e.target.value)}
+                      placeholder={isDpcsSource ? 'DPCS-DJ-2026-9901' : 'Type this shipment’s number'}
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      {isDpcsSource
+                        ? 'The Shipment ID DPCS already generated for this booking — Fleetin will not create a new one.'
+                        : 'You choose this number — Fleetin will not generate one. It is refused only if another shipment already uses it.'}
+                    </p>
+                  </div>
+
                   {/* Shipper / Exporting Entity */}
                   <div className="space-y-2">
                     <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block">
@@ -1058,8 +1235,8 @@ export function CreateShipmentModal() {
                       value={selectedShipperId}
                       options={sampleShippers.map((s) => ({
                         value: s.id,
-                        label: `${s.company} — ${s.name}`,
-                        icon: <Avatar name={s.company} size="xs" shape="circle" />,
+                        label: s.company,
+                        icon: <CompanyMark id={s.id} name={s.company} logoUrl={s.logoUrl} size="xs" />,
                       }))}
                       onChange={setSelectedShipperId}
                     />
@@ -1080,12 +1257,101 @@ export function CreateShipmentModal() {
                           value: p.id,
                           label: `${p.name} (${p.reference})`,
                         })),
+                        { value: ADD_CUSTOM_OPTION, label: '+ New project…' },
                       ]}
                       onChange={setSelectedProjectId}
                     />
-                    {selectedShipperId && clientProjects.length === 0 ? (
+
+                    {isCreatingProject ? (
+                      <div className="space-y-3 rounded-lg border border-border/60 bg-secondary/30 p-3">
+                        <p className="text-[11px] font-bold text-foreground">
+                          New project for {activeShipper?.company ?? 'this shipper'}
+                        </p>
+                        <Input
+                          autoFocus
+                          value={newProjectName}
+                          onChange={(e) => setNewProjectName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              void handleCreateProject();
+                            }
+                          }}
+                          placeholder="Project name, e.g. Q4 electronics corridor"
+                        />
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                              Starts
+                            </label>
+                            <DatePicker value={newProjectStart} onChange={setNewProjectStart} />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                              Contract ends <span className="normal-case">(optional)</span>
+                            </label>
+                            <DatePicker value={newProjectEnd} onChange={setNewProjectEnd} />
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                            Monthly estimate <span className="normal-case">(optional)</span>
+                          </label>
+                          <Input
+                            type="number"
+                            min={0}
+                            value={newProjectEstimate}
+                            onChange={(e) => setNewProjectEstimate(e.target.value)}
+                            placeholder="0"
+                            suffixText="FDJ"
+                          />
+                          <p className="text-[10px] text-muted-foreground">
+                            A planning figure only — it never caps or delays a shipment.
+                          </p>
+                        </div>
+                        {projectError ? (
+                          <div className="flex items-start gap-2 rounded-md bg-danger-subtle p-2.5 text-[11px] text-danger-subtle-foreground">
+                            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                            <span>{projectError}</span>
+                          </div>
+                        ) : null}
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => void handleCreateProject()}
+                            disabled={!newProjectName.trim() || createProjectMutation.isPending}
+                            leadingIcon={<Plus className="h-3.5 w-3.5" />}
+                          >
+                            {createProjectMutation.isPending ? 'Creating…' : 'Create project'}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedProjectId('');
+                              setProjectError(null);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          It appears in Finance under this shipper straight away, with this shipment billed to it.
+                        </p>
+                      </div>
+                    ) : selectedShipperId && clientProjects.length === 0 ? (
                       <p className="text-[11px] font-medium text-muted-foreground">
-                        No open finance projects for this shipper — this will book as a one-off shipment.
+                        No open finance projects for this shipper — book it as a one-off, or{' '}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedProjectId(ADD_CUSTOM_OPTION)}
+                          className="cursor-pointer font-bold text-primary underline-offset-2 hover:underline"
+                        >
+                          create one now
+                        </button>
+                        .
                       </p>
                     ) : null}
                   </div>
@@ -1162,21 +1428,25 @@ export function CreateShipmentModal() {
                         <Container className="w-4 h-4 text-primary" />
                         <span>Container Details</span>
                       </div>
-                      {/* Container Size Selection: 40ft, 20ft */}
+                      {/* Container Sizes — more than one may be selected, because a
+                          single shipment routinely carries a mixed 40ft/20ft load. */}
                       <div className="space-y-2">
                         <label className="text-[11px] font-bold text-foreground block">
-                          Container Size *
+                          Container Sizes *
                         </label>
                         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                           {CONTAINER_SIZES.map((size) => {
-                            const isSelected = containerSize === size.value;
+                            const isSelected = containerGroups.some((g) => g.size === size.value);
+                            const isLastSelected = isSelected && containerGroups.length === 1;
                             return (
                               <button
                                 key={size.value}
                                 type="button"
-                                onClick={() => handleContainerSizeSelect(size.value)}
+                                aria-pressed={isSelected}
+                                onClick={() => toggleContainerSize(size.value)}
                                 className={cn(
-                                  'flex cursor-pointer flex-col gap-1 rounded-lg border p-3 text-left transition-all',
+                                  'flex flex-col gap-1 rounded-lg border p-3 text-left transition-all',
+                                  isLastSelected ? 'cursor-default' : 'cursor-pointer',
                                   isSelected
                                     ? 'border-primary bg-primary text-primary-foreground shadow-xs ring-1 ring-primary'
                                     : 'border-border bg-card text-foreground hover:border-primary/40 hover:bg-secondary/60'
@@ -1184,7 +1454,11 @@ export function CreateShipmentModal() {
                               >
                                 <div className="flex items-center justify-between w-full">
                                   <span className="text-xs font-bold">{size.label}</span>
-                                  <Container className={cn('h-4 w-4 shrink-0', isSelected ? 'text-primary-foreground' : 'text-primary')} />
+                                  {isSelected ? (
+                                    <Check className="h-4 w-4 shrink-0 stroke-[3] text-primary-foreground" />
+                                  ) : (
+                                    <Container className="h-4 w-4 shrink-0 text-primary" />
+                                  )}
                                 </div>
                                 <span className={cn('text-[10px] leading-tight', isSelected ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
                                   {size.desc}
@@ -1193,88 +1467,127 @@ export function CreateShipmentModal() {
                             );
                           })}
                         </div>
-                      </div>
-
-                      {/* Number of Containers */}
-                      <div className="space-y-2">
-                        <label className="text-[11px] font-bold text-foreground block">
-                          Number of Containers *
-                        </label>
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => handleContainerQuantitySelect(Math.max(1, containerQuantity - 1))}
-                            disabled={containerQuantity <= 1}
-                            className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border bg-card text-foreground transition-all hover:border-primary/40 hover:bg-secondary/60 disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            <Minus className="h-4 w-4" />
-                          </button>
-                          <input
-                            type="number"
-                            min={1}
-                            inputMode="numeric"
-                            value={containerQuantity}
-                            onChange={(e) => handleContainerQuantitySelect(Math.max(1, Number(e.target.value) || 1))}
-                            className="w-14 shrink-0 border-0 bg-transparent text-center text-xl font-extrabold text-foreground focus:outline-none focus:ring-1 focus:ring-primary rounded-md [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleContainerQuantitySelect(containerQuantity + 1)}
-                            className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border bg-card text-foreground transition-all hover:border-primary/40 hover:bg-secondary/60"
-                          >
-                            <Plus className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Container Number(s) */}
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <label className="text-[11px] font-bold text-foreground block">
-                            Container Number(s) *
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => containerFileInputRef.current?.click()}
-                            className="flex items-center gap-1.5 text-[11px] font-bold text-primary hover:underline"
-                          >
-                            <Upload className="w-3.5 h-3.5" />
-                            <span>Upload list</span>
-                          </button>
-                          <input
-                            ref={containerFileInputRef}
-                            type="file"
-                            accept=".csv,.txt,text/csv,text/plain"
-                            className="hidden"
-                            onChange={handleContainerNumbersFileUpload}
-                          />
-                        </div>
-                        <TagInput
-                          value={containerNumbers}
-                          onChange={handleContainerNumbersChange}
-                          transform={(raw) => raw.toUpperCase()}
-                          placeholder="Type or paste container numbers, e.g. MSKU-998210-4"
-                        />
                         <p className="text-[10px] text-muted-foreground">
-                          Press Enter or comma to add one, or paste a whole list at once.
+                          {isMixedContainerSizes
+                            ? `Mixed load — ${describeContainerMix(containerGroups)}. Each size keeps its own count and numbers.`
+                            : 'Select both to ship a mixed load of 40ft and 20ft containers together.'}
                         </p>
-
-                        {containerNumberDiff !== 0 ? (
-                          <div className="flex items-start gap-2 rounded-md bg-warning-subtle p-2.5 text-[11px] text-warning-subtle-foreground">
-                            <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                            <span>
-                              {containerNumberDiff < 0
-                                ? `Add ${Math.abs(containerNumberDiff)} more container number${Math.abs(containerNumberDiff) > 1 ? 's' : ''} to match the ${containerQuantity} container${containerQuantity > 1 ? 's' : ''} selected.`
-                                : `${containerNumberDiff} extra container number${containerNumberDiff > 1 ? 's' : ''} entered — remove some or increase the count above.`}
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-2 rounded-md bg-success-subtle p-2.5 text-[11px] text-success-subtle-foreground">
-                            <Check className="w-3.5 h-3.5 shrink-0" />
-                            <span>All {containerQuantity} container number{containerQuantity > 1 ? 's' : ''} confirmed.</span>
-                          </div>
-                        )}
                       </div>
+
+                      {/* One panel per size: its own count, its own numbers. */}
+                      <input
+                        ref={containerFileInputRef}
+                        type="file"
+                        accept=".csv,.txt,text/csv,text/plain"
+                        className="hidden"
+                        onChange={handleContainerNumbersFileUpload}
+                      />
+                      {containerGroups.map((group) => {
+                        const diff = containerGroupDiff(group);
+                        const sized = isMixedContainerSizes ? `${group.size} ` : '';
+                        return (
+                          <div
+                            key={group.size}
+                            className={cn(
+                              'space-y-4',
+                              isMixedContainerSizes && 'rounded-lg border border-border/60 bg-card/50 p-3',
+                            )}
+                          >
+                            {isMixedContainerSizes ? (
+                              <div className="flex items-center gap-2">
+                                <Badge variant="subtle" intent="primary" size="sm">
+                                  {group.size}
+                                </Badge>
+                                <span className="text-[10px] font-semibold text-muted-foreground">
+                                  {group.quantity} container{group.quantity > 1 ? 's' : ''}
+                                </span>
+                              </div>
+                            ) : null}
+
+                            {/* Number of Containers */}
+                            <div className="space-y-2">
+                              <label className="text-[11px] font-bold text-foreground block">
+                                Number of {sized}Containers *
+                              </label>
+                              <div className="flex items-center gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateContainerGroup(group.size, { quantity: Math.max(1, group.quantity - 1) })
+                                  }
+                                  disabled={group.quantity <= 1}
+                                  className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border bg-card text-foreground transition-all hover:border-primary/40 hover:bg-secondary/60 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  <Minus className="h-4 w-4" />
+                                </button>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  inputMode="numeric"
+                                  value={group.quantity}
+                                  onChange={(e) =>
+                                    updateContainerGroup(group.size, {
+                                      quantity: Math.max(1, Number(e.target.value) || 1),
+                                    })
+                                  }
+                                  className="w-14 shrink-0 border-0 bg-transparent text-center text-xl font-extrabold text-foreground focus:outline-none focus:ring-1 focus:ring-primary rounded-md [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => updateContainerGroup(group.size, { quantity: group.quantity + 1 })}
+                                  className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border bg-card text-foreground transition-all hover:border-primary/40 hover:bg-secondary/60"
+                                >
+                                  <Plus className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Container Number(s) */}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <label className="text-[11px] font-bold text-foreground block">
+                                  {sized}Container Number(s) *
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() => openContainerNumbersUpload(group.size)}
+                                  className="flex cursor-pointer items-center gap-1.5 text-[11px] font-bold text-primary hover:underline"
+                                >
+                                  <Upload className="w-3.5 h-3.5" />
+                                  <span>Upload list</span>
+                                </button>
+                              </div>
+                              <TagInput
+                                value={group.numbers}
+                                onChange={(numbers) => updateContainerGroup(group.size, { numbers })}
+                                transform={(raw) => raw.toUpperCase()}
+                                placeholder={`Type or paste ${group.size} container numbers, e.g. MSKU-998210-4`}
+                              />
+                              <p className="text-[10px] text-muted-foreground">
+                                Press Enter or comma to add one, or paste a whole list at once.
+                              </p>
+
+                              {diff !== 0 ? (
+                                <div className="flex items-start gap-2 rounded-md bg-warning-subtle p-2.5 text-[11px] text-warning-subtle-foreground">
+                                  <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                                  <span>
+                                    {diff < 0
+                                      ? `Add ${Math.abs(diff)} more ${sized}container number${Math.abs(diff) > 1 ? 's' : ''} to match the ${group.quantity} selected.`
+                                      : `${diff} extra ${sized}container number${diff > 1 ? 's' : ''} entered — remove some or increase the count above.`}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2 rounded-md bg-success-subtle p-2.5 text-[11px] text-success-subtle-foreground">
+                                  <Check className="w-3.5 h-3.5 shrink-0" />
+                                  <span>
+                                    All {group.quantity} {sized}container number{group.quantity > 1 ? 's' : ''} confirmed.
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
 
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div className="space-y-1.5 sm:col-span-2">
@@ -1621,19 +1934,6 @@ export function CreateShipmentModal() {
                       </Badge>
                     </div>
                     <div className="space-y-4">
-                      {isDpcsSource && (
-                        <div className="space-y-1.5">
-                          <label className="text-[11px] font-bold text-foreground block">DPCS Shipment ID *</label>
-                          <Input
-                            value={dpcsReference}
-                            onChange={(e) => setDpcsReference(e.target.value)}
-                            placeholder="DPCS-DJ-2026-9901"
-                          />
-                          <p className="text-[10px] text-muted-foreground">
-                            The Shipment ID DPCS already generated for this booking — Fleetin will not create a new one.
-                          </p>
-                        </div>
-                      )}
                       <div className="space-y-2.5">
                         {transporterAssignments.map((a) => (
                           <div key={a.id} className="space-y-2 rounded-lg border border-border/60 p-3">
@@ -1644,7 +1944,7 @@ export function CreateShipmentModal() {
                                   options={partners.map((p) => ({
                                     value: p.id,
                                     label: p.companyLegalName,
-                                    icon: <Avatar name={p.companyLegalName} size="xs" shape="circle" />,
+                                    icon: <CompanyMark id={p.id} name={p.companyLegalName} logoUrl={p.logoUrl} size="xs" />,
                                   }))}
                                   onChange={(val) => updateTransporterAssignment(a.id, { partnerId: val })}
                                 />
@@ -1666,9 +1966,12 @@ export function CreateShipmentModal() {
                                 type="number"
                                 min={1}
                                 value={a.vehicles}
-                                onChange={(e) =>
-                                  updateTransporterAssignment(a.id, { vehicles: Math.max(1, Number(e.target.value) || 1) })
-                                }
+                                onChange={(e) => {
+                                  vehiclesTouched.current = true;
+                                  updateTransporterAssignment(a.id, {
+                                    vehicles: Math.max(1, Number(e.target.value) || 1),
+                                  });
+                                }}
                               />
                             </div>
                             {(() => {
@@ -1681,19 +1984,39 @@ export function CreateShipmentModal() {
                                 </p>
                               );
                             })()}
-                            {isDpcsSource && (
-                              <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
-                                  DPCS Booking ID(s) *
-                                </label>
-                                <TagInput
-                                  value={a.bookingIds}
-                                  onChange={(ids) => handleBookingIdsChange(a.id, ids)}
-                                  transform={(raw) => raw.toUpperCase()}
-                                  placeholder="Type or paste this transporter's DPCS booking ID(s)"
-                                />
-                              </div>
-                            )}
+                            {(() => {
+                              const entered = a.bookingIds.filter((b) => b.trim()).length;
+                              return (
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
+                                      {isDpcsSource ? 'DPCS Booking ID(s) *' : 'Booking Number(s) *'}
+                                    </label>
+                                    <Badge
+                                      variant="subtle"
+                                      intent={entered === a.vehicles ? 'success' : 'warning'}
+                                      size="sm"
+                                    >
+                                      {entered} / {a.vehicles}
+                                    </Badge>
+                                  </div>
+                                  <TagInput
+                                    value={a.bookingIds}
+                                    onChange={(ids) => handleBookingIdsChange(a.id, ids)}
+                                    transform={(raw) => raw.toUpperCase()}
+                                    placeholder={
+                                      isDpcsSource
+                                        ? "Type or paste this transporter's DPCS booking ID(s)"
+                                        : 'Type one booking number per vehicle, in load order'
+                                    }
+                                  />
+                                  <p className="text-[10px] text-muted-foreground">
+                                    One per vehicle — each is a booking, and they are matched to the container
+                                    numbers in the order entered.
+                                  </p>
+                                </div>
+                              );
+                            })()}
                           </div>
                         ))}
                       </div>
@@ -1714,10 +2037,18 @@ export function CreateShipmentModal() {
                         </div>
                       )}
 
-                      {dpcsFieldsMissing && (
+                      {referenceFieldsMissing && (
                         <div className="flex items-start gap-2 rounded-md bg-warning-subtle p-2.5 text-[11px] text-warning-subtle-foreground">
                           <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                          <span>Enter the DPCS Shipment ID and each transporter's Booking ID(s) before continuing.</span>
+                          <span>
+                            {shipmentReferenceMissing
+                              ? isDpcsSource
+                                ? 'Enter the DPCS Shipment ID in step 1, and one booking number per vehicle here.'
+                                : 'Enter the shipment number in step 1, and one booking number per vehicle here.'
+                              : bookingNumbersLong.length > 0
+                                ? 'Remove the extra booking number(s) — there is one per vehicle.'
+                                : 'Enter a booking number for every vehicle — one per container.'}
+                          </span>
                         </div>
                       )}
 
@@ -1730,25 +2061,6 @@ export function CreateShipmentModal() {
                       >
                         Add Transporter
                       </Button>
-
-                      <div className="space-y-1.5 pt-1">
-                        <label className="text-[11px] font-bold text-foreground block">Preferred Vehicle Type *</label>
-                        <Combobox
-                          value={vehicleType}
-                          options={[
-                            { value: 'Container Chassis Skeleton Carrier (40ft)', label: 'Container Chassis Skeleton Carrier (40ft)' },
-                            { value: 'Container Chassis Skeleton Carrier (20ft)', label: 'Container Chassis Skeleton Carrier (20ft)' },
-                            { value: 'Dual Container Chassis Trailer (2x 20ft)', label: 'Dual Container Chassis Trailer (2x 20ft)' },
-                            { value: 'Heavy Truck (Flatbed 40ft)', label: 'Heavy Truck (Flatbed 40ft)' },
-                            { value: 'Heavy Tipper Bulk Truck (Side/Rear Dump)', label: 'Heavy Tipper Bulk Truck (Side/Rear Dump)' },
-                            { value: 'Pneumatic Tanker Bulk Truck', label: 'Pneumatic Tanker Bulk Truck (Cement / Flour / Grain)' },
-                            { value: 'Heavy Lowbed Equipment Transport Trailer + Escort', label: 'Heavy Lowbed Equipment Transport Trailer + Escort' },
-                            { value: 'Multi-Axle Modular Transporter (SPMT)', label: 'Multi-Axle Modular Transporter (SPMT)' },
-                            { value: 'Refrigerated Box Truck (Reefer)', label: 'Refrigerated Box Truck (Reefer)' },
-                          ]}
-                          onChange={setVehicleType}
-                        />
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -1805,28 +2117,6 @@ export function CreateShipmentModal() {
                       </p>
                     </div>
 
-                    {/* Where the money lands. Shown because the price above is
-                        gross of Fleetin's cut — without this split, "what the
-                        transporter gets" is a number nobody can see. */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="rounded-lg border border-border bg-muted/20 p-3">
-                        <span className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                          Transporter is paid
-                        </span>
-                        <div className="mt-0.5 font-mono text-base font-black tabular-nums text-foreground">
-                          {transporterPayoutFDJ.toLocaleString()} FDJ
-                        </div>
-                      </div>
-                      <div className="rounded-lg border border-border bg-muted/20 p-3">
-                        <span className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                          Fleetin keeps ({commissionPct}%)
-                        </span>
-                        <div className="mt-0.5 font-mono text-base font-black tabular-nums text-foreground">
-                          {fleetinCutFDJ.toLocaleString()} FDJ
-                        </div>
-                      </div>
-                    </div>
-
                     {/* An override, never a blank to fill in. The price is
                         always resolved from the price list, so leaving this
                         alone can no longer produce an unpriced shipment —
@@ -1863,88 +2153,6 @@ export function CreateShipmentModal() {
                       </button>
                     )}
 
-                    <div className="space-y-2">
-                      <label className="text-[11px] font-bold text-foreground block">Payment Status *</label>
-                      {isDpcsSource ? (
-                        <div className="flex items-center gap-2 rounded-lg border border-success/20 bg-success-subtle px-4 py-2.5 text-sm font-bold text-success-subtle-foreground">
-                          <Check className="h-4 w-4 shrink-0" />
-                          <span>Paid — settled automatically via DPCS</span>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-2 gap-2.5">
-                          {(['Pending', 'Paid'] as const).map((status) => {
-                            const isSelected = paymentStatus === status;
-                            return (
-                              <button
-                                key={status}
-                                type="button"
-                                onClick={() => setPaymentStatus(status)}
-                                className={cn(
-                                  'cursor-pointer rounded-lg border px-4 py-2.5 text-sm font-bold transition-all',
-                                  isSelected
-                                    ? 'border-primary bg-primary text-primary-foreground shadow-xs ring-1 ring-primary'
-                                    : 'border-border bg-card text-foreground hover:border-primary/40 hover:bg-secondary/60',
-                                )}
-                              >
-                                {status}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[11px] font-bold text-foreground block">Required Documents *</label>
-                      <div className="space-y-3 rounded-lg border border-border/60 p-3">
-                        <div className="space-y-2.5">
-                          {documentOptions.map((doc) => (
-                            <div key={doc}>
-                              <Checkbox
-                                label={doc}
-                                checked={requiredDocuments.includes(doc)}
-                                onChange={() => toggleRequiredDocument(doc)}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                        <div className="flex items-center gap-2 border-t border-border/60 pt-3">
-                          <Input
-                            value={newDocumentName}
-                            onChange={(e) => setNewDocumentName(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                handleAddCustomDocument();
-                              }
-                            }}
-                            placeholder="Add a custom document…"
-                            className="flex-1"
-                          />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={handleAddCustomDocument}
-                            disabled={!newDocumentName.trim()}
-                            leadingIcon={<Plus className="w-3.5 h-3.5" />}
-                          >
-                            Add
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-
-                    {!isDpcsSource && requiredDocuments.includes('DPCS Clearance') && (
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-foreground block">DPCS Document Ref</label>
-                        <Input
-                          value={dpcsReference}
-                          onChange={(e) => setDpcsReference(e.target.value)}
-                          placeholder="DPCS-DJ-2026-9901"
-                        />
-                      </div>
-                    )}
                   </div>
                 </div>
               )}
@@ -1964,9 +2172,20 @@ export function CreateShipmentModal() {
                     <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                     <div className="space-y-1">
                       <p className="font-bold">Before you can create this shipment:</p>
-                      <ul className="list-disc space-y-0.5 pl-3.5">
+                      <ul className="space-y-1">
                         {validationIssues.map((issue) => (
-                          <li key={issue}>{issue}</li>
+                          <li key={issue.text}>
+                            <button
+                              type="button"
+                              onClick={() => setCurrentStep(issue.step)}
+                              className="flex w-full items-start gap-1.5 text-left underline-offset-2 hover:underline cursor-pointer"
+                            >
+                              <span className="shrink-0 rounded-sm bg-warning-subtle-foreground/15 px-1 py-px font-bold">
+                                {STEPS[issue.step - 1]?.shortTitle}
+                              </span>
+                              <span>{issue.text}</span>
+                            </button>
+                          </li>
                         ))}
                       </ul>
                     </div>
@@ -2001,8 +2220,8 @@ export function CreateShipmentModal() {
                   type="button"
                   size="sm"
                   onClick={handleCreateShipment}
-                  disabled={!canSubmit || createShipmentMutation.isPending || createBookingsMutation.isPending}
-                  isLoading={createShipmentMutation.isPending || createBookingsMutation.isPending}
+                  disabled={!canSubmit || createShipmentMutation.isPending}
+                  isLoading={createShipmentMutation.isPending}
                   className="gap-1.5 rounded-lg bg-primary px-5 font-semibold text-primary-foreground"
                 >
                   <CheckCircle2 className="h-4 w-4" />

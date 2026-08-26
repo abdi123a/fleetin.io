@@ -9,7 +9,7 @@ import { cn } from '@/utils';
 
 export type StatisticTrend = 'up' | 'down' | 'neutral';
 export type StatisticStatus = 'default' | 'success' | 'warning' | 'danger' | 'info';
-export type StatisticVariant = 'default' | 'teal' | 'pink' | 'peach' | 'blue';
+export type StatisticVariant = 'default' | 'teal' | 'pink' | 'peach' | 'blue' | 'amber';
 
 export interface StatisticCardProps extends HTMLAttributes<HTMLDivElement> {
   /** Card title / metric name shown below the value. */
@@ -69,6 +69,16 @@ const variantClasses: Record<
     container: 'bg-tile-sky text-tile-foreground border-transparent',
     title: 'text-tile-foreground font-medium',
     value: 'text-tile-foreground font-semibold',
+    icon: 'on-light',
+  },
+  /* The one tile that flags rather than reports: same solid-fill treatment as
+   * `teal`, but on `--warning` so the single metric asking for attention this
+   * month (a bottleneck stage, a rising cost) reads as different in kind from
+   * the four pastel tiles beside it, not just a different hue. */
+  amber: {
+    container: 'bg-warning text-warning-foreground border-transparent',
+    title: 'text-warning-foreground/90 font-medium',
+    value: 'text-warning-foreground font-semibold',
     icon: 'on-light',
   },
   default: {

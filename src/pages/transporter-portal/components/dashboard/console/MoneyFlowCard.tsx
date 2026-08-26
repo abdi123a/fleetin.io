@@ -68,23 +68,22 @@ export function MoneyFlowCard({ legs, onOpenCosts, className }: MoneyFlowCardPro
   return (
     <ConsolePanel
       className={className}
-      title="Where Each Move’s Money Goes"
-      subtitle={`Average per move · ${djfCard(invoiced)} invoiced, ${djfCard(kept)} kept`}
+      title="Money Per Booking"
+      subtitle={`Average per booking · ${djfCard(invoiced)} invoiced, ${djfCard(kept)} kept`}
       action={
         <span className="type-body-xs rounded-md bg-surface-sunken px-3 py-1.5 text-foreground">
-          DJF per move
+          DJF per booking
         </span>
       }
       footer={
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="type-body-xs text-muted-foreground">
-            You keep{' '}
             <span className="font-bold text-foreground">
-              {Math.round(share(kept) * 100)} francs of every 100 invoiced
+              {pct(share(kept))} kept per booking
             </span>
             {biggest ? (
               <>
-                . {biggest.label} is the biggest leak at {djfCard(biggest.amount)} a move.
+                . Largest cost: {biggest.label}, {djfCard(biggest.amount)}.
               </>
             ) : (
               '.'
@@ -102,13 +101,13 @@ export function MoneyFlowCard({ legs, onOpenCosts, className }: MoneyFlowCardPro
           {compact(toDjf(kept))}
         </span>
         <span className="type-body-xs pb-1 text-muted-foreground">
-          DJF kept per move · {pct(share(kept))} of what you invoice
+          DJF kept per booking · {pct(share(kept))} of invoiced
         </span>
       </div>
 
       {/* One bar, 100% of the invoice. Kept first, then each cost. */}
       <div className="mt-4 flex h-11 gap-[3px] overflow-hidden rounded-md" role="img"
-        aria-label={`Of every move invoiced, ${pct(share(kept))} kept and the rest taken by ${costs.map((c) => c.label).join(', ')}`}
+        aria-label={`Of every booking invoiced, ${pct(share(kept))} kept and the rest taken by ${costs.map((c) => c.label).join(', ')}`}
       >
         {rows.map((row) => (
           <div
@@ -166,10 +165,6 @@ export function MoneyFlowCard({ legs, onOpenCosts, className }: MoneyFlowCardPro
         ))}
       </ul>
 
-      <p className="type-body-xs mt-3 text-muted-foreground">
-        Detention is charged on consignee hours past free time; waiting is the standing cost of the
-        gate and loading queues.
-      </p>
     </ConsolePanel>
   );
 }

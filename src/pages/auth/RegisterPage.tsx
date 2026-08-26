@@ -197,7 +197,7 @@ export function RegisterPage() {
                   leadingIcon={<Building2 className="w-4 h-4" />}
                   value={companyName}
                   onChange={(e) => setCompanyName(e.target.value)}
-                  placeholder="AMINA FZCO"
+                  placeholder="CMA-CGM"
                   className="rounded-lg"
                 />
               </div>

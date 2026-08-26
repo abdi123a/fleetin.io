@@ -80,8 +80,8 @@ export function EarningsVolumeCard({
     <Card variant="default" padding="none" className="overflow-visible shadow-sm">
       <div className="flex flex-col gap-4 p-6 pb-3">
         <CardHeading
-          title="Earnings volume"
-          subtitle="Completed-trip revenue across the selected timeframe"
+          title="Earnings Volume"
+          subtitle="Completed-trip revenue this period"
           icon={<Activity className="size-4" />}
         />
 

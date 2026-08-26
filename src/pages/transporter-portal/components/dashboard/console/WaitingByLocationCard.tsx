@@ -28,14 +28,14 @@ export function WaitingByLocationCard({ data, className }: WaitingByLocationCard
     <ConsolePanel
       className={className}
       title="Waiting Time by Location"
-      subtitle="Per move · black tick = network average"
+      subtitle="Per booking · black tick = network average"
     >
       <div className="flex items-end gap-3">
         <span className="text-3xl font-extrabold tracking-tight tabular-nums text-foreground">
           {formatHours(data.perMove)}
         </span>
         <span className="type-body-xs pb-1 text-muted-foreground">
-          waiting per move
+          waiting per booking
         </span>
         <StatusChip tone="attention" className="ml-auto shrink-0">
           {pct(data.waitingShare)} of cycle
@@ -82,10 +82,10 @@ export function WaitingByLocationCard({ data, className }: WaitingByLocationCard
           />
           Waiting {formatHours(data.perMove)}
         </span>
-        <span>Cycle {formatHours(data.cycle)} per move</span>
+        <span>Cycle {formatHours(data.cycle)} per booking</span>
       </div>
 
-      <SectionLabel className="mt-5">Where the waiting happens</SectionLabel>
+      <SectionLabel className="mt-5">Where Waiting Happens</SectionLabel>
 
       <div className="mt-3.5 flex flex-col gap-4">
         {data.byLocation.map((row) => {
@@ -125,14 +125,12 @@ export function WaitingByLocationCard({ data, className }: WaitingByLocationCard
 
       {data.worst ? (
         <InsightNote tone="attention" className="mt-4">
-          <span className="font-bold">{data.worst.label}</span> holds your trucks{' '}
-          <span className="font-bold">{formatHours(data.worst.delta)} longer</span> than the network
-          average — closing that gap is worth roughly one extra move per truck per day.
+          <span className="font-bold">{data.worst.label}</span> runs{' '}
+          <span className="font-bold">{formatHours(data.worst.delta)}</span> above network average.
         </InsightNote>
       ) : (
         <InsightNote className="mt-4">
-          Every point of the cycle is at or under the network average — the waiting on this fleet is
-          the corridor’s, not yours.
+          Every point at or under network average.
         </InsightNote>
       )}
     </ConsolePanel>

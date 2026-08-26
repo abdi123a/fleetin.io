@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Link2,
   Timer,
   X,
 } from '@/design-system/icons';
@@ -65,7 +66,15 @@ import { cn } from '@/utils';
  * inside the window, `late` has already missed. The names are about the clock,
  * not the colour, so a host never has to know the palette.
  */
-export type PlanningEventTone = 'done' | 'planned' | 'soon' | 'late';
+/**
+ * What kind of work an event is, in tone terms.
+ *
+ * `locked` was added for Empty Return, whose board is not a severity ramp but a
+ * pairing decision: an empty needs a full, a full needs an empty, and a matched
+ * pair is committed work that needs nothing further. Hosts opt in — a console
+ * that only emits done/planned/soon/late keeps exactly the four it had.
+ */
+export type PlanningEventTone = 'done' | 'locked' | 'planned' | 'soon' | 'late';
 
 export interface PlanningEvent {
   id: string;
@@ -98,24 +107,36 @@ const TONE: Record<PlanningEventTone, ToneStyle> = {
     icon: CheckCircle2,
     label: 'Done',
   },
+  /* `locked`, `planned` and `soon` carry the console's own KPI-tile palette —
+   * teal, sky and peach — so a colour means the same thing in the tiles at the
+   * top of the page and in the grid underneath them. Red stays reserved for a
+   * clock that has already run out, which is the one tile colour that is a
+   * warning rather than a category. */
+  locked: {
+    card: 'border-tile-sky bg-tile-sky text-tile-foreground hover:brightness-[0.97]',
+    mark: 'var(--tile-sky)',
+    chipActive: 'border-tile-sky bg-tile-sky text-tile-foreground',
+    icon: Link2,
+    label: 'Matched',
+  },
   planned: {
-    card: 'border-border bg-surface-sunken text-foreground hover:bg-secondary',
-    mark: 'var(--fl-teal-400)',
-    chipActive: 'border-border-strong bg-surface-sunken text-foreground',
+    card: 'border-tile-peach bg-tile-peach text-tile-foreground hover:brightness-[0.97]',
+    mark: 'var(--tile-peach)',
+    chipActive: 'border-tile-peach bg-tile-peach text-tile-foreground',
     icon: Clock,
     label: 'Planned',
   },
   soon: {
-    card: 'border-accent/35 bg-accent-subtle text-accent-subtle-foreground hover:brightness-[0.98]',
-    mark: 'var(--accent-bold)',
-    chipActive: 'border-accent/45 bg-accent-subtle text-accent-subtle-foreground',
+    card: 'border-tile-teal bg-tile-teal text-tile-teal-foreground hover:brightness-[1.06]',
+    mark: 'var(--tile-teal)',
+    chipActive: 'border-tile-teal bg-tile-teal text-tile-teal-foreground',
     icon: Timer,
     label: 'Due soon',
   },
   late: {
-    card: 'border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15',
+    card: 'border-destructive bg-destructive text-destructive-foreground hover:brightness-[1.06]',
     mark: 'var(--destructive)',
-    chipActive: 'border-destructive/40 bg-destructive/10 text-destructive',
+    chipActive: 'border-destructive bg-destructive text-destructive-foreground',
     icon: AlertCircle,
     label: 'Overdue',
   },
@@ -140,9 +161,9 @@ export interface PlanningCalendarProps {
   className?: string;
 }
 
-/** How many dots a day draws before the rest collapse to "+n". */
-const WEEK_CELL_LIMIT = 18;
-const MONTH_CELL_LIMIT = 10;
+/** How many entries a day spells out before the rest collapse to "+n more". */
+const WEEK_CELL_LIMIT = 6;
+const MONTH_CELL_LIMIT = 3;
 
 const dayKey = (day: Date) => format(day, 'yyyy-MM-dd');
 
@@ -207,7 +228,13 @@ export function PlanningCalendar({
 
   /** Per-tone counts across the visible range — the chips print their own weight. */
   const toneCounts = useMemo(() => {
-    const counts: Record<PlanningEventTone, number> = { done: 0, planned: 0, soon: 0, late: 0 };
+    const counts: Record<PlanningEventTone, number> = {
+      done: 0,
+      locked: 0,
+      planned: 0,
+      soon: 0,
+      late: 0,
+    };
     const inRange = view === 'week' ? days : days.filter((day) => isSameMonth(day, cursor));
     for (const day of inRange) {
       for (const event of allOn(day)) counts[event.tone] += 1;
@@ -238,18 +265,6 @@ export function PlanningCalendar({
     const lastDay = days[days.length - 1] ?? cursor;
     return `${format(first, 'd MMM')} – ${format(lastDay, 'd MMM yyyy')}`;
   }, [view, days, cursor]);
-
-  /**
-   * Whether today is already on screen.
-   *
-   * Drives the Today button's disabled state. Without it the button is always
-   * live and does nothing on the range it opens on, which reads as broken —
-   * the user reported exactly that. Greyed out, it says "you are already here".
-   */
-  const showingToday = useMemo(
-    () => (view === 'week' ? days.some((day) => isSameDay(day, today)) : isSameMonth(cursor, today)),
-    [view, days, cursor, today],
-  );
 
   const step = (direction: -1 | 1) => {
     setOpenDay(null);
@@ -306,8 +321,7 @@ export function PlanningCalendar({
             variant="outline"
             size="sm"
             className="h-8"
-            disabled={showingToday}
-            title={showingToday ? 'Already showing today' : 'Jump to today'}
+            title="Jump to today"
             onClick={() => {
               setOpenDay(null);
               setCursor(today);
@@ -356,19 +370,25 @@ export function PlanningCalendar({
                 aria-pressed={!off}
                 onClick={() => toggleTone(entry.tone)}
                 className={cn(
-                  'inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold transition-colors',
+                  // The tiles' own type: uppercase, extrabold, widely tracked —
+                  // and centred at a shared minimum width so four chips read as
+                  // one row of equals rather than four ragged pills.
+                  'inline-flex min-w-[7.5rem] cursor-pointer flex-col items-center justify-center gap-0.5',
+                  'rounded-card border px-3 py-1.5 transition-colors',
                   off
-                    ? 'border-border-subtle bg-transparent text-muted-foreground/70 line-through'
+                    ? 'border-border-subtle bg-transparent text-muted-foreground/70'
                     : TONE[entry.tone].chipActive,
                 )}
               >
                 <span
-                  className="size-[7px] shrink-0 rounded-full"
-                  style={{ background: off ? 'var(--chart-other)' : TONE[entry.tone].mark }}
-                  aria-hidden
-                />
-                {entry.label}
-                <span className="tabular-nums opacity-70">{count}</span>
+                  className={cn(
+                    'text-[10px] font-extrabold uppercase leading-tight tracking-[0.09em]',
+                    off && 'line-through',
+                  )}
+                >
+                  {entry.label}
+                </span>
+                <span className="text-sm font-extrabold tabular-nums leading-none">{count}</span>
               </button>
             );
           })}
@@ -385,6 +405,7 @@ export function PlanningCalendar({
           onOpenDay={setOpenDay}
           unitLabel={unitLabel}
           toneLabels={toneLabels}
+          onSelectEvent={onSelectEvent}
         />
       ) : (
         <MonthBoard
@@ -395,6 +416,7 @@ export function PlanningCalendar({
           eventsOn={shownOn}
           onOpenDay={setOpenDay}
           toneLabels={toneLabels}
+          onSelectEvent={onSelectEvent}
         />
       )}
 
@@ -417,20 +439,22 @@ export function PlanningCalendar({
  * ------------------------------------------------------------------------- */
 
 /**
- * A day cell says two things and no more: **how much** is on it, and **what
- * kind**. One dot per entry, coloured by tone; the count badge takes the colour
- * of the worst tone on the day.
+ * A day cell shows the work itself, not a tally of it: each entry reads as a
+ * chip in its tone — the clock, then the reference, and in the roomier week
+ * column the counterparty under it.
  *
- * The cells used to render a stack of cards — time, container, yard,
- * counterparty and a status word, four lines each, up to four of them. Twenty
- * days of that is a wall of small type nobody reads, and the one thing a
- * planner actually wants from a month grid — where the pressure is — was the
- * hardest thing to see. Detail did not disappear: clicking a day opens the full
- * list underneath, which is where a reference belongs.
+ * This replaced a row of coloured dots. The dots were themselves a correction
+ * of an earlier cell that stacked four-line cards and turned the month grid
+ * into a wall of small type, so the pressure that brought them in is real and
+ * the fix keeps its discipline: a cell spells out a handful and collapses the
+ * remainder into "+n more" rather than growing without limit. What changed is
+ * only that the handful is legible instead of abstract — the day header still
+ * carries the count and the worst tone, so "how much" survives at a glance.
  */
 
 /** Worst first — the tone a day is judged by. */
-const TONE_SEVERITY: readonly PlanningEventTone[] = ['late', 'soon', 'planned', 'done'];
+/** Which tone a day takes when it holds several — the one most worth acting on. */
+const TONE_SEVERITY: readonly PlanningEventTone[] = ['late', 'soon', 'planned', 'locked', 'done'];
 
 function worstTone(events: PlanningEvent[]): PlanningEventTone | null {
   for (const tone of TONE_SEVERITY) {
@@ -439,8 +463,87 @@ function worstTone(events: PlanningEvent[]): PlanningEventTone | null {
   return null;
 }
 
-/** Dots in severity order, so the worst of a busy day reads first. */
-function DayDots({ events, max }: { events: PlanningEvent[]; max: number }) {
+/** One entry as it reads inside a day cell. */
+function EventChip({
+  event,
+  dense,
+  toneLabels,
+  onSelect,
+}: {
+  event: PlanningEvent;
+  dense: boolean;
+  toneLabels: ToneLabels;
+  onSelect: () => void;
+}) {
+  const tone = TONE[event.tone];
+  const time = format(new Date(event.at), 'HH:mm');
+  const status = toneLabels[event.tone] ?? tone.label;
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      title={[time, event.title, event.subtitle, status].filter(Boolean).join(' · ')}
+      className={cn(
+        'flex w-full min-w-0 cursor-pointer items-start gap-1.5 rounded-sm border text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+        tone.card,
+        dense ? 'px-1 py-[3px]' : 'px-1.5 py-1',
+      )}
+    >
+      {/* The tone as a rule down the edge — colour without spending a word. */}
+      <span
+        className="mt-[3px] h-2 w-[3px] shrink-0 rounded-full"
+        style={{ background: tone.mark }}
+        aria-hidden
+      />
+      {/* Dense packs the clock beside the reference; the roomier week column
+          gives the reference its own line so a container number reads whole. */}
+      {dense ? (
+        <span className="flex min-w-0 flex-1 items-baseline gap-1">
+          <span className="shrink-0 text-[9px] font-bold tabular-nums opacity-70">{time}</span>
+          <span className="truncate font-mono text-[9.5px] font-bold tracking-tight">
+            {event.title}
+          </span>
+        </span>
+      ) : (
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate font-mono text-[11px] font-bold tracking-tight">
+            {event.title}
+          </span>
+          <span className="flex min-w-0 items-baseline gap-1">
+            <span className="shrink-0 text-[10px] font-bold tabular-nums opacity-70">{time}</span>
+            {event.subtitle ? (
+              <span className="truncate text-[10px] font-medium opacity-75">{event.subtitle}</span>
+            ) : null}
+          </span>
+        </span>
+      )}
+    </button>
+  );
+}
+
+/**
+ * A day's entries, worst tone first.
+ *
+ * Severity order decides which ones survive the cut, so an overdue box is never
+ * the thing hidden behind "+n more"; within a tone the host's own time order is
+ * preserved, which is how a planner reads a single day.
+ */
+function DayEvents({
+  events,
+  max,
+  dense,
+  toneLabels,
+  onOpenDay,
+  onSelectEvent,
+}: {
+  events: PlanningEvent[];
+  max: number;
+  dense: boolean;
+  toneLabels: ToneLabels;
+  onOpenDay: () => void;
+  onSelectEvent?: (event: PlanningEvent) => void;
+}) {
   const ordered = TONE_SEVERITY.flatMap((tone) => events.filter((event) => event.tone === tone));
   const shown = ordered.slice(0, max);
   const rest = ordered.length - shown.length;
@@ -448,19 +551,27 @@ function DayDots({ events, max }: { events: PlanningEvent[]; max: number }) {
   if (ordered.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-1">
+    <div className={cn('flex min-w-0 flex-col', dense ? 'gap-[3px]' : 'gap-1')}>
       {shown.map((event) => (
-        <span
+        <EventChip
           key={event.id}
-          className="size-1.5 shrink-0 rounded-full"
-          style={{ background: TONE[event.tone].mark }}
-          aria-hidden
+          event={event}
+          dense={dense}
+          toneLabels={toneLabels}
+          onSelect={() => (onSelectEvent ? onSelectEvent(event) : onOpenDay())}
         />
       ))}
       {rest > 0 ? (
-        <span className="text-[9px] font-bold leading-none tabular-nums text-muted-foreground">
-          +{rest}
-        </span>
+        <button
+          type="button"
+          onClick={onOpenDay}
+          className={cn(
+            'cursor-pointer rounded-sm px-1 py-px text-left font-bold text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+            dense ? 'text-[9px]' : 'text-[10px]',
+          )}
+        >
+          +{rest} more
+        </button>
       ) : null}
     </div>
   );
@@ -505,6 +616,7 @@ function WeekBoard({
   onOpenDay,
   unitLabel,
   toneLabels,
+  onSelectEvent,
 }: {
   days: Date[];
   today: Date;
@@ -514,10 +626,11 @@ function WeekBoard({
   onOpenDay: (key: string | null) => void;
   unitLabel: { one: string; many: string };
   toneLabels: ToneLabels;
+  onSelectEvent?: (event: PlanningEvent) => void;
 }) {
   return (
-    <div className="overflow-x-auto">
-      <div className="grid min-w-[32rem] grid-cols-7 gap-2">
+    <div className="w-0 min-w-full overflow-x-auto">
+      <div className="grid min-w-[56rem] grid-cols-7 gap-2">
         {days.map((day) => {
           const dayEvents = eventsOn(day);
           const isToday = isSameDay(day, today);
@@ -581,15 +694,17 @@ function WeekBoard({
                 </span>
               </button>
 
-              {/* The work, as dots. The whole panel opens the day. */}
-              <button
-                type="button"
-                onClick={() => onOpenDay(isOpen ? null : dayKey(day))}
-                aria-label={`Open ${format(day, 'd MMM')}`}
-                className="flex min-h-[2.75rem] cursor-pointer flex-col items-start gap-1.5 p-2 text-left transition-colors hover:bg-surface-sunken/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-              >
-                <DayDots events={dayEvents} max={WEEK_CELL_LIMIT} />
-              </button>
+              {/* The work itself. A chip selects its entry; "+n more" opens the day. */}
+              <div className="flex min-h-[2.75rem] flex-col p-1.5">
+                <DayEvents
+                  events={dayEvents}
+                  max={WEEK_CELL_LIMIT}
+                  dense={false}
+                  toneLabels={toneLabels}
+                  onOpenDay={() => onOpenDay(isOpen ? null : dayKey(day))}
+                  onSelectEvent={onSelectEvent}
+                />
+              </div>
             </section>
           );
         })}
@@ -610,6 +725,7 @@ function MonthBoard({
   eventsOn,
   onOpenDay,
   toneLabels,
+  onSelectEvent,
 }: {
   days: Date[];
   cursor: Date;
@@ -618,10 +734,11 @@ function MonthBoard({
   eventsOn: (day: Date) => PlanningEvent[];
   onOpenDay: (key: string | null) => void;
   toneLabels: ToneLabels;
+  onSelectEvent?: (event: PlanningEvent) => void;
 }) {
   return (
-    <div className="overflow-x-auto">
-      <div className="min-w-[30rem]">
+    <div className="w-0 min-w-full overflow-x-auto">
+      <div className="min-w-[52rem]">
         <div className="grid grid-cols-7">
           {days.slice(0, 7).map((day) => (
             <p
@@ -644,7 +761,10 @@ function MonthBoard({
               <div
                 key={day.toISOString()}
                 className={cn(
-                  'flex min-h-[4.5rem] flex-col gap-1 border-b border-r border-border-subtle p-1.5 transition-colors',
+                  // Tall enough to hold two entries and the "+n more" without
+                  // collapsing. At 6rem a busy day clipped to one line, which
+                  // is the day a planner most needs to read at a glance.
+                  'flex min-h-[7.5rem] flex-col gap-1 border-b border-r border-border-subtle p-1.5 transition-colors',
                   outside && 'bg-surface-sunken/40',
                   isToday && 'bg-primary-subtle/25',
                   isOpen && 'bg-primary-subtle/40 ring-1 ring-inset ring-primary/40',
@@ -670,14 +790,16 @@ function MonthBoard({
                   <DayCount events={dayEvents} toneLabels={toneLabels} />
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => onOpenDay(isOpen ? null : dayKey(day))}
-                  aria-label={`Open ${format(day, 'd MMM yyyy')}`}
-                  className="flex flex-1 cursor-pointer items-start px-0.5 pt-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                >
-                  <DayDots events={dayEvents} max={MONTH_CELL_LIMIT} />
-                </button>
+                <div className="flex flex-1 flex-col px-0.5 pt-0.5">
+                  <DayEvents
+                    events={dayEvents}
+                    max={MONTH_CELL_LIMIT}
+                    dense
+                    toneLabels={toneLabels}
+                    onOpenDay={() => onOpenDay(isOpen ? null : dayKey(day))}
+                    onSelectEvent={onSelectEvent}
+                  />
+                </div>
               </div>
             );
           })}

@@ -7,7 +7,7 @@ import { create } from 'zustand';
  * route has no static nav-config label — fine for `/shippers/new`, but a
  * detail route's segment is now a real backend id (a UUID), which title-cases
  * into unreadable noise. A detail page that knows the entity's display name
- * (e.g. "AMINA FZCO" or its "SHP-101" reference) calls `useBreadcrumbLabel()`
+ * (e.g. "CMA-CGM" or its "SHP-101" reference) calls `useBreadcrumbLabel()`
  * to override just its own trail segment, keyed by the exact pathname so it
  * only ever affects the page that set it.
  */

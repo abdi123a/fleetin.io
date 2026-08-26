@@ -1,13 +1,11 @@
 import {
   AlertTriangle,
+  BadgeCheck,
   CheckCircle2,
   Clock,
   Loader2,
   Minus,
   RefreshCw,
-  ShieldAlert,
-  ShieldCheck,
-  ShieldX,
   Wifi,
   WifiOff,
   XCircle,
@@ -78,28 +76,60 @@ export function StatusBadge({ status, label, variant = 'subtle', size, className
 
 /* ---------------------------------------------------------------------------
  * VerificationBadge
+ * ---------------------------------------------------------------------------
+ * The one verified mark in the product — a bare tick beside the name it
+ * confirms, exactly like a social-media checkmark: no pill, no border, no
+ * label. It renders only for the verified state; every other state is
+ * silence, because that is how the pattern it's copying works too — a
+ * platform doesn't badge an account "unverified," it just doesn't badge it.
+ *
+ * Before this, every real call site had to override the badge back down to a
+ * bare tick by hand (`bg-transparent border-0 px-0 ...`), inconsistently, and
+ * three unrelated pages (Drivers, Vehicles, the Partner workspace) had
+ * separately reinvented the same tick with a raw `BadgeCheck` icon instead of
+ * this component — one of them shown unconditionally, regardless of whether
+ * the record actually had valid documents.
  * ------------------------------------------------------------------------- */
 
 export type VerificationState = 'verified' | 'unverified' | 'pending' | 'rejected';
 
-const VERIFICATION_CONFIG: Record<VerificationState, { intent: BadgeProps['intent']; icon: ReactNode; label: string }> = {
-  verified:   { intent: 'success',     icon: <ShieldCheck  className="h-3 w-3" />, label: 'Verified'   },
-  unverified: { intent: 'default',     icon: <ShieldAlert  className="h-3 w-3" />, label: 'Unverified' },
-  pending:    { intent: 'warning',     icon: <Clock        className="h-3 w-3" />, label: 'Pending'    },
-  rejected:   { intent: 'destructive', icon: <ShieldX      className="h-3 w-3" />, label: 'Rejected'   },
-};
-
-export interface VerificationBadgeProps extends Omit<BadgeProps, 'intent'> {
+export interface VerificationBadgeProps {
   state: VerificationState;
+  size?: 'sm' | 'md' | 'lg';
+  className?: string;
 }
 
-export function VerificationBadge({ state, variant = 'subtle', size, className, ...props }: VerificationBadgeProps) {
-  const cfg = VERIFICATION_CONFIG[state];
+const VERIFICATION_ICON_SIZE: Record<NonNullable<VerificationBadgeProps['size']>, string> = {
+  sm: 'h-3.5 w-3.5',
+  md: 'h-4 w-4',
+  lg: 'h-5 w-5',
+};
+
+export function VerificationBadge({ state, size = 'md', className }: VerificationBadgeProps) {
+  if (state !== 'verified') return null;
+  /*
+   * Filled, in the brand teal, with the tick knocked out of it.
+   *
+   * Lucide's `BadgeCheck` is two paths — the scalloped rosette and the tick —
+   * and a blanket `fill="currentColor"` floods both, turning it into a blob.
+   * So the rosette takes the fill and the tick is re-stroked in the badge's
+   * foreground, which is what makes it read at 14px.
+   *
+   * `--primary-bold` (teal-700), not `--primary`: this is a filled surface
+   * carrying a mark, and the ramp's own note is that teal-700 is the step that
+   * carries white at 5.6:1.
+   */
   return (
-    <Badge intent={cfg.intent} variant={variant} size={size} className={className} {...props}>
-      {cfg.icon}
-      {cfg.label}
-    </Badge>
+    <BadgeCheck
+      aria-label="Verified"
+      className={cn(
+        VERIFICATION_ICON_SIZE[size],
+        'shrink-0 text-primary-bold',
+        '[&>path:first-child]:fill-current [&>path:first-child]:stroke-current',
+        '[&>path:last-child]:stroke-primary-bold-foreground',
+        className,
+      )}
+    />
   );
 }
 

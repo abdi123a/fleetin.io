@@ -76,9 +76,9 @@ const TAB_KEYS: TabKey[] = ['overview', 'operations', 'money', 'people', 'networ
 
 /** Which queue items belong to which section. */
 const TAB_MODULES: Record<Exclude<TabKey, 'overview'>, AttentionItem['module'][]> = {
-  operations: ['Shipments', 'Empty returns'],
+  operations: ['Shipments', 'Empty Returns'],
   money: ['Finance'],
-  people: ['People'],
+  people: ['HR'],
   network: ['Fleet'],
 };
 
@@ -280,9 +280,8 @@ export function DashboardPage() {
           </div>
           <AttentionQueueCard
             items={sliceFor('operations')}
-            title="Operations decisions"
-            clearMessage="Nothing on the road or in a depot needs a decision"
-            emptyNote="No breached container deadline and no shipment stuck waiting on the desk."
+            clearMessage="All clear"
+            emptyNote="No overdue container deadline and no stalled shipment."
           />
         </>
       ) : null}
@@ -298,9 +297,8 @@ export function DashboardPage() {
             <LedgerFeedCard entries={model.activity} />
             <AttentionQueueCard
               items={sliceFor('money')}
-              title="Money decisions"
-              clearMessage="Nothing in the book needs a decision"
-              emptyNote="No overdue invoice, no open hold and no drawdown past its due date."
+              clearMessage="All clear"
+              emptyNote="No overdue invoice, open hold or overdue drawdown."
             />
           </div>
         </>
@@ -314,9 +312,8 @@ export function DashboardPage() {
           </div>
           <AttentionQueueCard
             items={sliceFor('people')}
-            title="People decisions"
-            clearMessage="HR has nothing outstanding"
-            emptyNote="No leave request waiting and no employee document expiring inside 30 days."
+            clearMessage="All clear"
+            emptyNote="No pending leave request and no document expiring within 30 days."
           />
         </>
       ) : null}
@@ -329,9 +326,8 @@ export function DashboardPage() {
           </div>
           <AttentionQueueCard
             items={sliceFor('network')}
-            title="Fleet decisions"
-            clearMessage="Every truck and driver is road-legal"
-            emptyNote="No expired paper and nothing expiring inside 30 days across the partner fleet."
+            clearMessage="All clear"
+            emptyNote="No expired document and none expiring within 30 days."
           />
         </>
       ) : null}

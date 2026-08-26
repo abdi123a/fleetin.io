@@ -82,12 +82,12 @@ export function DirectionGlyph({
 }) {
   return direction === 'out' ? (
     <ArrowUpRight
-      aria-label="Money out"
+      aria-label="Debit"
       className={cn('size-4 shrink-0 text-accent-subtle-foreground', className)}
     />
   ) : (
     <ArrowDownLeft
-      aria-label="Money in"
+      aria-label="Credit"
       className={cn('size-4 shrink-0 text-primary-subtle-foreground', className)}
     />
   );
@@ -694,7 +694,15 @@ export function Panel({
             </p>
           ) : null}
         </div>
-        {action ? <div className="shrink-0">{action}</div> : null}
+        {/*
+          `shrink-0` keeps a small action — one button, one pill — from being
+          squashed by a long title. `max-w-full` is what stops the opposite
+          case: a wide action (a search box plus a filter rail) sized itself
+          past the header and the panel's own `overflow-hidden` clipped it
+          silently, so on a phone the right-hand end of the toolbar simply
+          was not there. Capped at the header's width it wraps instead.
+        */}
+        {action ? <div className="min-w-0 max-w-full shrink-0">{action}</div> : null}
       </div>
       <div className={cn(padded && (dense ? 'px-4 pb-4' : 'px-5 pb-5'), bodyClassName)}>
         {children}
@@ -891,7 +899,7 @@ export function ActionButton({
  * ═══════════════════════════════════════════════════════════════════════ */
 
 /** Paused money. Dashed and marked, so it can never pass for payable. */
-export function HeldChip({ label = 'Held', className }: { label?: string; className?: string }) {
+export function HeldChip({ label = 'On hold', className }: { label?: string; className?: string }) {
   return (
     <Pill
       tone="amber"
@@ -913,7 +921,7 @@ export function UnpricedChip({ moneyOut, className }: { moneyOut?: boolean; clas
           className,
         )}
       >
-        Unpriced — money out
+        Unpriced
       </span>
     );
   }
@@ -975,8 +983,8 @@ const BOOKING_STAGE_TONE: Record<BookingStage, PillTone> = {
 };
 
 const BOOKING_STAGE_LABEL: Record<BookingStage, string> = {
-  in_transit: 'On the road',
-  awaiting_pod: 'No proof',
+  in_transit: 'In transit',
+  awaiting_pod: 'Awaiting PoD',
   proven: 'Proven',
 };
 
@@ -1007,10 +1015,10 @@ const SETTLEMENT_TONE: Record<SettlementStatus, PillTone> = {
 };
 
 const SETTLEMENT_LABEL: Record<SettlementStatus, string> = {
-  blocked: 'Blocked',
+  blocked: 'On hold',
   payable: 'Payable now',
-  part_paid: 'Part paid',
-  paid: 'Paid',
+  part_paid: 'Part settled',
+  paid: 'Settled',
 };
 
 /** Where one transporter's settlement stands on one shipment. */

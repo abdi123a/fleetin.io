@@ -36,7 +36,7 @@ export const CUSTOMER_LOGOS: Record<string, string> = {
 
 /** Stable name → id map for rows that only carry the company name. */
 const CUSTOMER_ID_BY_NAME: Record<string, string> = {
-  'AMINA FZCO': 'SHP-101',
+  'CMA-CGM': 'SHP-101',
   'Al-Baraka Logistics Ltd': 'SHP-102',
   'Red Sea Cargo Group': 'SHP-103',
   'East Africa Beverages': 'SHP-104',

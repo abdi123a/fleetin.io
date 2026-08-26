@@ -1,26 +1,31 @@
-import { X, Package, Clock, ArrowRight } from 'lucide-react';
+import { Package, Clock, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/config/routes';
-import { Badge, IconChip } from '@/design-system';
+import { Badge, CloseButton, IconChip } from '@/design-system';
+import type { ShipperShipmentRow } from '@/features/shipper-bi';
 
 export interface PendingShipmentsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** The account's own book — the containers listed here come from it. */
+  rows: ShipperShipmentRow[];
 }
 
-const MOCK_PENDING_SHIPMENTS = [
-  { id: 'SHP-8901', cargo: 'Container 40ft', origin: 'Jebel Ali', destination: 'Muscat', status: 'Pending Dispatch', date: 'Aug 5, 2026', price: '$4,200' },
-  { id: 'SHP-8904', cargo: 'General Cargo', origin: 'Khalifa Port', destination: 'Sohar', status: 'Awaiting Driver', date: 'Aug 5, 2026', price: '$2,850' },
-  { id: 'SHP-8907', cargo: 'Refrigerated', origin: 'Abu Dhabi', destination: 'Dubai', status: 'Doc Verification', date: 'Aug 4, 2026', price: '$1,950' },
-  { id: 'SHP-8910', cargo: 'Flatbed Heavy', origin: 'Dammam', destination: 'Riyadh', status: 'Pending Approval', date: 'Aug 4, 2026', price: '$5,600' },
-  { id: 'SHP-8912', cargo: 'Bulk Cement', origin: 'Salalah', destination: 'Muscat', status: 'Carrier Assignment', date: 'Aug 3, 2026', price: '$3,100' },
-  { id: 'SHP-8915', cargo: 'Container 20ft', origin: 'Port Sultan', destination: 'Nizwa', status: 'Pending Dispatch', date: 'Aug 3, 2026', price: '$2,400' },
-  { id: 'SHP-8918', cargo: 'Chemical Tanker', origin: 'Ruwais', destination: 'Jebel Ali', status: 'Awaiting Inspection', date: 'Aug 2, 2026', price: '$6,200' },
-  { id: 'SHP-8922', cargo: 'Parcel Freight', origin: 'Sharjah', destination: 'Ras Al Khaimah', status: 'Pending Schedule', date: 'Aug 2, 2026', price: '$1,150' },
-];
-
-export function PendingShipmentsModal({ isOpen, onClose }: PendingShipmentsModalProps) {
+/**
+ * The containers still out, opened from the header's "N Pending Empty Return".
+ *
+ * It used to list eight invented shipments on Gulf lanes — Jebel Ali → Muscat,
+ * Abu Dhabi → Dubai, priced in dollars — under a heading that promised this
+ * account's pending work. Now it lists the boxes this shipper has genuinely not
+ * returned yet, worst overrun first, which is the order somebody acting on the
+ * list would want them in.
+ */
+export function PendingShipmentsModal({ isOpen, onClose, rows }: PendingShipmentsModalProps) {
   const navigate = useNavigate();
+
+  const pending = rows
+    .filter((row) => row.containerNo && !row.returnedAt)
+    .sort((a, b) => b.emptyReturnOverdueDays - a.emptyReturnOverdueDays);
 
   if (!isOpen) return null;
 
@@ -40,22 +45,16 @@ export function PendingShipmentsModal({ isOpen, onClose }: PendingShipmentsModal
               <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
                 <span>Pending Shipments</span>
                 <span className="inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full bg-warning-subtle text-warning-subtle-foreground border border-warning/25">
-                  8 Items
+                  {pending.length} {pending.length === 1 ? 'Item' : 'Items'}
                 </span>
               </h2>
               <p className="text-xs text-muted-foreground">
-                Shipments requiring dispatch, driver assignment, or documentation
+                Containers delivered but not yet returned to the depot
               </p>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-2 text-muted-foreground hover:bg-surface hover:text-foreground transition-colors"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <CloseButton onClick={onClose} />
         </div>
 
         {/* Modal Content / Table */}
@@ -64,31 +63,42 @@ export function PendingShipmentsModal({ isOpen, onClose }: PendingShipmentsModal
             <table className="w-full text-left text-xs">
               <thead className="bg-surface-sunken text-muted-foreground uppercase font-semibold text-[10px] tracking-wider border-b border-border/60">
                 <tr>
-                  <th className="py-3 px-4">Reference</th>
-                  <th className="py-3 px-4">Cargo Type</th>
+                  <th className="py-3 px-4">Container</th>
+                  <th className="py-3 px-4">Shipment</th>
                   <th className="py-3 px-4">Route</th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4 text-right">Estimated Cost</th>
+                  <th className="py-3 px-4">Stage</th>
+                  <th className="py-3 px-4 text-right">Past free time</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/40 font-medium">
-                {MOCK_PENDING_SHIPMENTS.map((shipment) => (
-                  <tr key={shipment.id} className="hover:bg-surface-sunken/50 transition-colors">
+                {pending.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-6 px-4 text-center text-muted-foreground">
+                      Every container is back at the depot.
+                    </td>
+                  </tr>
+                )}
+                {pending.map((row) => (
+                  <tr key={row.shipmentId} className="hover:bg-surface-sunken/50 transition-colors">
                     <td className="py-3 px-4 font-mono font-bold text-foreground flex items-center gap-2">
                       <Package className="h-3.5 w-3.5 text-warning-subtle-foreground shrink-0" />
-                      {shipment.id}
+                      {row.containerNo}
                     </td>
-                    <td className="py-3 px-4 text-foreground/90">{shipment.cargo}</td>
+                    <td className="py-3 px-4 font-mono text-foreground/90">{row.parentReference ?? row.reference}</td>
                     <td className="py-3 px-4 text-muted-foreground">
-                      {shipment.origin} → {shipment.destination}
+                      {row.origin} → {row.destination}
                     </td>
                     <td className="py-3 px-4">
                       <Badge intent="warning" size="sm" className="font-semibold">
-                        {shipment.status}
+                        {row.stageLabel}
                       </Badge>
                     </td>
-                    <td className="py-3 px-4 text-right font-semibold text-foreground">
-                      {shipment.price}
+                    <td className="py-3 px-4 text-right font-semibold tabular-nums">
+                      {row.emptyReturnOverdueDays > 0 ? (
+                        <span className="text-destructive">{row.emptyReturnOverdueDays}d</span>
+                      ) : (
+                        <span className="text-muted-foreground">within free time</span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -100,7 +110,7 @@ export function PendingShipmentsModal({ isOpen, onClose }: PendingShipmentsModal
         {/* Modal Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-border/60 bg-surface-sunken/40">
           <span className="text-xs text-muted-foreground">
-            Showing all 8 pending items requiring your attention
+            {pending.length} pending {pending.length === 1 ? 'container' : 'containers'}
           </span>
           <div className="flex items-center gap-3">
             <button
@@ -115,7 +125,7 @@ export function PendingShipmentsModal({ isOpen, onClose }: PendingShipmentsModal
               onClick={handleViewAll}
               className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition shadow-xs"
             >
-              <span>Go to Shipments Page</span>
+              <span>Go to shipments</span>
               <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </div>

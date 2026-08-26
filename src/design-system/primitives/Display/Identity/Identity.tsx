@@ -120,7 +120,7 @@ export const UserAvatar = forwardRef<HTMLElement, UserAvatarProps>(
 export type CompanyAvatarProps = AvatarProps;
 
 export const CompanyAvatar = forwardRef<HTMLElement, CompanyAvatarProps>(
-  function CompanyAvatar({ size = 'md', className, name, fallback, ...props }, ref) {
+  function CompanyAvatar({ size = 'md', className, name, fallback, fit = 'contain', ...props }, ref) {
     const DerivedFallback = fallback ?? (name && name.length > 0 ? name[0]?.toUpperCase() ?? 'C' : 'C');
 
     return (
@@ -130,6 +130,7 @@ export const CompanyAvatar = forwardRef<HTMLElement, CompanyAvatarProps>(
         shape="rounded"
         name={name}
         fallback={DerivedFallback}
+        fit={fit}
         className={cn('bg-secondary text-secondary-foreground', className)}
         {...props}
       />

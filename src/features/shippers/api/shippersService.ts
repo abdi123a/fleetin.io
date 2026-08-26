@@ -1,4 +1,4 @@
-import { apiClient } from '@/services/api.client';
+import { apiClient, resolveAssetUrl } from '@/services/api.client';
 import { useAuthStore } from '@/stores/auth.store';
 import type { ShipperDocument, ShipperRecord } from '@/types/shipper';
 import { formatDate, formatFileSize, toDateOnly } from '@/utils/format';
@@ -45,6 +45,14 @@ function toShipperDocument(raw: RawDocument): ShipperDocument {
 function toShipperRecord(raw: RawShipperResponse): ShipperRecord {
   return {
     ...raw,
+    /*
+     * The API returns `/uploads/…` relative to its own host, not to the app's,
+     * so an uploaded logo 404s the moment a component hands it to an `<img>`.
+     * Resolved here, at the one seam every shipper read passes through, rather
+     * than at each of the eight call sites that render a company mark — the
+     * same fix `bankAccountsService` already makes for account logos.
+     */
+    logoUrl: resolveAssetUrl(raw.logoUrl) ?? raw.logoUrl,
     registrationDate: toDateOnly(raw.registrationDate) ?? raw.registrationDate,
     uploadedDocuments: (raw.uploadedDocuments ?? []).map(toShipperDocument),
   };

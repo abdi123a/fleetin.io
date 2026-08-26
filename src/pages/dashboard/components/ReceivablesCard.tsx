@@ -45,7 +45,7 @@ export function ReceivablesCard({ money, className }: { money: MoneyModel; class
             if (!bucket) return '';
             return buildTooltipHtml(
               bucket.label,
-              [{ key: 'amount', label: 'Outstanding', value: fmtDjf(bucket.amountDjf), color: bucket.color }],
+              [{ key: 'amount', label: 'Receivables', value: fmtDjf(bucket.amountDjf), color: bucket.color }],
               `${bucket.count} ${bucket.count === 1 ? 'invoice' : 'invoices'}`,
             );
           },
@@ -55,15 +55,15 @@ export function ReceivablesCard({ money, className }: { money: MoneyModel; class
   );
 
   const series = useMemo(
-    () => [{ name: 'Outstanding', data: buckets.map((bucket) => Math.round(bucket.amountDjf)) }],
+    () => [{ name: 'Receivables', data: buckets.map((bucket) => Math.round(bucket.amountDjf)) }],
     [buckets],
   );
 
   return (
     <ConsolePanel
       className={className}
-      title="Money owed to Fleetin"
-      subtitle={`${compactDjf(money.outstandingDjf)} open across ${money.openInvoices} ${money.openInvoices === 1 ? 'invoice' : 'invoices'}`}
+      title="Receivables"
+      subtitle={`${compactDjf(money.outstandingDjf)} across ${money.openInvoices} open ${money.openInvoices === 1 ? 'invoice' : 'invoices'}`}
       action={
         <Link to={ROUTES.financeInvoices}>
           <PanelLink>Invoices</PanelLink>
@@ -73,21 +73,19 @@ export function ReceivablesCard({ money, className }: { money: MoneyModel; class
         <InsightNote tone={late > 0 ? 'attention' : 'neutral'}>
           {late > 0 ? (
             <>
-              <span className="font-bold text-foreground">{fmtDjf(late)} is past its contract date</span> across{' '}
+              <span className="font-bold text-foreground">{fmtDjf(late)} overdue</span> across{' '}
               {money.overdueInvoices} {money.overdueInvoices === 1 ? 'invoice' : 'invoices'}
-              {worst && worst.amountDjf > 0 ? `, ${compactDjf(worst.amountDjf)} of it over 60 days old` : ''}. Every
-              day it stays open is a day the credit facility funds the gap instead of the client.
+              {worst && worst.amountDjf > 0 ? `, ${compactDjf(worst.amountDjf)} over 60 days` : ''}.
             </>
           ) : money.openInvoices > 0 ? (
             <>
-              <span className="font-bold text-foreground">Nothing is past its contract date.</span> All{' '}
-              {money.openInvoices} open {money.openInvoices === 1 ? 'invoice is' : 'invoices are'} still inside
-              agreed terms.
+              <span className="font-bold text-foreground">Nothing overdue.</span> All {money.openInvoices} open{' '}
+              {money.openInvoices === 1 ? 'invoice is' : 'invoices are'} within terms.
             </>
           ) : (
             <>
-              <span className="font-bold text-foreground">Every issued invoice has been paid.</span>{' '}
-              {compactDjf(money.collectedDjf)} collected, nothing outstanding.
+              <span className="font-bold text-foreground">Every invoice settled.</span>{' '}
+              {compactDjf(money.collectedDjf)} collected.
             </>
           )}
         </InsightNote>
@@ -95,7 +93,7 @@ export function ReceivablesCard({ money, className }: { money: MoneyModel; class
     >
       {money.openInvoices === 0 && money.collectedDjf === 0 ? (
         <p className="py-10 text-center text-sm font-semibold text-muted-foreground">
-          No invoice has been issued yet.
+          No invoices yet.
         </p>
       ) : (
         <div className="min-h-0 flex-1">

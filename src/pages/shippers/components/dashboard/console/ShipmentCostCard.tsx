@@ -12,6 +12,7 @@ import {
   quietStates,
   resolveColor,
 } from '@/features/shipper-bi/charts/apexChartTheme';
+import type { ShipperShipmentRow } from '@/features/shipper-bi';
 import { cn } from '@/utils';
 
 export interface ShipmentCostCardProps {
@@ -20,6 +21,8 @@ export interface ShipmentCostCardProps {
   to?: string;
   className?: string;
   onViewDetails?: () => void;
+  /** The account's own charge lines — what this card sums. */
+  rows: ShipperShipmentRow[];
 }
 
 interface CostItem {
@@ -30,63 +33,73 @@ interface CostItem {
   resolvedColor: string;
 }
 
-const DAILY_DJF = {
-  container: 2_314_098,
-  bulk: 1_380_600,
-  special: 755_436,
-} as const;
-
-const SPEND_DELTA_PCT = 0.042;
-
-function generateCostData(fromStr?: string, toStr?: string) {
-  const end = toStr ? new Date(toStr.slice(0, 10) + 'T00:00:00') : new Date('2026-08-05T00:00:00');
-  const start = fromStr
-    ? new Date(fromStr.slice(0, 10) + 'T00:00:00')
-    : new Date(end.getTime() - 6 * 86400000);
-
-  const diffMs = Math.max(0, end.getTime() - start.getTime());
-  const diffDays = Math.max(1, Math.round(diffMs / 86400000) + 1);
-
-  const containerPrice = Math.round(DAILY_DJF.container * diffDays);
-  const bulkPrice = Math.round(DAILY_DJF.bulk * diffDays);
-  const specialPrice = Math.round(DAILY_DJF.special * diffDays);
-  const total = containerPrice + bulkPrice + specialPrice;
-
-  const items: CostItem[] = [
+/**
+ * What this account actually spent, split by the cargo it moved.
+ *
+ * Both halves used to be constants: a per-day spend rate multiplied by the
+ * length of the selected range (2.31M DJF a day on containers, giving 133.5M
+ * for a month) and a fixed 52/31/17 split that never moved whatever the
+ * shipper shipped. The share now comes from summing each row's own charge,
+ * and the "delay cost" ring is the accessorial part of that charge — the
+ * avoidable money, which is the number this card exists to expose.
+ */
+function buildCostData(rows: ShipperShipmentRow[]) {
+  const GROUPS: { name: string; color: string; fallback: string; match: (row: ShipperShipmentRow) => boolean }[] = [
     {
       name: 'Container (20ft / 40ft)',
-      value: 52,
-      delayPct: 10,
       color: 'var(--primary)',
-      resolvedColor: resolveColor('var(--primary)', '#60969d'),
+      fallback: '#60969d',
+      match: (row) => Boolean(row.containerNo),
     },
     {
       name: 'Bulk (Commodities/Steel)',
-      value: 31,
-      delayPct: 6,
       color: 'var(--accent)',
-      resolvedColor: resolveColor('var(--accent)', '#f9ac17'),
+      fallback: '#f9ac17',
+      match: (row) => !row.containerNo && row.cargoType !== 'Bulky Goods' && row.cargoType !== 'Vehicles',
     },
     {
       name: 'Special',
-      value: 17,
-      delayPct: 3,
       color: 'var(--muted-foreground)',
-      resolvedColor: resolveColor('var(--muted-foreground)', '#717b87'),
+      fallback: '#717b87',
+      match: (row) => !row.containerNo && (row.cargoType === 'Bulky Goods' || row.cargoType === 'Vehicles'),
     },
   ];
+
+  const buckets = GROUPS.map((group) => {
+    const matched = rows.filter(group.match);
+    return {
+      ...group,
+      spend: matched.reduce((sum, row) => sum + row.cost, 0),
+      accessorial: matched.reduce((sum, row) => sum + row.accessorialCost, 0),
+    };
+  });
+
+  const total = buckets.reduce((sum, bucket) => sum + bucket.spend, 0);
+
+  const items: CostItem[] = buckets.map((bucket) => ({
+    name: bucket.name,
+    value: total > 0 ? Math.round((bucket.spend / total) * 100) : 0,
+    delayPct: bucket.spend > 0 ? Math.round((bucket.accessorial / bucket.spend) * 100) : 0,
+    color: bucket.color,
+    resolvedColor: resolveColor(bucket.color, bucket.fallback),
+  }));
 
   return { items, total };
 }
 
 export function ShipmentCostCard({
-  from,
-  to,
   className = '',
   onViewDetails,
+  rows,
 }: ShipmentCostCardProps) {
-  const { items, total } = useMemo(() => generateCostData(from, to), [from, to]);
-  const deltaPct = Math.round(SPEND_DELTA_PCT * 100);
+  const { items, total } = useMemo(() => buildCostData(rows), [rows]);
+  /* The avoidable share of the bill — accessorials over total spend. It
+   * replaces a hardcoded "+4.2% vs last period": this card is never given the
+   * previous period, so it could not have known. */
+  const avoidablePct = useMemo(() => {
+    const accessorial = rows.reduce((sum, row) => sum + row.accessorialCost, 0);
+    return total > 0 ? Math.round((accessorial / total) * 100) : 0;
+  }, [rows, total]);
 
   const options: ApexOptions = useMemo(
     () =>
@@ -234,7 +247,7 @@ export function ShipmentCostCard({
       <button
         type="button"
         onClick={onViewDetails}
-        aria-label={`Total Spend increased by ${deltaPct}%. View more cost details.`}
+        aria-label={`${avoidablePct}% of spend is accessorial charges. View more cost details.`}
         className={cn(
           'inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-full border border-border px-4 py-2.5',
           'text-xs font-semibold text-foreground transition-colors',
@@ -242,7 +255,7 @@ export function ShipmentCostCard({
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         )}
       >
-        Total Spend increased by {deltaPct}% · View more info
+        {avoidablePct}% of spend is accessorial · View more info
         <ArrowUpRight className="size-3.5" />
       </button>
     </Card>

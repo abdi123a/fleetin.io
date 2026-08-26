@@ -8,6 +8,7 @@ import {
   useUploadEmployeeDocument,
 } from '@/features/hr/api/queries';
 import { ActionButton, Panel, Pill } from '@/pages/finance/components/kit';
+import { useConfirm } from '@/design-system';
 import { cn } from '@/utils';
 
 import { DOCUMENT_CATEGORY_LABEL, expiryLabel, expiryTone, frDate } from '../hrFormat';
@@ -85,11 +86,22 @@ export function DocumentVault({
 
   const held = CATEGORIES.filter((category) => byCategory.has(category.key)).length;
 
+  const { confirm, confirmDialog } = useConfirm();
+
+  const handleDelete = async (documentId: string, fileName: string) => {
+    const ok = await confirm({
+      title: 'Delete this document?',
+      description: `"${fileName}" will be permanently removed from this employee's file.`,
+    });
+    if (ok) remove.mutate(documentId);
+  };
+
   return (
     <>
+      {confirmDialog}
       <Panel
-        title="Document file"
-        subtitle="Stored privately. Every download is signed for ten minutes and written to the audit trail."
+        title="Documents"
+        subtitle="Stored privately, every download audited"
         action={<Pill tone="neutral">{documents.length} on file</Pill>}
       >
         <div className="space-y-1.5">
@@ -168,12 +180,12 @@ export function DocumentVault({
                           {readOnly ? null : (
                             <button
                               type="button"
-                              title="Archive document"
-                              onClick={() => remove.mutate(file.id)}
+                              title="Delete document"
+                              onClick={() => void handleDelete(file.id, file.originalName)}
                               className="cursor-pointer rounded-md p-1 text-muted-foreground transition-colors hover:text-destructive"
                             >
                               <Trash2 className="size-3.5" />
-                              <span className="sr-only">Archive {file.originalName}</span>
+                              <span className="sr-only">Delete {file.originalName}</span>
                             </button>
                           )}
                         </span>
@@ -187,8 +199,7 @@ export function DocumentVault({
         </div>
 
         <p className="mt-3 text-[11px] font-semibold text-muted-foreground">
-          {held} of {CATEGORIES.length} categories hold at least one document. PDF, JPG, PNG or
-          DOCX, 10 MB each.
+          {held} of {CATEGORIES.length} categories on file.
         </p>
       </Panel>
 
@@ -254,7 +265,7 @@ function UploadModal({
       onClose={close}
       icon={Upload}
       title={`Upload — ${category ? (DOCUMENT_CATEGORY_LABEL[category] ?? category) : ''}`}
-      subtitle="The file is stored privately; only the object key reaches the database."
+      subtitle="Stored privately."
       footer={
         <>
           <ActionButton onClick={close}>Cancel</ActionButton>
@@ -271,7 +282,7 @@ function UploadModal({
       <div className="space-y-4">
         <FormError error={localError ?? upload.error} />
 
-        <Field label="File" required hint="PDF, JPG, PNG or DOCX. 10 MB maximum.">
+        <Field label="Document" required hint="PDF, JPG, PNG or DOCX. 10 MB maximum.">
           <input
             type="file"
             accept={ACCEPTED}

@@ -8,7 +8,7 @@ import {
 } from '@/design-system/icons';
 
 import { Card } from './Card';
-import { CornerBadge } from './CornerBadge';
+import { CornerBadge, type CornerBadgeProps } from './CornerBadge';
 import { Avatar } from '../Avatar/Avatar';
 import { CompanyAvatar } from '../Display/Identity/Identity';
 import { Badge } from '../Badge/Badge';
@@ -61,7 +61,9 @@ export interface ShipmentCardProps extends HTMLAttributes<HTMLDivElement> {
   /** Primary status badge label */
   status?: string;
   /** Primary status badge color intent */
-  statusIntent?: 'orange' | 'green' | 'blue' | 'slate';
+  statusIntent?: 'orange' | 'green' | 'blue' | 'slate' | 'red';
+  /** Corner tab colour — teal for an ordinary card, e.g. `orange` to flag one card as the standout in a list. */
+  cornerIntent?: CornerBadgeProps['intent'];
   /** Optional cancel callback */
   onCancel?: () => void;
   /** Make entire card clickable */
@@ -110,6 +112,7 @@ export const ShipmentCard = forwardRef<HTMLDivElement, ShipmentCardProps>(
       paymentStatus,
       status = 'Created',
       statusIntent = 'orange',
+      cornerIntent = 'teal',
       onCancel,
       clickable = false,
       density = 'comfortable',
@@ -124,6 +127,7 @@ export const ShipmentCard = forwardRef<HTMLDivElement, ShipmentCardProps>(
       green: 'bg-success text-white',
       blue: 'bg-info text-white',
       slate: 'bg-secondary text-secondary-foreground',
+      red: 'bg-destructive text-destructive-foreground',
     };
 
     const compact = density === 'compact';
@@ -144,7 +148,7 @@ export const ShipmentCard = forwardRef<HTMLDivElement, ShipmentCardProps>(
           <div className="absolute top-0 left-0 z-10 select-none">
             <CornerBadge
               label={`#${bookingNumber || shipmentNumber}`}
-              intent="teal"
+              intent={cornerIntent}
               position="top"
               size="sm"
             />
@@ -236,7 +240,14 @@ export const ShipmentCard = forwardRef<HTMLDivElement, ShipmentCardProps>(
       >
         {/* ── CORNER BADGE ── */}
         <div className="absolute top-0 left-0 z-10 select-none">
-          <CornerBadge label={`Shipment# ${bookingNumber || shipmentNumber}`} intent="teal" position="top" />
+          {/* Says which kind of reference it is. It read "Shipment# " over
+              whichever of the two was set, so a list of bookings announced
+              each container as a shipment. */}
+          <CornerBadge
+            label={bookingNumber ? `Booking# ${bookingNumber}` : `Shipment# ${shipmentNumber}`}
+            intent={cornerIntent}
+            position="top"
+          />
         </div>
 
         {/* ── CARD BODY ── */}

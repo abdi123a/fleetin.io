@@ -63,7 +63,7 @@ export function FinanceFundingPage() {
     <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 px-4 pb-8 pt-1 sm:px-6">
       <PageHead
         title="Funding"
-        subtitle="Credit facilities and the drawdowns against them — standalone from any one shipment."
+        subtitle="Facilities and the drawdowns against them"
         actions={
           <Button
             onClick={() => setIsCreateOpen(true)}
@@ -78,7 +78,7 @@ export function FinanceFundingPage() {
 
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard icon={Landmark} tint="teal" label="Facilities" value={String(facilities.length)} hint={facilities.length === 0 ? 'None registered yet' : `${drawdowns.length} drawdown${drawdowns.length === 1 ? '' : 's'}`} />
-        <StatCard icon={TrendingUp} tint="orange" label="Drawn" value={facilities[0] ? formatMoneyMinorUnits(totalDrawn, facilities[0].currency) : '—'} hint="Outstanding across all facilities" />
+        <StatCard icon={TrendingUp} tint="orange" label="Drawn" value={facilities[0] ? formatMoneyMinorUnits(totalDrawn, facilities[0].currency) : '—'} hint="Across all facilities" />
         <StatCard
           icon={Landmark}
           tint="neutral"
@@ -92,14 +92,14 @@ export function FinanceFundingPage() {
         />
       </div>
 
-      <Panel title="Credit facilities" subtitle="Click a facility to see its drawdowns" padded={false}>
+      <Panel title="Facilities" subtitle="Select a facility to see its drawdowns" padded={false}>
         {isLoading ? (
           <div className="px-5 py-6">
             <EmptyState message="Loading facilities…" />
           </div>
         ) : facilities.length === 0 ? (
           <div className="px-5 py-6">
-            <EmptyState message="No credit facility registered yet. Click “New Facility” to add the first one." />
+            <EmptyState message="No facilities yet." />
           </div>
         ) : (
           <DataTable minWidth={860}>
@@ -138,10 +138,10 @@ export function FinanceFundingPage() {
         <SheetContent side="right" className="flex h-full w-full flex-col gap-0 overflow-hidden border-l border-border bg-background p-0 sm:max-w-md">
           <div className="shrink-0 space-y-1 border-b border-border/40 px-6 pb-4 pt-6 sm:px-8 sm:pt-8">
             <SheetTitle className="flex items-center gap-2 text-xl font-extrabold tracking-tight text-foreground">
-              <Landmark className="h-5 w-5 text-primary" /> New Credit Facility
+              <Landmark className="h-5 w-5 text-primary" /> New Facility
             </SheetTitle>
             <SheetDescription className="text-xs text-muted-foreground">
-              A revolving line or fixed facility to draw from before a client settles their invoice.
+              A revolving line or fixed facility to draw from before a shipper settles.
             </SheetDescription>
           </div>
 

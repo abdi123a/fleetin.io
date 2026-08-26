@@ -261,21 +261,13 @@ function StatusMarksSubSection() {
       <div className="grid gap-6 md:grid-cols-2">
         <ShowcaseExample
           title="VerificationBadge"
-          description="Only the verified state is rendered anywhere in the product, and always stripped back to a bare tick beside the name it confirms. An unverified record shows no mark at all rather than a negative one."
+          description="Only the verified state renders anywhere in the product — a bare tick beside the name it confirms, exactly like a social-media checkmark. Every other state renders nothing; an unverified record shows no mark at all rather than a negative one."
           layout="column"
-          code={`<VerificationBadge
-  state="verified"
-  size="sm"
-  className="bg-transparent border-0 text-success font-bold px-0 shrink-0"
-/>`}
+          code={`<VerificationBadge state="verified" size="sm" />`}
         >
           <div className="flex items-center gap-1">
             <span className="type-body-sm font-semibold text-foreground">Amina Omondi</span>
-            <VerificationBadge
-              state="verified"
-              size="sm"
-              className="bg-transparent border-0 text-success font-bold px-0 shrink-0"
-            />
+            <VerificationBadge state="verified" size="sm" />
           </div>
         </ShowcaseExample>
 
@@ -304,7 +296,8 @@ function StatusMarksSubSection() {
         <h4 className="type-h4 text-foreground">Props</h4>
         <PropsTable
           props={[
-            { name: 'state', type: 'VerificationState', required: true, description: 'VerificationBadge. The component defines verified, pending, unverified and rejected; the product renders only verified.' },
+            { name: 'state', type: 'VerificationState', required: true, description: 'VerificationBadge. Defines verified, pending, unverified and rejected; only verified renders anything.' },
+            { name: 'size', type: 'sm | md | lg', defaultValue: 'md', description: 'VerificationBadge. Icon size — sm sits inline with body text, lg beside a page-header name.' },
             { name: 'label', type: 'string', required: true, description: 'CornerBadge. The identifier text, e.g. "Booking No. 1322".' },
             { name: 'intent', type: 'CornerBadgeIntent', defaultValue: 'teal', description: 'CornerBadge. Every corner tag in the product is teal, because the tab identifies the record rather than reporting its state.' },
             { name: 'position', type: 'top | second | inline', defaultValue: 'top', description: 'CornerBadge. top rounds only the bottom-right corner so the tab reads as cut into the card; second stacks a tag directly underneath the first.' },

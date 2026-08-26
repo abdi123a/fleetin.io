@@ -73,7 +73,7 @@ export function DelayResponsibilityCard({
               : 'Who owns the lost minutes'}
           </p>
         </div>
-        {onExpand ? <ExpandLink label="Open delay analytics" onClick={onExpand} /> : null}
+        {onExpand ? <ExpandLink label="Open Delay Analytics" onClick={onExpand} /> : null}
       </div>
 
       {model.totalMinutes === 0 ? (

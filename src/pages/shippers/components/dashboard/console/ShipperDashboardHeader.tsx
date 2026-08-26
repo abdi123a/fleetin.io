@@ -28,13 +28,15 @@ export function ShipperDashboardHeader({
   onPendingClick,
   onExportCsv,
 }: ShipperDashboardHeaderProps) {
-  // Determine time-of-day icon based on greeting string
+  // Determine time-of-day icon based on greeting string. Unstyled — IconChip
+  // owns size and colour (a solid disc, glyph in `-foreground`), so a
+  // hardcoded size/tint here would just fight its own chip.
   const getGreetingIcon = () => {
     const lower = greeting.toLowerCase();
-    if (lower.includes('morning')) return <Sunrise className="h-4 w-4 text-warning-subtle-foreground shrink-0" />;
-    if (lower.includes('afternoon')) return <Sun className="h-4 w-4 text-warning-subtle-foreground shrink-0" />;
-    if (lower.includes('evening') || lower.includes('night')) return <Moon className="h-4 w-4 text-info-subtle-foreground shrink-0" />;
-    return <Sparkles className="h-4 w-4 text-primary shrink-0" />;
+    if (lower.includes('morning')) return <Sunrise />;
+    if (lower.includes('afternoon')) return <Sun />;
+    if (lower.includes('evening') || lower.includes('night')) return <Moon />;
+    return <Sparkles />;
   };
 
   return (
@@ -60,7 +62,7 @@ export function ShipperDashboardHeader({
               type="button"
               onClick={onPendingClick}
               className="group inline-flex items-center gap-2 rounded-full border border-destructive/40 bg-destructive-subtle px-3 py-1.5 text-xs font-bold text-destructive-subtle-foreground hover:bg-destructive/20 hover:border-destructive/60 transition cursor-pointer shadow-2xs shrink-0 active:scale-95"
-              title="Click to view pending empty return shipments data"
+              title="View pending empty returns"
             >
               <span className="relative flex h-2 w-2 shrink-0">
                 <span className="animate-ping motion-reduce:animate-none absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75"></span>

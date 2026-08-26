@@ -134,7 +134,7 @@ export function NetworkSection({ dataset }: TransporterSectionProps) {
         </ChartCard>
 
         <ChartCard
-          title="Opportunity bands"
+          title="Opportunity Bands"
           subtitle="Offers per week by performance band"
           icon={<TrendingUp className="size-4" />}
           isEmpty={opportunitySlices.length === 0}
@@ -165,8 +165,8 @@ export function NetworkSection({ dataset }: TransporterSectionProps) {
       </div>
 
       <ChartCard
-        title="Cost vs reliability"
-        subtitle="Cost index against on-time rate — bubble size is trip volume"
+        title="Cost vs Reliability"
+        subtitle="Cost index against on-time rate · size is trip volume"
         icon={<Activity className="size-4" />}
         isEmpty={bubblePoints.length === 0}
         emptyMessage="No peer positions to plot."
@@ -210,8 +210,8 @@ export function NetworkSection({ dataset }: TransporterSectionProps) {
       </ChartCard>
 
       <ChartCard
-        title="Benchmark vs network"
-        subtitle="Your rates against anonymised network averages"
+        title="Rate vs Network"
+        subtitle="Against anonymised network averages"
         icon={<Star className="size-4" />}
         isEmpty={benchmarks.length === 0}
         emptyMessage="No benchmark comparison available."
@@ -244,8 +244,8 @@ export function NetworkSection({ dataset }: TransporterSectionProps) {
       </ChartCard>
 
       <ChartCard
-        title="Network peer leaderboard"
-        subtitle="Ranked by reliability score — peers are anonymised"
+        title="Peer Leaderboard"
+        subtitle="Ranked by reliability · peers anonymised"
         icon={<Users className="size-4" />}
         isEmpty={peers.length === 0}
         emptyMessage="No peers in the network sample."

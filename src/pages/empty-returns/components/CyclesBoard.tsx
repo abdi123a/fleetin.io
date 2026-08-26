@@ -134,7 +134,7 @@ const URGENCY_CUTS: readonly {
   },
   {
     value: 'protected',
-    label: 'Protected',
+    label: 'Returned on time',
     match: (risk) => risk === 'protected',
     rail: URGENCY_TOKENS.protected.solid,
   },
@@ -620,7 +620,9 @@ function CycleTableRow({
 }) {
   const slack = slackOf(record, now);
   const risk = riskOf(record, now);
-  const reference = record.cycleId ?? record.id;
+  // The booking reference is the row's stable name; the cycle it belongs to
+  // is shown beneath it, not instead of it.
+  const reference = record.bookingReference || record.id;
   const alerts = record.exception ? [record.exception] : [];
 
   const onKeyDown = (event: KeyboardEvent<HTMLTableRowElement>) => {
@@ -647,13 +649,19 @@ function CycleTableRow({
         <div className="flex min-w-0 flex-col gap-0.5">
           <Mono className="block truncate text-xs font-bold text-foreground">{reference}</Mono>
           <span className="block truncate text-[11px] text-muted-foreground">
-            {record.chainId ? (
+            {record.cycleId ? (
               <>
-                <Mono className="text-[11px]">{record.chainId}</Mono>
+                <Mono className="text-[11px]">{record.cycleId}</Mono>
+                {record.chainId && (
+                  <>
+                    {' · '}
+                    <Mono className="text-[11px]">{record.chainId}</Mono>
+                  </>
+                )}
                 {record.seq != null && <> · cycle {record.seq}</>}
               </>
             ) : (
-              'Not chained'
+              'Awaiting match'
             )}
           </span>
         </div>
@@ -735,7 +743,9 @@ function CycleCard({
 }) {
   const slack = slackOf(record, now);
   const risk = riskOf(record, now);
-  const reference = record.cycleId ?? record.id;
+  // The booking reference is the row's stable name; the cycle it belongs to
+  // is shown beneath it, not instead of it.
+  const reference = record.bookingReference || record.id;
   const alerts = record.exception ? [record.exception] : [];
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {

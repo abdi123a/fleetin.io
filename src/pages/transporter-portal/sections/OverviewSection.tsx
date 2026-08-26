@@ -149,8 +149,8 @@ export function OverviewSection({
         />
 
         <ChartCard
-          title="Delivery outcomes"
-          subtitle="Early, on time, and how late the rest were"
+          title="Delivery Outcomes"
+          subtitle="Early, on time and late"
           icon={<Gauge className="size-4" />}
           isFetching={isFetching}
           error={error}
@@ -237,8 +237,8 @@ export function OverviewSection({
       </div>
 
       <ChartCard
-        title="Delivery outcomes over time"
-        subtitle="Whether service is improving, not just where it stands today"
+        title="Delivery Outcomes Trend"
+        subtitle="On-time rate by period"
         icon={<Activity className="size-4" />}
         isFetching={isFetching}
         isEmpty={!hasOutcomeTrend}

@@ -76,16 +76,16 @@ interface StepDef {
 const STEPS: [StepDef, ...StepDef[]] = [
   {
     id: 1,
-    title: 'Company Info & Contact Person',
+    title: 'Company & Contact',
     shortTitle: 'Company & Contact',
-    description: 'Basic business details, operating location, primary executive contact & logo.',
+    description: 'Business details, location, contact and logo.',
     icon: Building2,
   },
   {
     id: 2,
     title: 'Compliance Documents',
     shortTitle: 'Documents',
-    description: 'Upload required compliance files (Business License, etc.).',
+    description: 'Required compliance documents.',
     icon: FileText,
   },
 ];
@@ -224,7 +224,7 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
 
     if (stepNumber === 1) {
       if (!formData.companyLegalName.trim()) {
-        newErrors.companyLegalName = 'Company Legal Name is required';
+        newErrors.companyLegalName = 'Company legal name is required';
       }
     }
 
@@ -382,7 +382,7 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
                     id="companyLegalName"
                     type="text"
                     value={formData.companyLegalName}
-                    placeholder="e.g. AMINA FZCO"
+                    placeholder="e.g. CMA-CGM"
                     onChange={(e) => handleInputChange('companyLegalName', e.target.value)}
                     hasError={Boolean(errors.companyLegalName)}
                   />
@@ -526,7 +526,7 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
                   </div>
                   <div className="flex flex-col">
                     <span className="type-body-sm font-medium text-foreground">
-                      {logoName || (logoPreview ? 'Logo uploaded' : 'Upload Company Logo')}
+                      {logoName || (logoPreview ? 'Logo uploaded' : 'Upload company logo')}
                     </span>
                     <span className="type-caption text-muted-foreground">PNG, JPG up to 5MB</span>
                   </div>
@@ -550,8 +550,7 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
                   Shipper Compliance Documents
                 </h4>
                 <p className="type-caption text-muted-foreground mt-0.5">
-                  Upload a file for each document type below. New types you define here are saved and
-                  reused for every shipper registered after this one.
+                  One document per type; new types are reused.
                 </p>
               </div>
               <Button
@@ -562,7 +561,7 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
                 leadingIcon={<Plus className="h-3.5 w-3.5" />}
                 className="text-xs font-semibold rounded-full shrink-0"
               >
-                {showAddDocType ? 'Cancel' : 'Add Document Type'}
+                {showAddDocType ? 'Cancel' : 'Add document type'}
               </Button>
             </div>
 
@@ -594,7 +593,7 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
                     disabled={!newDocTypeLabel.trim()}
                     className="bg-primary text-primary-foreground font-semibold text-xs rounded-full px-4"
                   >
-                    Save Document Type
+                    Save document type
                   </Button>
                 </div>
               </div>
@@ -642,7 +641,7 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
                             type="button"
                             onClick={() => setViewingDoc(existing)}
                             className="p-1 rounded-md text-muted-foreground hover:text-primary transition-colors"
-                            title="View Document"
+                            title="View document"
                           >
                             <Eye className="h-3.5 w-3.5" />
                           </button>
@@ -650,7 +649,7 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
                             type="button"
                             onClick={() => handleDownloadDocument(existing)}
                             className="p-1 rounded-md text-muted-foreground hover:text-primary transition-colors"
-                            title="Download Document"
+                            title="Download document"
                           >
                             <Download className="h-3.5 w-3.5" />
                           </button>
@@ -658,7 +657,7 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
                             type="button"
                             onClick={() => handleRemoveDocument(existing.id)}
                             className="p-1 rounded-md text-muted-foreground hover:text-destructive transition-colors shrink-0"
-                            title="Remove file"
+                            title="Remove document"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -685,7 +684,7 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
 
               {docTypes.length === 0 && (
                 <div className="p-6 rounded-lg border border-dashed border-border/80 text-center text-xs text-muted-foreground">
-                  No document types yet. Click &quot;Add Document Type&quot; to create the first one.
+                  No document types yet.
                 </div>
               )}
             </div>

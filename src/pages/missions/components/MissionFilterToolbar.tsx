@@ -200,7 +200,7 @@ export const MissionFilterToolbar: React.FC<MissionFilterToolbarProps> = ({
             value={filters.transporterId || 'all'}
             onChange={(e) => onFilterChange({ transporterId: e.target.value === 'all' ? '' : e.target.value })}
             options={[
-              { value: 'all', label: 'All Partners' },
+              { value: 'all', label: 'All Transporters' },
               ...transporterOptions.map((t) => ({ value: t.id, label: t.name })),
             ]}
             className="text-2xs py-1 rounded-md"
@@ -224,7 +224,7 @@ export const MissionFilterToolbar: React.FC<MissionFilterToolbarProps> = ({
               { value: 'plate-asc', label: 'Sort: Plate No' },
               { value: 'booking-asc', label: 'Sort: Booking No' },
               { value: 'date-desc', label: 'Sort: Date (Newest)' },
-              { value: 'customer-asc', label: 'Sort: Customer' },
+              { value: 'customer-asc', label: 'Sort: Shipper' },
             ]}
             className="text-2xs py-1 rounded-md"
           />
@@ -304,14 +304,14 @@ export const MissionFilterToolbar: React.FC<MissionFilterToolbarProps> = ({
           <div className="space-y-1">
             <label className="font-bold text-muted-foreground flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
               <Building2 className="w-3.5 h-3.5 text-primary" />
-              Customer (Shipper)
+              Shipper
             </label>
             <select
               value={filters.customerId}
               onChange={(e) => onFilterChange({ customerId: e.target.value })}
               className="w-full h-9 rounded-lg border border-border bg-background px-3 font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
             >
-              <option value="">All Customers</option>
+              <option value="">All Shippers</option>
               {customerOptions.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -364,7 +364,7 @@ export const MissionFilterToolbar: React.FC<MissionFilterToolbarProps> = ({
           <div className="space-y-1">
             <label className="font-bold text-muted-foreground flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
               <Truck className="w-3.5 h-3.5 text-primary" />
-              Vehicle Truck
+              Vehicle
             </label>
             <select
               value={filters.vehicleId}

@@ -44,7 +44,7 @@ export function WorkforceCard({
             const entry = departments[dataPointIndex];
             if (!entry) return '';
             return buildTooltipHtml(entry.department || 'Unassigned', [
-              { key: 'c', label: 'People', value: String(entry.count), color: CHART_INK.teal },
+              { key: 'c', label: 'Employees', value: String(entry.count), color: CHART_INK.teal },
             ]);
           },
         },
@@ -53,15 +53,15 @@ export function WorkforceCard({
   );
 
   const series = useMemo(
-    () => [{ name: 'People', data: departments.map((entry) => entry.count) }],
+    () => [{ name: 'Employees', data: departments.map((entry) => entry.count) }],
     [departments],
   );
 
   if (!workforce) {
     return (
-      <ConsolePanel className={className} title="Workforce" subtitle="Headcount and what HR is waiting on">
+      <ConsolePanel className={className} title="Workforce">
         <p className="py-10 text-center text-sm font-semibold text-muted-foreground">
-          The HR module returned no data for this account.
+          No HR data yet.
         </p>
       </ConsolePanel>
     );
@@ -74,7 +74,7 @@ export function WorkforceCard({
     <ConsolePanel
       className={className}
       title="Workforce"
-      subtitle={`${workforce.headcount} on the books · ${workforce.active} active · ${workforce.onLeave} on leave`}
+      subtitle={`${workforce.headcount} headcount · ${workforce.active} active · ${workforce.onLeave} on leave`}
       action={
         <Link to={ROUTES.hrEmployees}>
           <PanelLink>Employees</PanelLink>
@@ -85,15 +85,14 @@ export function WorkforceCard({
           {waiting > 0 ? (
             <>
               <span className="font-bold text-foreground">
-                {leave.pendingRequests} leave {leave.pendingRequests === 1 ? 'request' : 'requests'} and{' '}
-                {expiring.in30} expiring {expiring.in30 === 1 ? 'document' : 'documents'}
+                {leave.pendingRequests} leave {leave.pendingRequests === 1 ? 'request' : 'requests'} pending
               </span>{' '}
-              are waiting on HR. Neither stops a truck today, but both do within the month.
+              · {expiring.in30} {expiring.in30 === 1 ? 'document' : 'documents'} expiring within 30 days.
             </>
           ) : (
             <>
-              <span className="font-bold text-foreground">HR has nothing outstanding.</span> No leave request is
-              undecided and no employee document expires inside 30 days.
+              <span className="font-bold text-foreground">All clear.</span> No pending leave, no document expiring
+              within 30 days.
             </>
           )}
         </InsightNote>
@@ -101,7 +100,7 @@ export function WorkforceCard({
     >
       {departments.length === 0 ? (
         <p className="py-8 text-center text-sm font-semibold text-muted-foreground">
-          No employee carries a department yet.
+          No department data yet.
         </p>
       ) : (
         <div className="min-h-0 flex-1">
@@ -111,9 +110,9 @@ export function WorkforceCard({
 
       <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
         <StatBox
-          label="Leave undecided"
+          label="Leave pending"
           value={String(leave.pendingRequests)}
-          note={`${leave.plannedDays} days already planned`}
+          note={`${leave.plannedDays} days planned`}
           tone={leave.pendingRequests > 0 ? 'attention' : 'neutral'}
         />
         <StatBox
@@ -141,7 +140,7 @@ export function WorkforceCard({
                       : 'shrink-0 text-[11px] font-bold tabular-nums text-muted-foreground'
                   }
                 >
-                  {item.daysUntil < 0 ? `${Math.abs(item.daysUntil)} days late` : `${item.daysUntil} days`}
+                  {item.daysUntil < 0 ? `${Math.abs(item.daysUntil)} days overdue` : `${item.daysUntil} days`}
                 </span>
               </div>
             ))}

@@ -651,7 +651,7 @@ export function ChainsTabPanel({ chains, onOpenCycle, onOpenMatching }: ChainsTa
       <div className="rounded-lg border border-border bg-card p-6 shadow-2xs">
         <EmptyState
           icon={<Link2 className="size-6" aria-hidden />}
-          title="No active chain."
+          title="No active chains"
           description="Create a cycle from Matching."
           primaryAction={
             <Button size="sm" onClick={onOpenMatching}>

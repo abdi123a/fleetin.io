@@ -90,7 +90,7 @@ export interface ReturnKpiTilesProps {
   kpis: EmptyReturnKpis;
   /** How the assigned figure splits — the tile prints the receipt. */
   assignedSplit: { ready: number; inProgress: number };
-  /** Boxes not yet back at the hub — the Empty Ready tile's denominator. */
+  /** Containers not yet back at the depot — the Empty Ready tile's denominator. */
   stillOut: number;
   onSelect: (preset: EmptyReturnFilters) => void;
   className?: string;
@@ -106,43 +106,43 @@ export function ReturnKpiTiles({
   const tiles: TileSpec[] = [
     {
       key: 'emptyReady',
-      title: 'EMPTY READY',
+      title: 'Empty Ready',
       icon: <Package className="size-3.5" aria-hidden />,
       tone: () => 'teal',
-      description: () => `of ${stillOut} boxes still out — cleared for matching`,
+      description: () => `of ${stillOut} containers still out`,
       preset: { q: '', status: 'empty_ready', risk: 'all' },
     },
     {
       key: 'assigned',
-      title: 'ASSIGNED CYCLES',
+      title: 'Assigned Cycles',
       icon: <Repeat className="size-3.5" aria-hidden />,
       tone: () => 'sky',
-      description: () => `${assignedSplit.ready} ready to dispatch + ${assignedSplit.inProgress} running`,
+      description: () => `${assignedSplit.ready} ready + ${assignedSplit.inProgress} in progress`,
       preset: { q: '', status: 'assigned', risk: 'all' },
     },
     {
       key: 'standalone',
-      title: 'STANDALONE RETURNS',
+      title: 'Standalone Returns',
       icon: <RotateCcw className="size-3.5" aria-hidden />,
       tone: () => 'peach',
-      description: () => 'matching stopped — box goes back solo',
+      description: () => 'returning without a full load',
       preset: { q: 'Standalone', status: 'all', risk: 'all' },
     },
     {
       key: 'critical',
-      title: 'CRITICAL WINDOW',
+      title: 'Critical Window',
       icon: <AlertTriangle className="size-3.5" aria-hidden />,
       tone: () => 'amber',
-      description: () => 'slack under 6 h — decide now',
+      description: () => 'slack under 6 h',
       preset: { q: '', status: 'all', risk: 'crit' },
     },
     {
       key: 'overdue',
-      title: 'OVERDUE',
+      title: 'Overdue',
       icon: <Zap className="size-3.5" aria-hidden />,
       tone: (value) => (value > 0 ? 'alarm' : 'quiet'),
       description: (value) =>
-        value > 0 ? 'deadline passed, box still out' : 'every box is inside its deadline',
+        value > 0 ? 'deadline passed, container still out' : 'all containers inside deadline',
       preset: { q: '', status: 'all', risk: 'overdue' },
     },
   ];

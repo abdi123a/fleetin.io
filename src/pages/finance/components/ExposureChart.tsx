@@ -87,7 +87,7 @@ export function ExposureChart({
         width="100%"
         height={height}
         role="img"
-        aria-label="Client exposure — money within terms against money past due"
+        aria-label="Shipper exposure — within terms against overdue"
         onMouseLeave={() => setHover(null)}
         onMouseMove={(event) => {
           const box = event.currentTarget.getBoundingClientRect();

@@ -96,7 +96,7 @@ export function FinanceInvoicesPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 px-4 pb-8 pt-1 sm:px-6">
-      <PageHead title="Invoices" subtitle="Every invoice raised from a shipment, and what it is doing" />
+      <PageHead title="Invoices" subtitle="Invoices raised from shipments" />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard icon={Receipt} tint="teal" label="Issued" value={String(invoices.length)} hint={fmtDjf(sum(invoices))} />
@@ -113,8 +113,8 @@ export function FinanceInvoicesPage() {
       </div>
 
       <Panel
-        title="Invoice book"
-        subtitle="Raised automatically when every booking on a priced shipment is proven"
+        title="Invoices"
+        subtitle="Raised once every booking on a priced shipment has POD"
         padded={false}
         action={
           <div className="flex flex-wrap items-center gap-2">
@@ -123,7 +123,7 @@ export function FinanceInvoicesPage() {
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Invoice, client or shipment"
+                placeholder="Invoice, shipper or shipment"
                 className="w-56 rounded-lg border border-border bg-card py-2 pl-9 pr-3 text-xs font-semibold text-foreground outline-none transition-colors placeholder:font-medium placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-ring"
               />
             </label>
@@ -137,14 +137,14 @@ export function FinanceInvoicesPage() {
           </div>
         ) : rows.length === 0 ? (
           <div className="px-5 py-6">
-            <EmptyState message="No invoice matches this view." />
+            <EmptyState message="No invoices match this view." />
           </div>
         ) : (
           <DataTable>
             <thead>
               <tr>
                 <Th>Invoice</Th>
-                <Th>Client</Th>
+                <Th>Shipper</Th>
                 <Th>Shipment</Th>
                 <Th align="right">Amount</Th>
                 <Th>Issued</Th>

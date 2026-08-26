@@ -18,7 +18,7 @@ import {
 } from '@/design-system/icons';
 import { Grid, List, RotateCcw, BadgeCheck } from 'lucide-react';
 import { PageHeader, TablePager, usePagedRows } from '@/components';
-import { IconChip } from '@/design-system';
+import { IconChip, useConfirm } from '@/design-system';
 import {
   Button,
   Card,
@@ -33,6 +33,7 @@ import {
   Input,
   Select,
   StatisticCard,
+  VerificationBadge,
 } from '@/design-system';
 import { ROUTES, buildPath } from '@/config/routes';
 import { AddPartnerForm, type PartnerFormData } from './AddPartnerForm';
@@ -93,6 +94,7 @@ export function PartnersPage() {
   const createPartner = useCreatePartner();
   const updatePartner = useUpdatePartner();
   const deletePartner = useDeletePartner();
+  const { confirm, confirmDialog } = useConfirm();
   const [drawerState, setDrawerState] = useState<DrawerState>({ mode: 'closed' });
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
 
@@ -168,11 +170,18 @@ export function PartnersPage() {
     navigate(buildPath(ROUTES.partnerDetail, { id }));
   };
 
-  const handleDelete = (id: string, e?: React.MouseEvent) => {
+  const handleDelete = async (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
+    const partner = partners.find((row) => row.id === id);
+    const ok = await confirm({
+      title: 'Remove this transporter?',
+      description: `${partner?.companyLegalName ?? 'This transporter'} will be removed, along with their price list. Bookings already assigned to them keep their record.`,
+      confirmLabel: 'Remove',
+    });
+    if (!ok) return;
     deletePartner.mutate(id);
     setDrawerState({ mode: 'closed' });
-    showSuccess('Partner removed successfully.');
+    showSuccess('Transporter removed.');
   };
 
   const handleAddSuccess = async (formData: PartnerFormData, editingPartnerId?: string) => {
@@ -206,11 +215,12 @@ export function PartnersPage() {
       await uploadDocument({ ownerType: 'PARTNER', ownerId: partner.id, category, file });
     }
     setDrawerState({ mode: 'closed' });
-    showSuccess(`Partner "${partner.companyLegalName}" ${editingPartnerId ? 'updated' : 'created'} successfully.`);
+    showSuccess(`Transporter "${partner.companyLegalName}" ${editingPartnerId ? 'updated' : 'created'}.`);
   };
 
   return (
     <div className="space-y-5 pb-12">
+      {confirmDialog}
       {/* Toast Notification Banner */}
       {successNotice && (
         <div className="flex items-center justify-between rounded-lg border border-success/30 bg-success-subtle p-3.5 text-success-subtle-foreground shadow-2xs animate-in fade-in">
@@ -231,7 +241,7 @@ export function PartnersPage() {
       {/* Page Header */}
       <PageHeader
         title="Partners"
-        description="Manage transport partner profiles, fleet sizes, operating regions, and compliance documents vault."
+        description="Transporter profiles, fleet, regions and compliance documents."
         actions={
           <Button
             onClick={() => setDrawerState({ mode: 'create' })}
@@ -239,7 +249,7 @@ export function PartnersPage() {
             leadingIcon={<Plus className="h-4 w-4" />}
             className="bg-primary hover:bg-primary-hover text-primary-foreground font-semibold px-4 py-2 text-xs shadow-xs"
           >
-            Add Partner
+            Add transporter
           </Button>
         }
       />
@@ -247,18 +257,17 @@ export function PartnersPage() {
       {/* KPI Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
         <StatisticCard
-          title="Total Partners"
+          title="Total Transporters"
           value={totalPartnersCount}
-          subtitle="Transport Carriers"
           variant="teal"
           trend="up"
           percentage="100%"
           icon={<Building2 className="h-5 w-5" />}
         />
         <StatisticCard
-          title="Active Partners"
+          title="Active Transporters"
           value={activeCount}
-          subtitle="Verified Carriers"
+          subtitle="Verified"
           variant="blue"
           trend="up"
           percentage={`${Math.round((activeCount / (totalPartnersCount || 1)) * 100)}%`}
@@ -267,7 +276,7 @@ export function PartnersPage() {
         <StatisticCard
           title="Fleet Vehicles"
           value={totalFleetCount}
-          subtitle="Registered Trucks"
+          subtitle="Registered"
           variant="peach"
           trend="up"
           percentage="+18%"
@@ -276,7 +285,7 @@ export function PartnersPage() {
         <StatisticCard
           title="Pending Review"
           value={pendingReviewCount}
-          subtitle="Requires Action"
+          subtitle="Requires action"
           variant="pink"
           trend={pendingReviewCount > 0 ? 'down' : 'neutral'}
           percentage={pendingReviewCount > 0 ? `${pendingReviewCount} pending` : '0'}
@@ -293,7 +302,7 @@ export function PartnersPage() {
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               type="text"
-              placeholder="Search partners..."
+              placeholder="Search transporters..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-8 pr-7 py-1 text-xs font-medium rounded-md border-border bg-background h-8 w-full"
@@ -409,8 +418,8 @@ export function PartnersPage() {
           side="right"
           className="flex h-full w-full flex-col gap-0 overflow-hidden border-l border-border bg-background p-0 sm:max-w-md"
         >
-          <SheetTitle className="sr-only">{drawerState.mode === 'edit' ? 'Edit Partner' : 'Add Partner'}</SheetTitle>
-          <SheetDescription className="sr-only">Partner profile form</SheetDescription>
+          <SheetTitle className="sr-only">{drawerState.mode === 'edit' ? 'Edit Transporter' : 'Add Transporter'}</SheetTitle>
+          <SheetDescription className="sr-only">Transporter profile form</SheetDescription>
           <AddPartnerForm
             isEdit={drawerState.mode === 'edit'}
             initialData={
@@ -446,15 +455,19 @@ export function PartnersPage() {
       {/* ── Profile Quick View Sheet ── */}
       <Sheet open={drawerState.mode === 'profile'} onOpenChange={(open) => !open && setDrawerState({ mode: 'closed' })}>
         <SheetContent side="right" className="w-full sm:max-w-sm overflow-y-auto p-5 bg-background border-l border-border">
-          <SheetTitle className="sr-only">Partner Quick View</SheetTitle>
-          <SheetDescription className="sr-only">Quick preview of partner profile</SheetDescription>
+          <SheetTitle className="sr-only">Transporter Quick View</SheetTitle>
+          <SheetDescription className="sr-only">Transporter profile preview</SheetDescription>
           {drawerState.mode === 'profile' && drawerState.partner && (
             <div className="space-y-5">
               <div className="flex items-center gap-3">
                 <PartnerLogo logoUrl={drawerState.partner.logoUrl} companyName={drawerState.partner.companyLegalName} className="h-12 w-12 shrink-0" />
                 <div className="min-w-0">
-                  <h3 className="font-extrabold text-foreground text-sm truncate">{drawerState.partner.companyLegalName}</h3>
-                  <p className="text-[11px] text-muted-foreground font-mono">{drawerState.partner.id}</p>
+                  <h3 className="font-extrabold text-foreground text-sm truncate flex items-center gap-1">
+                    {drawerState.partner.companyLegalName}
+                    <VerificationBadge state={drawerState.partner.partnerStatus === 'Active' ? 'verified' : 'unverified'} size="sm" />
+                  </h3>
+                  {/* The short reference, not the raw internal id. */}
+                  <p className="text-[11px] text-muted-foreground font-mono">{drawerState.partner.reference}</p>
                   <div className="mt-1">{renderStatusBadge(drawerState.partner.partnerStatus)}</div>
                 </div>
               </div>
@@ -496,7 +509,7 @@ export function PartnersPage() {
                 leadingIcon={<ExternalLink className="h-4 w-4" />}
                 className="w-full bg-primary hover:bg-primary-hover text-primary-foreground py-3 font-semibold text-xs shadow-xs"
               >
-                Open Full Partner Dossier
+                Open transporter dossier
               </Button>
             </div>
           )}
@@ -507,7 +520,7 @@ export function PartnersPage() {
       {viewMode === 'list' ? (
         <div className="space-y-2 pt-1">
           <div className="hidden lg:grid grid-cols-12 gap-4 px-5 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-            <div className="col-span-4">Partner & Status</div>
+            <div className="col-span-4">Transporter & Status</div>
             <div className="col-span-2">Fleet / Drivers</div>
             <div className="col-span-3">Operating Regions</div>
             <div className="col-span-1">Compliance</div>
@@ -528,10 +541,13 @@ export function PartnersPage() {
                   <div className="flex flex-col min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-bold text-foreground truncate group-hover:text-primary transition-colors">{partner.companyLegalName}</span>
+                      <VerificationBadge state={partner.partnerStatus === 'Active' ? 'verified' : 'unverified'} size="sm" />
                       {renderStatusBadge(partner.partnerStatus)}
                     </div>
                     <div className="flex items-center gap-1.5 text-2xs text-muted-foreground truncate">
-                      <span className="font-mono font-medium text-foreground/70">{partner.id}</span>
+                      {/* The short reference, not the raw internal id — that used
+                          to print here as a 36-character UUID. */}
+                      <span className="font-mono font-medium text-foreground/70">{partner.reference}</span>
                       <span>•</span>
                       <span className="flex items-center gap-0.5"><MapPin className="h-2.5 w-2.5 shrink-0" />{partner.country}</span>
                     </div>
@@ -596,7 +612,7 @@ export function PartnersPage() {
                         <Pencil className="h-3.5 w-3.5 text-muted-foreground" /><span>Edit Profile</span>
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={(e) => handleDelete(partner.id, e)} className="cursor-pointer gap-2 text-xs text-destructive focus:text-destructive">
-                        <Trash2 className="h-3.5 w-3.5" /><span>Delete Partner</span>
+                        <Trash2 className="h-3.5 w-3.5" /><span>Delete transporter</span>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -620,9 +636,12 @@ export function PartnersPage() {
                   <div className="flex items-center gap-3 min-w-0">
                     <PartnerLogo logoUrl={partner.logoUrl} companyName={partner.companyLegalName} className="h-10 w-10 shrink-0" />
                     <div className="flex flex-col min-w-0">
-                      <h3 className="text-sm font-bold text-foreground group-hover:text-primary transition-colors truncate">{partner.companyLegalName}</h3>
+                      <h3 className="text-sm font-bold text-foreground group-hover:text-primary transition-colors truncate flex items-center gap-1">
+                        {partner.companyLegalName}
+                        <VerificationBadge state={partner.partnerStatus === 'Active' ? 'verified' : 'unverified'} size="sm" />
+                      </h3>
                       <div className="flex items-center gap-1.5 text-2xs text-muted-foreground">
-                        <span className="font-mono font-medium text-foreground/70">{partner.id}</span>
+                        <span className="font-mono font-medium text-foreground/70">{partner.reference}</span>
                         <span>•</span>
                         <span className="truncate">{partner.country}</span>
                       </div>
@@ -690,7 +709,7 @@ export function PartnersPage() {
       {filteredPartners.length > 0 && (
         <TablePager
           paged={pagedPartners}
-          noun="partners"
+          noun="transporters"
           pageSize={pageSize}
           onPageSizeChange={setPageSize}
           pageSizeOptions={[12, 24, 48, 96]}
@@ -700,15 +719,15 @@ export function PartnersPage() {
       {/* Empty / Loading State */}
       {isLoading && filteredPartners.length === 0 && (
         <div className="flex flex-col items-center justify-center py-12 text-center rounded-lg border border-dashed border-border bg-card">
-          <p className="text-xs text-muted-foreground">Loading partners…</p>
+          <p className="text-xs text-muted-foreground">Loading transporters…</p>
         </div>
       )}
       {!isLoading && filteredPartners.length === 0 && (
         <div className="flex flex-col items-center justify-center py-12 text-center rounded-lg border border-dashed border-border bg-card">
           <IconChip icon={Building2} tint="neutral" className="mb-3" />
-          <h3 className="text-base font-bold text-foreground">No Partners Found</h3>
+          <h3 className="text-base font-bold text-foreground">No Transporters Found</h3>
           <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-            No transport partner matched your current search or filter criteria.
+            No transporter matched the current filters.
           </p>
           {hasActiveFilters && (
             <Button
@@ -717,7 +736,7 @@ export function PartnersPage() {
               leadingIcon={<RotateCcw className="h-3.5 w-3.5" />}
               className="mt-4 rounded-full text-xs font-medium"
             >
-              Clear Filters
+              Clear filters
             </Button>
           )}
         </div>

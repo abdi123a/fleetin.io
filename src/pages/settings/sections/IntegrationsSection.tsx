@@ -49,16 +49,14 @@ export function IntegrationsSection() {
   return (
     <div className="flex flex-col gap-4">
       <SectionNote tone="warning">
-        Keys entered on this page are stored in this browser, not on the server. Treat them as readable by anyone
-        with access to this machine, and use a key scoped to the narrowest permissions the provider offers. A
-        production deployment must hold its keys behind the backend instead.
+        Keys are stored in this browser, not on the server. Use the narrowest scope the provider offers.
       </SectionNote>
 
-      <Panel title="AI assistant" subtitle="Document reading, route suggestions and the in-app assistant">
+      <Panel title="AI assistant" subtitle="Document reading and suggestions">
         <FieldGrid>
           <ToggleField
             label="Enable AI features"
-            description="Off, nothing is sent to a model and every feature below is inert regardless of its own switch."
+            description="Off, nothing is sent to a model."
             checked={ai.enabled}
             onChange={(v) => update('integrations', { ai: { enabled: v } })}
           />
@@ -81,7 +79,7 @@ export function IntegrationsSection() {
             value={ai.model}
             onChange={(v) => update('integrations', { ai: { model: v } })}
             options={models}
-            hint="A faster model is enough for extracting fields off a delivery note; reserve the capable one for reasoning over a shipment."
+            hint="A faster model is enough for field extraction."
           />
           <SecretField
             label="API key"
@@ -96,7 +94,7 @@ export function IntegrationsSection() {
             onChange={(v) => update('integrations', { ai: { baseUrl: v } })}
             placeholder="Leave blank for the provider's own endpoint"
             mono
-            hint="Set this to route through a proxy or a self-hosted gateway."
+            hint="Routes through a proxy or self-hosted gateway."
           />
           <NumberField
             label="Max tokens per call"
@@ -110,7 +108,7 @@ export function IntegrationsSection() {
 
           <ToggleField
             label="Document extraction"
-            description="Reads fields off an uploaded delivery note, invoice or licence instead of retyping them."
+            description="Reads fields off an uploaded document instead of retyping."
             checked={ai.features.documentExtraction}
             onChange={(v) => update('integrations', { ai: { features: { documentExtraction: v } } })}
           />
@@ -122,7 +120,7 @@ export function IntegrationsSection() {
           />
           <ToggleField
             label="In-app assistant"
-            description="Answers questions about shipments, partners and money using what is on screen."
+            description="Answers questions using what is on screen."
             checked={ai.features.chatAssistant}
             onChange={(v) => update('integrations', { ai: { features: { chatAssistant: v } } })}
           />
@@ -135,7 +133,7 @@ export function IntegrationsSection() {
         </FieldGrid>
       </Panel>
 
-      <Panel title="Email" subtitle="Outbound mail — invoices, alerts and access decisions">
+      <Panel title="Email" subtitle="Outbound mail">
         <FieldGrid>
           <ToggleField
             label="Send email"
@@ -194,13 +192,13 @@ export function IntegrationsSection() {
         </FieldGrid>
       </Panel>
 
-      <Panel title="SMS" subtitle="For the alerts a driver or dispatcher must see away from a screen">
+      <Panel title="SMS" subtitle="Off-screen alerts">
         <FieldGrid>
           <ToggleField
             label="Send SMS"
             checked={integrations.sms.enabled}
             onChange={(v) => update('integrations', { sms: { enabled: v } })}
-            description="Reserved for the short list of events worth a phone buzzing — a container past free time, a hold opened."
+            description="Reserved for events worth a phone buzzing."
           />
           <SelectField
             label="Gateway"
@@ -216,7 +214,7 @@ export function IntegrationsSection() {
             label="Sender ID"
             value={integrations.sms.senderId}
             onChange={(v) => update('integrations', { sms: { senderId: v } })}
-            hint="What the message shows as. Alphanumeric sender IDs need registration with most carriers."
+            hint="Alphanumeric sender IDs need registration with most networks."
           />
           <SecretField
             label="API key"
@@ -234,11 +232,11 @@ export function IntegrationsSection() {
         </FieldGrid>
       </Panel>
 
-      <Panel title="Vehicle tracking" subtitle="The telematics feed behind live positions and ETA drift">
+      <Panel title="Vehicle tracking" subtitle="Telematics feed">
         <FieldGrid>
           <ToggleField
             label="Pull vehicle positions"
-            description="Without a feed, positions come from milestone updates entered by hand and ETA drift is only as fresh as the last one."
+            description="Without a feed, positions come from manual milestone updates."
             checked={integrations.tracking.enabled}
             onChange={(v) => update('integrations', { tracking: { enabled: v } })}
           />
@@ -260,12 +258,12 @@ export function IntegrationsSection() {
             min={15}
             max={3600}
             suffix="sec"
-            hint="Faster polling costs API quota and rarely changes a decision on a multi-day haul."
+            hint="Faster polling costs quota and rarely changes a decision."
           />
         </FieldGrid>
       </Panel>
 
-      <Panel title="Storage & API" subtitle="Where uploads land, and which backend the app talks to">
+      <Panel title="Storage & API" subtitle="Uploads and backend endpoint">
         <FieldGrid>
           <SelectField
             label="Document storage"
@@ -306,7 +304,7 @@ export function IntegrationsSection() {
             onChange={(v) => update('integrations', { apiBaseUrl: v })}
             placeholder="Leave blank to use the build-time value"
             mono
-            hint="Overrides the endpoint the app was built against. Wrong here means nothing loads at all."
+            hint="Overrides the build-time endpoint."
           />
           <TextField
             label="Webhook URL"
@@ -320,7 +318,7 @@ export function IntegrationsSection() {
             label="Webhook signing secret"
             value={integrations.webhookSecret}
             onChange={(v) => update('integrations', { webhookSecret: v })}
-            hint="Signs the payload so the receiver can tell a genuine delivery from a forged one."
+            hint="Signs the payload so the receiver can verify it."
           />
         </FieldGrid>
       </Panel>

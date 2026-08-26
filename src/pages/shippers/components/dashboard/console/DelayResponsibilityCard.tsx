@@ -7,59 +7,73 @@ import {
   type DelayPartyRow as DelayPartyView,
 } from '@/components/console';
 import { Card } from '@/design-system';
-import { peekDataset } from '@/features/shipper-bi/api/biService';
 import {
-  DELAY_OWNER_PARTY,
-  type DelayOwner,
-  type DelayParty,
-  type DatePreset,
-} from '@/features/shipper-bi/contracts';
+  DELAY_REASON_LABELS,
+  useMissionReports,
+  useShipperMissionIndex,
+  type DelayReason,
+  type ResponsibleParty,
+} from '@/components/reports';
+import type { DatePreset } from '@/features/shipper-bi/contracts';
 import { formatCompact } from '@/features/shipper-bi/format';
 import { getTransporterLogoUrl } from '@/features/shipper-bi/mocks/transporterProfiles';
-import { deriveFacts, type ShipmentFact } from '@/lib/bi/derive';
-import { inPeriod } from '@/lib/bi/aggregate/context';
 import { cn } from '@/utils';
 import { PanelHeader, PanelLink, PANEL_SURFACE } from './PanelHeader';
 
 /**
- * Delay responsibility — Import / Export scoped.
+ * Delay responsibility, built on the same attribution the mission and monthly
+ * reports print.
  *
- * Both flows involve the same three parties working the move:
- *   Import — Port → shipper store
- *   Export — shipper store → Port
+ * This card used to read `dataset.delays` from the BI pipeline — an array the
+ * backend has no model to fill (see `biService.ts`), so it was empty for
+ * every shipper, always. `deriveAttribution()` (in the reports module) is the
+ * one place in the app that actually produces a party for a delay: it reads
+ * the container-return deadline against dépotage and the return leg, and
+ * marks anything the timestamps cannot separate `under_review` rather than
+ * guessing. Those `under_review` cases are real but not yet attributable to
+ * one of the three parties below, so they are left out of the count here
+ * rather than forced onto one — the count a reader sees always equals the sum
+ * of the party rows.
  *
- * Who is responsible = one-line list (Shipper · Transporter · Fleetin).
- * Click a party → Root causes opens with circle graphics for that party only.
+ * There is no Import/Export split any more: that came from a BI concept
+ * (demurrage vs. detention) the mission model doesn't have, and the old
+ * fallback for shipments that carried neither was a hash of the shipment id —
+ * a coin flip wearing a label. One list for the period is the honest shape.
  */
 
-type FlowTab = 'import' | 'export';
+type Party = 'shipper' | 'transporter' | 'fleetin';
 
-const FLOW_CORRIDOR: Record<FlowTab, string> = {
-  import: 'Port → store',
-  export: 'Store → Port',
-};
+const PARTY_ORDER: readonly Party[] = ['shipper', 'transporter', 'fleetin'];
 
-const FLEETIN_LOGO = '/logo/fleetin-icon.png';
-/** Stand-in mark for the transporter party (category, not one named carrier). */
-const TRANSPORTER_PARTY_LOGO = getTransporterLogoUrl('TRP-01');
-
-/* ---------------------------------------------------------------------------
- * Responsibility — same cast on import and export
- * ------------------------------------------------------------------------ */
-
-/** Fixed order: shipper, then the partners who move with them. */
-const PARTY_ORDER: readonly DelayParty[] = ['shipper', 'transporter', 'fleetin'];
-
-const PARTY_LABELS: Record<DelayParty, string> = {
+const PARTY_LABELS: Record<Party, string> = {
   shipper: 'Shipper',
   transporter: 'Transporter',
   fleetin: 'Fleetin',
 };
 
-function partyLogoUrl(
-  party: DelayParty,
-  shipperLogoUrl?: string,
-): string | undefined {
+/** `driver` folds into `transporter` — a driver is the transporter's own agent.
+ * `port_terminal` / `shipping_line` / `external` / `under_review` are outside
+ * this card's three parties and stay out of the count. */
+const PARTY_FROM_RESPONSIBLE: Partial<Record<ResponsibleParty, Party>> = {
+  client_shipper: 'shipper',
+  transporter: 'transporter',
+  driver: 'transporter',
+  fleetin: 'fleetin',
+};
+
+const CAUSE_TONES: readonly DelayCauseTone[] = [
+  'primary-bold',
+  'primary',
+  'primary-soft',
+  'accent-bold',
+  'accent-soft',
+];
+
+const FLEETIN_LOGO = '/logo/fleetin-icon.png';
+/** Stand-in mark for the transporter party (category, not one named carrier). */
+const TRANSPORTER_PARTY_LOGO = getTransporterLogoUrl('TRP-01');
+
+function partyLogoUrl(party: Party, shipperLogoUrl?: string): string | undefined {
   switch (party) {
     case 'shipper':
       return shipperLogoUrl;
@@ -70,59 +84,10 @@ function partyLogoUrl(
   }
 }
 
-function partyDisplayName(party: DelayParty, shipperName: string): string {
+function partyDisplayName(party: Party, shipperName: string): string {
   if (party === 'shipper') return shipperName || PARTY_LABELS.shipper;
   return PARTY_LABELS[party];
 }
-
-/* ---------------------------------------------------------------------------
- * Root causes — what happened (independent of who pays)
- * ------------------------------------------------------------------------ */
-
-const ROOT_CAUSES = [
-  'documentation',
-  'empty_return',
-  'communication',
-  'dispatching',
-  'force_majeure',
-] as const;
-type RootCause = (typeof ROOT_CAUSES)[number];
-
-const ROOT_CAUSE_LABELS: Record<RootCause, string> = {
-  documentation: 'Documentation',
-  empty_return: 'Empty return',
-  communication: 'Communication',
-  dispatching: 'Dispatching',
-  force_majeure: 'Force majeure',
-};
-
-const ROOT_CAUSE_FROM_OWNER: Record<DelayOwner, RootCause> = {
-  shipper_documentation: 'documentation',
-  shipper_depotage: 'empty_return',
-  shipper_communication: 'communication',
-  transporter: 'dispatching',
-  customs: 'documentation',
-  port_terminal: 'empty_return',
-  shipping_line: 'dispatching',
-  force_majeure: 'force_majeure',
-};
-
-/**
- * A cause keeps its depth wherever it appears, so the reader learns the mark
- * rather than re-reading the legend on every party. The five depths themselves
- * are the console brand pair — see `@/components/console`.
- */
-const ROOT_CAUSE_TONE: Record<RootCause, DelayCauseTone> = {
-  documentation: 'primary-bold',
-  empty_return: 'primary',
-  communication: 'primary-soft',
-  dispatching: 'accent-bold',
-  force_majeure: 'accent-soft',
-};
-
-/* ---------------------------------------------------------------------------
- * Types
- * ------------------------------------------------------------------------ */
 
 export interface DelayResponsibilityCardProps {
   shipperId: string;
@@ -137,31 +102,19 @@ export interface DelayResponsibilityCardProps {
   shipperLogoUrl?: string;
 }
 
-interface PartyRow {
-  key: DelayParty;
-  label: string;
-  count: number;
-  share: number;
-  isOwn: boolean;
-}
-
 interface CauseRow {
-  key: RootCause;
+  key: DelayReason;
   label: string;
   count: number;
   share: number;
 }
 
-interface FlowModel {
-  delayedShipments: number;
-  parties: PartyRow[];
-  /** Root causes keyed by responsible party — only that party's delays. */
-  causesByParty: Record<DelayParty, CauseRow[]>;
+interface PartyRow {
+  key: Party;
+  count: number;
+  share: number;
+  causes: CauseRow[];
 }
-
-/* ---------------------------------------------------------------------------
- * Component
- * ------------------------------------------------------------------------ */
 
 export function DelayResponsibilityCard({
   shipperId,
@@ -173,45 +126,87 @@ export function DelayResponsibilityCard({
   shipperName = 'Shipper',
   shipperLogoUrl,
 }: DelayResponsibilityCardProps) {
-  const [flow, setFlow] = useState<FlowTab>('import');
-  const [selectedParty, setSelectedParty] = useState<DelayParty | null>(null);
+  const [selectedParty, setSelectedParty] = useState<Party | null>(null);
 
-  const models = useMemo(
-    () => buildModels(shipperId, from, to, asOf ?? new Date(to)),
-    [shipperId, from, to, asOf],
-  );
+  const now = useMemo(() => asOf ?? new Date(to), [asOf, to]);
+  const { rows: missionIndex } = useShipperMissionIndex(shipperId, now);
 
-  const model = models[flow];
-  const total = model.delayedShipments;
-  const importCount = models.import.delayedShipments;
-  const exportCount = models.export.delayedShipments;
+  const periodRows = useMemo(() => {
+    const fromMs = new Date(from).getTime();
+    const toMs = new Date(to).getTime();
+    return missionIndex.filter((row) => {
+      const at = new Date(row.createdAt).getTime();
+      return !Number.isNaN(at) && at >= fromMs && at <= toMs;
+    });
+  }, [missionIndex, from, to]);
+
+  const { reports, isLoading } = useMissionReports(periodRows, now.getTime(), shipperName);
+
+  const { total, parties } = useMemo(() => {
+    const byParty = new Map<Party, { count: number; causes: Map<DelayReason, number> }>(
+      PARTY_ORDER.map((party) => [party, { count: 0, causes: new Map() }]),
+    );
+
+    let attributedTotal = 0;
+    for (const report of reports) {
+      const attribution = report.attribution;
+      if (!attribution) continue;
+      const party = PARTY_FROM_RESPONSIBLE[attribution.party];
+      if (!party) continue;
+
+      attributedTotal += 1;
+      const bucket = byParty.get(party);
+      if (!bucket) continue;
+      bucket.count += 1;
+      bucket.causes.set(attribution.reason, (bucket.causes.get(attribution.reason) ?? 0) + 1);
+    }
+
+    const partyRows: PartyRow[] = PARTY_ORDER.map((party) => {
+      const bucket = byParty.get(party);
+      const count = bucket?.count ?? 0;
+      const causes: CauseRow[] = Array.from(bucket?.causes.entries() ?? [])
+        .map(([reason, causeCount]) => ({
+          key: reason,
+          label: DELAY_REASON_LABELS[reason],
+          count: causeCount,
+          share: count > 0 ? causeCount / count : 0,
+        }))
+        .sort((a, b) => b.count - a.count);
+      return {
+        key: party,
+        count,
+        share: attributedTotal > 0 ? count / attributedTotal : 0,
+        causes,
+      };
+    });
+
+    return { total: attributedTotal, parties: partyRows };
+  }, [reports]);
 
   const activeParty =
-    selectedParty &&
-    model.parties.some((party) => party.key === selectedParty && party.count > 0)
+    selectedParty && parties.some((party) => party.key === selectedParty && party.count > 0)
       ? selectedParty
       : null;
 
-  const partyRows: DelayPartyView[] = model.parties.map((party) => ({
+  const partyRows: DelayPartyView[] = parties.map((party) => ({
     key: party.key,
     name: partyDisplayName(party.key, shipperName),
     logoUrl: partyLogoUrl(party.key, shipperLogoUrl),
     fallback: partyDisplayName(party.key, shipperName).substring(0, 2).toUpperCase(),
-    isOwn: party.isOwn,
+    isOwn: party.key === 'shipper',
     count: party.count,
     share: party.share,
     valueLabel: `${party.count}/${total}`,
   }));
 
+  const activePartyRow = activeParty ? parties.find((party) => party.key === activeParty) : undefined;
   const selectedCauses: DelayCauseView[] =
-    activeParty != null
-      ? model.causesByParty[activeParty].map((cause) => ({
-          key: cause.key,
-          label: cause.label,
-          share: cause.share,
-          tone: ROOT_CAUSE_TONE[cause.key],
-        }))
-      : [];
+    activePartyRow?.causes.map((cause, index) => ({
+      key: cause.key,
+      label: cause.label,
+      share: cause.share,
+      tone: CAUSE_TONES[index % CAUSE_TONES.length] as DelayCauseTone,
+    })) ?? [];
 
   return (
     <Card
@@ -219,44 +214,25 @@ export function DelayResponsibilityCard({
       padding="none"
       className={cn('flex h-full min-h-0 flex-col', PANEL_SURFACE, className)}
     >
-      <div className="flex flex-col gap-4 border-b border-border/60 px-6 pt-5 pb-4">
+      <div className="flex flex-col gap-1 border-b border-border/60 px-6 pt-5 pb-4">
         <PanelHeader
-          title="Delay responsibility"
-          hint={
-            total > 0
-              ? `${formatCompact(total)} delayed · ${FLOW_CORRIDOR[flow]}`
-              : undefined
-          }
+          title="Delay Responsibility"
+          hint={total > 0 ? `${formatCompact(total)} attributed this period` : undefined}
           action={
             onViewDetails ? (
               <PanelLink onClick={onViewDetails}>Open analytics</PanelLink>
             ) : undefined
           }
         />
-
-        <div
-          role="tablist"
-          aria-label="Shipment flow"
-          className="grid grid-cols-2 gap-1 rounded-card-nested bg-surface-sunken p-1"
-        >
-          <FlowTabButton
-            active={flow === 'import'}
-            onClick={() => setFlow('import')}
-            label="Import"
-            count={importCount}
-          />
-          <FlowTabButton
-            active={flow === 'export'}
-            onClick={() => setFlow('export')}
-            label="Export"
-            count={exportCount}
-          />
-        </div>
       </div>
 
-      {total === 0 ? (
+      {isLoading ? (
         <p className="flex flex-1 items-center justify-center px-6 py-10 text-center text-sm text-muted-foreground">
-          No attributed {flow} delays in this period.
+          Reading mission timelines…
+        </p>
+      ) : total === 0 ? (
+        <p className="flex flex-1 items-center justify-center px-6 py-10 text-center text-sm text-muted-foreground">
+          No container crossed its return deadline in this period — nothing to attribute.
         </p>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-5 px-6 py-5">
@@ -270,7 +246,7 @@ export function DelayResponsibilityCard({
               parties={partyRows}
               selected={activeParty}
               onSelect={(key) =>
-                setSelectedParty((prev) => (prev === key ? null : (key as DelayParty)))
+                setSelectedParty((prev) => (prev === key ? null : (key as Party)))
               }
             />
           </section>
@@ -291,7 +267,7 @@ export function DelayResponsibilityCard({
 
             {!activeParty ? (
               <p className="mt-3 type-body-sm text-muted-foreground">
-                Select who is responsible to see their root causes.
+                Select a party to see its root causes.
               </p>
             ) : selectedCauses.length === 0 ? (
               <p className="mt-3 type-body-sm text-muted-foreground">
@@ -305,148 +281,6 @@ export function DelayResponsibilityCard({
       )}
     </Card>
   );
-}
-
-/* ---------------------------------------------------------------------------
- * Tabs
- * ------------------------------------------------------------------------ */
-
-function FlowTabButton({
-  active,
-  onClick,
-  label,
-  count,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-  count: number;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className={cn(
-        'flex items-center justify-center gap-1.5 rounded-[calc(var(--radius-card-nested)-4px)] px-3 py-2 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        active
-          ? 'bg-surface text-foreground shadow-sm'
-          : 'text-muted-foreground hover:text-foreground',
-      )}
-    >
-      <span>{label}</span>
-      <span
-        className={cn(
-          'tabular-nums',
-          active ? 'text-muted-foreground' : 'text-muted-foreground/70',
-        )}
-      >
-        {count}
-      </span>
-    </button>
-  );
-}
-
-/* ---------------------------------------------------------------------------
- * Model
- * ------------------------------------------------------------------------ */
-
-/**
- * Split delayed shipments onto the two corridors.
- * Import = Port → store (detention-led when known).
- * Export = store → Port (demurrage-led when known).
- * Both still attribute delays to Shipper, Transporter, and Fleetin.
- */
-function shipmentFlow(fact: ShipmentFact): FlowTab {
-  if (fact.demurrageDays > fact.detentionDays) return 'export';
-  if (fact.detentionDays > fact.demurrageDays) return 'import';
-
-  let hash = 0;
-  for (let i = 0; i < fact.shipmentId.length; i += 1) {
-    hash = (hash * 31 + fact.shipmentId.charCodeAt(i)) >>> 0;
-  }
-  return hash % 2 === 0 ? 'import' : 'export';
-}
-
-function buildFlowModel(delayed: ShipmentFact[]): FlowModel {
-  const byParty: Record<DelayParty, number> = {
-    shipper: 0,
-    transporter: 0,
-    fleetin: 0,
-  };
-  const byPartyCause: Record<DelayParty, Record<RootCause, number>> = {
-    shipper: emptyCauseCounts(),
-    transporter: emptyCauseCounts(),
-    fleetin: emptyCauseCounts(),
-  };
-
-  for (const fact of delayed) {
-    const owner = fact.primaryDelayOwner;
-    if (!owner) continue;
-    const party = DELAY_OWNER_PARTY[owner];
-    const cause = ROOT_CAUSE_FROM_OWNER[owner];
-    byParty[party] += 1;
-    byPartyCause[party][cause] += 1;
-  }
-
-  const total = delayed.length;
-
-  const parties: PartyRow[] = PARTY_ORDER.map((party) => ({
-    key: party,
-    label: PARTY_LABELS[party],
-    count: byParty[party],
-    share: total > 0 ? byParty[party] / total : 0,
-    isOwn: party === 'shipper',
-  }));
-
-  const causesByParty = Object.fromEntries(
-    PARTY_ORDER.map((party) => {
-      const partyTotal = byParty[party];
-      const rows: CauseRow[] = ROOT_CAUSES.map((cause) => ({
-        key: cause,
-        label: ROOT_CAUSE_LABELS[cause],
-        count: byPartyCause[party][cause],
-        share: partyTotal > 0 ? byPartyCause[party][cause] / partyTotal : 0,
-      }))
-        .filter((row) => row.count > 0)
-        .sort((a, b) => b.count - a.count);
-      return [party, rows] as const;
-    }),
-  ) as Record<DelayParty, CauseRow[]>;
-
-  return { delayedShipments: total, parties, causesByParty };
-}
-
-function emptyCauseCounts(): Record<RootCause, number> {
-  return {
-    documentation: 0,
-    empty_return: 0,
-    communication: 0,
-    dispatching: 0,
-    force_majeure: 0,
-  };
-}
-
-function buildModels(shipperId: string, from: string, to: string, asOf: Date) {
-  const dataset = peekDataset(shipperId, asOf);
-  const facts = inPeriod(deriveFacts(dataset), { from, to });
-  const delayed = facts.filter(
-    (fact) => fact.totalDelayMinutes > 0 && fact.primaryDelayOwner,
-  );
-
-  const byFlow: Record<FlowTab, ShipmentFact[]> = {
-    import: [],
-    export: [],
-  };
-  for (const fact of delayed) {
-    byFlow[shipmentFlow(fact)].push(fact);
-  }
-
-  return {
-    import: buildFlowModel(byFlow.import),
-    export: buildFlowModel(byFlow.export),
-  };
 }
 
 export default DelayResponsibilityCard;

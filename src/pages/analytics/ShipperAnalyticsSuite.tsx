@@ -1,245 +1,183 @@
 import { useMemo, useState } from 'react';
-import { useBiFilters, useBiDrillDown, BiFilterBar } from '@/features/shipper-bi/filters';
-import { useOverviewSection } from '@/features/shipper-bi/api/queries';
-import { peekDataset } from '@/features/shipper-bi/api/biService';
-import { DrillDownSheet } from '@/features/shipper-bi/sections/DrillDownSheet';
+import { useNavigate } from 'react-router-dom';
+import { ROUTES, buildPath } from '@/config/routes';
+import { Card, Skeleton } from '@/design-system';
+import { useBiDataset } from '@/features/shipper-bi/api/queries';
+import { EMPTY_BI_DATASET } from '@/features/shipper-bi/api/biService';
 import { useShipperAccount, type ShipperShipmentRow } from '@/features/shipper-bi';
-import { ShipmentReportsPanel, type BookingPreviewItem } from '@/pages/shipments/components';
 import { deriveFacts } from '@/lib/bi/derive';
-import { cn, formatDate } from '@/utils';
-import { AnalyticsTabNav, type AnalyticsTabKey } from './components/AnalyticsTabNav';
-import { KpiStrip } from './sections/KpiStrip';
-import { OverviewSection } from './sections/OverviewSection';
-import { OperationsSection } from './sections/OperationsSection';
-import { CostSection } from './sections/CostSection';
-import { EmptyReturnSection } from './sections/EmptyReturnSection';
-import { PerformanceSection } from './sections/PerformanceSection';
-import { ReportingSection } from './sections/ReportingSection';
-import { RISK_ALERT_THRESHOLD } from './analyticsConfig';
+import { formatDate } from '@/utils';
+import {
+  AvoidableCard,
+  ContainerCard,
+  HeroTiles,
+  LaneCard,
+  OnTimeTrendCard,
+  OutcomeMixCard,
+  PeriodPicker,
+  ShipmentBook,
+  SpendTrendCard,
+  TransporterCard,
+  buildShipperInsight,
+  type InsightRange,
+} from './insight';
 
 /**
- * The full business intelligence suite for one shipper.
+ * The shipper's whole account, on one page.
  *
- * Everything the dashboard deliberately leaves out lives here: the Pareto
- * charts, the matrices, the map and the searchable shipment history that
- * someone opens when they have come to study the account rather than check it.
+ * **What this page is for.** A shipper has three views of their work and they
+ * are deliberately different lengths of time:
  *
- * **Shape: constant context, switchable detail.** The filter bar and the six
- * headline KPIs are always on screen; the detail below them is split into seven
- * subject tabs. The previous version stacked all six subjects into a single
- * 8,500px scroll, which had two costs — you could not find anything, and no
- * card was ever rendered next to its own duplicate, so the page had grown
- * three KPI strips, the same delay-by-owner breakdown three times, and four
- * transporter cards built from one table's columns.
+ *   the **dashboard** — today: what is moving, what needs me this week;
+ *   the **shipment** — one run: its mission report, every timestamp;
+ *   **this page** — the account: months of work, trends, rankings, the book.
  *
- * The rule that keeps it that way: **one subject, one tab, one card.** A number
- * appears in a second place only when it is the headline of one view and a
- * column of another.
+ * Anything that belongs to one of the other two has been removed rather than
+ * shown twice. That is most of what changed.
  *
- * The suite is deliberately shipper-agnostic: the shipper portal renders it
- * for the logged-in account while the admin's shipper detail page renders it
- * for whichever record is open — one implementation, two audiences. That is
- * also why it renders no page chrome (no max-width, no heading): each host
- * owns its own frame and binds `shipperId` however it identifies a shipper.
+ * **What it replaced.** Seven tabs and roughly thirty cards behind a six-control
+ * filter bar. The duplication had become structural: delay responsibility was
+ * drawn on this page, on the dashboard and in the monthly report; the detention
+ * scatter appeared on two tabs of this very page; the Reports tab was a second
+ * copy of a panel the shipment page owns; and the six pinned KPI tiles repeated
+ * the dashboard's own opening row. Four of the filter bar's six controls
+ * reached only those pinned tiles, so most of the page silently ignored them.
+ *
+ * **The shape now.** One control, one aggregation, and six blocks that each ask
+ * a question in the words a shipper would use and answer it in their header:
+ *
+ *   1. the account in four numbers, against the window before it
+ *   2. is my cargo arriving on time?
+ *   3. where is my money going?
+ *   4. are my containers going back in time?
+ *   5. who moves my cargo / which lanes are working?
+ *   6. every container, on record
+ *
+ * No tabs — a tab is a place for a number to hide from the number it
+ * contradicts. Every figure comes from `buildShipperInsight`, so two blocks
+ * cannot disagree.
+ *
+ * **Two colours**, the same rule as the shipper dashboard: teal is the account
+ * working, orange is the account costing money or needing a person. See
+ * `insight/kit.tsx`.
+ *
+ * The suite stays shipper-agnostic: the portal renders it for the signed-in
+ * account and the admin's shipper detail page renders it for whichever record
+ * is open. It draws no page chrome, because each host owns its own frame.
  */
 
 export interface ShipperAnalyticsSuiteProps {
-  /** Which shipper's book of work the suite renders. */
+  /** Which shipper's book of work the page renders. */
   shipperId: string;
-  /** Injected so the suite is reproducible in tests and never reads the clock. */
+  /** Injected so the page is reproducible in tests and never reads the clock. */
   now?: Date;
-  /**
-   * Sticky offset for the subject tab bar. The default anchors it directly
-   * under the app header; a host that stacks its own sticky nav above the
-   * suite passes a taller offset so the two bars tier instead of colliding.
-   */
-  subjectNavTopClass?: string;
 }
 
-export function ShipperAnalyticsSuite({
-  shipperId,
-  now,
-  subjectNavTopClass = 'top-header',
-}: ShipperAnalyticsSuiteProps) {
+export function ShipperAnalyticsSuite({ shipperId, now }: ShipperAnalyticsSuiteProps) {
+  const navigate = useNavigate();
+
   // Pinned to the day: a `new Date()` per render would invalidate every query
   // key on every keystroke.
   const asOf = useMemo(() => now ?? new Date(), [now]);
+  const [range, setRange] = useState<InsightRange>('6m');
 
-  const filterState = useBiFilters(asOf);
-  const drillDown = useBiDrillDown();
-  const { filters } = filterState;
-
-  const dataset = useMemo(() => peekDataset(shipperId, asOf), [shipperId, asOf]);
+  const { data: loadedDataset, isLoading } = useBiDataset(shipperId, asOf);
+  const dataset = loadedDataset ?? EMPTY_BI_DATASET;
   const facts = useMemo(() => deriveFacts(dataset), [dataset]);
-  const overview = useOverviewSection({ shipperId, filters, now: asOf });
 
-  // The Reports tab's feed. The panel used to be stacked under the whole suite
-  // by the admin host, which put the same eight charts at the bottom of every
-  // subject tab; as a subject of its own it renders once, and only when open.
-  const { rows: accountRows } = useShipperAccount({ shipperId, now: asOf });
-  const bookings = useMemo(() => accountRows.map(toBookingPreview), [accountRows]);
-
-  // Local state, not a URL param: the admin host page already owns a `tab`
-  // search param, and the BI filter params coexist with it because
-  // useBiFilters mutates the current params rather than replacing them.
-  const [tab, setTab] = useState<AnalyticsTabKey>('overview');
-
-  // Counts the tab bar wears as badges, so "something needs me" is legible
-  // without opening the tab.
-  const atRiskCount = useMemo(
-    () => facts.filter((f) => f.isOpen && f.riskScore >= RISK_ALERT_THRESHOLD).length,
-    [facts],
+  const insight = useMemo(
+    () => buildShipperInsight({ facts, dataset, range, asOf }),
+    [facts, dataset, range, asOf],
   );
-  const overdueReturnCount =
-    overview.data?.returnHeadroom.find((slice) => slice.key === 'overdue')?.value ?? 0;
+
+  // The book is the account's real rows — names, container numbers and the
+  // link back to the shipment — which the fact table does not carry.
+  const { rows } = useShipperAccount({ shipperId, now: asOf });
+
+  const openShipment = (row: ShipperShipmentRow) => {
+    navigate(
+      buildPath(ROUTES.shipmentOverview, {
+        id: row.shipmentId.replace(/^SHP-0*/i, '') || '1',
+      }),
+    );
+  };
+
+  if (isLoading) return <SuiteSkeleton />;
 
   return (
-    <div className="flex flex-col gap-5">
-      <BiFilterBar
-        state={filterState}
-        transporters={dataset.transporters}
-        routes={dataset.routes}
-        actions={
-          <span className="text-[11px] text-muted-foreground">
-            {formatDate(filters.from, 'date')} — {formatDate(filters.to, 'date')}
-          </span>
-        }
-      />
-
-      {/* ── The six headline numbers, above the tabs and never hidden ──── */}
-      <KpiStrip data={overview.data} onDrillDown={drillDown.open} />
-
-      {/* ── Subject tabs ───────────────────────────────────────────────── */}
-      <div
-        className={cn(
-          'sticky z-sticky -mt-1 bg-background/95 pt-1 backdrop-blur-sm',
-          subjectNavTopClass,
-        )}
-      >
-        <AnalyticsTabNav
-          active={tab}
-          onChange={setTab}
-          atRiskCount={atRiskCount}
-          overdueReturnCount={overdueReturnCount}
-          historyCount={facts.length}
-        />
+    <div className="flex flex-col gap-4">
+      {/* The one control, and the window it resolves to — stated, because a
+          figure whose period is not named is a figure two readers will read
+          two different ways. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="type-body-sm text-muted-foreground">
+          {formatDate(insight.period.from, 'date')} — {formatDate(insight.period.to, 'date')}
+        </p>
+        <PeriodPicker value={range} onChange={setRange} />
       </div>
 
-      <div
-        role="tabpanel"
-        id={`analytics-panel-${tab}`}
-        aria-labelledby={`analytics-tab-${tab}`}
-        tabIndex={-1}
-      >
-        {tab === 'overview' && (
-          <OverviewSection
-            data={overview.data}
-            facts={facts}
-            filters={filters}
-            isLoading={overview.isLoading}
-            isFetching={overview.isFetching}
-            error={overview.error as Error | null}
-            onDrillDown={drillDown.open}
-          />
-        )}
+      {/* The generated finding, then the four numbers it is drawn from. */}
+      <p className="max-w-[74ch] text-[15px] leading-relaxed text-foreground">{insight.verdict}</p>
 
-        {tab === 'operations' && (
-          <OperationsSection
-            facts={facts}
-            dataset={dataset}
-            filters={filters}
-            onDrillDown={drillDown.open}
-          />
-        )}
+      <HeroTiles insight={insight} />
 
-        {tab === 'cost' && (
-          <CostSection
-            facts={facts}
-            dataset={dataset}
-            overview={overview.data}
-            filters={filters}
-            onDrillDown={drillDown.open}
-          />
-        )}
+      {insight.isEmpty ? (
+        <Card variant="default" padding="lg">
+          <p className="py-10 text-center text-sm text-muted-foreground">
+            Nothing ran in this period. Try a longer window.
+          </p>
+        </Card>
+      ) : (
+        /*
+         * A twelve-column grid, not a stack of full-width bands.
+         *
+         * The first build gave every subject the entire page width, which put a
+         * ring at the far left of a 1,500px card and stretched a seven-point
+         * line into a 10:1 ribbon with nothing in it — the reason the page read
+         * as empty rather than as a dashboard. Paired 7/5 and 4/4/4 rows give
+         * each graphic a shape it can fill, and `items-stretch` keeps the cards
+         * in a row on one baseline so the grid reads as rows rather than as
+         * ragged tiles.
+         *
+         * Nine cells including the tiles and the book, which is the range a
+         * dashboard stays readable in — past that a reader scans instead of
+         * reading.
+         */
+        <div className="grid grid-cols-12 items-stretch gap-4">
+          <OnTimeTrendCard insight={insight} className="col-span-12 xl:col-span-7" />
+          <OutcomeMixCard insight={insight} className="col-span-12 md:col-span-6 xl:col-span-5" />
 
-        {tab === 'containers' && (
-          <EmptyReturnSection
-            facts={facts}
-            filters={filters}
-            returnHeadroom={overview.data?.returnHeadroom}
-            onDrillDown={drillDown.open}
-          />
-        )}
+          <SpendTrendCard insight={insight} className="col-span-12 xl:col-span-7" />
+          <AvoidableCard insight={insight} className="col-span-12 md:col-span-6 xl:col-span-5" />
 
-        {tab === 'transporters' && (
-          <PerformanceSection
-            facts={facts}
-            dataset={dataset}
-            spotlightTransporters={overview.data?.spotlightTransporters}
-            onDrillDown={drillDown.open}
-          />
-        )}
+          <ContainerCard insight={insight} className="col-span-12 md:col-span-6 xl:col-span-4" />
+          <TransporterCard insight={insight} className="col-span-12 md:col-span-6 xl:col-span-4" />
+          <LaneCard insight={insight} className="col-span-12 md:col-span-6 xl:col-span-4" />
+        </div>
+      )}
 
-        {tab === 'reports' && <ShipmentReportsPanel bookings={bookings} />}
-
-        {tab === 'history' && <ReportingSection facts={facts} shipperId={shipperId} />}
-      </div>
-
-      <DrillDownSheet
-        drillDown={drillDown.active}
-        dataset={dataset}
-        filters={filters}
-        onClose={drillDown.close}
-      />
+      <ShipmentBook rows={rows} onOpen={openShipment} />
     </div>
   );
 }
 
-/**
- * The reports panel speaks the shipments page's booking language, so the
- * account rows are translated at this boundary rather than the panel learning
- * a second schema. Moved here with the panel itself — the admin detail page
- * carried this mapping while it hosted the panel below the suite.
- */
-function toBookingPreview(row: ShipperShipmentRow): BookingPreviewItem {
-  const statusIntent: BookingPreviewItem['statusIntent'] =
-    row.status === 'closed' || row.outcome === 'on_time' || row.outcome === 'early'
-      ? 'green'
-      : row.status === 'open' && row.stage === 'in_transit'
-        ? 'blue'
-        : row.outcome === 'late' || row.riskScore >= 60
-          ? 'orange'
-          : 'slate';
-
-  const stageStep: Record<string, number> = {
-    created: 1,
-    documentation: 1,
-    gate_in: 2,
-    dispatched: 2,
-    picked_up: 3,
-    in_transit: 3,
-    arrived: 4,
-    unloading: 4,
-    delivered: 5,
-    empty_return: 6,
-  };
-  const step = stageStep[row.stage] ?? 1;
-
-  return {
-    id: row.shipmentId,
-    bookingNumber: row.reference,
-    partnerName: row.transporter,
-    driverName: row.transporter,
-    driverVerified: row.riskScore < 50,
-    vehicleNumber: row.containerNo ?? '—',
-    vehicleType: row.containerType,
-    vehicleVerified: row.riskScore < 60,
-    status: row.stageLabel,
-    statusIntent,
-    step: `Step ${step} of 6`,
-    podDocument:
-      row.status === 'closed'
-        ? { name: `POD_${row.reference}.pdf`, size: '1.2 MB', uploadedAt: row.arrivalAt ?? '' }
-        : null,
-  };
+function SuiteSkeleton() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[1, 2, 3, 4].map((tile) => (
+          <Card key={tile} variant="default" padding="lg" className="min-h-[136px] gap-3">
+            <Skeleton shape="text" className="h-4 w-24" />
+            <Skeleton shape="text" className="h-8 w-20" />
+          </Card>
+        ))}
+      </div>
+      {[1, 2, 3].map((block) => (
+        <Card key={block} variant="default" padding="lg" className="gap-4">
+          <Skeleton shape="text" className="h-5 w-56" />
+          <Skeleton shape="block" className="h-40 w-full" />
+        </Card>
+      ))}
+    </div>
+  );
 }

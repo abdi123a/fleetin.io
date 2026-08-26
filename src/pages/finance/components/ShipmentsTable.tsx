@@ -35,7 +35,7 @@ export function ShipmentsTable({
           <Th>Route</Th>
           <Th>Payout</Th>
           <Th align="right">Cost</Th>
-          <Th align="right">Client total</Th>
+          <Th align="right">Billed</Th>
           <Th>Invoice</Th>
         </tr>
       </thead>

@@ -4,6 +4,7 @@ import { useShipmentStore } from '@/stores/shipment.store';
 import {
   createShipment,
   deleteShipment,
+  fetchAllShipments,
   fetchAllShipmentsRaw,
   fetchShipment,
   fetchShipmentRaw,
@@ -146,10 +147,16 @@ export function useDeleteShipment() {
  * same query key, so it's cheap to call from more than one page.
  */
 export function useHydrateShipments() {
-  const { data } = useShipments();
+  // Every page, not just the first — the store this fills is what the
+  // Shipments page counts and filters against, and a one-page fetch made it
+  // report 200 of 337 shipments as the whole book.
+  const { data } = useQuery({
+    queryKey: [...shipmentQueryKeys.all, 'all'] as const,
+    queryFn: () => fetchAllShipments(),
+  });
   const setMissions = useShipmentStore((s) => s.setMissions);
 
   useEffect(() => {
-    if (data) setMissions(data.items);
+    if (data) setMissions(data);
   }, [data, setMissions]);
 }

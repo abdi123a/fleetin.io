@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/config/routes';
 import {
   Avatar,
+  CompanyAvatar,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -11,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/design-system';
 import { useAuthStore } from '@/stores';
+import { useShipper } from '@/features/shippers/api/queries';
 import { cn } from '@/utils';
 
 export interface HeaderUserMenuProps {
@@ -31,6 +33,15 @@ export function HeaderUserMenu({ className }: HeaderUserMenuProps) {
     ? `${user.companyName}`
     : user?.role || 'ADMIN';
 
+  /*
+   * A shipper seat is the company, not the person who happens to hold the
+   * login: the account's own mark is what belongs in the chrome. Cached by the
+   * same query the shipper pages already run, so this costs no extra request.
+   */
+  const { data: shipper } = useShipper(user?.role === 'SHIPPER' ? (user.shipperId ?? '') : '');
+  const companyName = shipper?.companyLegalName ?? user?.companyName;
+  const companyLogo = shipper?.logoUrl;
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -41,7 +52,11 @@ export function HeaderUserMenu({ className }: HeaderUserMenuProps) {
           className,
         )}
       >
-        <Avatar size="sm" name={displayName} src={user?.avatarUrl} />
+        {companyLogo ? (
+          <CompanyAvatar size="sm" name={companyName} src={companyLogo} className="bg-card" />
+        ) : (
+          <Avatar size="sm" name={displayName} src={user?.avatarUrl} />
+        )}
         <span className="hidden text-left sm:block">
           <span className="block text-sm font-medium leading-tight text-foreground truncate max-w-[140px]">
             {displayName}

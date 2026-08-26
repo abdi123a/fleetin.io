@@ -43,10 +43,16 @@ export interface AvatarProps
   name?: string;
   /** Overrides the initials derived from `name`. */
   fallback?: string;
+  /**
+   * How the image fills the frame. `cover` for a photograph of a person, which
+   * survives a crop; `contain` for a company mark, which does not — a wordmark
+   * cropped to a square reads as a different company.
+   */
+  fit?: 'cover' | 'contain';
 }
 
 export const Avatar = forwardRef<ElementRef<typeof AvatarPrimitive.Root>, AvatarProps>(
-  function Avatar({ className, size, shape, src, name, fallback, ...props }, ref) {
+  function Avatar({ className, size, shape, src, name, fallback, fit = 'cover', ...props }, ref) {
     return (
       <AvatarPrimitive.Root
         ref={ref}
@@ -57,7 +63,10 @@ export const Avatar = forwardRef<ElementRef<typeof AvatarPrimitive.Root>, Avatar
           <AvatarPrimitive.Image
             src={src}
             alt={name ?? ''}
-            className="aspect-square size-full object-cover"
+            className={cn(
+              'size-full',
+              fit === 'contain' ? 'object-contain p-0.5' : 'aspect-square object-cover',
+            )}
           />
         )}
         <AvatarPrimitive.Fallback

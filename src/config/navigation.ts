@@ -301,12 +301,6 @@ export function getNavigationForUser(user: { role?: string; shipperId?: string }
             icon: BarChart3,
           },
           {
-            id: 'shipper-documents',
-            label: 'Compliance & Profile',
-            path: `${shipperPath}?tab=profile`,
-            icon: FileText,
-          },
-          {
             id: 'empty-returns',
             label: 'Empty Returns',
             path: ROUTES.emptyReturns,
@@ -322,7 +316,7 @@ export function getNavigationForUser(user: { role?: string; shipperId?: string }
           {
             id: 'settings',
             label: 'Account Settings',
-            path: ROUTES.settings,
+            path: `${shipperPath}?tab=profile`,
             icon: Settings,
           },
         ],

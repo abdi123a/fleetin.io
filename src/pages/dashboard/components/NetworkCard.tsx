@@ -53,7 +53,7 @@ export function NetworkCard({ network, className }: { network: NetworkModel; cla
               [
                 {
                   key: 'v',
-                  label: side === 'shippers' ? 'Billed to them' : 'Owed to them',
+                  label: side === 'shippers' ? 'Billed' : 'Transport cost',
                   value: fmtDjf(row.valueDjf),
                   color,
                 },
@@ -69,7 +69,7 @@ export function NetworkCard({ network, className }: { network: NetworkModel; cla
   const series = useMemo(
     () => [
       {
-        name: side === 'shippers' ? 'Billed' : 'Owed',
+        name: side === 'shippers' ? 'Billed' : 'Transport cost',
         data: rows.map((row) => Math.round(row.valueDjf)),
       },
     ],
@@ -82,11 +82,11 @@ export function NetworkCard({ network, className }: { network: NetworkModel; cla
   return (
     <ConsolePanel
       className={className}
-      title="The network"
+      title="Network"
       subtitle={
         side === 'shippers'
-          ? 'Clients ranked by what has been billed against them'
-          : 'Transporters ranked by what the work owes them'
+          ? 'Shippers ranked by amount billed'
+          : 'Transporters ranked by transport cost'
       }
       action={
         <Link to={side === 'shippers' ? ROUTES.shippers : ROUTES.partners}>
@@ -111,15 +111,14 @@ export function NetworkCard({ network, className }: { network: NetworkModel; cla
               <span className="font-bold text-foreground">
                 {leader.name} carries {compactDjf(leader.valueDjf)}
               </span>{' '}
-              — {Math.round((leader.valueDjf / totalValue) * 100)}% of everything on this side.
+              — {Math.round((leader.valueDjf / totalValue) * 100)}% of this side.
               {pending > 0
-                ? ` ${pending} of the ${registered} registered ${side === 'shippers' ? 'shippers are' : 'transporters are'} not yet approved to trade.`
-                : ` All ${registered} registered are approved to trade.`}
+                ? ` ${pending} of ${registered} not yet approved.`
+                : ` All ${registered} approved.`}
             </>
           ) : (
             <>
-              No {side === 'shippers' ? 'client' : 'transporter'} has run a shipment yet, so there is nothing to
-              rank. {registered} {registered === 1 ? 'is' : 'are'} registered.
+              No {side === 'shippers' ? 'shipper' : 'transporter'} shipments yet · {registered} registered.
             </>
           )}
         </InsightNote>
@@ -127,7 +126,7 @@ export function NetworkCard({ network, className }: { network: NetworkModel; cla
     >
       {rows.length === 0 ? (
         <p className="py-10 text-center text-sm font-semibold text-muted-foreground">
-          No {side === 'shippers' ? 'shipper' : 'transporter'} has run a shipment yet.
+          No {side === 'shippers' ? 'shipper' : 'transporter'} shipments yet.
         </p>
       ) : (
         <div className="min-h-0 flex-1">

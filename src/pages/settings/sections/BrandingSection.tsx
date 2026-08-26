@@ -22,7 +22,7 @@ export function BrandingSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Panel title="Logos" subtitle="Replaces the artwork shipped in /public — no redeploy needed">
+      <Panel title="Logos" subtitle="Replaces the shipped artwork">
         <FieldGrid>
           <ImageField
             label="Wordmark"
@@ -37,7 +37,7 @@ export function BrandingSection() {
             fallbackSrc={branding.logoSrc ?? COMPANY.logoSrc}
             onChange={(v) => set({ logoWhiteSrc: v })}
             dark
-            hint="Optional. A white or light version for the teal sidebar; falls back to the colour wordmark."
+            hint="Optional. Falls back to the colour wordmark."
           />
           <ImageField
             label="Icon mark"
@@ -60,13 +60,12 @@ export function BrandingSection() {
             hint="Optional image behind the sign-in form."
           />
           <SectionNote>
-            Images are stored in this browser, so each is capped at 512 KB. Export a PNG around 600 px wide with a
-            transparent background — that prints cleanly at letterhead size and stays well under the limit.
+            Stored in this browser, 512 KB each. A transparent PNG around 600 px wide prints cleanly.
           </SectionNote>
         </FieldGrid>
       </Panel>
 
-      <Panel title="Appearance" subtitle="Defaults for a user who has never chosen">
+      <Panel title="Appearance" subtitle="Defaults for new users">
         <FieldGrid>
           <SelectField
             label="Default theme"
@@ -77,17 +76,17 @@ export function BrandingSection() {
               { value: 'light', label: 'Light' },
               { value: 'dark', label: 'Dark' },
             ]}
-            hint="A user who picks their own theme keeps it; this only sets the starting point."
+            hint="Only the starting point; a user's own choice wins."
           />
           <ColorField
             label="Document accent"
             value={branding.documentAccent}
             onChange={(v) => set({ documentAccent: v })}
-            hint="Rules and table heads on printed invoices and vouchers. Does not affect the interface."
+            hint="Printed documents only, not the interface."
           />
           <ToggleField
             label="Start with the sidebar collapsed"
-            description="Opens the app on the narrow icon rail. Useful on laptops where screen width is tight."
+            description="Opens on the narrow icon rail."
             checked={branding.sidebarCollapsedByDefault}
             onChange={(v) => set({ sidebarCollapsedByDefault: v })}
           />

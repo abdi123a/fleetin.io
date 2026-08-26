@@ -137,8 +137,8 @@ export function EmptyReturnTransportersPage() {
           <EmptyState
             className="py-12"
             icon={<Truck className="h-6 w-6" aria-hidden />}
-            title="No transporter activity yet."
-            description="Carriers appear here as soon as their first empty return is recorded."
+            title="No transporter activity"
+            description="Transporters appear once their first empty return is recorded."
           />
         ) : (
           <>

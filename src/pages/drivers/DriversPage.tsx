@@ -18,9 +18,9 @@ import {
 } from '@/design-system/icons';
 import { DocumentViewerModal, type DocumentToView } from '@/components/DocumentViewerModal';
 import { triggerDocumentDownload } from '@/components/documentDownload';
-import { Grid, List, RotateCcw, AlertTriangle, Building2, IdCard, UserCheck, BadgeCheck, Check } from 'lucide-react';
+import { Grid, List, RotateCcw, AlertTriangle, Building2, IdCard, UserCheck, Check } from 'lucide-react';
 import { PageHeader, TablePager, usePagedRows } from '@/components';
-import { IconChip } from '@/design-system';
+import { IconChip, useConfirm } from '@/design-system';
 import {
   Badge,
   Button,
@@ -33,6 +33,7 @@ import {
   Input,
   Select,
   StatisticCard,
+  VerificationBadge,
 } from '@/design-system';
 import { ROUTES, buildPath } from '@/config/routes';
 import type { EnrichedDriver } from '@/data/partnerData';
@@ -41,7 +42,7 @@ import { usePartners } from '@/features/partners/api/queries';
 import { useCreateDriver, useDrivers, useUpdateDriver } from '@/features/drivers/api/queries';
 import { useDocuments, useCreateDocumentType, useDocumentTypes, useUploadDocument, useDeleteDocument } from '@/features/documents/api/queries';
 import { toDisplayDocument, uploadDocument, type DocumentTypeRecord } from '@/features/documents/api/documentsService';
-import { cn } from '@/utils';
+import { cn, isDriverVerified } from '@/utils';
 
 function StatusPill({ status }: { status: OperationalStatus }) {
   switch (status) {
@@ -164,7 +165,7 @@ function DocumentTypeList({
                     type="button"
                     onClick={() => onRemove(existing.id)}
                     className="p-1 rounded-md text-muted-foreground hover:text-destructive transition-colors shrink-0"
-                    title="Remove file"
+                    title="Remove document"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -191,7 +192,7 @@ function DocumentTypeList({
 
       {types.length === 0 && (
         <div className="p-6 rounded-lg border border-dashed border-border/80 text-center text-xs text-muted-foreground">
-          No document types yet. Click &quot;Add Document Type&quot; to create the first one.
+          No document types yet.
         </div>
       )}
     </div>
@@ -229,7 +230,7 @@ function AddDocumentTypeBox({
           disabled={!labelValue.trim()}
           className="bg-primary text-primary-foreground font-semibold text-xs rounded-full px-4"
         >
-          Save Document Type
+          Save document type
         </Button>
       </div>
     </div>
@@ -323,7 +324,7 @@ export function DriversPage() {
       licenseExpiry: '2027-12-31',
     });
 
-    setAddSuccessNotice(`Driver "${created.fullName}" successfully registered to ${partner.companyLegalName}!`);
+    setAddSuccessNotice(`Driver "${created.fullName}" registered to ${partner.companyLegalName}.`);
     setTimeout(() => setAddSuccessNotice(null), 5000);
   };
 
@@ -394,15 +395,21 @@ export function DriversPage() {
       { category: type.label, file },
       {
         onSuccess: (doc) => {
-          setDocNotice(`Document "${doc.name}" uploaded successfully!`);
+          setDocNotice(`Document "${doc.name}" uploaded.`);
           setTimeout(() => setDocNotice(null), 4000);
         },
       },
     );
   };
 
-  const handleDeleteDriverDoc = (_driverId: string, docId: string) => {
-    deleteDoc.mutate(docId);
+  const { confirm, confirmDialog } = useConfirm();
+
+  const handleDeleteDriverDoc = async (_driverId: string, docId: string) => {
+    const ok = await confirm({
+      title: 'Delete this document?',
+      description: 'The file will be permanently removed from the vault.',
+    });
+    if (ok) deleteDoc.mutate(docId);
   };
 
   const handleDownloadDriverDoc = (doc: DriverDocRow) => {
@@ -426,7 +433,7 @@ export function DriversPage() {
   const partnerOptions = useMemo(() => {
     const unique = Array.from(new Set(drivers.map((d) => d.partnerName)));
     return [
-      { value: 'all', label: 'All Partners' },
+      { value: 'all', label: 'All transporters' },
       ...unique.map((name) => ({ value: name, label: name })),
     ];
   }, [drivers]);
@@ -482,10 +489,11 @@ export function DriversPage() {
 
   return (
     <div className="space-y-5 pb-12">
+      {confirmDialog}
       {/* Page Header */}
       <PageHeader
         title="Drivers"
-        description="Driver roster, licensing status and partner assignments across all fleets."
+        description="Driver roster, licensing and transporter assignments."
         actions={
           <Button
             onClick={() => setIsAddDriverOpen(true)}
@@ -493,7 +501,7 @@ export function DriversPage() {
             leadingIcon={<Plus className="h-4 w-4" />}
             className="bg-primary hover:bg-primary-hover text-primary-foreground font-semibold px-4 py-2 text-xs shadow-xs cursor-pointer"
           >
-            Add Driver
+            Add driver
           </Button>
         }
       />
@@ -522,7 +530,7 @@ export function DriversPage() {
               <User className="h-5 w-5 text-primary" /> Register New Driver
             </SheetTitle>
             <SheetDescription className="text-xs text-muted-foreground">
-              Select the Transport Partner / Transporter who owns this driver. The driver will be added directly to the Partner's profile roster.
+              Added to the selected transporter's driver roster.
             </SheetDescription>
           </div>
 
@@ -530,11 +538,11 @@ export function DriversPage() {
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5 sm:px-8">
           <div className="space-y-4">
             <div className="space-y-1.5 p-3.5 rounded-lg border border-primary/30 bg-primary/5">
-              <label className="text-[11px] font-bold text-primary block uppercase tracking-wider">Transport Partner / Transporter *</label>
+              <label className="text-[11px] font-bold text-primary block uppercase tracking-wider">Transporter *</label>
               <Select
                 value={newDriver.partnerId}
                 options={[
-                  { value: '', label: 'Select a partner…' },
+                  { value: '', label: 'Select a transporter…' },
                   ...partners.map((p) => ({
                     value: p.id,
                     label: `${p.companyLegalName} (${p.country})`,
@@ -542,9 +550,6 @@ export function DriversPage() {
                 ]}
                 onChange={(e) => setNewDriver((prev) => ({ ...prev, partnerId: e.target.value }))}
               />
-              <span className="text-[10px] text-muted-foreground block">
-                This driver will be linked directly to this partner's profile page.
-              </span>
             </div>
 
             <div className="space-y-1.5">
@@ -583,7 +588,7 @@ export function DriversPage() {
                     Driver Compliance Documents
                   </h4>
                   <p className="type-caption text-muted-foreground mt-0.5">
-                    Optional — attach files now, or upload them later from the driver's Documents tab.
+                    Optional; can be added later.
                   </p>
                 </div>
                 <Button
@@ -594,7 +599,7 @@ export function DriversPage() {
                   leadingIcon={<Plus className="h-3.5 w-3.5" />}
                   className="text-xs font-semibold rounded-full shrink-0"
                 >
-                  {showAddDocType ? 'Cancel' : 'Add Document Type'}
+                  {showAddDocType ? 'Cancel' : 'Add document type'}
                 </Button>
               </div>
 
@@ -649,7 +654,7 @@ export function DriversPage() {
         <StatisticCard
           title="Total Drivers"
           value={totalDrivers}
-          subtitle="Registered Drivers"
+          subtitle="Registered drivers"
           variant="teal"
           trend="up"
           percentage="100%"
@@ -658,7 +663,7 @@ export function DriversPage() {
         <StatisticCard
           title="Available"
           value={availableCount}
-          subtitle="Ready for Load"
+          subtitle="Ready for dispatch"
           variant="blue"
           trend="up"
           percentage={`${Math.round((availableCount / (totalDrivers || 1)) * 100)}%`}
@@ -667,7 +672,7 @@ export function DriversPage() {
         <StatisticCard
           title="In Transit"
           value={inTransitCount}
-          subtitle="Active Driving"
+          subtitle="On active bookings"
           variant="peach"
           trend="up"
           percentage="+15%"
@@ -676,7 +681,7 @@ export function DriversPage() {
         <StatisticCard
           title="License Alerts"
           value={licenseAlerts}
-          subtitle="Requires Attention"
+          subtitle="Requires attention"
           variant="pink"
           trend={licenseAlerts > 0 ? 'down' : 'neutral'}
           percentage={`${licenseAlerts} alerts`}
@@ -803,7 +808,7 @@ export function DriversPage() {
       <Sheet open={Boolean(selectedDriver)} onOpenChange={(open) => !open && setSelectedDriver(null)}>
         <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto p-6 bg-background border-l border-border space-y-6">
           <SheetTitle className="sr-only">Driver Profile Details & Documents</SheetTitle>
-          <SheetDescription className="sr-only">View, edit driver information, and upload driver documents.</SheetDescription>
+          <SheetDescription className="sr-only">Driver details and documents.</SheetDescription>
           {selectedDriver && (
             <div className="space-y-6">
               {/* Profile Header */}
@@ -819,9 +824,9 @@ export function DriversPage() {
                   <div className="space-y-1">
                     <h3 className="text-xl font-extrabold text-foreground tracking-tight flex items-center gap-2">
                       {selectedDriver.fullName}
-                      <BadgeCheck className="h-5 w-5 text-success-subtle-foreground shrink-0" />
+                      <VerificationBadge state={isDriverVerified(selectedDriver) ? 'verified' : 'unverified'} size="lg" />
                     </h3>
-                    <p className="text-xs text-muted-foreground font-mono">ID: {selectedDriver.id}</p>
+                    <p className="text-xs text-muted-foreground font-mono">{selectedDriver.reference}</p>
                     <div className="pt-1"><StatusPill status={selectedDriver.status} /></div>
                   </div>
                 </div>
@@ -863,7 +868,7 @@ export function DriversPage() {
               {drawerTab === 'view' && (
                 <div className="space-y-5">
                   <Card className="p-4 border border-primary/20 bg-primary/5 rounded-lg space-y-2">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Employer / Transport Partner</span>
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Transporter</span>
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <Building2 className="h-4 w-4 text-primary shrink-0" />
@@ -918,9 +923,6 @@ export function DriversPage() {
                         <p className="font-mono font-black text-foreground text-sm tracking-wide">
                           {selectedDriver.assignedVehiclePlate || 'No vehicle assigned'}
                         </p>
-                        {selectedDriver.assignedVehicleId && (
-                          <p className="text-[10px] text-muted-foreground font-mono">Vehicle ID: {selectedDriver.assignedVehicleId}</p>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -944,7 +946,7 @@ export function DriversPage() {
                       leadingIcon={<Pencil className="h-4 w-4" />}
                       className="w-full bg-primary text-primary-foreground font-semibold text-xs rounded-lg py-2.5"
                     >
-                      Edit Driver Details
+                      Edit driver details
                     </Button>
                   </div>
                 </div>
@@ -1013,7 +1015,7 @@ export function DriversPage() {
                       onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value as EnrichedDriver['status'] }))}
                     />
                     <p className="text-[10px] text-muted-foreground">
-                      Vehicle assignment is managed from the Vehicles page — open the vehicle and use &quot;Assign Driver&quot;.
+                      Vehicle assignment is managed on the Vehicles page.
                     </p>
                   </div>
 
@@ -1022,7 +1024,7 @@ export function DriversPage() {
                       Cancel
                     </Button>
                     <Button size="sm" onClick={handleSaveEdit} className="bg-primary text-primary-foreground font-semibold rounded-lg px-4">
-                      Save Changes
+                      Save changes
                     </Button>
                   </div>
                 </div>
@@ -1038,8 +1040,7 @@ export function DriversPage() {
                         Driver Compliance Documents
                       </h4>
                       <p className="type-caption text-muted-foreground mt-0.5">
-                        Upload a file for each document type below. New types you define here are saved and
-                        reused for every driver after this one.
+                        New document types apply to every future driver.
                       </p>
                     </div>
                     <Button
@@ -1087,7 +1088,7 @@ export function DriversPage() {
         <div className="space-y-2 pt-1">
           <div className="hidden lg:grid grid-cols-12 gap-4 px-5 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
             <div className="col-span-3">Driver Name & ID</div>
-            <div className="col-span-3">Transporter / Partner</div>
+            <div className="col-span-3">Transporter</div>
             <div className="col-span-3">License & Phone</div>
             <div className="col-span-2">Assigned Vehicle</div>
             <div className="col-span-1 text-right">Status</div>
@@ -1110,7 +1111,7 @@ export function DriversPage() {
                 <div className="flex flex-col min-w-0">
                   <span className="text-sm font-bold text-foreground group-hover:text-primary transition-colors truncate flex items-center gap-1">
                     {driver.fullName}
-                    <BadgeCheck className="h-3.5 w-3.5 text-success-subtle-foreground shrink-0" />
+                    <VerificationBadge state={isDriverVerified(driver) ? 'verified' : 'unverified'} size="sm" />
                   </span>
                   <span className="text-2xs font-mono text-muted-foreground">{driver.reference}</span>
                 </div>
@@ -1175,7 +1176,7 @@ export function DriversPage() {
                   <div className="flex flex-col min-w-0">
                     <h3 className="text-sm font-bold text-foreground group-hover:text-primary transition-colors truncate flex items-center gap-1">
                       {driver.fullName}
-                      <BadgeCheck className="h-3.5 w-3.5 text-success-subtle-foreground shrink-0" />
+                      <VerificationBadge state={isDriverVerified(driver) ? 'verified' : 'unverified'} size="sm" />
                     </h3>
                     <span className="text-2xs font-mono text-muted-foreground">{driver.reference}</span>
                   </div>
@@ -1232,7 +1233,7 @@ export function DriversPage() {
           <IconChip icon={User} tint="neutral" className="mb-3" />
           <h3 className="text-base font-bold text-foreground">No Drivers Found</h3>
           <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-            No driver matched your current search or filter parameters.
+            No driver matched the current filters.
           </p>
           {hasActiveFilters && (
             <Button
@@ -1241,7 +1242,7 @@ export function DriversPage() {
               leadingIcon={<RotateCcw className="h-3.5 w-3.5" />}
               className="mt-4 rounded-full text-xs font-medium"
             >
-              Clear Filters
+              Clear filters
             </Button>
           )}
         </div>

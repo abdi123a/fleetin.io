@@ -52,8 +52,8 @@ export function PayingJobsCard({ jobs, className }: PayingJobsCardProps) {
   return (
     <ConsolePanel
       className={className}
-      title="Which Jobs Actually Pay"
-      subtitle="Price per move against distance, by cargo type"
+      title="Booking Profitability"
+      subtitle="Price per booking against distance, by cargo type"
     >
       <Legend
         className="pb-2"
@@ -69,7 +69,7 @@ export function PayingJobsCard({ jobs, className }: PayingJobsCardProps) {
         className="w-full"
         style={{ height: HEIGHT }}
         role="img"
-        aria-label="Rate per move against distance, by lane"
+        aria-label="Rate per booking against distance, by lane"
       >
         {gridSteps.map((step) => {
           const gy = PLOT.top + PLOT_HEIGHT - step * PLOT_HEIGHT;
@@ -134,7 +134,7 @@ export function PayingJobsCard({ jobs, className }: PayingJobsCardProps) {
             fillOpacity="0.82"
           >
             <title>
-              {job.label} — {job.moves} moves, {compact(toDjf(job.ratePerMove))} DJF per move
+              {job.label} — {job.moves} bookings, {compact(toDjf(job.ratePerMove))} DJF per booking
             </title>
           </circle>
         ))}

@@ -44,6 +44,7 @@ function linkedFullLoadOf(booking: EmptyReturnBookingRecord | null): LinkedFullL
     type: booking.cargoType,
     missionId: booking.reference,
     client: clientOf(booking),
+    status: booking.status,
     shipmentId: booking.shipmentId,
     shipmentReference: booking.shipment?.reference,
     bookingId: booking.id,
@@ -63,6 +64,7 @@ export function emptyBookingToRow(booking: EmptyReturnBookingRecord, now: number
   const deadline = toMs(booking.containerReturnDeadline);
   return {
     id: booking.reference,
+    bookingReference: booking.reference,
     container: booking.containerNumber ?? '',
     type: booking.cargoType,
     line: booking.shippingLine ?? 'Unknown line',
@@ -94,6 +96,7 @@ export function cycleToRow(cycle: EmptyReturnCycleRecord, now: number): EmptyRet
   const deadline = toMs(booking.containerReturnDeadline);
   return {
     id: cycle.reference,
+    bookingReference: booking.reference,
     container: booking.containerNumber ?? '',
     type: booking.cargoType,
     line: booking.shippingLine ?? 'Unknown line',

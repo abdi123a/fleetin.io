@@ -32,7 +32,7 @@ export function ContractRemindersPanel({ shipperId, projectId }: { shipperId?: s
   return (
     <Panel
       title="Contracts ending"
-      subtitle="Close each out once its last billable work is invoiced"
+      subtitle="Close once the last billable work is invoiced"
       padded={false}
       dense
       action={<Pill tone="amber">{due.length}</Pill>}

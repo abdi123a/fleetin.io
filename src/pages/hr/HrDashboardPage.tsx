@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 import { ROUTES, buildPath } from '@/config/routes';
 import {
@@ -25,7 +25,8 @@ import {
 } from '@/pages/finance/components/kit';
 import { cn } from '@/utils';
 
-import { expiryLabel, expiryTone, frDate, monthLabelFr, PERIOD_LABEL, PERIOD_TONE } from './hrFormat';
+import { LoadError } from './components/form';
+import { expiryLabel, expiryTone, frDate, monthLabel, PERIOD_LABEL, PERIOD_TONE } from './hrFormat';
 
 /**
  * The workbook's Dashboard sheet, plus the one thing it never had: what is
@@ -36,8 +37,9 @@ import { expiryLabel, expiryTone, frDate, monthLabelFr, PERIOD_LABEL, PERIOD_TON
  * arithmetic is the surest way to make them disagree.
  */
 export function HrDashboardPage() {
+  const navigate = useNavigate();
   const [horizon, setHorizon] = useState<30 | 60 | 90>(30);
-  const { data, isLoading } = useHrDashboard();
+  const { data, isLoading, error } = useHrDashboard();
 
   const period = data?.period;
   const payroll = data?.payroll;
@@ -45,14 +47,20 @@ export function HrDashboardPage() {
 
   const expiringItems = (data?.expiring.items ?? []).filter((item) => item.daysUntil <= horizon);
 
+  /* Every payroll figure on this page was read off one period, so each tile
+     opens that period rather than the list of all of them. */
+  const openPeriod = period
+    ? () => navigate(buildPath(ROUTES.hrPayrollPeriod, { periodId: period.id }))
+    : undefined;
+
   return (
-    <div className="space-y-6">
+    <div className="w-full min-w-0 space-y-6">
       <PageHead
         title="HR & Payroll"
         subtitle={
           period
-            ? `${monthLabelFr(period.month, period.year)} — ${PERIOD_LABEL[period.status].toLowerCase()}`
-            : 'No payroll period has been opened yet'
+            ? `${monthLabel(period.month, period.year)} — ${PERIOD_LABEL[period.status].toLowerCase()}`
+            : 'No pay period opened yet'
         }
         badge={period ? <Pill tone={PERIOD_TONE[period.status]}>{PERIOD_LABEL[period.status]}</Pill> : null}
         actions={
@@ -69,15 +77,20 @@ export function HrDashboardPage() {
         }
       />
 
+      {error ? (
+        <div className="overflow-hidden rounded-card border border-border bg-card shadow-card pt-5">
+          <LoadError error={error} noun="the HR dashboard" />
+        </div>
+      ) : null}
+
       {uncalculated ? (
         <div className="flex flex-wrap items-center gap-3 rounded-card border border-warning-subtle bg-warning-subtle px-4 py-3">
           <AlertTriangle aria-hidden className="size-4 shrink-0 text-warning-subtle-foreground" />
           <p className="min-w-0 flex-1 text-sm font-semibold text-warning-subtle-foreground">
-            {monthLabelFr(period.month, period.year)} has not been calculated. The totals below
-            are empty until it is.
+            {monthLabel(period.month, period.year)} is not calculated yet.
           </p>
           <Link to={buildPath(ROUTES.hrPayrollPeriod, { periodId: period.id })}>
-            <ActionButton icon={ArrowRight}>Open the run</ActionButton>
+            <ActionButton icon={ArrowRight}>Open period</ActionButton>
           </Link>
         </div>
       ) : null}
@@ -89,22 +102,26 @@ export function HrDashboardPage() {
           value={isLoading ? '—' : String(data?.headcount ?? 0)}
           hint={`${data?.byDepartment.length ?? 0} departments`}
           fill="teal"
+          onClick={() => navigate(ROUTES.hrEmployees)}
         />
         <StatCard
           icon={Banknote}
           label="Gross payroll"
+          onClick={openPeriod}
           value={payroll ? compactDjf(payroll.totalGross) : '—'}
-          hint={payroll ? `${payroll.lines} lines filed` : 'Not calculated'}
+          hint={payroll ? `${payroll.lines} payroll lines` : 'Not calculated'}
         />
         <StatCard
           icon={Landmark}
           label="CNSS 21.7%"
+          onClick={openPeriod}
           value={payroll ? compactDjf(payroll.totalCnss) : '—'}
           hint={payroll ? `Employer ${compactDjf(payroll.employerContribution)}` : undefined}
         />
         <StatCard
           icon={Receipt}
           label="Net for transfer"
+          onClick={openPeriod}
           value={payroll ? compactDjf(payroll.totalNet) : '—'}
           hint={payroll ? `ITS ${compactDjf(payroll.totalIts)}` : undefined}
         />
@@ -112,8 +129,8 @@ export function HrDashboardPage() {
 
       <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
         <Panel
-          title="Expiring soon"
-          subtitle="ID cards, licences, medical certificates, CDD ends and trial periods"
+          title="Expiring Soon"
+          subtitle="Documents, CDD ends and trial periods"
           action={
             <div
               role="tablist"
@@ -143,7 +160,7 @@ export function HrDashboardPage() {
         >
           {expiringItems.length === 0 ? (
             <div className="px-5 pb-5">
-              <EmptyState message={`Nothing lapses in the next ${horizon} days.`} />
+              <EmptyState message={`No expiries in the next ${horizon} days.`} />
             </div>
           ) : (
             <ul className="divide-y divide-border">
@@ -166,11 +183,11 @@ export function HrDashboardPage() {
         </Panel>
 
         <div className="space-y-4">
-          <Panel title="Leave" subtitle="Pending requests and days already planned">
+          <Panel title="Leave" subtitle="Pending requests and planned days">
             <dl className="grid grid-cols-2 gap-4">
               <div>
                 <dt className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                  Awaiting approval
+                  Pending
                 </dt>
                 <dd className="mt-1 text-2xl font-extrabold text-foreground">
                   {data?.leave.pendingRequests ?? 0}
@@ -178,7 +195,7 @@ export function HrDashboardPage() {
               </div>
               <div>
                 <dt className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                  Days planned
+                  Planned days
                 </dt>
                 <dd className="mt-1 text-2xl font-extrabold text-foreground">
                   {(data?.leave.plannedDays ?? 0).toFixed(0)}
@@ -186,23 +203,28 @@ export function HrDashboardPage() {
               </div>
             </dl>
             <Link to={ROUTES.hrLeave} className="mt-4 inline-block">
-              <ActionButton icon={CalendarDays}>Open the planning grid</ActionButton>
+              <ActionButton icon={CalendarDays}>Open planning grid</ActionButton>
             </Link>
           </Panel>
 
-          <Panel title="Headcount by department" subtitle="Active staff only">
+          <Panel title="Headcount by Department" subtitle="Active employees only">
             {(data?.byDepartment ?? []).length === 0 ? (
-              <EmptyState message="No departments recorded." />
+              <EmptyState message="No departments yet." />
             ) : (
-              <ul className="space-y-2">
+              <ul className="space-y-1">
                 {data?.byDepartment.map((row) => (
-                  <li key={row.department} className="flex items-center justify-between gap-3">
-                    <span className="min-w-0 truncate text-sm font-semibold text-foreground">
-                      {row.department}
-                    </span>
-                    <span className="shrink-0 text-sm font-bold tabular-nums text-muted-foreground">
-                      {row.count}
-                    </span>
+                  <li key={row.department}>
+                    <Link
+                      to={ROUTES.hrEmployees}
+                      className="flex items-center justify-between gap-3 rounded-card-nested px-2 py-1.5 transition-colors hover:bg-surface-sunken"
+                    >
+                      <span className="min-w-0 truncate text-sm font-semibold text-foreground">
+                        {row.department}
+                      </span>
+                      <span className="shrink-0 text-sm font-bold tabular-nums text-muted-foreground">
+                        {row.count}
+                      </span>
+                    </Link>
                   </li>
                 ))}
               </ul>
@@ -211,7 +233,7 @@ export function HrDashboardPage() {
         </div>
       </div>
 
-      <Panel title="Payroll detail" subtitle="The last calculated period, as filed">
+      <Panel title="Payroll Detail" subtitle="Last calculated period, as filed">
         {payroll && payroll.lines > 0 ? (
           <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-3 lg:grid-cols-5">
             {[
@@ -232,7 +254,7 @@ export function HrDashboardPage() {
             ))}
           </dl>
         ) : (
-          <EmptyState message="Calculate a payroll period to see its totals here." />
+          <EmptyState message="No calculated pay period yet." />
         )}
       </Panel>
     </div>

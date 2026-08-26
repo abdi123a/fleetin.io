@@ -47,11 +47,17 @@ export const routeSchema = z.object({
   id: z.string(),
   name: z.string(),
   originName: z.string(),
-  originLat: z.number(),
-  originLng: z.number(),
+  /**
+   * Null when the place name doesn't resolve to a known point. Real shipments
+   * store their locations as free text, so the backend's gazetteer can miss —
+   * and a miss must read as "unknown", not as a coordinate. The map skips a
+   * leg it can't place rather than drawing it somewhere it isn't.
+   */
+  originLat: z.number().nullable(),
+  originLng: z.number().nullable(),
   destinationName: z.string(),
-  destinationLat: z.number(),
-  destinationLng: z.number(),
+  destinationLat: z.number().nullable(),
+  destinationLng: z.number().nullable(),
   distanceKm: z.number().nonnegative(),
   /** Planning baseline. ETA drift is measured against the plan, not against this. */
   nominalTransitHours: z.number().nonnegative(),
@@ -61,8 +67,9 @@ export type Route = z.infer<typeof routeSchema>;
 export const depotSchema = z.object({
   id: z.string(),
   name: z.string(),
-  lat: z.number(),
-  lng: z.number(),
+  /** Null when unresolved — same reason as `routeSchema`'s coordinates. */
+  lat: z.number().nullable(),
+  lng: z.number().nullable(),
 });
 export type Depot = z.infer<typeof depotSchema>;
 
@@ -85,6 +92,13 @@ export const shipmentSchema = z.object({
   routeId: z.string(),
   vehicleId: z.string().optional(),
   containerId: z.string().optional(),
+  /**
+   * The `MSN-#####` of the job this container belongs to. A BI "shipment" is
+   * one container's journey — a real `Booking` — and this is what opens the
+   * shipment it sits under. Without it a row could only link to itself, which
+   * is how the shipper's list came to send `SHP-0034` to `/shipments/34`.
+   */
+  parentReference: z.string().optional(),
   cargoType: cargoTypeSchema,
   weightKg: z.number().nonnegative(),
 

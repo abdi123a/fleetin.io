@@ -48,7 +48,7 @@ export function OfferToPaymentCard({ funnel, className }: OfferToPaymentCardProp
       key: 'invoiced',
       value: funnel.invoiced,
       label: 'Invoiced',
-      note: funnel.awaitingDocs > 0 ? `${funnel.awaitingDocs} awaiting docs` : undefined,
+      note: funnel.awaitingDocs > 0 ? `${funnel.awaitingDocs} awaiting documents` : undefined,
     },
     {
       key: 'paid',
@@ -68,7 +68,7 @@ export function OfferToPaymentCard({ funnel, className }: OfferToPaymentCardProp
     <ConsolePanel
       className={className}
       title="Offer to Payment"
-      subtitle={`Where the ${funnel.offers} shipper offers of this period ended up`}
+      subtitle={`${funnel.offers} shipper offers this period`}
     >
       <svg
         viewBox={`0 0 ${WIDTH} ${height}`}
@@ -135,11 +135,6 @@ export function OfferToPaymentCard({ funnel, className }: OfferToPaymentCardProp
           tone="attention"
         />
       </div>
-
-      <p className="type-body-xs mt-4 text-muted-foreground">
-        The two narrow points are yours to fix: offers you turn down, and delivered jobs never
-        invoiced.
-      </p>
     </ConsolePanel>
   );
 }

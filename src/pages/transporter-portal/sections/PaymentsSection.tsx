@@ -176,8 +176,8 @@ export function PaymentsSection({
     <div className="flex flex-col gap-5">
       {nextSettlement ? (
         <ChartCard
-          title="Next settlement"
-          subtitle="The nearest weekly run and what clears in it"
+          title="Next Settlement"
+          subtitle="Nearest weekly run"
           icon={<CalendarDays className="size-4" />}
         >
           <div className="flex flex-wrap items-end justify-between gap-4">
@@ -203,7 +203,7 @@ export function PaymentsSection({
 
       <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-2">
         <ChartCard
-          title="Outstanding by aging"
+          title="Outstanding by Age"
           subtitle={`${formatMoneyFull(outstandingTotal)} still unpaid`}
           icon={<Wallet className="size-4" />}
           className="h-full"
@@ -237,8 +237,8 @@ export function PaymentsSection({
         </ChartCard>
 
         <ChartCard
-          title="Payment status"
-          subtitle="Paid vs still collecting"
+          title="Payment Status"
+          subtitle="Settled against outstanding"
           icon={<Receipt className="size-4" />}
           className="h-full"
           isEmpty={statusSlices.length === 0}
@@ -302,8 +302,8 @@ export function PaymentsSection({
       </div>
 
       <ChartCard
-        title="Payment reconciliation"
-        subtitle="Unpaid and recently settled trips — invoice vs cash"
+        title="Payment Reconciliation"
+        subtitle="Invoice against cash"
         icon={<ClipboardList className="size-4" />}
         isEmpty={reconciliationRows.length === 0}
         emptyMessage="No invoices to reconcile."
@@ -389,7 +389,7 @@ export function PaymentsSection({
       </ChartCard>
 
       <ChartCard
-        title="Unpaid & overdue invoices"
+        title="Overdue Invoices"
         subtitle={`${formatCompact(unpaid.length)} open invoices`}
         icon={<Wallet className="size-4" />}
         isEmpty={unpaid.length === 0}

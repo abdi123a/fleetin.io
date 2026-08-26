@@ -41,7 +41,7 @@ export function EarningsPerMoveCard({ data, className }: EarningsPerMoveCardProp
   return (
     <ConsolePanel
       className={className}
-      title="Earnings per Move"
+      title="Earnings per Booking"
       subtitle={`Against the ${compact(toDjf(data.target))} DJF corridor rate for this mix`}
     >
       <div className="flex justify-center pt-1">

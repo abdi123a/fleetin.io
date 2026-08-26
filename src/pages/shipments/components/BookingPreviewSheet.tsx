@@ -4,16 +4,10 @@ import {
   User,
   Truck,
   Phone,
-  Upload,
-  FileText,
   CheckCircle2,
   Clock,
   ShieldCheck,
   Check,
-  Trash2,
-  Eye,
-  Download,
-  X,
   Building2,
   Calendar,
   ArrowRight,
@@ -27,6 +21,9 @@ import {
   Badge,
   Button,
   Card,
+  CloseButton,
+  useConfirm,
+  Select,
   Sheet,
   SheetContent,
   SheetDescription,
@@ -34,13 +31,15 @@ import {
   VerificationBadge,
 } from '@/design-system';
 import { ROUTES } from '@/config/routes';
-import { NEXT_BOOKING_STATUS, displayBookingStatus, statusIntentOf } from '@/features/bookings/api/bookingsService';
+import { BOOKING_LADDER } from '@/features/bookings/api/bookingsService';
+import { SHIPMENT_STEPS, displayShipmentStatus, statusIntentOf, stepRungFor } from '@/lib/shipmentStatus';
 import { useUpdateBooking, useUpdateBookingStatus } from '@/features/bookings/api/queries';
 import { useVehicles } from '@/features/vehicles/api/queries';
 import { useDrivers } from '@/features/drivers/api/queries';
 import { usePartners } from '@/features/partners/api/queries';
 import { useEmptyReturnStore } from '@/stores/emptyReturn.store';
 import { useConfirmStandaloneReturn } from '@/features/empty-returns/api/queries';
+import { formatDate } from '@/utils';
 
 /**
  * Where this booking's own empty container sits, once delivered — a
@@ -50,7 +49,7 @@ import { useConfirmStandaloneReturn } from '@/features/empty-returns/api/queries
  * standalone flag) and only ever shown here, never used to gate anything.
  * Undefined before the booking is delivered — the question doesn't apply yet.
  */
-export type EmptyReturnStage = 'waiting_match' | 'matched' | 'returned' | 'standalone';
+export type EmptyReturnStage = 'awaiting_empty' | 'waiting_match' | 'matched' | 'returned' | 'standalone';
 
 export interface BookingPreviewItem {
   id: string;
@@ -75,13 +74,10 @@ export interface BookingPreviewItem {
   finishDate?: string;
   finishTime?: string;
   emptyReturnStage?: EmptyReturnStage;
+  /** When the box was emptied — recorded on the "Empty Ready" rung, and what the return counts from. */
+  emptyReadyAt?: string;
   /** The matched cycle's own reference (`CYC-2026-#####`) — set whenever `emptyReturnStage` is `matched` or `returned`, so the card can jump straight to it. */
   emptyReturnCycleReference?: string;
-  podDocument?: {
-    name: string;
-    size: string;
-    uploadedAt: string;
-  } | null;
 }
 
 interface BookingPreviewSheetProps {
@@ -99,14 +95,18 @@ export function BookingPreviewSheet({
 }: BookingPreviewSheetProps) {
   const navigate = useNavigate();
   const focusEmptyReturnRecord = useEmptyReturnStore((state) => state.focusRecord);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadSuccessMsg, setUploadSuccessMsg] = useState('');
   const [statusSuccessMsg, setStatusSuccessMsg] = useState('');
-  const [uploadedPod, setUploadedPod] = useState<{
-    name: string;
-    size: string;
-    uploadedAt: string;
-  } | null>(booking?.podDocument || null);
+  const [statusErrorMsg, setStatusErrorMsg] = useState('');
+  /* The status the picker is waiting on an "emptied at" answer for, and the
+     booking it was asked about — the sheet is reused for every booking, so a
+     prompt left open must not carry over to the next one. */
+  /* Every rung asks when it happened, not just the empty-ready one. The office
+     is always behind the yard: a container is picked up at 06:40 and typed in
+     at 11:15, and a report built on the typing time measures the office, not
+     the run. */
+  const [pendingStatus, setPendingStatus] = useState<{ bookingId: string; target: string } | null>(null);
+  const [occurredDate, setOccurredDate] = useState('');
+  const [occurredTime, setOccurredTime] = useState('');
   const [isEditingPartner, setIsEditingPartner] = useState(false);
   const [isEditingVehicle, setIsEditingVehicle] = useState(false);
   const [isEditingDriver, setIsEditingDriver] = useState(false);
@@ -122,13 +122,23 @@ export function BookingPreviewSheet({
   // list rather than every vehicle/driver in the system.
   const { data: partnerVehicles } = useVehicles({ partnerId: booking?.partnerId ?? '__unassigned__' });
   const { data: partnerDrivers } = useDrivers({ partnerId: booking?.partnerId ?? '__unassigned__' });
+  const { confirm, confirmDialog } = useConfirm();
 
   if (!booking) return null;
 
-  const currentPod = uploadedPod || booking.podDocument;
-  const nextStatus = NEXT_BOOKING_STATUS[booking.status];
   const hasDriver = Boolean(booking.driverId);
   const hasVehicle = Boolean(booking.vehicleId);
+
+  /**
+   * The job is over — nothing on this booking is editable any more.
+   *
+   * "Completed" is the whole test for both kinds of cargo, because a
+   * containerized booking cannot reach it until its empty is back at the
+   * depot (`isEmptyReturnSettled`, enforced in `BookingsService`), while a
+   * bulk load has no box to wait for and completes at delivery. Cancelled and
+   * failed jobs are closed too — the record of what happened, not a form.
+   */
+  const isClosed = ['Completed', 'Cancelled', 'Failed'].includes(booking.status);
 
   // A real fleet has expired paperwork in it more often than not — hiding
   // those trucks/drivers made the whole picker read as "empty" for any
@@ -155,10 +165,30 @@ export function BookingPreviewSheet({
       { id: booking.id, payload: { partnerId } },
       {
         onSuccess: (updated) => {
+          /* Every fleet field is re-read from the response rather than kept
+           * from the old booking. Moving to another transporter releases the
+           * truck and the driver server-side — they belong to the carrier that
+           * just left the job — so spreading the previous values back over the
+           * top left the sheet showing Awdal's plate under Dikhil's name. */
           onUpdateBooking({
             ...booking,
             partnerId: updated.partnerId ?? undefined,
             partnerName: updated.partner?.companyLegalName,
+            vehicleId: updated.vehicleId ?? undefined,
+            vehicleNumber: updated.vehicle?.plateNumber ?? '—',
+            vehicleType: updated.vehicle?.truckType,
+            vehicleVerified: updated.vehicle
+              ? new Date(updated.vehicle.registrationExpiry).getTime() > Date.now() &&
+                new Date(updated.vehicle.insuranceExpiry).getTime() > Date.now()
+              : false,
+            driverId: updated.driverId ?? undefined,
+            driverName: updated.driver?.fullName ?? 'Unassigned',
+            driverPhone: updated.driver?.phone,
+            driverVerified: updated.driver
+              ? new Date(updated.driver.licenseExpiry).getTime() > Date.now()
+              : false,
+            status: updated.status,
+            statusIntent: statusIntentOf(updated.status),
           });
           setIsEditingPartner(false);
         },
@@ -180,6 +210,8 @@ export function BookingPreviewSheet({
               ? new Date(updated.vehicle.registrationExpiry).getTime() > Date.now() &&
                 new Date(updated.vehicle.insuranceExpiry).getTime() > Date.now()
               : false,
+            status: updated.status,
+            statusIntent: statusIntentOf(updated.status),
           });
           setIsEditingVehicle(false);
         },
@@ -198,6 +230,8 @@ export function BookingPreviewSheet({
             driverName: updated.driver?.fullName ?? 'Unassigned',
             driverPhone: updated.driver?.phone,
             driverVerified: updated.driver ? new Date(updated.driver.licenseExpiry).getTime() > Date.now() : false,
+            status: updated.status,
+            statusIntent: statusIntentOf(updated.status),
           });
           setIsEditingDriver(false);
         },
@@ -205,60 +239,187 @@ export function BookingPreviewSheet({
     );
   };
 
-  const handleAdvanceStatus = () => {
-    if (!nextStatus) return;
-    if (nextStatus === 'Driver Assigned' && !hasDriver) return;
-    if (nextStatus === 'En Route' && !hasVehicle) return;
-    if (nextStatus === 'Completed' && !hasVehicle) return;
-    if (nextStatus === 'POD Submitted' && !currentPod) return;
-    updateBookingStatus.mutate(
-      { id: booking.id, status: nextStatus },
-      {
-        onSuccess: () => {
-          onUpdateBooking({ ...booking, status: nextStatus, statusIntent: statusIntentOf(nextStatus) });
-          setStatusSuccessMsg(`Status updated to "${nextStatus}"`);
-          setTimeout(() => setStatusSuccessMsg(''), 3000);
-        },
-      },
-    );
+  /**
+   * What a status still needs before it may be set — the frontend's copy of the
+   * guards in `BookingsService.updateStatus`. A status must never claim a fact
+   * the booking does not have, and saying so on the option itself turns a
+   * request the backend would reject into an answer before it is clicked.
+   *
+   * Direction-independent on purpose: the guards are checked against the status
+   * being written, so walking *back* to "POD Submitted" needs a POD just as
+   * much as walking forward to it does.
+   */
+  const requirementFor = (status: string): string | null => {
+    if (status === 'Driver Assigned' && !hasDriver) return 'assign a driver first';
+    if ((status === 'Heading to Pickup' || status === 'En Route') && !hasVehicle) return 'assign a vehicle first';
+    /* "Empty Returned" is no longer blocked on the Empty Returns module doing
+       it first. The dispatcher on this booking is the person who watches the
+       box arrive, so picking the rung records the return itself — the backend
+       writes the cycle's `returnedAt` from the moment reported here, then
+       closes the booking. Empty Return still closes it by itself when a
+       matched cycle runs; this is the second door, not a replacement. */
+    if (status === 'Completed' && !hasVehicle) return 'assign a vehicle first';
+    return null;
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  /**
+   * The ladder this particular booking walks.
+   *
+   * A bulk or machinery load has no box, so "Empty Ready" is not a moment in
+   * its life at all — the rung is dropped rather than offered and refused, and
+   * the backend's forced `Completed` edge carries it straight over the gap.
+   */
+  const ladder = booking.containerNumber
+    ? BOOKING_LADDER
+    : BOOKING_LADDER.filter((status) => status !== 'Empty Ready');
 
-    setIsUploading(true);
-    setTimeout(() => {
-      const newPod = {
-        name: file.name,
-        size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
-        uploadedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setUploadedPod(newPod);
-      setIsUploading(false);
+  /* What the operator picks between: the six steps, minus the empty-return one
+     for a load that has no box. The full ladder above is still what gets
+     walked — these are just the rungs worth naming. */
+  const steps = SHIPMENT_STEPS.filter(
+    (step) => booking.containerNumber || step.rung !== 'Empty Ready',
+  );
+  /* The step the booking currently sits under, so a booking at "At Pickup"
+     shows "Picked Up" selected rather than an empty field. */
+  const currentStep = stepRungFor(booking.status);
 
-      // The upload itself is local-only (no storage backend yet — see the
-      // module note below) and does not change the real status on its own.
-      // "Advance to POD Submitted" only unlocks once this exists; the actual
-      // status write still goes through the real mutation, same as every
-      // other step.
-      onUpdateBooking({ ...booking, podDocument: newPod });
-      setUploadSuccessMsg('Proof of Delivery (POD) attached — advance the status below to submit it.');
-      setTimeout(() => setUploadSuccessMsg(''), 4000);
-    }, 1000);
+  /**
+   * The statuses actually written to get from here to `target`.
+   *
+   * Backwards is one write — the backend takes any lower rung as a correction.
+   * Forwards is every rung in between, because the ladder only moves a step at
+   * a time and each rung is a real event with its own timeline stamp. Skipping
+   * them by writing the target alone would also skip their guards, which is how
+   * a booking could reach "Completed" with no POD ever attached.
+   */
+  const ladderPathTo = (target: string): string[] => {
+    const from = ladder.indexOf(booking.status);
+    const to = ladder.indexOf(target);
+    if (from < 0 || to < 0 || to < from) return [target];
+    return ladder.slice(from + 1, to + 1);
   };
 
-  const handleRemovePod = () => {
-    setUploadedPod(null);
-    const updated = {
-      ...booking,
-      podDocument: null,
-    };
-    onUpdateBooking(updated);
+  /** The first rung on the way to `target` that cannot be written yet, if any. */
+  const blockerFor = (target: string): { status: string; requirement: string } | null => {
+    for (const status of ladderPathTo(target)) {
+      const requirement = requirementFor(status);
+      if (requirement) return { status, requirement };
+    }
+    return null;
+  };
+
+  /**
+   * Write the ladder out to `target` — forward, backward, or several rungs at
+   * once. One control, no vocabulary of "advance" versus "correct": the
+   * dispatcher says where the container is and the ladder is walked to get
+   * there.
+   */
+  const applyStatus = async (target: string, occurredAt: string) => {
+    setStatusErrorMsg('');
+    setStatusSuccessMsg('');
+
+    /* Whatever was actually written, so a rung that fails half-way up leaves
+       the sheet showing where the booking really is rather than where the
+       click was aiming. */
+    let reached = booking.status;
+    try {
+      for (const status of ladderPathTo(target)) {
+        await updateBookingStatus.mutateAsync({
+          id: booking.id,
+          status,
+          /* Every rung on the path takes the reported moment — the operator is
+             reporting one event, and the rungs walked to reach it are that same
+             event's bookkeeping. The backend writes it as the timeline entry's
+             timestamp, which is what the reports measure from. */
+          occurredAt: occurredAt,
+        });
+        reached = status;
+      }
+      setStatusSuccessMsg(`Status set to "${target}"`);
+      setTimeout(() => setStatusSuccessMsg(''), 3000);
+    } catch (error) {
+      setStatusErrorMsg(error instanceof Error ? error.message : 'The status could not be updated.');
+    } finally {
+      if (reached !== booking.status) {
+        const startedReturn = ladderPathTo(target).includes('Empty Ready') && reached !== booking.status;
+        onUpdateBooking({
+          ...booking,
+          status: reached,
+          statusIntent: statusIntentOf(reached),
+          emptyReadyAt: startedReturn ? occurredAt : booking.emptyReadyAt,
+          emptyReturnStage:
+            startedReturn && booking.emptyReturnStage === 'awaiting_empty'
+              ? 'waiting_match'
+              : booking.emptyReturnStage,
+        });
+      }
+    }
+  };
+
+  /**
+   * Every rung asks when it happened before it is written.
+   *
+   * A status is a report of the world and the office is always behind the
+   * yard — the box is picked up at 06:40 and typed in at 11:15. Reports are
+   * built entirely from these timestamps (`missionReport`, `monthlyReport`),
+   * so recording the typing time would have them measuring how quickly
+   * somebody reached a screen instead of how the run actually went.
+   *
+   * The dialog opens on now, which is the right answer whenever the operator
+   * is at the screen as it happens; it is a default, not an assumption.
+   */
+  const handleSetStatus = (target: string) => {
+    if (!target || target === booking.status) return;
+    const now = new Date();
+    const pad = (value: number) => String(value).padStart(2, '0');
+    setOccurredDate(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`);
+    setOccurredTime(`${pad(now.getHours())}:${pad(now.getMinutes())}`);
+    setPendingStatus({ bookingId: booking.id, target });
+  };
+
+  const confirmStatusChange = () => {
+    if (!pendingStatus || !occurredDate || !occurredTime) return;
+    const target = pendingStatus.target;
+    const occurredAt = new Date(`${occurredDate}T${occurredTime}`);
+    if (Number.isNaN(occurredAt.getTime())) return;
+    // Nothing has happened in the future — every duration off it would be negative.
+    if (occurredAt.getTime() > Date.now()) {
+      setStatusErrorMsg('That moment has not happened yet — pick a date and time in the past.');
+      return;
+    }
+    setPendingStatus(null);
+    void applyStatus(target, occurredAt.toISOString());
+  };
+
+  /** What the dialog is asking about, in the operator's own vocabulary. */
+  const pendingStepLabel = pendingStatus ? displayShipmentStatus(pendingStatus.target) : '';
+
+  /**
+   * Closing a booking without delivering it. Off the ladder and out of the
+   * picker's flow on purpose: this is a decision with money attached, not a
+   * rung, and the backend never walks back out of it.
+   */
+  const handleCloseBooking = async (status: 'Cancelled' | 'Failed') => {
+    const ok = await confirm({
+      title: status === 'Cancelled' ? 'Cancel this booking?' : 'Mark this booking failed?',
+      description:
+        `Booking #${booking.bookingNumber} will be closed as ${status.toLowerCase()} and cannot be reopened. ` +
+        'Its shipment is re-read from the bookings underneath it.',
+      confirmLabel: status === 'Cancelled' ? 'Cancel booking' : 'Mark failed',
+    });
+    if (!ok) return;
+    setStatusErrorMsg('');
+    setStatusSuccessMsg('');
+    try {
+      await updateBookingStatus.mutateAsync({ id: booking.id, status });
+      onUpdateBooking({ ...booking, status, statusIntent: statusIntentOf(status) });
+    } catch (error) {
+      setStatusErrorMsg(error instanceof Error ? error.message : 'The status could not be updated.');
+    }
   };
 
   const getStatusBadge = () => {
-    const label = displayBookingStatus(booking.status);
+    const label = displayShipmentStatus(booking.status);
     switch (booking.statusIntent) {
       case 'green':
         return (
@@ -291,11 +452,20 @@ export function BookingPreviewSheet({
   };
 
   return (
-    <Sheet open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+    <>
+    {confirmDialog}
+    <Sheet
+      open={open}
+      onOpenChange={(isOpen) => {
+        if (isOpen) return;
+        setPendingStatus(null);
+        onClose();
+      }}
+    >
       <SheetContent side="right" hideCloseButton className="w-full sm:max-w-md md:max-w-lg p-0 flex flex-col h-full bg-background overflow-hidden border-l border-border shadow-2xl">
         <SheetTitle className="sr-only">Booking Preview #{booking.bookingNumber}</SheetTitle>
         <SheetDescription className="sr-only">
-          Quick preview sidebar for booking details, partner, driver, vehicle, status updates, and proof of delivery upload.
+          Booking details, transporter, driver, vehicle, status and POD.
         </SheetDescription>
 
         {/* ── HEADER ── */}
@@ -315,13 +485,7 @@ export function BookingPreviewSheet({
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-2 rounded-lg border border-border/80 bg-background hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <CloseButton onClick={onClose} />
         </div>
 
         {/* ── SCROLLABLE BODY CONTENT ── */}
@@ -341,10 +505,13 @@ export function BookingPreviewSheet({
             </div>
           )}
 
-          {uploadSuccessMsg && (
-            <div className="p-3 bg-success-subtle border border-success/30 text-success-subtle-foreground rounded-lg text-xs font-semibold flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-success-subtle-foreground" />
-              <span>{uploadSuccessMsg}</span>
+          {/* Why a status change did not take — the backend's own sentence.
+              Rejections used to fail silently, so a blocked click read as the
+              control simply not working. */}
+          {statusErrorMsg && (
+            <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive-subtle p-3 text-xs font-semibold text-destructive-subtle-foreground animate-in fade-in slide-in-from-top-1">
+              <AlertTriangle className="mt-px h-4 w-4 shrink-0" />
+              <span>{statusErrorMsg}</span>
             </div>
           )}
 
@@ -355,7 +522,7 @@ export function BookingPreviewSheet({
                 <Calendar className="w-3.5 h-3.5 text-primary" />
                 <span>Schedule & Dwell Timing</span>
               </h3>
-              {!isEditingSchedule && (
+              {!isEditingSchedule && !isClosed && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -451,7 +618,7 @@ export function BookingPreviewSheet({
 
           {/* 2. PARTNER, DRIVER & TRUCK INFO CARDS */}
           <div className="space-y-2">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Logistics Partner & Fleet Equipment</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Transporter & Fleet</h3>
 
             {/* PARTNER CARD */}
             <Card className="p-3 rounded-lg border border-border/80 bg-card space-y-2">
@@ -460,13 +627,13 @@ export function BookingPreviewSheet({
                   <IconChip icon={Building2} tint="amber" size={36} />
                   <div>
                     <h4 className="font-bold text-foreground text-sm">{booking.partnerName ?? 'No transporter assigned'}</h4>
-                    <span className="text-xs text-muted-foreground">Registered Logistics Partner</span>
+                    <span className="text-xs text-muted-foreground">Registered transporter</span>
                   </div>
                 </div>
                 {booking.partnerName && !isEditingPartner && (
-                  <Badge variant="subtle" intent="info" size="sm" className="text-[10px]">Partner</Badge>
+                  <Badge variant="subtle" intent="info" size="sm" className="text-[10px]">Transporter</Badge>
                 )}
-                {!isEditingPartner && (
+                {!isEditingPartner && !isClosed && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -494,7 +661,7 @@ export function BookingPreviewSheet({
                   />
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-[10px] text-muted-foreground">
-                      Reassigning replaces this booking's transporter — its driver and vehicle pickers switch to the new fleet.
+                      Driver and vehicle pickers switch to the new fleet.
                     </p>
                     <button
                       type="button"
@@ -521,14 +688,12 @@ export function BookingPreviewSheet({
                   <div>
                     <div className="flex items-center gap-1.5">
                       <h4 className="font-bold text-foreground text-sm">{booking.driverName}</h4>
-                      {booking.driverVerified && (
-                        <VerificationBadge state="verified" size="sm" className="bg-transparent border-0 text-success font-bold px-0 shrink-0" />
-                      )}
+                      {booking.driverVerified && <VerificationBadge state="verified" size="sm" />}
                     </div>
-                    <span className="text-xs text-muted-foreground">Primary Fleet Driver</span>
+                    <span className="text-xs text-muted-foreground">Assigned driver</span>
                   </div>
                 </div>
-                {!isEditingDriver && (
+                {!isEditingDriver && !isClosed && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -603,14 +768,12 @@ export function BookingPreviewSheet({
                   <div>
                     <div className="flex items-center gap-1.5">
                       <h4 className="font-mono font-bold text-foreground text-sm tracking-wide">{booking.vehicleNumber}</h4>
-                      {booking.vehicleVerified && (
-                        <VerificationBadge state="verified" size="sm" className="bg-transparent border-0 text-success font-bold px-0 shrink-0" />
-                      )}
+                      {booking.vehicleVerified && <VerificationBadge state="verified" size="sm" />}
                     </div>
                     <span className="text-xs text-muted-foreground">{booking.vehicleType ?? 'No vehicle assigned'}</span>
                   </div>
                 </div>
-                {!isEditingVehicle && (
+                {!isEditingVehicle && !isClosed && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -699,34 +862,41 @@ export function BookingPreviewSheet({
                 action?: { label: string; onClick: () => void };
               }
             > = {
+              awaiting_empty: {
+                icon: Package,
+                tint: 'blue',
+                label: 'Not emptied yet',
+                description:
+                  'The return opens when the box is stripped — set the status to "Empty Ready" and record when that happened.',
+              },
               waiting_match: {
                 icon: Clock,
                 tint: 'amber',
-                label: 'Waiting for Empty Return Match',
-                description: `Delivered — ${booking.containerNumber ?? 'this container'} hasn't been matched to a return load yet.`,
-                action: { label: 'Find a Match', onClick: () => navigate(`${ROUTES.emptyReturns}?createMatch=1`) },
+                label: 'Awaiting match',
+                description: `${booking.containerNumber ?? 'This container'} has no full load matched yet.`,
+                action: { label: 'Open matching', onClick: () => navigate(`${ROUTES.emptyReturns}?createMatch=1`) },
               },
               matched: {
                 icon: RotateCcw,
                 tint: 'blue',
-                label: 'Empty Return In Progress',
-                description: 'Matched to a return load — the container is on its way back to the hub.',
-                action: openCycle ? { label: 'View Match Progress', onClick: openCycle } : undefined,
+                label: 'In progress',
+                description: 'Matched to a full load, heading back to the depot.',
+                action: openCycle ? { label: 'View cycle', onClick: openCycle } : undefined,
               },
               returned: {
                 icon: CheckCircle2,
                 tint: 'teal',
-                label: 'Empty Returned',
-                description: "Confirmed back at the hub — this container's empty return is complete.",
-                action: openCycle ? { label: 'View Cycle', onClick: openCycle } : undefined,
+                label: 'Returned',
+                description: 'Confirmed back at the depot.',
+                action: openCycle ? { label: 'View cycle', onClick: openCycle } : undefined,
               },
               standalone: {
                 icon: AlertTriangle,
                 tint: 'amber',
                 label: 'Standalone Return',
-                description: 'Flagged to return on its own, outside matching. Confirm it here once it physically lands at the hub.',
+                description: 'Returning on its own, outside matching. Confirm on arrival.',
                 action: {
-                  label: 'Confirm Returned',
+                  label: 'Confirm returned',
                   onClick: () => {
                     confirmStandaloneReturn.mutate(booking.id, {
                       onSuccess: (cycle) => {
@@ -752,6 +922,11 @@ export function BookingPreviewSheet({
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-bold text-foreground">{info.label}</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">{info.description}</p>
+                      {booking.emptyReadyAt && (
+                        <p className="mt-1 text-[11px] font-semibold text-foreground">
+                          Emptied {formatDate(booking.emptyReadyAt, 'dateTime')}
+                        </p>
+                      )}
                     </div>
                   </div>
                   {info.action && (
@@ -773,154 +948,168 @@ export function BookingPreviewSheet({
             );
           })()}
 
-          {/* 3. UPDATE STATUS SECTION */}
+          {/* 3. UPDATE STATUS — the ordinary status field.
+              A picker that offered one step forward and a stack of "undo"
+              rungs made the dispatcher work out which direction each entry
+              went, and covered the panel doing it. This is the control the
+              status deserves: the whole ladder, in order, current one
+              selected, pick where the container actually is. */}
           <div className="space-y-2">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Update Status</h3>
-            <Card className="p-3 rounded-lg border border-border/80 bg-card">
-              {!nextStatus ? (
-                <p className="py-1 text-center text-xs text-muted-foreground">
-                  {displayBookingStatus(booking.status)} is a terminal status — nothing further to advance.
-                </p>
-              ) : nextStatus === 'Driver Assigned' && !hasDriver ? (
-                <p className="py-1 text-center text-xs text-muted-foreground">
-                  Assign a driver above — a booking can't move to Driver Assigned without one.
-                </p>
-              ) : nextStatus === 'En Route' && !hasVehicle ? (
-                <p className="py-1 text-center text-xs text-muted-foreground">
-                  Assign a vehicle above — a booking can't be En Route without one.
-                </p>
-              ) : nextStatus === 'POD Submitted' && !currentPod ? (
-                <p className="py-1 text-center text-xs text-muted-foreground">
-                  Attach a Proof of Delivery below to submit it.
-                </p>
-              ) : nextStatus === 'Completed' && !hasVehicle ? (
-                <p className="py-1 text-center text-xs text-muted-foreground">
-                  Assign a vehicle above — a booking can't be completed without one.
-                </p>
-              ) : (
-                <Button
-                  type="button"
-                  size="sm"
-                  fullWidth
-                  className="text-xs font-semibold"
-                  isLoading={updateBookingStatus.isPending}
-                  leadingIcon={<ArrowRight className="w-3.5 h-3.5" />}
-                  onClick={handleAdvanceStatus}
-                >
-                  Mark as {nextStatus}
-                </Button>
-              )}
-            </Card>
-          </div>
-
-          {/* 4. PROOF OF DELIVERY (POD) UPLOAD SECTION */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Proof of Delivery (POD)</h3>
-              {currentPod && (
-                <span className="text-[11px] font-semibold text-success-subtle-foreground flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" />
-                  POD Uploaded
-                </span>
-              )}
-            </div>
-
-            {currentPod ? (
-              /* UPLOADED POD FILE CARD */
-              <Card className="p-3 rounded-lg border border-success/30 bg-success-subtle space-y-2">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <IconChip icon={FileText} size={36} />
-                    <div className="min-w-0">
-                      <h4 className="font-semibold text-foreground text-xs truncate" title={currentPod.name}>
-                        {currentPod.name}
-                      </h4>
-                      <p className="text-[11px] text-muted-foreground">
-                        {currentPod.size} • Uploaded at {currentPod.uploadedAt}
-                      </p>
-                    </div>
-                  </div>
-                  <Badge variant="subtle" intent="success" size="sm" className="shrink-0 text-[10px]">
-                    Verified
-                  </Badge>
-                </div>
-
-                <div className="pt-2 border-t border-success/20 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => alert(`Opening preview for ${currentPod.name}`)}
-                      className="h-8 text-xs rounded-lg gap-1.5 border-success/30 text-success-subtle-foreground hover:bg-success-subtle cursor-pointer"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>View</span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => alert(`Downloading ${currentPod.name}`)}
-                      className="h-8 text-xs rounded-lg gap-1.5 border-success/30 text-success-subtle-foreground hover:bg-success-subtle cursor-pointer"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Download</span>
-                    </Button>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleRemovePod}
-                    className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
-                    title="Remove POD Document"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              {isClosed ? 'Final Status' : 'Update Status'}
+            </h3>
+            {isClosed ? (
+              /* A closed job states its outcome and offers nothing. */
+              <Card className="flex-row items-center gap-3 rounded-lg border border-border/80 bg-card p-3">
+                <IconChip
+                  icon={booking.status === 'Completed' ? CheckCircle2 : AlertTriangle}
+                  tint={booking.status === 'Completed' ? undefined : 'red'}
+                  size={36}
+                />
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-foreground">{booking.status}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {booking.status === 'Completed'
+                      ? booking.containerNumber
+                        ? 'Delivered and the empty container is back — this booking is closed.'
+                        : 'Delivered — this booking is closed.'
+                      : 'This booking was closed without delivering.'}
+                  </p>
                 </div>
               </Card>
             ) : (
-              /* POD UPLOAD DROPZONE */
-              <Card className="p-4 rounded-lg border-2 border-dashed border-border hover:border-primary/60 bg-card transition-colors text-center relative overflow-hidden group">
-                <input
-                  type="file"
-                  accept=".pdf,.jpg,.jpeg,.png"
-                  onChange={handleFileUpload}
-                  className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                />
+              <Card className="space-y-3 rounded-lg border border-border/80 bg-card p-3">
+                <Select
+                  value={currentStep}
+                  disabled={updateBookingStatus.isPending}
+                  aria-label="Booking status"
+                  onChange={(event) => handleSetStatus(event.target.value)}
+                  className="font-semibold"
+                >
+                  {/* Off-ladder statuses (`Payment Pending`) would otherwise
+                      leave the field showing a value it has no option for. */}
+                  {!steps.some((step) => step.rung === currentStep) && (
+                    <option value={currentStep}>{displayShipmentStatus(booking.status)}</option>
+                  )}
+                  {steps.map((step, index) => {
+                    const blocker = step.rung === currentStep ? null : blockerFor(step.rung);
+                    return (
+                      <option key={step.rung} value={step.rung} disabled={Boolean(blocker)}>
+                        {index + 1}. {blocker ? `${step.label} — ${blocker.requirement}` : step.label}
+                      </option>
+                    );
+                  })}
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {updateBookingStatus.isPending
+                    ? 'Saving…'
+                    : 'Pick where this container actually is. Steps in between are recorded at the same time.'}
+                </p>
 
-                {isUploading ? (
-                  <div className="py-2 space-y-2 flex flex-col items-center justify-center">
-                    <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                    <p className="text-xs font-semibold text-primary">Uploading Proof of Delivery...</p>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-center gap-3 text-left">
-                    <IconChip icon={Upload} size={36} className="group-hover:scale-105 transition-transform shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-foreground">
-                        Click or drag file to upload POD
-                      </p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
-                        Supports PDF, PNG, JPG up to 10MB
-                      </p>
-                    </div>
-                    <Button variant="outline" size="sm" className="rounded-lg text-xs h-8 px-4 border-border pointer-events-none shrink-0">
-                      Browse
-                    </Button>
-                  </div>
-                )}
+                {/* Off the ladder, so off to one side: closing a job without
+                    delivering it is a decision, not the next rung. */}
+                <div className="flex items-center gap-2 border-t border-border/60 pt-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 flex-1 text-xs"
+                    disabled={updateBookingStatus.isPending}
+                    onClick={() => void handleCloseBooking('Cancelled')}
+                  >
+                    Cancel booking
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 flex-1 text-xs"
+                    disabled={updateBookingStatus.isPending}
+                    onClick={() => void handleCloseBooking('Failed')}
+                  >
+                    Mark failed
+                  </Button>
+                </div>
               </Card>
             )}
           </div>
 
         </div>
 
+        {/* ── WHEN DID THIS HAPPEN? ──
+            Asked on every rung, not just the empty-ready one. The reports
+            compute every duration from these timestamps, so the moment the
+            operator reports is the only one worth storing — the moment they
+            typed it tells you about the office, not the run. */}
+        {pendingStatus?.bookingId === booking.id && (
+          <div className="absolute inset-0 z-modal flex items-center justify-center bg-overlay/70 p-4 backdrop-blur-[2px]">
+            <Card className="w-full max-w-xs space-y-3 rounded-lg border border-border bg-card p-4 shadow-lg">
+              <div className="flex items-start gap-3">
+                <IconChip icon={pendingStatus.target.startsWith('Empty') || pendingStatus.target === 'Completed' ? Package : Clock} size={36} />
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-foreground">
+                    When did &ldquo;{pendingStepLabel}&rdquo; happen?
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {pendingStatus.target === 'Empty Ready'
+                      ? `${booking.containerNumber ?? 'This container'} enters the empty return from this moment, and detention is counted from it.`
+                      : pendingStatus.target === 'Completed'
+                        ? `${booking.containerNumber ?? 'This container'} is back at the depot from this moment — it closes the empty return and the booking.`
+                        : 'Recorded against the booking and used for every duration in its report.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="date"
+                  value={occurredDate}
+                  max={new Date().toISOString().slice(0, 10)}
+                  onChange={(event) => setOccurredDate(event.target.value)}
+                  className="h-9 w-full cursor-pointer rounded-lg border border-border/80 bg-background px-2.5 py-1 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <input
+                  type="time"
+                  value={occurredTime}
+                  onChange={(event) => setOccurredTime(event.target.value)}
+                  className="h-9 w-full cursor-pointer rounded-lg border border-border/80 bg-background px-2.5 py-1 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs"
+                  onClick={() => setPendingStatus(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-8 text-xs"
+                  disabled={!occurredDate || !occurredTime || updateBookingStatus.isPending}
+                  onClick={confirmStatusChange}
+                >
+                  {pendingStatus.target === 'Empty Ready'
+                    ? 'Start empty return'
+                    : pendingStatus.target === 'Completed'
+                      ? 'Confirm returned'
+                      : 'Save'}
+                </Button>
+              </div>
+            </Card>
+          </div>
+        )}
+
         {/* ── FOOTER ── */}
         <div className="p-4 bg-card border-t border-border/80 shrink-0 flex items-center justify-end gap-3">
           <Button variant="outline" size="sm" onClick={onClose} className="rounded-lg h-9 text-xs px-4 border-border cursor-pointer">
-            Close Preview
+            Close
           </Button>
         </div>
       </SheetContent>
     </Sheet>
+    </>
   );
 }

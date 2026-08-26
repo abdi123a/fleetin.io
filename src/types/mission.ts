@@ -3,11 +3,15 @@ export type MissionStatus =
   | 'Payment Pending'
   | 'Assigned'
   | 'Driver Assigned'
+  | 'Heading to Pickup'
+  | 'At Pickup'
+  | 'Loading'
+  | 'Loaded'
   | 'En Route'
   | 'Arrived'
-  | 'Loading'
   | 'Unloading'
   | 'POD Submitted'
+  | 'Empty Ready'
   | 'Completed'
   | 'Cancelled'
   | 'Failed';
@@ -21,11 +25,15 @@ export interface MissionTimelineStep {
     | 'booking_confirmation'
     | 'vehicle_assignment'
     | 'driver_assignment'
+    | 'left_for_pickup'
     | 'gate_in'
+    | 'loading_start'
     | 'pickup'
     | 'departure'
     | 'arrival'
+    | 'unloading_start'
     | 'pod_upload'
+    | 'empty_ready'
     | 'completion';
   title: string;
   description: string;
@@ -100,7 +108,15 @@ export interface Mission {
   id: string; // e.g. MSN-08801
   bookingId: string; // e.g. BKG-01178
   referenceNumber: string; // e.g. REF-99201
+  /** DPCS's own id for this shipment. Empty for a Fleetin-direct one — it genuinely has none. */
   dpcsReference: string; // e.g. DPCS-DJ-7731
+  /**
+   * Where the shipment came from. The origination channel is this field and
+   * only this field — `dpcsReference` used to carry a random fallback for
+   * Fleetin-direct shipments too, so testing it for truthiness badged every
+   * shipment as DPCS.
+   */
+  source: 'dpcs' | 'custom';
   status: MissionStatus;
   paymentStatus: MissionPaymentStatus;
 

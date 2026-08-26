@@ -1,5 +1,6 @@
 import { apiClient } from '@/services/api.client';
 import { useAuthStore } from '@/stores/auth.store';
+import type { CreateBookingItemPayload } from '@/features/bookings/api/bookingsService';
 import type { Mission, MissionFilterState, MissionStatus } from '@/types/mission';
 
 export interface PaginatedResponse<T> {
@@ -138,6 +139,7 @@ export function mapShipmentToMission(s: ShipmentRecord): Mission {
     bookingId: s.bookingId,
     referenceNumber: s.referenceNumber,
     dpcsReference: s.dpcsReference,
+    source: s.source === 'dpcs' ? 'dpcs' : 'custom',
     status: s.status as MissionStatus,
     paymentStatus: s.paymentStatus as Mission['paymentStatus'],
     customer: {
@@ -267,6 +269,23 @@ export async function fetchShipments(filters: ShipmentFilters = {}): Promise<Pag
   return { ...res.data, items: res.data.items.map(mapShipmentToMission) };
 }
 
+/**
+ * Every page, `Mission`-mapped. The list endpoint caps at `limit`, so a single
+ * call silently returned the first 200 of 337 shipments and the Shipments page
+ * reported "200 Total" as if that were the book. Same 20-page hard stop as
+ * `fetchAllShipmentsRaw`, so a runaway `totalPages` can't loop the client.
+ */
+export async function fetchAllShipments(filters: ShipmentFilters = {}): Promise<Mission[]> {
+  const first = await fetchShipments({ ...filters, page: 1 });
+  const items = [...first.items];
+  const lastPage = Math.min(first.meta.totalPages, 20);
+  for (let page = 2; page <= lastPage; page += 1) {
+    const next = await fetchShipments({ ...filters, page });
+    items.push(...next.items);
+  }
+  return items;
+}
+
 /** Raw `ShipmentRecord[]`, not `Mission`-mapped — for Finance, which needs the money fields the mapping drops. */
 export async function fetchShipmentsRaw(filters: ShipmentFilters = {}): Promise<PaginatedResponse<ShipmentRecord>> {
   const res = await apiClient.get<PaginatedResponse<ShipmentRecord>>(`/shipments?${toQueryString(filters)}`, token());
@@ -307,6 +326,12 @@ export async function fetchShipmentRaw(id: string): Promise<ShipmentRecord> {
 
 export interface CreateShipmentPayload {
   shipmentSource: 'dpcs' | 'custom';
+  /**
+   * The shipment's own reference, chosen by the operator in the wizard. The
+   * server mints an `MSN-#####` only when this is absent (seeds, imports) and
+   * refuses one that is already taken.
+   */
+  reference?: string;
   dpcsReference?: string;
   bookingId?: string;
   shipperId: string;
@@ -339,6 +364,12 @@ export interface CreateShipmentPayload {
   /** What the shipper is billed — optional, the wizard doesn't always collect it. */
   clientRateMinorUnits?: number;
   projectId?: string;
+  /**
+   * The shipment's containers, created in the same request. Sent here rather
+   * than through a follow-up `POST /shipments/:id/bookings` so a failure can't
+   * leave a shipment standing with no bookings at all.
+   */
+  bookings?: CreateBookingItemPayload[];
 }
 
 export async function createShipment(payload: CreateShipmentPayload): Promise<Mission> {

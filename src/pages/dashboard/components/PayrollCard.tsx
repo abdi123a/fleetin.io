@@ -51,7 +51,7 @@ export function PayrollCard({
   const slices = useMemo(() => {
     if (!payroll || !calculated) return [];
     return [
-      { label: 'Net to staff', value: payroll.totalNet, color: CHART_INK.teal },
+      { label: 'Net pay', value: payroll.totalNet, color: CHART_INK.teal },
       { label: 'CNSS withheld', value: payroll.totalCnss, color: CHART_INK.tealLight },
       { label: 'ITS withheld', value: payroll.totalIts, color: CHART_INK.grey },
       { label: 'Employer CNSS', value: payroll.employerContribution, color: CHART_INK.orange },
@@ -90,8 +90,8 @@ export function PayrollCard({
       title="Payroll"
       subtitle={
         period
-          ? `${MONTHS[period.month - 1]} ${period.year} · ${payroll?.lines ?? 0} lines`
-          : 'No payroll period is open'
+          ? `${MONTHS[period.month - 1]} ${period.year} · ${payroll?.lines ?? 0} payroll lines`
+          : 'No pay period open'
       }
       action={
         <div className="flex items-center gap-2">
@@ -107,21 +107,21 @@ export function PayrollCard({
         <InsightNote tone={period && period.status !== 'PAID' && calculated ? 'attention' : 'neutral'}>
           {!calculated ? (
             period ? (
-              'The period is open but has not been calculated yet, so no figure here has a line behind it.'
+              'Pay period open, not yet calculated.'
             ) : (
-              'No payroll period has been opened. Open one from the payroll screen to see this month’s cost.'
+              'No pay period open.'
             )
           ) : period && period.status !== 'PAID' ? (
             <>
               <span className="font-bold text-foreground">
-                {compactDjf(total)} is calculated but not yet paid
+                {compactDjf(total)} calculated, not settled
               </span>{' '}
-              — the run is still {period.status.toLowerCase()}, so nothing has left the account.
+              · {period.status.toLowerCase()}.
             </>
           ) : (
             <>
-              <span className="font-bold text-foreground">{compactDjf(total)} paid out for this period</span> —{' '}
-              {fmtDjf(payroll?.totalNet ?? 0)} reached staff, the rest went to CNSS and ITS.
+              <span className="font-bold text-foreground">{compactDjf(total)} employer cost settled</span> ·{' '}
+              {fmtDjf(payroll?.totalNet ?? 0)} net pay.
             </>
           )}
         </InsightNote>
@@ -129,7 +129,7 @@ export function PayrollCard({
     >
       {!calculated || slices.length === 0 ? (
         <p className="py-10 text-center text-sm font-semibold text-muted-foreground">
-          Nothing calculated for this period yet.
+          No payroll lines yet.
         </p>
       ) : (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
@@ -142,9 +142,9 @@ export function PayrollCard({
               className="flex-col !items-start gap-y-2"
             />
             <div className="mt-4 flex flex-col gap-1.5 border-t border-border-subtle pt-3">
-              <Line label="Gross" value={fmtDjf(payroll?.totalGross ?? 0)} />
-              <Line label="Overtime paid" value={fmtDjf(payroll?.totalOvertime ?? 0)} />
-              <Line label="Absence deducted" value={fmtDjf(payroll?.totalAbsence ?? 0)} />
+              <Line label="Gross pay" value={fmtDjf(payroll?.totalGross ?? 0)} />
+              <Line label="Overtime" value={fmtDjf(payroll?.totalOvertime ?? 0)} />
+              <Line label="Absence" value={fmtDjf(payroll?.totalAbsence ?? 0)} />
             </div>
           </div>
         </div>

@@ -6,6 +6,33 @@ import { useAuthStore } from '@/stores/auth.store';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1';
 
+/**
+ * Say which backend this tab is talking to, once, on boot.
+ *
+ * This repo has two: the NestJS API on localhost:3000 and a shared hosted one.
+ * Which of them a dev server uses is decided by `VITE_API_BASE_URL`, resolved
+ * at build time from `.env` plus the mode file — so by the time the app is on
+ * screen there is nothing in the UI that distinguishes "my machine" from
+ * "everyone's data", and the two look identical while behaving very
+ * differently. A tab left open across a restart is the easy way to debug the
+ * wrong system for twenty minutes.
+ *
+ * Dev only: `import.meta.env.DEV` is a compile-time constant, so this is
+ * dead-code-eliminated from production builds rather than merely skipped.
+ *
+ * Start the app with `npm run dev:local` or `npm run dev:cloud` to choose
+ * deliberately; plain `npm run dev` uses whatever `.env` holds.
+ */
+if (import.meta.env.DEV) {
+  const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1)/.test(API_BASE_URL);
+  console.info(
+    `%c FLEETIN %c ${isLocal ? 'local API' : 'CLOUD API — shared data'} %c ${API_BASE_URL}`,
+    'background:#60969D;color:#fff;font-weight:700;border-radius:3px 0 0 3px',
+    `background:${isLocal ? '#0f766e' : '#f9ac17'};color:${isLocal ? '#fff' : '#1c1917'};font-weight:700`,
+    'color:inherit',
+  );
+}
+
 export interface ApiResponse<T = unknown> {
   success: boolean;
   data: T;

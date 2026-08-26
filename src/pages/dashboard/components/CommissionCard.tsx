@@ -28,7 +28,7 @@ export function CommissionCard({ money, className }: { money: MoneyModel; classN
   const options = useMemo(
     () =>
       gaugeOptions({
-        label: 'kept of billing',
+        label: 'of billing',
         color:
           effective === null
             ? CHART_INK.grey
@@ -48,7 +48,7 @@ export function CommissionCard({ money, className }: { money: MoneyModel; classN
     <ConsolePanel
       className={className}
       title="Commission"
-      subtitle="The share of client billing Fleetin keeps after the transporter is paid"
+      subtitle="Share of billing kept after transport cost"
     >
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="h-[168px] w-[168px] shrink-0">
@@ -62,14 +62,14 @@ export function CommissionCard({ money, className }: { money: MoneyModel; classN
             note={`on ${compactDjf(money.revenueDjf)} billed`}
           />
           <StatBox
-            label="Rate set in settings"
+            label="Configured rate"
             value={configured > 0 ? pct(configured, 1) : 'not set'}
             note={
               shortfall === null
-                ? 'no priced shipment to measure against'
+                ? 'no priced shipments'
                 : shortfall < 0
-                  ? `running ${pct(Math.abs(shortfall), 1)} under it`
-                  : `running ${pct(shortfall, 1)} over it`
+                  ? `${pct(Math.abs(shortfall), 1)} under`
+                  : `${pct(shortfall, 1)} over`
             }
             tone={shortfall !== null && shortfall < -0.005 ? 'attention' : 'neutral'}
           />
@@ -79,17 +79,12 @@ export function CommissionCard({ money, className }: { money: MoneyModel; classN
       {money.unpricedCount > 0 ? (
         <InsightNote tone="attention" className="mt-3">
           <span className="font-bold text-foreground">
-            {money.unpricedCount} {money.unpricedCount === 1 ? 'shipment carries' : 'shipments carry'} no client
-            price
+            {money.unpricedCount} {money.unpricedCount === 1 ? 'shipment' : 'shipments'} unpriced
           </span>{' '}
-          — {fmtDjf(money.unpricedCostDjf)} of transporter cost sits outside this rate entirely, so the real
-          commission is lower than the ring until they are priced.
+          — {fmtDjf(money.unpricedCostDjf)} transport cost outside this rate.
         </InsightNote>
       ) : (
-        <InsightNote className="mt-3">
-          Every shipment on the book carries a client price, so this rate covers the whole book — nothing is
-          sitting outside it.
-        </InsightNote>
+        <InsightNote className="mt-3">Every shipment is priced.</InsightNote>
       )}
     </ConsolePanel>
   );

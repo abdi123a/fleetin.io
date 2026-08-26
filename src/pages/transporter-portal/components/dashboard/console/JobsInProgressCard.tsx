@@ -42,13 +42,13 @@ export function JobsInProgressCard({
     <ConsolePanel
       className={className}
       title="Jobs in Progress"
-      subtitle={`${totalMoves} moves completed this period · container, bulk and special`}
+      subtitle={`${totalMoves} bookings completed this period · container, bulk and special`}
       action={onViewAll ? <PanelOutlineLink onClick={onViewAll}>View all</PanelOutlineLink> : undefined}
       bodyClassName="px-0 pt-0 pb-0"
       footer={
         <p className="type-body-xs text-muted-foreground">
           Showing the {rows.length} nearest slots of {total}{' '}
-          {tab === 'ongoing' ? 'ongoing' : 'scheduled'} moves
+          {tab === 'ongoing' ? 'ongoing' : 'scheduled'} bookings
         </p>
       }
     >
@@ -62,13 +62,13 @@ export function JobsInProgressCard({
           onChange={setTab}
         />
         <p className="type-body-xs text-muted-foreground">
-          Sorted by slot time — reference · move · truck · status
+          Sorted by slot time — reference · booking · vehicle · status
         </p>
       </div>
 
       <div className={cn('hidden border-y border-border-subtle px-5 py-2.5', ROW_GRID)} aria-hidden>
         <span className="type-label text-muted-foreground">Shipper / ref</span>
-        <span className="type-label text-muted-foreground">Move</span>
+        <span className="type-label text-muted-foreground">Booking</span>
         <span className="type-label text-muted-foreground">Truck / driver</span>
         <span className="type-label text-muted-foreground">Status</span>
         <span className="type-label text-muted-foreground">Cargo</span>

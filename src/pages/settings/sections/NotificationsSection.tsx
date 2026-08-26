@@ -8,7 +8,7 @@ import { FieldGrid, SectionNote, SelectField, TextField, ToggleField } from '../
 const CHANNELS: ReadonlyArray<{ id: NotificationChannel; label: string; hint: string }> = [
   { id: 'inApp', label: 'In app', hint: 'The bell in the header.' },
   { id: 'email', label: 'Email', hint: 'Needs the SMTP settings under Integrations.' },
-  { id: 'sms', label: 'SMS', hint: 'Costs money per message — reserve it.' },
+  { id: 'sms', label: 'SMS', hint: 'Charged per message.' },
   { id: 'webhook', label: 'Webhook', hint: 'POSTed to the URL under Integrations.' },
 ];
 
@@ -44,7 +44,7 @@ export function NotificationsSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Panel title="Delivery" subtitle="Rules that apply to every message, whatever raised it">
+      <Panel title="Delivery" subtitle="Applies to every message">
         <FieldGrid>
           <SelectField
             label="Digest"
@@ -55,11 +55,11 @@ export function NotificationsSection() {
               { value: 'hourly', label: 'Roll repeats into an hourly summary' },
               { value: 'daily', label: 'Roll repeats into a daily summary' },
             ]}
-            hint="Twenty containers going due-soon at once should be one message, not twenty."
+            hint="Repeats roll into one message."
           />
           <ToggleField
             label="Quiet hours"
-            description="Holds email and SMS overnight. In-app notifications and webhooks are unaffected — nothing wakes anybody up."
+            description="Holds email and SMS overnight. In-app and webhooks are unaffected."
             checked={notifications.quietHours.enabled}
             onChange={(v) => update('notifications', { quietHours: { enabled: v } })}
           />
@@ -83,7 +83,7 @@ export function NotificationsSection() {
       </Panel>
 
       {groups.map((group) => (
-        <Panel key={group} title={group} subtitle="Event, and the channels it goes out on" padded={false}>
+        <Panel key={group} title={group} subtitle="Channels per event" padded={false}>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] border-collapse text-sm">
               <thead>
@@ -145,8 +145,7 @@ export function NotificationsSection() {
       ))}
 
       <SectionNote>
-        A channel selected here still needs its transport configured under Integrations — email needs SMTP, SMS
-        needs a gateway, webhook needs a URL. Without one, that column is chosen but silent.
+        A channel still needs its transport configured under Integrations, or the column is silent.
       </SectionNote>
     </div>
   );

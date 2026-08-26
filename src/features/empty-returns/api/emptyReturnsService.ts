@@ -1,17 +1,16 @@
 import { apiClient } from '@/services/api.client';
 import { useAuthStore } from '@/stores/auth.store';
-import type { BookingRecord } from '@/features/bookings/api/bookingsService';
+import type { BookingRecord, BookingShipmentContext } from '@/features/bookings/api/bookingsService';
 
-export interface BookingShipmentSummary {
-  id: string;
-  reference: string;
-  customerName: string;
-  customerCompany: string;
-}
-
-/** A `BookingRecord` (already carrying `partner`/`vehicle`) plus the shipment name Empty Return needs to display — see `bookingDisplayInclude` on the backend. */
+/**
+ * A `BookingRecord` whose parent shipment is guaranteed present — every
+ * empty-return endpoint joins it (`bookingDisplayInclude` on the backend).
+ * The shape itself is the shared `BookingShipmentContext`: this module used
+ * to declare a narrower four-field summary of its own, which stopped being
+ * true once every booking endpoint started returning the whole shipment.
+ */
 export interface EmptyReturnBookingRecord extends BookingRecord {
-  shipment: BookingShipmentSummary | null;
+  shipment: BookingShipmentContext | null;
 }
 
 export interface EmptyReturnChainSummary {

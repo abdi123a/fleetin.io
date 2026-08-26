@@ -15,6 +15,7 @@ import {
 } from '@/design-system/icons';
 import { buildPath, ROUTES } from '@/config/routes';
 import { companyInitials, EMPTY_RETURN_HUB, EMPTY_RETURN_STATUS_META } from '@/data/emptyReturnData';
+import { NEXT_BOOKING_STATUS } from '@/features/bookings/api/bookingsService';
 import { useUpdateBookingStatus } from '@/features/bookings/api/queries';
 import { useMarkStandalone } from '@/features/empty-returns/api/queries';
 import { formatDateTime } from '@/stores/emptyReturn.store';
@@ -37,12 +38,8 @@ import {
  */
 const CYCLE_LADDER: readonly EmptyReturnStatus[] = ['preparing', 'ready', 'in_progress', 'completed'];
 
-/** What advancing one step actually means for the real booking underneath. */
-const NEXT_BOOKING_STATUS_FOR_CYCLE: Partial<Record<EmptyReturnStatus, string>> = {
-  preparing: 'Driver Assigned',
-  ready: 'En Route',
-  in_progress: 'Arrived',
-};
+/** A booking that will never move again — nothing to advance it to. */
+const TERMINAL_BOOKING_STATUSES = ['Completed', 'Cancelled', 'Failed'];
 
 export interface CycleRowDetailProps {
   record: EmptyReturnRecord;
@@ -87,7 +84,27 @@ export function CycleRowDetail({ record, panelId, onOpenMatching }: CycleRowDeta
 
   const isMatched = Boolean(record.cycleId);
   const currentStageIndex = CYCLE_LADDER.indexOf(record.status);
-  const nextBookingStatus = NEXT_BOOKING_STATUS_FOR_CYCLE[record.status];
+  /**
+   * The next legal step for the **outbound full load** — the truck bringing a
+   * container in and taking this empty back out. A cycle has no status of its
+   * own, so this is the only thing there is to advance.
+   *
+   * Read off that booking's real position on the real ladder rather than a map
+   * of its own: a hardcoded `ready → En Route` skipped the whole pickup leg
+   * (Heading to Pickup, At Pickup, Loading, Loaded) and the backend rejected
+   * it, and it kept offering to advance outbound loads that had already been
+   * cancelled.
+   */
+  const outboundStatus = record.nextFull?.status;
+  const proposed =
+    outboundStatus && !TERMINAL_BOOKING_STATUSES.includes(outboundStatus)
+      ? NEXT_BOOKING_STATUS[outboundStatus]
+      : undefined;
+  /* "Completed" is never offered as a click. A containerized load closes on its
+   * own empty coming back, not on somebody pressing a button — the backend
+   * refuses it either way — so the last manual rung is POD Submitted and the
+   * system takes it from there. */
+  const nextBookingStatus = proposed === 'Completed' ? undefined : proposed;
   const nextBookingId = record.nextFull?.missionId;
   const showEmptyReadyActions = record.status === 'empty_ready' && !record.exception;
   const showCutoffNote = record.exception != null && record.status !== 'completed';
@@ -148,16 +165,25 @@ export function CycleRowDetail({ record, panelId, onOpenMatching }: CycleRowDeta
               </ol>
 
               {nextBookingStatus && nextBookingId && (
-                <Button
-                  size="sm"
-                  fullWidth
-                  className="mt-3 text-xs font-semibold shadow-xs"
-                  leadingIcon={<ArrowRight className="size-3.5" />}
-                  isLoading={updateBookingStatus.isPending}
-                  onClick={() => updateBookingStatus.mutate({ id: nextBookingId, status: nextBookingStatus })}
-                >
-                  Advance to {nextBookingStatus}
-                </Button>
+                <div className="mt-3 space-y-1.5">
+                  <Button
+                    size="sm"
+                    fullWidth
+                    className="text-xs font-semibold shadow-xs"
+                    leadingIcon={<ArrowRight className="size-3.5" />}
+                    isLoading={updateBookingStatus.isPending}
+                    onClick={() => updateBookingStatus.mutate({ id: nextBookingId, status: nextBookingStatus })}
+                  >
+                    Move outbound load to {nextBookingStatus}
+                  </Button>
+                  {/* A cycle has no status of its own, so the button had no
+                      subject and read as "advance… something". Naming the
+                      truck it moves is the whole explanation. */}
+                  <p className="type-body-xs text-center text-muted-foreground">
+                    Moves {record.nextFull?.missionId ?? 'the outbound load'} — the truck carrying
+                    this empty back. The cycle follows it.
+                  </p>
+                </div>
               )}
             </>
           ) : (

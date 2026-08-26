@@ -115,6 +115,8 @@ export type ShipmentRowStatus = 'open' | 'delivered' | 'closed';
 export interface ShipperShipmentRow {
   shipmentId: string;
   reference: string;
+  /** The `MSN-#####` this container belongs to — what "open this shipment" navigates to. */
+  parentReference?: string;
   routeName: string;
   origin: string;
   destination: string;
@@ -345,6 +347,7 @@ function buildRows(dataset: BiDataset, facts: ShipmentFact[]): ShipperShipmentRo
       return {
         shipmentId: fact.shipmentId,
         reference: fact.reference,
+        parentReference: shipmentById.get(fact.shipmentId)?.parentReference,
         routeName: route?.name ?? '—',
         origin: route?.originName ?? '—',
         destination: route?.destinationName ?? '—',

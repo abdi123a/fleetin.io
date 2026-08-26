@@ -21,13 +21,15 @@ export interface RateGaugeProps {
   target?: number;
   label?: string;
   size?: number;
+  /** Overrides the severity band's colour, for pages with their own palette. */
+  color?: string;
   className?: string;
 }
 
 const RADIUS = 42;
 const CIRCUMFERENCE = Math.PI * RADIUS; // half circle
 
-export function RateGauge({ value, target, label, size = 132, className }: RateGaugeProps) {
+export function RateGauge({ value, target, label, size = 132, color: colorOverride, className }: RateGaugeProps) {
   const clamped = Math.max(0, Math.min(1, value));
 
   // Severity bands: comfortably clear of target, near it, or under it. With no
@@ -35,7 +37,7 @@ export function RateGauge({ value, target, label, size = 132, className }: RateG
   const threshold = target ?? 0.9;
   const intent =
     clamped >= threshold ? 'good' : clamped >= threshold - 0.1 ? 'warning' : 'critical';
-  const color = intentColor(intent);
+  const color = colorOverride ?? intentColor(intent);
 
   const arc = `M 8 ${RADIUS + 8} A ${RADIUS} ${RADIUS} 0 0 1 ${RADIUS * 2 + 8} ${RADIUS + 8}`;
   const targetAngle = target === undefined ? undefined : Math.PI * (1 - target);

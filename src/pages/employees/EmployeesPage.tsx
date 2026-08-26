@@ -14,7 +14,7 @@ export function EmployeesPage() {
   return (
     <PlaceholderPage
       title="Employees"
-      description="Internal staff directory, roles and reporting lines."
+      description="Employee directory, roles and reporting lines."
       icon={Users}
       upcoming="Employee directory, role assignment and org structure are delivered in Phase 2."
     />

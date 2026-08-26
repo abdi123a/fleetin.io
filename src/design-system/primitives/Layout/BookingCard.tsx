@@ -93,11 +93,7 @@ export const BookingCard = forwardRef<HTMLDivElement, BookingCardProps>(
               iconTheme="none"
               value={driverName}
               label="Driver"
-              action={
-                driverVerified ? (
-                  <VerificationBadge state="verified" size="sm" className="bg-transparent border-0 text-success-subtle-foreground font-bold underline px-0 ml-1.5" />
-                ) : undefined
-              }
+              action={<VerificationBadge state={driverVerified ? 'verified' : 'unverified'} size="sm" />}
             />
 
             <CardDataField
@@ -105,11 +101,7 @@ export const BookingCard = forwardRef<HTMLDivElement, BookingCardProps>(
               iconTheme="none"
               value={vehicleNumber}
               label="Vehicle No."
-              action={
-                vehicleVerified ? (
-                  <VerificationBadge state="verified" size="sm" className="bg-transparent border-0 text-success-subtle-foreground font-bold underline px-0 ml-1.5" />
-                ) : undefined
-              }
+              action={<VerificationBadge state={vehicleVerified ? 'verified' : 'unverified'} size="sm" />}
             />
           </div>
 

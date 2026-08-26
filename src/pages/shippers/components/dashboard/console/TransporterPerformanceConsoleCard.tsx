@@ -1,7 +1,16 @@
 import { useState, useMemo } from 'react';
+import type { ApexOptions } from 'apexcharts';
 import { ChevronRight } from '@/design-system/icons';
 import { Card, CompanyAvatar } from '@/design-system';
 import type { DatePreset } from '@/features/shipper-bi/contracts';
+import type { ShipperShipmentRow } from '@/features/shipper-bi';
+import { ApexChart } from '@/features/shipper-bi/charts/ApexChart';
+import {
+  baseChartOptions,
+  chartAnimSpeed,
+  quietStates,
+  resolveColor,
+} from '@/features/shipper-bi/charts/apexChartTheme';
 import { getTransporterLogoUrl } from '@/features/shipper-bi/mocks/transporterProfiles';
 import { cn } from '@/utils';
 import { PanelLink, PANEL_SURFACE } from './PanelHeader';
@@ -12,13 +21,13 @@ export interface TransporterPerformanceConsoleCardProps {
   to?: string;
   className?: string;
   onViewAll?: () => void;
+  /** The shipper's own book — who actually carried what, and at what price. */
+  rows: ShipperShipmentRow[];
 }
 
 /* ---------------------------------------------------------------------------
  * Types
  * ------------------------------------------------------------------------ */
-
-type GoodsType = 'containers' | 'bulk_commodities' | 'bulk_steel' | 'livestock';
 
 interface TransporterRow {
   id: string;
@@ -26,83 +35,104 @@ interface TransporterRow {
   fleetCode: string;
   avgDeliveryHours: number;
   avgCostPerLoad: number;
+  /** Share of this carrier's shipments delivered on-time or early, 0–100. */
+  onTimeRate: number;
   meetsSla: boolean;
 }
 
 interface GoodsTab {
-  key: GoodsType;
+  key: string;
   label: string;
-  shortLabel: string;
   count: number;
-  color: string;
+}
+
+/**
+ * Ranks the carriers this shipper actually used, per cargo type it actually
+ * shipped — from the same rows the shipments table lists.
+ *
+ * This card used to be a hardcoded league table: seven carriers that are not in
+ * the database ("Horn Logistics", "Djibouti Express") at 130k–475k a load,
+ * against a book whose real transporters bill 40–48k. A shipper comparing
+ * carriers is making a procurement decision, so a table of invented names and
+ * invented prices is the single most misleading thing this dashboard could show.
+ *
+ * Delivery time is measured pickup → arrival on each row, and price is the
+ * charge on the row itself, so both agree with the shipment list and the
+ * monthly report by construction.
+ */
+function rankCarriers(rows: ShipperShipmentRow[]) {
+  const byCargo = new Map<string, Map<string, { hours: number[]; costs: number[]; onTime: number; total: number }>>();
+
+  for (const row of rows) {
+    if (!row.transporter) continue;
+    const carriers = byCargo.get(row.cargoType) ?? new Map();
+    const stat = carriers.get(row.transporter) ?? { hours: [], costs: [], onTime: 0, total: 0 };
+
+    /* Punctuality against the promised date, which is the comparison a
+     * shipper choosing between carriers actually makes — and the only one
+     * these rows support honestly. Absolute transit would need the pickup
+     * time, which the row does not carry; deriving it from the promise and
+     * the variance double-counts the same delta. */
+    if (row.varianceMinutes !== undefined) {
+      stat.hours.push(row.varianceMinutes / 60);
+    }
+    if (row.cost > 0) stat.costs.push(row.cost);
+    stat.total += 1;
+    if (row.outcome === 'on_time' || row.outcome === 'early') stat.onTime += 1;
+
+    carriers.set(row.transporter, stat);
+    byCargo.set(row.cargoType, carriers);
+  }
+
+  const mean = (values: number[]) =>
+    values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+
+  const tabs: GoodsTab[] = [];
+  const data: Record<string, TransporterRow[]> = {};
+
+  for (const [cargoType, carriers] of byCargo) {
+    const ranked = [...carriers.entries()]
+      .map(([name, stat]) => ({
+        id: name,
+        name,
+        fleetCode: name.slice(0, 3).toUpperCase(),
+        avgDeliveryHours: mean(stat.hours),
+        avgCostPerLoad: Math.round(mean(stat.costs)),
+        onTimeRate: stat.total > 0 ? Math.round((stat.onTime / stat.total) * 100) : 0,
+        // The house target the rest of the suite ranks against.
+        meetsSla: stat.total > 0 && stat.onTime / stat.total >= 0.9,
+      }))
+      .filter((carrier) => carrier.avgCostPerLoad > 0)
+      .sort((a, b) => a.avgDeliveryHours - b.avgDeliveryHours)
+      .slice(0, 5);
+    if (ranked.length === 0) continue;
+
+    const count = [...carriers.values()].reduce((sum, stat) => sum + stat.total, 0);
+    tabs.push({ key: cargoType, label: cargoType, count });
+    data[cargoType] = ranked;
+  }
+
+  tabs.sort((a, b) => b.count - a.count);
+  return { tabs, data };
 }
 
 /* ---------------------------------------------------------------------------
  * Data — ranked transporters per cargo type (logos from shared registry)
  * ------------------------------------------------------------------------ */
 
-/**
- * One bar colour per carrier so the ranking chart is scannable at a glance.
- * Assigned by position from the chart's categorical scale, same as any other
- * series — a carrier keeps its colour even if the ranking above it changes.
- */
-const CARRIER_BAR_COLORS: Record<string, string> = {
-  'TRP-01': 'bg-chart-1',
-  'TRP-02': 'bg-chart-2',
-  'TRP-03': 'bg-chart-3',
-  'TRP-04': 'bg-chart-4',
-  'TRP-05': 'bg-chart-5',
-  'TRP-06': 'bg-chart-6',
-  'TRP-07': 'bg-chart-7',
-};
-
-const FALLBACK_BAR_COLOR = 'bg-primary';
-
-const GOODS_DATA: Record<GoodsType, TransporterRow[]> = {
-  containers: [
-    { id: 'TRP-01', name: 'Horn Logistics',        fleetCode: 'HRN', avgDeliveryHours: 18.4, avgCostPerLoad: 219_800, meetsSla: true  },
-    { id: 'TRP-02', name: 'Bab El Mandeb Transit',  fleetCode: 'BEM', avgDeliveryHours: 20.3, avgCostPerLoad: 209_100, meetsSla: true  },
-    { id: 'TRP-06', name: 'Djibouti Express',       fleetCode: 'DJX', avgDeliveryHours: 31.5, avgCostPerLoad: 398_700, meetsSla: true  },
-    { id: 'TRP-04', name: 'Tadjoura Haulage',       fleetCode: 'TDJ', avgDeliveryHours: 34.2, avgCostPerLoad: 249_800, meetsSla: false },
-    { id: 'TRP-07', name: 'Gulf Freight Partners',  fleetCode: 'GFP', avgDeliveryHours: 55.2, avgCostPerLoad: 475_600, meetsSla: false },
-  ],
-  bulk_commodities: [
-    { id: 'TRP-03', name: 'Awash Freight Lines',    fleetCode: 'AWF', avgDeliveryHours: 16.8, avgCostPerLoad: 178_400, meetsSla: true  },
-    { id: 'TRP-05', name: 'Red Sea Movers',         fleetCode: 'RSM', avgDeliveryHours: 21.4, avgCostPerLoad: 162_900, meetsSla: true  },
-    { id: 'TRP-01', name: 'Horn Logistics',         fleetCode: 'HRN', avgDeliveryHours: 26.9, avgCostPerLoad: 191_300, meetsSla: true  },
-    { id: 'TRP-07', name: 'Gulf Freight Partners',  fleetCode: 'GFP', avgDeliveryHours: 38.5, avgCostPerLoad: 204_700, meetsSla: false },
-    { id: 'TRP-04', name: 'Tadjoura Haulage',       fleetCode: 'TDJ', avgDeliveryHours: 47.2, avgCostPerLoad: 215_800, meetsSla: false },
-  ],
-  bulk_steel: [
-    { id: 'TRP-06', name: 'Djibouti Express',       fleetCode: 'DJX', avgDeliveryHours: 23.1, avgCostPerLoad: 298_600, meetsSla: true  },
-    { id: 'TRP-02', name: 'Bab El Mandeb Transit',  fleetCode: 'BEM', avgDeliveryHours: 28.4, avgCostPerLoad: 312_400, meetsSla: true  },
-    { id: 'TRP-03', name: 'Awash Freight Lines',    fleetCode: 'AWF', avgDeliveryHours: 35.7, avgCostPerLoad: 334_100, meetsSla: false },
-    { id: 'TRP-05', name: 'Red Sea Movers',         fleetCode: 'RSM', avgDeliveryHours: 44.3, avgCostPerLoad: 351_200, meetsSla: false },
-  ],
-  livestock: [
-    { id: 'TRP-04', name: 'Tadjoura Haulage',       fleetCode: 'TDJ', avgDeliveryHours: 14.2, avgCostPerLoad: 134_500, meetsSla: true  },
-    { id: 'TRP-07', name: 'Gulf Freight Partners',  fleetCode: 'GFP', avgDeliveryHours: 17.8, avgCostPerLoad: 128_900, meetsSla: true  },
-    { id: 'TRP-05', name: 'Red Sea Movers',         fleetCode: 'RSM', avgDeliveryHours: 22.6, avgCostPerLoad: 143_200, meetsSla: true  },
-    { id: 'TRP-01', name: 'Horn Logistics',         fleetCode: 'HRN', avgDeliveryHours: 30.1, avgCostPerLoad: 156_700, meetsSla: false },
-  ],
-};
-
-const TABS: [GoodsTab, ...GoodsTab[]] = [
-  { key: 'containers',       label: 'Containers',       shortLabel: 'Containers',  count: 46, color: 'bg-info-subtle text-info-subtle-foreground dark:bg-info-subtle dark:text-info-subtle-foreground'        },
-  { key: 'bulk_commodities', label: 'Bulk – Commodities', shortLabel: 'Commodities', count: 34, color: 'bg-warning-subtle text-warning-subtle-foreground dark:bg-warning-subtle dark:text-warning-subtle-foreground'   },
-  { key: 'bulk_steel',       label: 'Bulk – Steel',     shortLabel: 'Steel',       count: 12, color: 'bg-muted text-muted-foreground dark:bg-muted/60 dark:text-muted-foreground'    },
-  { key: 'livestock',        label: 'Livestock',        shortLabel: 'Livestock',   count: 9,  color: 'bg-success-subtle text-success-subtle-foreground dark:bg-success-subtle dark:text-success-subtle-foreground' },
-];
-
 /* ---------------------------------------------------------------------------
  * Helpers
  * ------------------------------------------------------------------------ */
 
+/** Signed hours against the promised date: "on time", "2.4h early", "1d 3h late". */
 function fmtHours(h: number): string {
-  if (h < 24) return `${h.toFixed(1)}h`;
-  const days = Math.floor(h / 24);
-  const rem  = Math.round(h % 24);
-  return rem === 0 ? `${days}d` : `${days}d ${rem}h`;
+  const magnitude = Math.abs(h);
+  if (magnitude < 0.5) return 'on time';
+  const suffix = h > 0 ? 'late' : 'early';
+  if (magnitude < 24) return `${magnitude.toFixed(1)}h ${suffix}`;
+  const days = Math.floor(magnitude / 24);
+  const rem = Math.round(magnitude % 24);
+  return rem === 0 ? `${days}d ${suffix}` : `${days}d ${rem}h ${suffix}`;
 }
 
 /* ---------------------------------------------------------------------------
@@ -114,17 +144,60 @@ export function TransporterPerformanceConsoleCard({
   to: _to,
   className = '',
   onViewAll,
+  rows: accountRows,
 }: TransporterPerformanceConsoleCardProps) {
-  const [activeTab, setActiveTab] = useState<GoodsType>('containers');
+  const { tabs: TABS, data: GOODS_DATA } = useMemo(() => rankCarriers(accountRows), [accountRows]);
+  const [selectedTab, setSelectedTab] = useState<string | null>(null);
 
-  const rows = useMemo(() => GOODS_DATA[activeTab], [activeTab]);
+  /* The tab list is derived from what this shipper ships, so the selection has
+   * to fall back rather than pin to a cargo type that may not be in the book. */
+  const activeTab = selectedTab && GOODS_DATA[selectedTab] ? selectedTab : (TABS[0]?.key ?? '');
+  const setActiveTab = setSelectedTab;
+
+  const rows = useMemo(() => GOODS_DATA[activeTab] ?? [], [GOODS_DATA, activeTab]);
   const activeTabMeta = TABS.find((t) => t.key === activeTab) ?? TABS[0];
 
-  // Invert bar so fastest carrier gets the longest bar, then normalize to 0–100
-  const slowest   = rows[rows.length - 1]?.avgDeliveryHours ?? 1;
-  const rawValues = rows.map((r) => slowest - r.avgDeliveryHours + 6);
-  const rawMax    = Math.max(...rawValues);
-  const barValues = rawValues.map((v) => parseFloat(((v / rawMax) * 100).toFixed(1)));
+  const ring = useMemo(() => resolveColor('var(--primary)', '#60969d'), []);
+
+  /* One small gauge per carrier — never one chart with five concentric rings.
+   * A nested multi-series radialBar has no way to say which ring is which
+   * carrier without a legend the reader has to decode; a separate gauge sits
+   * right on top of its own avatar and prints its own number, so there is
+   * nothing to match up. Every gauge shares one options object — only the
+   * value passed to `series` changes per carrier. */
+  const gaugeOptions: ApexOptions = useMemo(
+    () =>
+      baseChartOptions({
+        chart: {
+          type: 'radialBar',
+          animations: { enabled: chartAnimSpeed() > 0, speed: chartAnimSpeed() },
+        },
+        colors: [ring],
+        stroke: { lineCap: 'round' },
+        grid: { padding: { left: 0, right: 0, top: -6, bottom: -6 } },
+        plotOptions: {
+          radialBar: {
+            hollow: { size: '58%' },
+            track: { background: 'var(--surface-sunken)', strokeWidth: '100%' },
+            dataLabels: {
+              name: { show: false },
+              value: {
+                offsetY: 7,
+                fontSize: '19px',
+                fontWeight: 800,
+                fontFamily: 'inherit',
+                color: 'var(--foreground)',
+                formatter: (val: number) => `${Math.round(val)}%`,
+              },
+            },
+          },
+        },
+        legend: { show: false },
+        states: quietStates,
+        tooltip: { enabled: false },
+      }),
+    [ring],
+  );
 
   return (
     <Card
@@ -140,13 +213,8 @@ export function TransporterPerformanceConsoleCard({
               Transporter Performance
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Best carriers per cargo type — ranked by fastest delivery
+              Most punctual transporters per cargo type
             </p>
-          </div>
-          {/* Column header labels */}
-          <div className="flex shrink-0 items-center gap-5 pt-2 text-xs font-bold text-muted-foreground">
-            <span>Price</span>
-            <span>Avg Time</span>
           </div>
         </div>
 
@@ -168,7 +236,9 @@ export function TransporterPerformanceConsoleCard({
               <span
                 className={cn(
                   'rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums',
-                  activeTab === tab.key ? tab.color : 'bg-muted text-muted-foreground',
+                  activeTab === tab.key
+                    ? 'bg-primary-subtle text-primary-subtle-foreground'
+                    : 'bg-muted text-muted-foreground',
                 )}
               >
                 {tab.count}
@@ -179,101 +249,47 @@ export function TransporterPerformanceConsoleCard({
       </div>
 
       {/* ── Main Performance Chart Section ─────────────────────────────── */}
-      <div className="relative z-10 flex flex-1 flex-col justify-center px-6 py-4">
-        {/* Vertical Grid Background Lines */}
-        <div className="pointer-events-none absolute inset-y-4 left-[4.5rem] right-[10.5rem]">
-          <div className="flex h-[calc(100%-1.75rem)] w-full justify-between">
-            <div className="h-full border-r border-dashed border-border/40" />
-            <div className="h-full border-r border-dashed border-border/40" />
-            <div className="h-full border-r border-dashed border-border/40" />
-            <div className="h-full border-r border-dashed border-border/40" />
-            <div className="h-full border-r border-dashed border-border/40" />
-          </div>
-        </div>
-
-        {/* Carrier Performance Rows */}
-        <div className="relative flex flex-col gap-3">
-          {rows.map((r, i) => {
-            const logoUrl = getTransporterLogoUrl(r.id);
-            const barWidthPercent = barValues[i];
-
-            return (
-              <div
-                key={r.id}
-                className="group relative flex min-h-10 items-center gap-3 rounded-md py-0.5 transition-colors hover:bg-muted/30"
-                title={`${r.name} (${r.fleetCode}) — ${r.meetsSla ? 'Passing SLA' : 'Below Target'}`}
-              >
-                {/* Transporter logo — one per carrier, shared across the dashboard */}
-                <CompanyAvatar
-                  src={logoUrl}
-                  name={r.name}
-                  fallback={r.fleetCode.slice(0, 2).toUpperCase()}
-                  size="sm"
-                  shape="circle"
-                  className="shrink-0 transition-transform duration-200 group-hover:scale-110"
-                />
-
-                {/* Name + performance bar */}
-                <div className="relative min-w-0 flex-1">
-                  <span className="mb-0.5 block truncate text-[10px] font-semibold leading-none text-foreground">
-                    {r.name}
-                  </span>
-                  <div className="h-4 w-full overflow-hidden rounded-md bg-muted/40">
-                    <div
-                      className={cn(
-                        'h-full rounded-md transition-all duration-500 ease-out',
-                        CARRIER_BAR_COLORS[r.id] ?? FALLBACK_BAR_COLOR,
-                        !r.meetsSla && 'opacity-70',
-                      )}
-                      style={{ width: `${barWidthPercent}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Price & Avg Time Metrics */}
-                <div className="flex shrink-0 items-center gap-4 text-right">
-                  <span
-                    className={cn(
-                      'w-24 text-xs font-semibold tabular-nums',
-                      i === 0 ? 'text-success-subtle-foreground' : 'text-foreground',
-                    )}
-                  >
-                    DJF {r.avgCostPerLoad.toLocaleString()}
-                  </span>
-                  <span
-                    className={cn(
-                      'w-12 text-sm font-bold tabular-nums',
-                      r.meetsSla ? 'text-primary' : 'text-muted-foreground',
-                    )}
-                  >
-                    {fmtHours(r.avgDeliveryHours)}
-                  </span>
-                </div>
+      {/* A gauge per carrier, each sitting right on its own avatar — never
+          apart in a chart-plus-legend pair the reader has to match up. Wraps
+          freely so a narrow screen stacks two or three per row instead of
+          squeezing all five into one. */}
+      <div className="flex flex-1 flex-wrap items-start justify-around gap-x-4 gap-y-6 px-4 py-8 sm:px-6">
+        {rows.map((r) => {
+          const logoUrl = getTransporterLogoUrl(r.id);
+          return (
+            <div
+              key={r.id}
+              className="flex w-28 flex-col items-center gap-2 text-center"
+              title={`${r.name} — ${r.onTimeRate}% on-time (${r.meetsSla ? 'meets' : 'below'} the 90% target) · ${fmtHours(r.avgDeliveryHours)} avg vs promise`}
+            >
+              <div className="size-28 sm:size-32">
+                <ApexChart type="radialBar" series={[r.onTimeRate]} options={gaugeOptions} />
               </div>
-            );
-          })}
-        </div>
-
-        {/* X-Axis Numbers Scale */}
-        <div className="relative flex items-center justify-between pl-[4.5rem] pr-[10.5rem] pt-3 text-[11px] font-semibold text-muted-foreground">
-          <span>0</span>
-          <span>25</span>
-          <span>50</span>
-          <span>75</span>
-          <span>100</span>
-        </div>
+              <CompanyAvatar
+                src={logoUrl}
+                name={r.name}
+                fallback={r.fleetCode.slice(0, 2).toUpperCase()}
+                size="sm"
+                shape="circle"
+              />
+              <span className="line-clamp-2 text-[10.5px] font-semibold leading-tight text-foreground">
+                {r.name}
+              </span>
+            </div>
+          );
+        })}
       </div>
 
       {/* ── Footer ────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between border-t border-border/60 px-6 py-3">
         <p className="text-xs text-muted-foreground">
-          {rows.length} carriers rated for{' '}
-          <span className="font-semibold text-foreground">{activeTabMeta.label}</span>
+          {rows.length} transporters rated for{' '}
+          <span className="font-semibold text-foreground">{activeTabMeta?.label ?? '—'}</span>
         </p>
         {onViewAll && (
           <PanelLink onClick={onViewAll}>
             <span className="inline-flex items-center gap-1">
-              View All Carriers
+              All transporters
               <ChevronRight className="size-3" />
             </span>
           </PanelLink>

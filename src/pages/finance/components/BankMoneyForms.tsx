@@ -434,7 +434,7 @@ export function TransferSheet({
       onOpenChange={onOpenChange}
       title="Transfer Between Accounts"
       icon={<ArrowLeftRight className="h-5 w-5 text-primary" />}
-      description="Money moving between two accounts Fleetin owns. Both legs post together or neither does, so the pair of balances can never disagree."
+      description="Between two Fleetin accounts. Both legs post together or neither does."
       onSubmit={handleSubmit}
       submitLabel="Transfer Funds"
       pending={pending}

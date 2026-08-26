@@ -497,8 +497,12 @@
 }
 
 @media print {
-  /* Nothing but the sheet survives: no sidebar, no topbar, no toolbar. */
-  body * {
+  /*
+   * Nothing but the sheet survives: no sidebar, no topbar, no toolbar.
+   * Scoped to a page that actually carries an invoice — the shipper reports
+   * below print as flowing documents and must not be caught by this.
+   */
+  body:has(.invoice-sheet) * {
     visibility: hidden;
   }
 
@@ -519,5 +523,83 @@
   * {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Shipper reports
+ *
+ * A mission report and a monthly performance report are documents, not screens:
+ * the specification asks for a downloadable PDF of one to two pages, and
+ * "download" here is the browser's own print-to-PDF. So the report sheet keeps
+ * its screen layout and print only removes the application around it.
+ *
+ * Unlike the invoice, a report flows over more than one page, so it cannot be
+ * lifted out with `position: absolute` — the shell is collapsed instead, and the
+ * sections carry `break-inside: avoid` so a KPI block is never sliced in half.
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+/* A named page, so the report's margins do not disturb the invoice's `margin: 0`. */
+@page fleetin-report {
+  size: A4;
+  margin: 11mm 10mm 13mm;
+}
+
+@media print {
+  .report-sheet {
+    page: fleetin-report;
+    gap: 7px;
+  }
+
+  /* The shell is chrome, not content. */
+  body:has(.report-sheet) aside,
+  body:has(.report-sheet) header,
+  body:has(.report-sheet) .report-screen-only {
+    display: none !important;
+  }
+
+  /*
+   * Neither is the rest of the page. A report embedded in a working screen —
+   * the Shipment Report under a shipment's booking cards — prints as the report
+   * alone: every sibling branch of the host that does not carry the sheet is
+   * dropped, so a card added to that page later cannot leak into the PDF.
+   */
+  body:has(.report-sheet) .report-host > *:not(:has(.report-sheet)) {
+    display: none !important;
+  }
+
+  /* Reclaim the page: no shell padding, no content max-width, no sidebar offset. */
+  body:has(.report-sheet) #main-content {
+    padding: 0 !important;
+  }
+  body:has(.report-sheet) #main-content > div {
+    max-width: none !important;
+  }
+  body:has(.report-sheet) [class*="pl-sidebar"] {
+    padding-left: 0 !important;
+  }
+
+  /*
+   * A report laid out beside its own picker collapses to one column: the
+   * picker is `display: none` on paper, and a two-column grid would otherwise
+   * place the report in the 290px track the list vacated.
+   */
+  .report-grid {
+    display: block !important;
+  }
+
+  /*
+   * A section is an indivisible block of a report, and paper is dearer than
+   * screen: the specification asks a mission report to fit one page and a
+   * monthly report two, so the sections print tighter than they render.
+   */
+  .report-block {
+    box-shadow: none !important;
+    break-inside: avoid;
+    padding: 10px 12px !important;
+  }
+
+  .report-page-break {
+    break-before: page;
   }
 }

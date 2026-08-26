@@ -102,67 +102,67 @@ export function AdminKpiTiles({ model, className }: { model: AdminConsoleModel; 
   const tiles: Tile[] = [
     {
       key: 'shipments',
-      title: 'SHIPMENTS RUNNING',
+      title: 'Active shipments',
       icon: <Truck className="size-3.5" aria-hidden />,
       tone: 'teal',
       value: String(operations.live),
-      description: `${operations.containers} containers under them, of ${operations.total} on the book`,
+      description: `${operations.containers} containers · ${operations.total} total`,
       to: ROUTES.shipmentsList,
     },
     {
       key: 'containers',
-      title: 'EMPTIES STILL OUT',
+      title: 'Containers outstanding',
       icon: <ContainerIcon className="size-3.5" aria-hidden />,
       tone: 'sky',
       value: String(returns.stillOut),
       description:
         returns.onTimeRate !== null
-          ? `${pct(returns.onTimeRate)} of returned boxes made their deadline`
-          : 'no box has come back yet',
+          ? `${pct(returns.onTimeRate)} returned on time`
+          : 'no returns yet',
       to: ROUTES.emptyReturnsCycles,
     },
     {
       key: 'commission',
-      title: 'COMMISSION EARNED',
+      title: 'Commission',
       icon: <Percent className="size-3.5" aria-hidden />,
       tone: 'peach',
       value: money.grossDjf !== null ? compactDjf(money.grossDjf) : '—',
       description:
         money.marginPct !== null
-          ? `${pct(money.marginPct, 1)} kept of ${compactDjf(money.revenueDjf)} billed`
-          : 'nothing priced yet — no commission to report',
+          ? `${pct(money.marginPct, 1)} of ${compactDjf(money.revenueDjf)} billed`
+          : 'no priced shipments',
       to: ROUTES.finance,
     },
     {
       key: 'payable',
-      title: 'OWED TO TRANSPORTERS',
+      title: 'Payables',
       icon: <Banknote className="size-3.5" aria-hidden />,
       tone: 'pink',
       value: compactDjf(money.payableDjf),
-      description: `${compactDjf(money.pipelineDjf)} more still locked behind proof of delivery`,
+      description: `${compactDjf(money.pipelineDjf)} pending POD`,
       to: ROUTES.finance,
     },
     {
       key: 'people',
-      title: 'PEOPLE ON PAYROLL',
+      title: 'Headcount',
       icon: <Users className="size-3.5" aria-hidden />,
       tone: 'amber',
       value: workforce ? String(workforce.headcount) : '—',
       description: workforce
-        ? `${workforce.active} active across ${workforce.byDepartment.length} departments`
-        : 'payroll module returned nothing',
+        ? `${workforce.active} active · ${workforce.byDepartment.length} departments`
+        : 'no payroll data',
       to: ROUTES.hrEmployees,
     },
     {
       key: 'breaches',
-      title: 'RULES ALREADY BROKEN',
+      title: 'Overdue',
       icon: <AlertTriangle className="size-3.5" aria-hidden />,
       tone: breaches > 0 ? 'alarm' : 'quiet',
       value: String(breaches),
       description:
         breaches > 0
-          ? 'passed deadlines, expired papers and overdue money'
-          : 'no deadline passed and no paper expired',
+          ? 'deadlines, documents and payments'
+          : 'nothing overdue',
       to: ROUTES.shipmentsList,
     },
   ];

@@ -30,7 +30,7 @@ export function FinanceSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Panel title="Currency" subtitle="What the ledger is denominated in, and the rate it converts at">
+      <Panel title="Currency" subtitle="Denomination and conversion rate">
         <FieldGrid>
           <TextField
             label="Base currency"
@@ -45,18 +45,18 @@ export function FinanceSection() {
             onChange={(v) => set({ usdToDjf: v })}
             min={1}
             step={0.001}
-            hint="The franc is pegged to the dollar, so this is a fixed rate rather than a market one. 177.721 is the Banque Centrale de Djibouti peg."
+            hint="A fixed peg, not a market rate. 177.721 is the Banque Centrale de Djibouti figure."
           />
           <ToggleField
             label="Show a USD figure beside DJF"
-            description="Adds a converted second line on money screens. Off keeps every figure in francs."
+            description="Adds a converted second line. Off keeps DJF only."
             checked={finance.showSecondaryCurrency}
             onChange={(v) => set({ showSecondaryCurrency: v })}
           />
         </FieldGrid>
       </Panel>
 
-      <Panel title="Terms" subtitle="When money is due in, and when it goes out">
+      <Panel title="Terms" subtitle="Due dates and settlement day">
         <FieldGrid>
           <NumberField
             label="Payment terms"
@@ -74,19 +74,19 @@ export function FinanceSection() {
             min={0}
             max={30}
             suffix="days"
-            hint="Past due by this much before an invoice reads as overdue rather than simply outstanding."
+            hint="Days past due before an invoice reads as overdue."
           />
           <SelectField
             label="Settlement day"
             value={String(finance.settlementWeekday)}
             onChange={(v) => set({ settlementWeekday: Number(v) })}
             options={WEEKDAYS}
-            hint="The weekday the payout run happens, UTC."
+            hint="The weekday settlement runs, UTC."
           />
         </FieldGrid>
       </Panel>
 
-      <Panel title="Payout rules" subtitle="What is allowed to stop a transporter being paid">
+      <Panel title="Release rules">
         <FieldGrid>
           <NumberField
             label="Advisory window"
@@ -95,7 +95,7 @@ export function FinanceSection() {
             min={0}
             max={336}
             suffix="hours"
-            hint="Orders the payout queue and colours the row. It never blocks a release."
+            hint="Orders the settlement queue. Never blocks a release."
           />
           <NumberField
             label="Proof of delivery required"
@@ -108,19 +108,17 @@ export function FinanceSection() {
           />
           <ToggleField
             label="An open hold stops a release"
-            description="With this off, a held shipment can still be paid out — the hold becomes a note rather than a control."
+            description="Off, a hold becomes a note rather than a control."
             checked={finance.blockReleaseOnOpenHold}
             onChange={(v) => set({ blockReleaseOnOpenHold: v })}
           />
           <SectionNote tone="warning">
-            These two are the only rules that stop money. The advisory window above is deliberately not one of them —
-            re-gating a release on the clock was tried and reversed, because it held back payouts that were otherwise
-            complete.
+            These two are the only rules that stop money. The advisory window never blocks a release.
           </SectionNote>
         </FieldGrid>
       </Panel>
 
-      <Panel title="Containers" subtitle="Free time and what it costs to run past it">
+      <Panel title="Containers" subtitle="Free time and detention">
         <FieldGrid>
           <NumberField
             label="Default free time"
@@ -138,14 +136,14 @@ export function FinanceSection() {
             min={0}
             step={0.5}
             suffix={`${finance.detentionCurrency}/day`}
-            hint="Per container, per day past free time. The contractual rate the lines bill at."
+            hint="Per container, per day past free time."
           />
           <TextField
             label="Detention currency"
             value={finance.detentionCurrency}
             onChange={(v) => set({ detentionCurrency: v.toUpperCase() })}
             mono
-            hint="Shipping lines quote detention in USD; it is labelled at the point of display so it is never read as francs."
+            hint="Labelled at the point of display so it never reads as DJF."
           />
         </FieldGrid>
       </Panel>
