@@ -2,9 +2,10 @@ import { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 
 import { ErrorBoundary, RouteLoader } from '@/components';
+import { RoutePermissionGuard } from '@/components/auth/RoutePermissionGuard';
 import { CreateShipmentModal } from '@/components/shipments';
 import { useIsMobile } from '@/hooks';
-import { useUiStore } from '@/stores';
+import { useAuthStore, useUiStore } from '@/stores';
 import { useHydrateShipments } from '@/features/shipments/api/queries';
 import { cn } from '@/utils';
 import { Suspense } from 'react';
@@ -12,6 +13,7 @@ import { Suspense } from 'react';
 import { Header } from './components/Header';
 import { MobileNav } from './components/MobileNav';
 import { Sidebar } from './components/Sidebar';
+import { useCompanyLogoRegistry } from '@/features/companies/companyLogos';
 
 /**
  * AppLayout — the single application shell.
@@ -28,6 +30,11 @@ import { Sidebar } from './components/Sidebar';
  * reflows the content's own scroll position.
  */
 export function AppLayout() {
+  /* Fill the company-mark registry once for the whole authenticated app. Every
+     avatar below reads the resolved map instead of holding a query of its own —
+     see `@/features/companies/companyLogos`. */
+  useCompanyLogoRegistry();
+
   const { pathname } = useLocation();
   const isMobile = useIsMobile();
 
@@ -36,6 +43,15 @@ export function AppLayout() {
   // the real API instead of mock data — called once here so every route,
   // including a deep-linked shipment detail page, has it hydrated.
   useHydrateShipments();
+
+  // Permissions are stored with the session at login, and the sidebar and
+  // route guard read that stored copy — so an access profile changed by an
+  // administrator has to be picked up somewhere. Once per app load is enough:
+  // the server re-checks every request regardless.
+  const refreshProfile = useAuthStore((state) => state.refreshProfile);
+  useEffect(() => {
+    void refreshProfile();
+  }, [refreshProfile]);
 
   const isSidebarCollapsed = useUiStore((state) => state.isSidebarCollapsed);
   const isMobileNavOpen = useUiStore((state) => state.isMobileNavOpen);
@@ -90,7 +106,11 @@ export function AppLayout() {
                 into the next. */}
             <ErrorBoundary key={pathname}>
               <Suspense fallback={<RouteLoader />}>
-                <Outlet />
+                {/* Inside the shell, so a refusal keeps the sidebar and the
+                    user can go somewhere they are allowed. */}
+                <RoutePermissionGuard>
+                  <Outlet />
+                </RoutePermissionGuard>
               </Suspense>
             </ErrorBoundary>
           </div>

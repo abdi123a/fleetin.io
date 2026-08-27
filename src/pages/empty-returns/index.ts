@@ -1,27 +1,31 @@
 /**
- * Empty Returns — the empty-container return cycle module.
+ * Empty Container Management — five views, five real URLs.
  *
- * Three sibling views rather than one tabbed page: each is a real URL, so an
- * operator can bookmark the screen they live in. The router registers all
- * three from this barrel by export name; `default` is the Dashboard, the
- * module's landing view.
+ * The product architecture, one route each:
  *
- * Cycles and Chains are the exception: Chains is a *view of* the cycles list
- * (every chain is made of cycles already in it), not an independent dataset,
- * so it's a tab inside `EmptyReturnCyclesPage` (`?tab=chains`) rather than a
- * fourth route — see `components/ChainsTabPanel.tsx` and
- * `components/EmptyReturnCyclesTabNav.tsx`. The old `/empty-returns/chains`
- * path still resolves, via a redirect in the router.
+ * | View          | The question it answers                                  |
+ * |---------------|----------------------------------------------------------|
+ * | Control Tower | What needs my attention now? — the only view that asks   |
+ * | Calendar      | What happens next? — read-only, monitors, never acts     |
+ * | Matching      | What can I pair? — the workbench for working down a pile |
+ * | Cycles        | What happened? — chains drawn, not tabulated             |
+ * | Dashboard     | How are we performing? — measurement, no queue           |
  *
- * There is no standalone Matching route any more. Every "create a match"
- * entry point across the module — the dashboard header, Cycles' "New Cycle",
- * a cycle's own detail dialog — opens the same
- * `DualTransactionsRecommendationsModal` popup in place, so there is exactly
- * one matching workbench instead of a page duplicating a dialog.
+ * The module root is the Control Tower rather than a dashboard: an operator
+ * opening Empty Return wants the queue, and measurement is a place you go
+ * deliberately. Navigation between the five lives in the sidebar alone —
+ * `EmptyReturnModuleChrome` is the layout route that owns the clock, the title,
+ * the toast and the one container dialog every view opens.
+ *
+ * `default` is the Control Tower, so a bare `import` of this barrel lands on the
+ * screen the module is actually about.
  */
 
 export { EmptyReturnModuleChrome } from './EmptyReturnModuleChrome';
-export { EmptyReturnDashboardPage } from './EmptyReturnDashboardPage';
+export { ControlTowerPage } from './ControlTowerPage';
+export { EmptyReturnCalendarPage } from './EmptyReturnCalendarPage';
+export { MatchingPage } from './MatchingPage';
 export { EmptyReturnCyclesPage } from './EmptyReturnCyclesPage';
-export { EmptyReturnTransportersPage } from './EmptyReturnTransportersPage';
-export { default } from './EmptyReturnDashboardPage';
+export { EmptyReturnPerformancePage } from './EmptyReturnPerformancePage';
+export { EMPTY_RETURN_VIEWS, viewForPath, type EmptyReturnView } from './components/views';
+export { default } from './ControlTowerPage';

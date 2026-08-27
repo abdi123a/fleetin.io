@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { RotateCcw } from 'lucide-react';
 import {
-  Download,
-  Printer,
   MoreVertical,
   FolderOpen,
   ChevronLeft,
@@ -421,19 +419,6 @@ export function ShipmentOverviewPage() {
             </div>
           </div>
         )}
-
-        {/* Digital Bill-T */}
-        <div className="pt-2 border-t border-border/60 flex items-center justify-between text-xs text-muted-foreground">
-          <span className="font-semibold text-foreground">Digital Bill-T</span>
-          <div className="flex items-center gap-2">
-            <button type="button" className="p-1 hover:text-foreground cursor-pointer">
-              <Download className="w-4 h-4" />
-            </button>
-            <button type="button" className="p-1 hover:text-foreground cursor-pointer">
-              <Printer className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
       </Card>
 
       {/* ── SHIPMENT REPORT ── */}

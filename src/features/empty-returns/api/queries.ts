@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
+  cancelCycle,
   confirmStandaloneReturn,
   createCycle,
   fetchAvailableEmpties,
@@ -7,7 +8,7 @@ import {
   fetchCycle,
   fetchCycles,
   fetchOpenFullLoads,
-  markStandalone,
+  planEmptyReturn,
   type CreateCyclePayload,
   type CycleFilters,
 } from './emptyReturnsService';
@@ -74,13 +75,44 @@ export function useCreateCycle() {
   });
 }
 
-export function useMarkStandalone() {
+export interface PlanEmptyReturnInput {
+  bookingId: string;
+  /** ISO 8601. Omitted when the operator stops matching before the slot is known. */
+  plannedReturnAt?: string;
+}
+
+/** "Plan Empty Return" — the branch taken when no full load can use the container in time. */
+export function usePlanEmptyReturn() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (bookingId: string) => markStandalone(bookingId),
+    mutationFn: ({ bookingId, plannedReturnAt }: PlanEmptyReturnInput) =>
+      planEmptyReturn(bookingId, plannedReturnAt),
     onSuccess: (booking) => {
       invalidateEmptyReturns(queryClient);
       queryClient.invalidateQueries({ queryKey: bookingsForShipmentKey(booking.shipmentId) });
+    },
+  });
+}
+
+/** Kept under its old name for callers outside this module. */
+export const useMarkStandalone = usePlanEmptyReturn;
+
+/**
+ * "Cancel Pairing" — hand the outbound load back and put the container on
+ * Empty Ready again.
+ *
+ * The outbound booking walks back to `Pending`, so its own shipment's booking
+ * list is stale on success exactly as it is after `useCreateCycle`.
+ */
+export function useCancelCycle() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (cycleId: string) => cancelCycle(cycleId),
+    onSuccess: (cancelled) => {
+      invalidateEmptyReturns(queryClient);
+      if (cancelled.shipmentId) {
+        queryClient.invalidateQueries({ queryKey: bookingsForShipmentKey(cancelled.shipmentId) });
+      }
     },
   });
 }

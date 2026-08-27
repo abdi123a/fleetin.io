@@ -102,9 +102,45 @@ export async function fetchChains(): Promise<EmptyReturnChainRecord[]> {
   return res.data;
 }
 
-/** Matching has stopped for this container — it goes back on its own. */
-export async function markStandalone(bookingId: string): Promise<EmptyReturnBookingRecord> {
-  const res = await apiClient.patch<EmptyReturnBookingRecord>(`/empty-returns/bookings/${bookingId}/standalone`, {}, token());
+/**
+ * Plan the empty return — matching stops and the container goes back on its own.
+ *
+ * The second half of the module's one decision. `plannedReturnAt` is optional
+ * because an operator can give up on matching before the depot slot is known;
+ * the deadline the return is racing lives on the booking either way.
+ */
+export async function planEmptyReturn(
+  bookingId: string,
+  plannedReturnAt?: string,
+): Promise<EmptyReturnBookingRecord> {
+  const res = await apiClient.patch<EmptyReturnBookingRecord>(
+    `/empty-returns/bookings/${bookingId}/standalone`,
+    plannedReturnAt ? { plannedReturnAt } : {},
+    token(),
+  );
+  return res.data;
+}
+
+/** Kept as the old name for callers outside this module that only ever flagged. */
+export const markStandalone = (bookingId: string) => planEmptyReturn(bookingId);
+
+export interface CancelledCycle {
+  id: string;
+  reference: string;
+  nextBookingId: string | null;
+  shipmentId: string | null;
+}
+
+/**
+ * Undo a pairing — the container returns to Empty Ready and the outbound load
+ * is released back into the pool.
+ *
+ * Refused by the server once the cycle has actually started moving: a pairing
+ * is a decision this module owns, but a truck already on the job is execution,
+ * and execution is the Shipment module's to unwind.
+ */
+export async function cancelCycle(id: string): Promise<CancelledCycle> {
+  const res = await apiClient.delete<CancelledCycle>(`/empty-returns/cycles/${id}`, token());
   return res.data;
 }
 

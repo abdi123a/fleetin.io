@@ -251,6 +251,30 @@
   --chart-step-4: var(--fl-teal-800);
   --chart-step-5: var(--fl-teal-900);
 
+  /* JOURNEY — one hue per step of the shipment ladder.
+   * ---------------------------------------------------------------------------
+   * The ordinal teal ramp above encodes order and nothing else, which is right
+   * for a bar chart and wrong for a shipment's journey: those seven steps are
+   * seven different *kinds* of event, owned by three different parties, and a
+   * reader looking for "when was the box stripped" should be able to find it by
+   * colour rather than by reading seven labels. So this is a categorical ramp
+   * that happens to run in lifecycle order — the brand teal opens it, the
+   * transporter's legs take the cool hues, the client's handling takes violet,
+   * the detention clock takes the brand's orange (its one job across the app),
+   * and the depot closes it in green.
+   *
+   * Every value is picked from the 500-800 band so a white glyph rides it: the
+   * step's mark is a solid disc with an icon in it, and orange only carries
+   * white from -700 down. */
+  --journey-1: var(--fl-teal-600); /* Created — the booking is ours */
+  --journey-2: var(--fl-cyan-600); /* Picked Up */
+  --journey-3: var(--fl-blue-600); /* Delivered */
+  --journey-4: var(--fl-violet-600); /* Depotage */
+  --journey-5: var(--fl-orange-700); /* Empty Ready — the detention clock */
+  --journey-6: var(--fl-teal-800); /* Empty Picked Up */
+  --journey-7: var(--fl-green-500); /* Empty Returned */
+  --journey-foreground: var(--fl-neutral-0);
+
   /* Recessive chart furniture — grid lines, axes, reference lines. */
   --chart-grid: var(--fl-neutral-200);
   --chart-axis: var(--fl-neutral-400);
@@ -451,6 +475,18 @@
   --chart-step-3: var(--fl-teal-400);
   --chart-step-4: var(--fl-teal-600);
   --chart-step-5: var(--fl-teal-800);
+
+  /* The journey ramp steps up two stops on dark: a -600 fill on a slate card is
+   * a smudge, and the disc has to read as a colour before it reads as a shape.
+   * Foreground flips with it — these are light fills now, so the glyph is ink. */
+  --journey-1: var(--fl-teal-300);
+  --journey-2: var(--fl-cyan-300);
+  --journey-3: var(--fl-blue-300);
+  --journey-4: var(--fl-violet-300);
+  --journey-5: var(--fl-orange-300);
+  --journey-6: var(--fl-teal-500);
+  --journey-7: var(--fl-green-300);
+  --journey-foreground: var(--fl-neutral-950);
 
   --chart-grid: var(--fl-slate-700);
   --chart-axis: var(--fl-slate-600);

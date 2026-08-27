@@ -95,17 +95,25 @@ const EmptyReturnModuleChrome = lazyWithRetry(
   () => import('@/pages/empty-returns'),
   'EmptyReturnModuleChrome',
 );
-const EmptyReturnDashboardPage = lazyWithRetry(
+const EmptyReturnControlTowerPage = lazyWithRetry(
   () => import('@/pages/empty-returns'),
-  'EmptyReturnDashboardPage',
+  'ControlTowerPage',
+);
+const EmptyReturnCalendarPage = lazyWithRetry(
+  () => import('@/pages/empty-returns'),
+  'EmptyReturnCalendarPage',
+);
+const EmptyReturnMatchingPage = lazyWithRetry(
+  () => import('@/pages/empty-returns'),
+  'MatchingPage',
 );
 const EmptyReturnCyclesPage = lazyWithRetry(
   () => import('@/pages/empty-returns'),
   'EmptyReturnCyclesPage',
 );
-const EmptyReturnTransportersPage = lazyWithRetry(
+const EmptyReturnPerformancePage = lazyWithRetry(
   () => import('@/pages/empty-returns'),
-  'EmptyReturnTransportersPage',
+  'EmptyReturnPerformancePage',
 );
 const NotFoundPage = lazyWithRetry(() => import('@/pages/errors'));
 
@@ -255,17 +263,25 @@ export const routes: RouteObject[] = [
       {
         element: <EmptyReturnModuleChrome />,
         children: [
-          { path: ROUTES.emptyReturns, element: <EmptyReturnDashboardPage /> },
+          // The module root is the Control Tower, not a dashboard: an operator
+          // opening Empty Return wants the queue of containers needing a
+          // decision. Measurement is a place you go deliberately.
+          { path: ROUTES.emptyReturns, element: <EmptyReturnControlTowerPage /> },
+          { path: ROUTES.emptyReturnsCalendar, element: <EmptyReturnCalendarPage /> },
+          { path: ROUTES.emptyReturnsMatching, element: <EmptyReturnMatchingPage /> },
           { path: ROUTES.emptyReturnsCycles, element: <EmptyReturnCyclesPage /> },
+          { path: ROUTES.emptyReturnsPerformance, element: <EmptyReturnPerformancePage /> },
+          // Chains are drawn inside Cycles, and the per-transporter table folded
+          // into the Dashboard's filters. Both paths stay so old bookmarks and
+          // any link outside this repo still land somewhere real.
           {
-            path: ROUTES.emptyReturnsMatching,
+            path: ROUTES.emptyReturnsChains,
             element: <Navigate to={ROUTES.emptyReturnsCycles} replace />,
           },
           {
-            path: ROUTES.emptyReturnsChains,
-            element: <Navigate to={`${ROUTES.emptyReturnsCycles}?tab=chains`} replace />,
+            path: ROUTES.emptyReturnsTransporters,
+            element: <Navigate to={ROUTES.emptyReturnsPerformance} replace />,
           },
-          { path: ROUTES.emptyReturnsTransporters, element: <EmptyReturnTransportersPage /> },
         ],
       },
 

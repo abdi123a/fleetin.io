@@ -87,6 +87,19 @@ export interface PlanningEvent {
   /** Right-aligned micro-label — a status word, a count, a plate. */
   meta?: string;
   tone: PlanningEventTone;
+  /**
+   * The host's own glyph for *what kind of thing this is*, drawn in place of
+   * the tone rule.
+   *
+   * Tone answers "how is the clock doing"; a host whose board mixes genuinely
+   * different kinds of work on the same day — a box becoming available, a load
+   * being collected, a deadline falling — needs to say which is which without
+   * spending a colour it has already assigned to the clock. Opt-in: a host that
+   * omits it keeps the plain tone rule it had.
+   */
+  icon?: LucideIcon;
+  /** Names that kind in the chip's tooltip and in the day list. Pairs with `icon`. */
+  kindLabel?: string;
 }
 
 interface ToneStyle {
@@ -478,24 +491,32 @@ function EventChip({
   const tone = TONE[event.tone];
   const time = format(new Date(event.at), 'HH:mm');
   const status = toneLabels[event.tone] ?? tone.label;
+  const KindIcon = event.icon;
 
   return (
     <button
       type="button"
       onClick={onSelect}
-      title={[time, event.title, event.subtitle, status].filter(Boolean).join(' · ')}
+      title={[time, event.kindLabel, event.title, event.subtitle, status]
+        .filter(Boolean)
+        .join(' · ')}
       className={cn(
         'flex w-full min-w-0 cursor-pointer items-start gap-1.5 rounded-sm border text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
         tone.card,
         dense ? 'px-1 py-[3px]' : 'px-1.5 py-1',
       )}
     >
-      {/* The tone as a rule down the edge — colour without spending a word. */}
-      <span
-        className="mt-[3px] h-2 w-[3px] shrink-0 rounded-full"
-        style={{ background: tone.mark }}
-        aria-hidden
-      />
+      {/* The kind as a glyph when the host names one, otherwise the tone as a
+          rule down the edge — colour without spending a word. */}
+      {KindIcon ? (
+        <KindIcon className="mt-[2px] size-3 shrink-0 opacity-80" aria-hidden />
+      ) : (
+        <span
+          className="mt-[3px] h-2 w-[3px] shrink-0 rounded-full"
+          style={{ background: tone.mark }}
+          aria-hidden
+        />
+      )}
       {/* Dense packs the clock beside the reference; the roomier week column
           gives the reference its own line so a container number reads whole. */}
       {dense ? (

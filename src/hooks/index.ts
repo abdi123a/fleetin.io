@@ -3,4 +3,5 @@ export * from './useDisclosure';
 export * from './useDocumentTitle';
 export * from './useMediaQuery';
 export * from './useNavigationState';
+export * from './usePermissions';
 export * from './useTheme';

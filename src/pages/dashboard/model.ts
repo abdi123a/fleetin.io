@@ -690,7 +690,7 @@ export interface AttentionItem {
   id: string;
   severity: AttentionSeverity;
   /** Which module owns the fix. */
-  module: 'Shipments' | 'Empty Returns' | 'Finance' | 'HR' | 'Fleet';
+  module: 'Shipments' | 'Empty Container' | 'Finance' | 'HR' | 'Fleet';
   title: string;
   detail: string;
   count: number;
@@ -774,6 +774,7 @@ export interface BuildAdminModelArgs {
     shipments: string;
     emptyReturns: string;
     emptyReturnCycles: string;
+    emptyReturnMatching: string;
     finance: string;
     financeInvoices: string;
     hr: string;
@@ -821,11 +822,13 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
   push({
     id: 'returns-overdue',
     severity: 'breach',
-    module: 'Empty Returns',
+    module: 'Empty Container',
     title: 'Containers past return deadline',
-    detail: 'Demurrage accruing.',
+    detail: 'Detention accruing.',
     count: returns.kpis.overdue,
-    to: routes.emptyReturnCycles,
+    // The Control Tower, not Cycles: Cycles is the history of what happened,
+    // and a container still out is not history.
+    to: routes.emptyReturns,
   });
   push({
     id: 'invoices-overdue',
@@ -859,11 +862,11 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
   push({
     id: 'returns-critical',
     severity: 'ask',
-    module: 'Empty Returns',
+    module: 'Empty Container',
     title: 'Containers in critical window',
-    detail: 'Under six hours of margin left.',
+    detail: 'Under 24 hours before the return deadline.',
     count: returns.kpis.critical,
-    to: routes.emptyReturnCycles,
+    to: routes.emptyReturns,
   });
   push({
     id: 'holds-open',
@@ -895,11 +898,12 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
   push({
     id: 'returns-matchable',
     severity: 'ask',
-    module: 'Empty Returns',
-    title: 'Empties ready to match',
-    detail: `${returns.sameDepotPairs} at a depot with an open load.`,
+    module: 'Empty Container',
+    title: 'Empties awaiting a decision',
+    detail: `${returns.sameDepotPairs} already at a location with an open load.`,
     count: returns.matchable,
-    to: routes.emptyReturns,
+    // Straight to the workbench — this row is an invitation to work the pile.
+    to: routes.emptyReturnMatching,
   });
   push({
     id: 'hr-expiring',

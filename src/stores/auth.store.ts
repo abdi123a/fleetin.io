@@ -32,6 +32,18 @@ interface LoginResponse {
   refreshToken: string;
 }
 
+/** Payload returned by `GET /auth/me` — the DB's view of the caller, now. */
+interface ProfileResponse {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: { id: string; name: string; permissions: unknown } | string;
+  permissions?: string[];
+  shipperId?: string | null;
+  partnerId?: string | null;
+}
+
 interface AuthState {
   user: UserProfile | null;
   accessToken: string | null;
@@ -41,6 +53,8 @@ interface AuthState {
   error: string | null;
 
   login: (email: string, pass: string) => Promise<void>;
+  /** Re-reads role and permissions from the server for the live session. */
+  refreshProfile: () => Promise<void>;
   loginAsDemoPreset: (preset: DemoPresetUser) => void;
   logout: () => void;
   clearError: () => void;
@@ -137,6 +151,57 @@ export const useAuthStore = create<AuthState>()(
           isAuthenticated: true,
           isLoading: false,
         });
+      },
+
+      /**
+       * Re-reads the session's own role and permissions.
+       *
+       * Login writes the grants it was handed into `localStorage`, and the
+       * sidebar and route guard read them from there — so an access profile
+       * edited by an administrator would otherwise not reach the person it
+       * was edited for until they next signed in. The server already
+       * re-reads permissions from the database on every request; this brings
+       * the client's copy up to the same truth on each app load.
+       *
+       * Failures are deliberately silent: a refresh that cannot reach the
+       * API must leave the stored session exactly as it was rather than
+       * signing anyone out or blanking their navigation. A 401 is already
+       * handled by the client's refresh-token path.
+       */
+      refreshProfile: async () => {
+        const { accessToken, user } = useAuthStore.getState();
+        /* Local-directory and demo sessions have no server profile to read;
+           their tokens are strings this app invented. */
+        if (!accessToken || !user || accessToken.startsWith('local-') || accessToken.startsWith('demo-')) {
+          return;
+        }
+
+        try {
+          const res = await apiClient.get<ProfileResponse>('/auth/me', accessToken);
+          const profile = res.data;
+          if (!profile) return;
+
+          const role = typeof profile.role === 'string' ? profile.role : profile.role?.name;
+          const permissions =
+            profile.permissions ??
+            (typeof profile.role === 'object' && Array.isArray(profile.role?.permissions)
+              ? (profile.role.permissions as string[])
+              : user.permissions);
+
+          set({
+            user: {
+              ...user,
+              email: profile.email ?? user.email,
+              firstName: profile.firstName ?? user.firstName,
+              lastName: profile.lastName ?? user.lastName,
+              role: role ?? user.role,
+              permissions,
+              shipperId: profile.shipperId ?? user.shipperId,
+            },
+          });
+        } catch {
+          // Keep the stored session; see the note above.
+        }
       },
 
       loginAsDemoPreset: (preset: DemoPresetUser) => {

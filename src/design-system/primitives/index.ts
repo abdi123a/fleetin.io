@@ -14,6 +14,7 @@ export * from './Badge';
 export * from './Button';
 export * from './Collapsible';
 export * from './DataTable';
+export * from './Dialog';
 export * from './DropdownMenu';
 export * from './ScrollArea';
 export * from './Separator';

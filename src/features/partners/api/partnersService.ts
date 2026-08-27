@@ -1,4 +1,4 @@
-import { apiClient } from '@/services/api.client';
+import { apiClient, resolveAssetUrl } from '@/services/api.client';
 import { useAuthStore } from '@/stores/auth.store';
 import type { PartnerRecord, PartnerDocument, PartnerVehicle, PartnerDriver } from '@/types/partner';
 import { toDisplayDocument, type DocumentRecord } from '@/features/documents/api/documentsService';
@@ -47,6 +47,11 @@ function toQueryString(filters: PartnerFilters): string {
 function toPartnerRecord(raw: RawPartnerResponse): PartnerRecord {
   return {
     ...raw,
+    /* The API returns a storage-relative path (`/uploads/logos/…`). Left as-is
+       it resolves against the *frontend* origin and 404s, so a transporter with
+       a perfectly good logo on file rendered as initials. `shippersService`
+       already made this fix for shippers; partners never got it. */
+    logoUrl: resolveAssetUrl(raw.logoUrl) ?? raw.logoUrl,
     registrationDate: toDateOnly(raw.registrationDate) ?? raw.registrationDate,
     insuranceExpiry: toDateOnly(raw.insuranceExpiry) ?? raw.insuranceExpiry,
     uploadedDocuments: (raw.uploadedDocuments ?? []).map(toDisplayDocument) as PartnerDocument[],

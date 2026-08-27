@@ -66,6 +66,8 @@ export interface BookingRecord {
   completedAt: string | null;
   /** When this booking's container was emptied — set on the "Empty Ready" rung, and what the empty return counts from. */
   emptyReadyAt?: string | null;
+  /** When Operations planned this container's own return for — written beside `emptyReturnException` on the "Plan Empty Return" decision. */
+  emptyReturnPlannedAt?: string | null;
   /** Auto-computed from the assigned partner's pricing grid the moment `partnerId` is set — never manually entered. Nullable when that partner has no matching pricing-tier row. */
   transporterCostMinorUnits: string | null;
   transporterCostCurrency: string | null;

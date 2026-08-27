@@ -6,11 +6,19 @@ import {
   onTimeGraceMinutes,
   returnHeadroomBands,
 } from '@/lib/bi/config';
+import {
+  CRITICAL_THRESHOLD_MS,
+  EMPTY_RETURN_EXCEPTIONS,
+  WATCH_THRESHOLD_MS,
+} from '@/data/emptyReturnData';
 import { displayShipmentStatus } from '@/lib/shipmentStatus';
+import type { ContainerOutcome, ContainerStage, ReturnRiskLevel } from '@/types/emptyReturn';
 import { deriveAttribution, type DelayAttribution } from './delayVocabulary';
 import {
+  missionJourneySteps,
   MISSION_STAGES,
   missionEventsFromTimeline,
+  type JourneyStepKey,
   type MissionEvents,
   type MissionPhase,
   type MissionStageKey,
@@ -130,6 +138,28 @@ export interface MissionTimelineRow {
   isLongest: boolean;
 }
 
+/**
+ * One step of the journey, as drawn.
+ *
+ * Only recorded steps are built — a step with no timestamp is not a row here,
+ * because the ladder writes nothing until an operator reports it and a page of
+ * greyed-out `pending` rows says nothing the header's "3 of 7" does not.
+ */
+export interface MissionJourneyRow {
+  key: JourneyStepKey;
+  label: string;
+  caption: string;
+  responsible?: string;
+  /** Names the interval that ended at this step (Transit, Dépotage, …). */
+  intervalLabel?: string;
+  /** Epoch ms — never null; unrecorded steps are left out. */
+  at: number;
+  /** Time since the previous recorded step. Null on the first row. */
+  durationMs: number | null;
+  /** The bottleneck — the longest gap between two steps of this mission. */
+  isLongest: boolean;
+}
+
 export interface MissionKpis {
   /** §4 — Mission Closed − Mission Assigned. Null until the mission closes. */
   totalMs: number | null;
@@ -174,6 +204,20 @@ export interface MissionContainerReturn {
   detentionCurrency: string;
   detentionRatePerDay: number;
   cycleReference: string | null;
+  /**
+   * The box read in Empty Container Management's own words.
+   *
+   * Not a second vocabulary invented for the report: `stage`, `outcome` and
+   * `risk` are derived by the same rules the module's mappers and store use, so
+   * a container that reads "Paired · Deadline Protected" on the Control Tower
+   * reads exactly that here. `stage` is null until the box is actually empty —
+   * before dépotage the module has nothing to decide.
+   */
+  stage: ContainerStage | null;
+  outcome: ContainerOutcome | null;
+  risk: ReturnRiskLevel | null;
+  /** The different full load this empty was paired onto, where it was. */
+  pairedWith: { reference: string; container: string | null; pickupAt: number | null } | null;
 }
 
 /**
@@ -198,6 +242,52 @@ export interface MissionTimeSegment {
   isLongest: boolean;
 }
 
+/* ── Who held the clock (§4, read by party rather than by step) ────────── */
+
+/** The three hands a mission passes through, plus the gap nobody owns. */
+export type MissionParty = 'transporter' | 'port' | 'client' | 'unattributed';
+
+/** One party's total hold on the mission. */
+export interface MissionCustodySegment {
+  party: MissionParty;
+  label: string;
+  ms: number;
+  /** Share of the mission's whole recorded span, 0–100. */
+  share: number;
+  /** How many separate stretches this party held — a party can hold twice. */
+  spells: number;
+  /** Their own longest single stretch, and what it was. */
+  longestMs: number;
+  longestLabel: string;
+  /** True for the party that held the mission longest. */
+  isLongest: boolean;
+}
+
+/**
+ * The mission rolled up by whose hands it was in.
+ *
+ * The timeline answers *when* each step happened and the journey draws it; this
+ * answers *whose clock was running*, which is a different question and the one
+ * an argument is actually about. Every gap between two recorded events is
+ * counted exactly once, against the party responsible for the event it ends at:
+ * the run up to "Loading Completed" belongs to the terminal, the run up to
+ * "Empty Ready" belongs to the client who was stripping the box. Because the
+ * gaps are contiguous, the parts sum to the mission's whole recorded span —
+ * unlike the §4 interval list, which measures seven named intervals and is
+ * silent about the hours between them.
+ */
+export interface MissionCustody {
+  segments: MissionCustodySegment[];
+  /** First recorded event → last: the span the shares are taken of. */
+  totalMs: number;
+  /** Times the mission passed from one party to another. */
+  handovers: number;
+  /** The single longest hold of the mission, whoever held it. */
+  longest: { party: MissionParty; partyLabel: string; label: string; ms: number } | null;
+  /** The hands the mission passed through, in order, one entry per turn. */
+  chain: string[];
+}
+
 export interface MissionOverview {
   missionId: string;
   containerNumber: string | null;
@@ -217,6 +307,9 @@ export interface MissionOverview {
   pickup: string;
   dropoff: string;
   truck: string;
+  /** The plate on its own. Two views want it without the truck type appended,
+      and both were splitting `truck` on ' · ' to get it back. */
+  vehiclePlate: string;
   driver: string;
   cargo: string;
   missionStartAt: number | null;
@@ -237,10 +330,21 @@ export interface MissionReport {
   events: MissionEvents;
   /** Recorded rows then pending rows, in lifecycle order. */
   timeline: MissionTimelineRow[];
+  /**
+   * The same mission spoken in the operator's own vocabulary — the steps of
+   * `SHIPMENT_STEPS` that were actually recorded, and nothing else. This is
+   * what "The Journey" draws; `timeline` stays the full instrument the KPIs
+   * are measured with.
+   */
+  journey: MissionJourneyRow[];
+  /** How many of the mission's applicable steps have been recorded so far. */
+  journeyProgress: { recorded: number; total: number };
   maxDurationMs: number;
   kpis: MissionKpis;
   /** The measured intervals, in lifecycle order, with their shares. */
   breakdown: MissionTimeSegment[];
+  /** The same mission read by party — who held the clock, and for how long. */
+  custody: MissionCustody;
   /** Sum of every measured interval — the denominator of `share`. */
   measuredMs: number;
   containerReturn: MissionContainerReturn;
@@ -313,8 +417,11 @@ export function computeMissionReport({
     row.isLongest = maxDurationMs > 0 && row.durationMs === maxDurationMs;
   }
 
+  const { journey, progress: journeyProgress } = buildJourney(events, hasContainer);
+
   const kpis = computeKpis(events, now, hasContainer);
   const { breakdown, measuredMs } = computeBreakdown(kpis);
+  const custody = computeCustody(timeline);
   const containerReturn = computeContainerReturn({ booking, cycle, events, now, hasContainer });
 
   const planned = toMs(plannedDeliveryAt ?? null);
@@ -351,6 +458,7 @@ export function computeMissionReport({
       truck: booking.vehicle
         ? `${booking.vehicle.plateNumber} · ${booking.vehicle.truckType}`
         : 'Unassigned',
+      vehiclePlate: booking.vehicle?.plateNumber ?? 'Unassigned',
       driver: booking.driver?.fullName ?? 'Unassigned',
       cargo: booking.cargoType,
       missionStartAt: events.assigned ?? toMs(booking.createdAt),
@@ -362,10 +470,13 @@ export function computeMissionReport({
     },
     events,
     timeline,
+    journey,
+    journeyProgress,
     maxDurationMs,
     kpis,
     breakdown,
     measuredMs,
+    custody,
     containerReturn,
     status,
     deliveryOutcome,
@@ -453,6 +564,62 @@ function buildTimeline(
         }));
 
   return [...recorded, ...pending];
+}
+
+/**
+ * The journey — the recorded steps, with the gap into each one.
+ *
+ * Sorted by timestamp rather than by catalogue position for the same reason
+ * `buildTimeline` is: the cycle's two events belong to a different writer than
+ * the booking's ladder, and a return stamped after a late close would otherwise
+ * produce a negative gap.
+ */
+function buildJourney(
+  events: MissionEvents,
+  hasContainer: boolean,
+): { journey: MissionJourneyRow[]; progress: { recorded: number; total: number } } {
+  /* The ladder this load actually walks — seven steps with a box, three
+     without, and the bulk one ends at "Delivered" because that is where the
+     job ends. `containerOnly` still filters, for a step that survives into a
+     list it does not belong on. */
+  const applicable = missionJourneySteps(hasContainer).filter(
+    (step) => hasContainer || !step.containerOnly,
+  );
+
+  const journey = applicable
+    .map((step) => {
+      const at = events[step.stage] ?? (step.fallbackStage ? events[step.fallbackStage] : undefined);
+      return at === undefined ? null : { step, at };
+    })
+    .filter((row): row is { step: (typeof applicable)[number]; at: number } => row !== null)
+    .sort((a, b) => a.at - b.at)
+    .map(({ step, at }) => {
+      return {
+        key: step.key,
+        label: step.label,
+        caption: step.caption,
+        responsible: step.responsible,
+        intervalLabel: step.intervalLabel,
+        at,
+        durationMs: null as number | null,
+        isLongest: false,
+      };
+    });
+
+  journey.forEach((row, index) => {
+    const previous = journey[index - 1];
+    if (previous) row.durationMs = row.at - previous.at;
+  });
+
+  /* The bottleneck, named on the rail. Ties go to the first, and a mission with
+     one recorded step has no gap to call longest. */
+  const longest = journey.reduce((max, row) => Math.max(max, row.durationMs ?? 0), 0);
+  if (longest > 0) {
+    const first = journey.find((row) => row.durationMs === longest);
+    if (first) first.isLongest = true;
+  }
+
+  return { journey, progress: { recorded: journey.length, total: applicable.length } };
 }
 
 /* ── KPIs (§4, §14) ────────────────────────────────────────────────────── */
@@ -563,6 +730,111 @@ function computeBreakdown(kpis: MissionKpis): {
   };
 }
 
+/* ── Who held the clock ────────────────────────────────────────────────── */
+
+/** `MISSION_STAGES.responsible` is written for a reader; this is the key. */
+const PARTY_BY_RESPONSIBLE: Record<string, MissionParty> = {
+  Transporter: 'transporter',
+  'Port / Terminal': 'port',
+  'Client / Shipper': 'client',
+};
+
+const PARTY_LABEL: Record<MissionParty, string> = {
+  transporter: 'Transporter',
+  port: 'Port & terminal',
+  client: 'Client (shipper)',
+  unattributed: 'Unattributed',
+};
+
+/**
+ * The mission rolled up by party.
+ *
+ * Built from the full timeline rather than the seven §4 intervals, because the
+ * §4 list is a set of *named* measurements with holes between them: on a
+ * mission that never stamped a gate-in, it accounts for two minutes out of
+ * twenty hours and reports "100% active" over a run that was almost entirely
+ * one truck driving. Consecutive gaps have no holes, so these shares are shares
+ * of the real mission.
+ *
+ * A gap is charged to whoever was responsible for the event that ends it, which
+ * is the same attribution the journey prints against each step — read down the
+ * party column instead of down the clock.
+ */
+function computeCustody(timeline: MissionTimelineRow[]): MissionCustody {
+  const holds = timeline
+    .filter((row) => row.at !== null && row.durationMs !== null && row.durationMs > 0)
+    .map((row) => ({
+      party: PARTY_BY_RESPONSIBLE[row.responsible ?? ''] ?? 'unattributed',
+      label: row.intervalLabel ?? row.label,
+      ms: row.durationMs as number,
+    }));
+
+  if (holds.length === 0) {
+    return { segments: [], totalMs: 0, handovers: 0, longest: null, chain: [] };
+  }
+
+  const totalMs = holds.reduce((sum, hold) => sum + hold.ms, 0);
+
+  /* Chronological, so the first party to touch the mission reads first. */
+  const order: MissionParty[] = [];
+  const byParty = new Map<MissionParty, { ms: number; spells: number; longest: typeof holds[number] }>();
+  let previous: MissionParty | null = null;
+  let handovers = 0;
+  const chain: string[] = [];
+
+  holds.forEach((hold) => {
+    const running = byParty.get(hold.party);
+    if (!running) {
+      order.push(hold.party);
+      byParty.set(hold.party, { ms: hold.ms, spells: 1, longest: hold });
+    } else {
+      running.ms += hold.ms;
+      /* A spell is a *contiguous* stretch: the same party twice in a row is one
+         hold split by a checkpoint, not two turns. */
+      if (previous !== hold.party) running.spells += 1;
+      if (hold.ms > running.longest.ms) running.longest = hold;
+    }
+    if (previous !== hold.party) chain.push(PARTY_LABEL[hold.party]);
+    if (previous !== null && previous !== hold.party) handovers += 1;
+    previous = hold.party;
+  });
+
+  const leadMs = Math.max(...[...byParty.values()].map((entry) => entry.ms));
+  const segments: MissionCustodySegment[] = order.map((party) => {
+    const entry = byParty.get(party) as NonNullable<ReturnType<typeof byParty.get>>;
+    return {
+      party,
+      label: PARTY_LABEL[party],
+      ms: entry.ms,
+      share: totalMs > 0 ? (entry.ms / totalMs) * 100 : 0,
+      spells: entry.spells,
+      longestMs: entry.longest.ms,
+      longestLabel: entry.longest.label,
+      isLongest: entry.ms === leadMs,
+    };
+  });
+
+  const longestHold = holds.reduce<(typeof holds)[number] | null>(
+    (max, hold) => (max === null || hold.ms > max.ms ? hold : max),
+    null,
+  );
+
+  return {
+    segments,
+    totalMs,
+    handovers,
+    chain,
+    longest: longestHold
+      ? {
+          party: longestHold.party,
+          partyLabel: PARTY_LABEL[longestHold.party],
+          label: longestHold.label,
+          ms: longestHold.ms,
+        }
+      : null,
+  };
+}
+
 /* ── Container return (§5, §6) ─────────────────────────────────────────── */
 
 function computeContainerReturn({
@@ -608,6 +880,62 @@ function computeContainerReturn({
     status = 'awaiting';
   }
 
+  /* ── The same box, in Empty Container Management's words ──────────────
+     Every rule below is copied from that module rather than reinvented:
+     `stage` from `mappers.cycleToRow`, `outcome` from `mappers.outcomeOf`,
+     `risk` from `emptyReturn.store.riskOf`. If those change, this follows. */
+  const next = cycle?.nextBooking ?? null;
+  const pairedWith = next
+    ? {
+        reference: next.reference,
+        container: next.containerNumber ?? null,
+        pickupAt: toMs(next.scheduledPickupTime),
+      }
+    : null;
+
+  let stage: ContainerStage | null = null;
+  if (hasContainer) {
+    if (returnedAt !== null) stage = 'closed';
+    else if (pairedWith) stage = 'paired';
+    else if (cycle) stage = 'return_planned';
+    else if (emptyReadyAt !== null)
+      stage =
+        booking.emptyReturnException === EMPTY_RETURN_EXCEPTIONS.standaloneRequired
+          ? 'return_planned'
+          : 'empty';
+  }
+
+  let outcome: ContainerOutcome | null = null;
+  if (returnedAt !== null) {
+    outcome =
+      deadlineAt !== null && returnedAt > deadlineAt
+        ? 'returned_late'
+        : pairedWith
+          ? 'paired'
+          : 'returned';
+  }
+
+  /* `protected` first and permanent: a decision made inside the deadline can
+     never be pulled back into a live band by a later clock. */
+  let risk: ReturnRiskLevel | null = null;
+  if (deadlineAt !== null) {
+    if (returnedAt !== null && returnedAt <= deadlineAt) risk = 'protected';
+    else if (stage === 'paired' && pairedWith?.pickupAt !== null && (pairedWith?.pickupAt ?? 0) <= deadlineAt)
+      risk = 'protected';
+    else if (stage === 'closed') risk = 'overdue';
+    else {
+      const remaining = deadlineAt - now;
+      risk =
+        remaining < 0
+          ? 'overdue'
+          : remaining < CRITICAL_THRESHOLD_MS
+            ? 'critical'
+            : remaining < WATCH_THRESHOLD_MS
+              ? 'watch'
+              : 'safe';
+    }
+  }
+
   return {
     hasContainer,
     deliveredAt,
@@ -624,6 +952,10 @@ function computeContainerReturn({
     detentionCurrency: currency,
     detentionRatePerDay: ratePerDay,
     cycleReference: cycle?.reference ?? null,
+    stage,
+    outcome,
+    risk,
+    pairedWith,
   };
 }
 

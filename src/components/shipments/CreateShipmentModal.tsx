@@ -9,6 +9,7 @@ import {
   DollarSign,
   Package,
   MapPin,
+  AlertTriangle,
   Info,
   AlertCircle,
   Check,
@@ -18,6 +19,7 @@ import {
   Plus,
   Minus,
   Trash2,
+  Zap,
 } from '@/design-system/icons';
 import {
   Button,
@@ -33,12 +35,19 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/design-system';
+import { useShippingLines } from '@/features/shipping-lines/shippingLines';
+import { ShippingLineManager } from './ShippingLineManager';
+import { TransporterRecommendations } from './TransporterRecommendations';
 import { useShipmentStore } from '@/stores/shipment.store';
 import { ROUTES, buildPath } from '@/config/routes';
 import { useShippers } from '@/features/shippers/api/queries';
 import { usePartners } from '@/features/partners/api/queries';
 import { useCreateShipment } from '@/features/shipments/api/queries';
 import type { CreateBookingItemPayload } from '@/features/bookings/api/bookingsService';
+import { fetchBookingsForShipment } from '@/features/bookings/api/bookingsService';
+import { createCycle } from '@/features/empty-returns';
+import { normalizeContainerSize } from '@/data/emptyReturnData';
+import { EmptyContainerOpportunities } from './EmptyContainerOpportunities';
 import { useCreateProject, useProjects } from '@/features/finance';
 import { usdToDjf } from '@/features/transporter-bi/config';
 import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
@@ -175,25 +184,48 @@ function describeContainerMix(groups: ContainerGroup[], separator = ' + '): stri
   return groups.map((g) => `${g.quantity}x ${g.size}`).join(separator);
 }
 
-// Pickup locations: ONLY Djibouti Ports
+/**
+ * The two ends of every job Fleetin runs.
+ *
+ * The work is one leg — off a Djibouti quay, into a Djibouti free zone — so
+ * the wizard offers exactly that and nothing else. There is no import leg, no
+ * export leg and no upcountry corridor in this product, and an option for one
+ * is a wrong answer sitting in a dropdown waiting to be picked.
+ *
+ * Both lists are the account's own, named the way the account names them. A
+ * plausible-sounding berth that does not exist, or one that exists under a
+ * different name, produces a shipment nobody can match against a real gate
+ * pass — so nothing is added here that was not asked for.
+ */
 export const PICKUP_LOCATION_OPTIONS = [
-  { value: 'Doraleh Container Terminal (DCT) — Port of Doraleh, Djibouti', label: 'Doraleh Container Terminal (DCT) — Port of Doraleh' },
-  { value: 'Djibouti Multipurpose Port (DMP) — Doraleh Port, Djibouti', label: 'Djibouti Multipurpose Port (DMP) — Doraleh Port' },
-  { value: 'Société de Gestion du Terminal à Conteneurs de Doraleh (SGTD Port)', label: 'Société de Gestion du Terminal à Conteneurs de Doraleh (SGTD Port)' },
-  { value: 'Port of Djibouti (PAID Gate 4) — Commercial Port', label: 'Port of Djibouti (PAID Gate 4) — Commercial Port' },
-  { value: 'Horizon Djibouti Terminals (HDTL) — Doraleh Petroleum Port', label: 'Horizon Djibouti Terminals (HDTL) — Doraleh Petroleum Port' },
-  { value: 'Port of Tadjourah — Bulk & General Cargo Port', label: 'Port of Tadjourah — Bulk & General Cargo Port' },
-  { value: 'Damerjog Livestock & Industrial Port, Djibouti', label: 'Damerjog Livestock & Industrial Port' },
-  { value: 'Port of Ghoubet — Mineral Export Port', label: 'Port of Ghoubet — Mineral Export Port' },
+  { value: 'Port of Djibouti', label: 'Port of Djibouti' },
+  { value: 'Doraleh Container Terminal (SGTD)', label: 'Doraleh Container Terminal (SGTD)' },
+  { value: 'Doraleh Multipurpose Port (DMP)', label: 'Doraleh Multipurpose Port (DMP)' },
+  { value: 'Doraleh Oil Terminal / SJTP', label: 'Doraleh Oil Terminal / SJTP' },
+  { value: 'Port of Tadjourah', label: 'Port of Tadjourah' },
+  { value: 'Damerjog / DDID port infrastructure', label: 'Damerjog / DDID port infrastructure' },
+  { value: 'Damerjog Liquid Bulk Port (DLBP)', label: 'Damerjog Liquid Bulk Port (DLBP)' },
 ];
 
-// Drop-off locations: ONLY Djibouti Free Zones
+/**
+ * Road kilometres into each zone — an estimate the operator can overwrite.
+ *
+ * A number, not a place. The location itself is whatever was picked from the
+ * lists above, and nothing here renames it or derives a second name for it:
+ * every job runs inside Djibouti, so the city is simply Djibouti.
+ */
+function distanceForDropoff(location: string): number {
+  if (location.includes('UKAB')) return 15;
+  if (location.includes("Jaban'as")) return 20;
+  if (location.includes('DIFTZ')) return 25;
+  return 10;
+}
+
 export const DROPOFF_LOCATION_OPTIONS = [
-  { value: 'Djibouti International Free Trade Zone (DIFTZ) — PK12 Freezone', label: 'Djibouti International Free Trade Zone (DIFTZ) — PK12 Freezone' },
-  { value: 'Djibouti Free Zone (DFZ) — Port Corridor Freezone', label: 'Djibouti Free Zone (DFZ) — Port Corridor Freezone' },
-  { value: 'Damerjog Free Zone — Livestock & Industrial Park, Djibouti', label: 'Damerjog Free Zone — Livestock & Industrial Park' },
-  { value: 'Nagad Free Zone — Inland Container Depot, Djibouti', label: 'Nagad Free Zone — Inland Container Depot' },
-  { value: 'Holhol Free Zone — Logistics & Distribution Park, Djibouti', label: 'Holhol Free Zone — Logistics & Distribution Park' },
+  { value: 'UKAB Free Zone', label: 'UKAB Free Zone' },
+  { value: "Jaban'as Free Zone", label: "Jaban'as Free Zone" },
+  { value: 'Djibouti International Free Trade Zone (DIFTZ)', label: 'Djibouti International Free Trade Zone (DIFTZ)' },
+  { value: 'Djibouti Free Zone (DFZ)', label: 'Djibouti Free Zone (DFZ)' },
 ];
 
 // Custom pickup/drop-off locations the user adds are remembered locally, so a
@@ -243,12 +275,6 @@ function saveCustomDropoffLocations(locations: string[]): void {
 // the entry field only reveals while the field's value equals this, the same
 // way "Custom Shipper…" already works below.
 const ADD_CUSTOM_OPTION = '__add_custom__';
-
-const SHIPPING_LINES = [
-  'Maersk Line', 'MSC Shipping', 'CMA CGM',
-  'Pacific International Lines (PIL)', 'COSCO Shipping',
-  'Ocean Network Express (ONE)', 'Hapag-Lloyd',
-];
 
 // Custom bulk categories the user adds are remembered locally, so a category
 // typed once shows up as a normal option on every later shipment.
@@ -325,13 +351,24 @@ const STEPS: [StepDef, ...StepDef[]] = [
   },
   {
     id: 2,
-    title: 'Pickup, Drop-off & Fleet',
+    title: 'Pickup & Drop-off',
     shortTitle: 'Route',
-    description: 'Pickup, drop-off, and vehicle assignment.',
+    description: 'Where the shipment is collected and where it goes.',
+    icon: MapPin,
+  },
+  {
+    /* Its own step since the fleet choice stopped being a formality: Fleetin
+       can now say which carrier is already holding a container this shipment
+       could take away, and that recommendation deserves a screen rather than a
+       panel wedged under the drop-off address. */
+    id: 3,
+    title: 'Transporter & Fleet',
+    shortTitle: 'Transporter',
+    description: 'Who moves it — recommended first, or choose manually.',
     icon: Truck,
   },
   {
-    id: 3,
+    id: 4,
     title: 'Pricing & Review',
     shortTitle: 'Pricing',
     description: 'Pricing, payment terms, and final review.',
@@ -350,6 +387,59 @@ const to24Hour = (time12: string): string => {
   const parsed = parse(time12, 'hh:mm a', new Date());
   return isValid(parsed) ? format(parsed, 'HH:mm') : time12;
 };
+
+/**
+ * Weld each ticked waiting empty to one of the new shipment's own bookings.
+ *
+ * The new shipment's bookings are fetched rather than read off the create
+ * response — `POST /shipments` returns the mapped `Mission`, which carries a
+ * count of its bookings but not their ids, and inventing ids to avoid one
+ * request is how a pairing ends up pointing at nothing.
+ *
+ * One empty per booking, in order. A shipment with three containers and two
+ * ticked empties pairs the first two and leaves the third as an ordinary trip,
+ * which is exactly right: a pairing needs a load to ride out on, and there is
+ * no third empty to give it.
+ *
+ * Every failure is collected rather than thrown. Half the pairings landing is a
+ * better outcome than none of them, and the operator needs to know *which* half.
+ */
+async function pairWaitingEmpties(
+  shipmentId: string,
+  emptyBookingIds: string[],
+  onWarning: (message: string | null) => void,
+): Promise<void> {
+  try {
+    const bookings = await fetchBookingsForShipment(shipmentId);
+    const available = bookings.filter((booking) => Boolean(booking.containerNumber));
+    const failures: string[] = [];
+
+    for (const [index, emptyBookingId] of emptyBookingIds.entries()) {
+      const nextBooking = available[index];
+      if (!nextBooking) {
+        failures.push('more empties were ticked than this shipment has containers');
+        break;
+      }
+      try {
+        await createCycle({ bookingId: emptyBookingId, nextBookingId: nextBooking.id });
+      } catch (error) {
+        failures.push(error instanceof Error ? error.message : 'a pairing was refused');
+      }
+    }
+
+    onWarning(
+      failures.length > 0
+        ? `The shipment was created, but ${failures.length} pairing${failures.length > 1 ? 's' : ''} could not be recorded (${failures.join('; ')}). Retry from Empty Container → Matching.`
+        : null,
+    );
+  } catch (error) {
+    onWarning(
+      `The shipment was created, but its empty-container pairings could not be recorded (${
+        error instanceof Error ? error.message : 'the bookings could not be read back'
+      }). Retry from Empty Container → Matching.`,
+    );
+  }
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -400,9 +490,22 @@ export function CreateShipmentModal() {
   // Container Specifics — one group per size shipped, so a mixed 40ft/20ft load
   // is expressible. Never empty: at least one size stays selected.
   const [containerGroups, setContainerGroups] = useState<ContainerGroup[]>([
-    { size: '40ft', quantity: 1, numbers: ['MSKU-998210-4'] },
+    /* Zero, and no numbers. The wizard used to open on one 40ft container with
+       a real-looking number already in the field, so every shipment started as
+       a half-answered form: the count was a guess nobody had made and the
+       number belonged to no one. Step 1 now refuses to advance until a count is
+       set, which is the honest version of the same nudge. */
+    { size: '40ft', quantity: 0, numbers: [] },
   ]);
   const [shippingLine, setShippingLine] = useState<string>('Maersk Line');
+  /* The carrier list is the account's, not a constant: seven seeded lines plus
+     whatever it has added, each with the mark somebody uploaded. */
+  const shippingLines = useShippingLines();
+  /* Step 3 shows the ranked five first and the full picker on request. Choosing
+     a recommendation flips this too — a carrier still needs its vehicle count
+     and booking numbers, which only the picker has. */
+  const [manualTransporterPick, setManualTransporterPick] = useState(false);
+  const [managingShippingLines, setManagingShippingLines] = useState(false);
 
   // Container Return (Date & Time section)
   const [returnDeadline, setReturnDeadline] = useState<string>('2026-08-04');
@@ -433,8 +536,8 @@ export function CreateShipmentModal() {
   };
 
   // Route Locations (Dropdown values & Pickup Date/Time)
-  const [pickupLocation, setPickupLocation] = useState<string>(PICKUP_LOCATION_OPTIONS[0]?.value ?? 'Doraleh Container Terminal (DCT) — Port of Doraleh, Djibouti');
-  const [pickupCity, setPickupCity] = useState<string>('Doraleh Port, Djibouti');
+  const [pickupLocation, setPickupLocation] = useState<string>(PICKUP_LOCATION_OPTIONS[0]?.value ?? 'Port of Djibouti');
+  const [pickupCity, setPickupCity] = useState<string>('Djibouti');
   const [pickupDate, setPickupDate] = useState<string>('2026-07-29');
   const [pickupTime, setPickupTime] = useState<string>('08:30');
   const [customPickupLocations, setCustomPickupLocations] = useState<string[]>(() => loadCustomPickupLocations());
@@ -443,8 +546,8 @@ export function CreateShipmentModal() {
     ...PICKUP_LOCATION_OPTIONS,
     ...customPickupLocations.map((l) => ({ value: l, label: l })),
   ];
-  const [deliveryLocation, setDeliveryLocation] = useState<string>(DROPOFF_LOCATION_OPTIONS[0]?.value ?? 'Djibouti International Free Trade Zone (DIFTZ) — PK12 Freezone');
-  const [deliveryCity, setDeliveryCity] = useState<string>('PK12 Freezone, Djibouti');
+  const [deliveryLocation, setDeliveryLocation] = useState<string>(DROPOFF_LOCATION_OPTIONS[0]?.value ?? 'UKAB Free Zone');
+  const [deliveryCity, setDeliveryCity] = useState<string>('Djibouti');
   const [estimatedDistanceKm, setEstimatedDistanceKm] = useState<number>(25);
   const [customDropoffLocations, setCustomDropoffLocations] = useState<string[]>(() => loadCustomDropoffLocations());
   const [newDropoffLocationName, setNewDropoffLocationName] = useState<string>('');
@@ -505,6 +608,19 @@ export function CreateShipmentModal() {
       );
     }
   };
+
+  /**
+   * Waiting empty containers the operator has chosen to pair with this shipment.
+   *
+   * Booking ids of *other*, already-delivered containers — nothing to do with
+   * the containers this shipment is carrying. They are welded to the new
+   * shipment's own bookings immediately after it is created, which is the one
+   * place a shipment can consume an empty that is otherwise heading for a
+   * separate return trip. Empty by default: this is an offer, never a default.
+   */
+  const [pairedEmptyIds, setPairedEmptyIds] = useState<string[]>([]);
+  /** Non-fatal: the shipment exists either way, so a failed pairing is reported, not thrown. */
+  const [pairingWarning, setPairingWarning] = useState<string | null>(null);
 
   // Fleet
   /**
@@ -687,6 +803,10 @@ export function CreateShipmentModal() {
     setShipmentSource(null);
     setShipmentReference('');
     setTransporterAssignments((prev) => prev.map((a) => ({ ...a, bookingIds: [] })));
+    // The pairing offer is per-shipment: carrying a tick into the next one
+    // would pair a container against a job nobody chose it for.
+    setPairedEmptyIds([]);
+    setPairingWarning(null);
   };
 
   const isContainer = shipmentCategory === 'containerized';
@@ -716,6 +836,24 @@ export function CreateShipmentModal() {
   const hasDuplicateContainerNumbers = isContainer && duplicateContainerNumbers.size > 0;
 
   const activeShipper = sampleShippers.find((s) => s.id === selectedShipperId);
+
+  /**
+   * When the truck has to be at the pickup, as epoch ms.
+   *
+   * The panel below measures every waiting container's remaining deadline
+   * against this exact instant — a box is only worth pairing if this load is
+   * collected before that box has to be back.
+   */
+  const scheduledPickupMs = useMemo(() => {
+    const parsed = new Date(`${pickupDate}T${pickupTime}:00`).getTime();
+    return Number.isNaN(parsed) ? Date.now() : parsed;
+  }, [pickupDate, pickupTime]);
+
+  /** The container sizes on this shipment, in the form matching compares on. */
+  const compatibleEmptySizes = useMemo(
+    () => [...new Set(containerGroups.map((group) => normalizeContainerSize(group.size)))],
+    [containerGroups],
+  );
 
   const vehicleCount = transporterAssignments.reduce((sum, a) => sum + a.vehicles, 0);
   // One vehicle per container; bulk/machinery shipments default to a single dedicated vehicle.
@@ -790,6 +928,9 @@ export function CreateShipmentModal() {
   }
   if (!activeShipper) blocker(1, 'Select a shipper.');
   if (isContainer) {
+    if (containerQuantity === 0) {
+      blocker(1, 'Set how many containers this shipment carries.');
+    }
     for (const group of containerGroups) {
       const diff = containerGroupDiff(group);
       if (diff === 0) continue;
@@ -811,30 +952,51 @@ export function CreateShipmentModal() {
     blocker(1, 'Finish creating the new project, or pick an existing one.');
   }
   if (transporterAssignments.some((a) => !a.partnerId)) {
-    blocker(2, 'Assign a transporter to every fleet row.');
+    blocker(3, 'Assign a transporter to every fleet row.');
   }
   if (vehicleDiff !== 0) {
     // Say where the target comes from: it is the container count from step 1,
     // not anything chosen on the transporter rows this sits next to.
     blocker(
-      2,
+      3,
       vehicleDiff < 0
         ? `Assign ${Math.abs(vehicleDiff)} more vehicle(s) — ${vehiclesNeeded} container(s) need ${vehiclesNeeded}.`
         : `Remove ${vehicleDiff} extra vehicle(s) — ${vehiclesNeeded} container(s) need ${vehiclesNeeded}.`,
     );
   }
   if (bookingNumbersShort.length > 0) {
-    blocker(2, 'Enter a booking number for every vehicle — one per container.');
+    blocker(3, 'Enter a booking number for every vehicle — one per container.');
   }
   if (bookingNumbersLong.length > 0) {
-    blocker(2, 'Remove the extra booking number(s) — there is one per vehicle.');
+    blocker(3, 'Remove the extra booking number(s) — there is one per vehicle.');
   }
   if (duplicateBookingNumbers.size > 0) {
     blocker(
-      2,
+      3,
       `Booking number${duplicateBookingNumbers.size > 1 ? 's' : ''} ${[...duplicateBookingNumbers].join(', ')} ${duplicateBookingNumbers.size > 1 ? 'are' : 'is'} used twice — each booking needs its own.`,
     );
   }
+
+  /**
+   * Put a carrier into the fleet rows.
+   *
+   * Fills the first empty slot, or adds one — assigning from a recommendation
+   * must never silently overwrite a carrier the operator already chose.
+   */
+  const assignTransporter = (partnerId: string) => {
+    const openSlot = transporterAssignments.find((a) => !a.partnerId);
+    if (openSlot) {
+      updateTransporterAssignment(openSlot.id, { partnerId });
+      return;
+    }
+    if (transporterAssignments.some((a) => a.partnerId === partnerId)) return;
+    const first = transporterAssignments[0];
+    if (first && transporterAssignments.length === 1 && !first.bookingIds.length) {
+      updateTransporterAssignment(first.id, { partnerId });
+    } else {
+      addTransporterAssignment();
+    }
+  };
 
   const addTransporterAssignment = () => {
     const usedIds = new Set(transporterAssignments.map((a) => a.partnerId));
@@ -1038,6 +1200,19 @@ export function CreateShipmentModal() {
       });
 
       addShipment(created);
+
+      // Pair the waiting empties the operator ticked in the Fleet step.
+      //
+      // Deliberately *after* the shipment lands, and deliberately not fatal.
+      // The shipment is the thing being created; a pairing is an optimisation
+      // on top of it, and a container that got claimed by somebody else in the
+      // last thirty seconds must not roll back a job that is otherwise
+      // perfectly good. So a failure here is reported beside the success, and
+      // the operator can redo it in Matching in two clicks.
+      if (pairedEmptyIds.length > 0) {
+        await pairWaitingEmpties(created.id, pairedEmptyIds, setPairingWarning);
+      }
+
       setSuccessToast({ id: created.id, bookingId: created.bookingId });
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : 'Something went wrong creating this shipment. Please try again.');
@@ -1080,7 +1255,22 @@ export function CreateShipmentModal() {
               {isContainer && (
                 <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg text-xs font-semibold text-primary flex items-center justify-center gap-2 max-w-sm mx-auto">
                   <Container className="w-4 h-4" />
-                  <span>Added to Empty Return Matching as an open full load</span>
+                  <span>Now an open full load in Empty Container Matching</span>
+                </div>
+              )}
+              {pairedEmptyIds.length > 0 && !pairingWarning && (
+                <div className="p-3 bg-success-subtle border border-success/30 rounded-lg text-xs font-semibold text-success-subtle-foreground flex items-center justify-center gap-2 max-w-sm mx-auto">
+                  <Check className="w-4 h-4" />
+                  <span>
+                    {pairedEmptyIds.length} empty container
+                    {pairedEmptyIds.length > 1 ? 's' : ''} paired — that many empty returns avoided
+                  </span>
+                </div>
+              )}
+              {pairingWarning && (
+                <div className="p-3 bg-warning-subtle border border-warning/30 rounded-lg text-xs font-semibold text-warning-subtle-foreground flex items-start gap-2 max-w-sm mx-auto text-left">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{pairingWarning}</span>
                 </div>
               )}
             </div>
@@ -1485,6 +1675,11 @@ export function CreateShipmentModal() {
                       {containerGroups.map((group) => {
                         const diff = containerGroupDiff(group);
                         const sized = isMixedContainerSizes ? `${group.size} ` : '';
+                        /* The repeated numbers in THIS list, named. The chips
+                           turn red on their own, but red with no matching note
+                           under the field left a reader with three flagged
+                           chips and one message that only explained the count. */
+                        const repeated = [...new Set(group.numbers.filter((n) => duplicateContainerNumbers.has(n)))];
                         return (
                           <div
                             key={group.size}
@@ -1513,21 +1708,21 @@ export function CreateShipmentModal() {
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    updateContainerGroup(group.size, { quantity: Math.max(1, group.quantity - 1) })
+                                    updateContainerGroup(group.size, { quantity: Math.max(0, group.quantity - 1) })
                                   }
-                                  disabled={group.quantity <= 1}
+                                  disabled={group.quantity <= 0}
                                   className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border bg-card text-foreground transition-all hover:border-primary/40 hover:bg-secondary/60 disabled:cursor-not-allowed disabled:opacity-40"
                                 >
                                   <Minus className="h-4 w-4" />
                                 </button>
                                 <input
                                   type="number"
-                                  min={1}
+                                  min={0}
                                   inputMode="numeric"
                                   value={group.quantity}
                                   onChange={(e) =>
                                     updateContainerGroup(group.size, {
-                                      quantity: Math.max(1, Number(e.target.value) || 1),
+                                      quantity: Math.max(0, Number(e.target.value) || 0),
                                     })
                                   }
                                   className="w-14 shrink-0 border-0 bg-transparent text-center text-xl font-extrabold text-foreground focus:outline-none focus:ring-1 focus:ring-primary rounded-md [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
@@ -1561,13 +1756,44 @@ export function CreateShipmentModal() {
                                 value={group.numbers}
                                 onChange={(numbers) => updateContainerGroup(group.size, { numbers })}
                                 transform={(raw) => raw.toUpperCase()}
+                                /* Both signals the banner below talks about,
+                                   shown on the chips themselves: anything past
+                                   the declared count, and any number repeated —
+                                   across the other size's list too, which is
+                                   why the set is computed once for the whole
+                                   form rather than per field. */
+                                max={group.quantity}
+                                duplicates={duplicateContainerNumbers}
                                 placeholder={`Type or paste ${group.size} container numbers, e.g. MSKU-998210-4`}
                               />
                               <p className="text-[10px] text-muted-foreground">
                                 Press Enter or comma to add one, or paste a whole list at once.
                               </p>
 
-                              {diff !== 0 ? (
+                              {repeated.length > 0 && (
+                                <div className="flex items-start gap-2 rounded-md bg-destructive-subtle p-2.5 text-[11px] text-destructive-subtle-foreground">
+                                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                                  <span>
+                                    <span className="font-mono font-bold">{repeated.join(', ')}</span>{' '}
+                                    {repeated.length > 1 ? 'are' : 'is'} entered more than once — every
+                                    container number must be unique.
+                                  </span>
+                                </div>
+                              )}
+
+                              {/* Nothing declared yet is not a success — with the
+                                  count at zero and no numbers the two agree, and
+                                  the old branch congratulated the reader on
+                                  "all 0 container numbers confirmed". */}
+                              {group.quantity === 0 ? (
+                                <div className="flex items-start gap-2 rounded-md bg-secondary/60 p-2.5 text-[11px] text-muted-foreground">
+                                  <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                                  <span>
+                                    Set how many {sized}containers this shipment carries, then enter
+                                    a number for each.
+                                  </span>
+                                </div>
+                              ) : diff !== 0 ? (
                                 <div className="flex items-start gap-2 rounded-md bg-warning-subtle p-2.5 text-[11px] text-warning-subtle-foreground">
                                   <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                                   <span>
@@ -1594,13 +1820,37 @@ export function CreateShipmentModal() {
                           <label className="text-[11px] font-bold text-foreground block">Shipping Line *</label>
                           <Combobox
                             value={shippingLine}
-                            options={SHIPPING_LINES.map((l) => ({
-                              value: l,
-                              label: l,
-                              icon: <Avatar name={l} size="xs" shape="circle" />,
-                            }))}
-                            onChange={setShippingLine}
+                            options={[
+                              ...shippingLines.map((line) => ({
+                                value: line.name,
+                                label: line.name,
+                                icon: (
+                                  <Avatar
+                                    name={line.name}
+                                    src={line.logoUrl ?? undefined}
+                                    fit="contain"
+                                    size="xs"
+                                    shape="circle"
+                                  />
+                                ),
+                              })),
+                              { value: ADD_CUSTOM_OPTION, label: '+ Add or edit lines…' },
+                            ]}
+                            onChange={(value) => {
+                              /* The sentinel opens the manager instead of
+                                 becoming the answer — a shipment booked under
+                                 "__add_custom__" is not a thing. */
+                              if (value === ADD_CUSTOM_OPTION) setManagingShippingLines(true);
+                              else setShippingLine(value);
+                            }}
                           />
+                          {managingShippingLines && (
+                            <ShippingLineManager
+                              lines={shippingLines}
+                              onClose={() => setManagingShippingLines(false)}
+                              onAdded={setShippingLine}
+                            />
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1780,15 +2030,7 @@ export function CreateShipmentModal() {
                           options={[...pickupLocationOptions, { value: ADD_CUSTOM_OPTION, label: '+ Add custom location…' }]}
                           onChange={(val) => {
                             setPickupLocation(val);
-                            if (val.includes('Tadjourah')) {
-                              setPickupCity('Port of Tadjourah, Djibouti');
-                            } else if (val.includes('Damerjog')) {
-                              setPickupCity('Damerjog Freezone, Djibouti');
-                            } else if (val.includes('Ghoubet')) {
-                              setPickupCity('Port of Ghoubet, Djibouti');
-                            } else {
-                              setPickupCity('Doraleh Port, Djibouti');
-                            }
+                            setPickupCity('Djibouti');
                           }}
                         />
                         {pickupLocation === ADD_CUSTOM_OPTION && (
@@ -1846,25 +2088,8 @@ export function CreateShipmentModal() {
                           options={[...dropoffLocationOptions, { value: ADD_CUSTOM_OPTION, label: '+ Add custom location…' }]}
                           onChange={(val) => {
                             setDeliveryLocation(val);
-                            if (val.includes('DIFTZ')) {
-                              setDeliveryCity('PK12 Freezone, Djibouti');
-                              setEstimatedDistanceKm(25);
-                            } else if (val.includes('Djibouti Free Zone (DFZ)')) {
-                              setDeliveryCity('Port Corridor Freezone, Djibouti');
-                              setEstimatedDistanceKm(15);
-                            } else if (val.includes('Damerjog')) {
-                              setDeliveryCity('Damerjog Freezone, Djibouti');
-                              setEstimatedDistanceKm(20);
-                            } else if (val.includes('Nagad')) {
-                              setDeliveryCity('Nagad Freezone, Djibouti');
-                              setEstimatedDistanceKm(12);
-                            } else if (val.includes('Holhol')) {
-                              setDeliveryCity('Holhol Freezone, Djibouti');
-                              setEstimatedDistanceKm(35);
-                            } else {
-                              setDeliveryCity('Djibouti Free Zone, Djibouti');
-                              setEstimatedDistanceKm(20);
-                            }
+                            setDeliveryCity('Djibouti');
+                            setEstimatedDistanceKm(distanceForDropoff(val));
                           }}
                         />
                         {deliveryLocation === ADD_CUSTOM_OPTION && (
@@ -1922,6 +2147,48 @@ export function CreateShipmentModal() {
                     </div>
                   </div>
 
+                </div>
+              )}
+
+              {/* ─ STEP 3: Transporter & Fleet ─ */}
+              {currentStep === 3 && (
+                <div className="space-y-5">
+                  {/* The recommendation leads, because on a shipment where a
+                      carrier is already holding the right empty box the answer
+                      is usually one of five and hunting for it in a list of
+                      forty is how that saving gets missed. The full picker is
+                      one click below and never goes away. */}
+                  {!manualTransporterPick ? (
+                    <TransporterRecommendations
+                      partners={partners}
+                      line={shippingLine}
+                      sizes={compatibleEmptySizes}
+                      pickupAt={scheduledPickupMs}
+                      vehiclesNeeded={vehiclesNeeded}
+                      rateOf={(partner) => resolvePartnerRateFDJ(partner, vehicleType)}
+                      considerEmpties={isContainer}
+                      assignedPartnerIds={transporterAssignments
+                        .map((a) => a.partnerId)
+                        .filter(Boolean)}
+                      onChoose={(partnerId) => {
+                        assignTransporter(partnerId);
+                        /* Picking one still needs its vehicle count and booking
+                           numbers, so the full picker opens behind it rather
+                           than leaving the operator on a dead end. */
+                        setManualTransporterPick(true);
+                      }}
+                      onChooseManually={() => setManualTransporterPick(true)}
+                    />
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setManualTransporterPick(false)}
+                        className="flex cursor-pointer items-center gap-1.5 text-[11px] font-bold text-primary hover:underline"
+                      >
+                        <Zap className="h-3.5 w-3.5" />
+                        Back to recommendations
+                      </button>
                   {/* Transporters & Vehicles */}
                   <div className="space-y-3">
                     <div className="flex items-center justify-between gap-1.5">
@@ -2061,13 +2328,41 @@ export function CreateShipmentModal() {
                       >
                         Add Transporter
                       </Button>
+
+                      {/* The one thing Empty Container Management knows that this
+                          wizard cannot work out for itself: which of these
+                          carriers is already sitting on a box this job could
+                          use. Container shipments only — bulk and machinery have
+                          no container to reuse. */}
+                      {isContainer && (
+                        <EmptyContainerOpportunities
+                          line={shippingLine}
+                          sizes={compatibleEmptySizes}
+                          pickupAt={scheduledPickupMs}
+                          vehiclesNeeded={vehiclesNeeded}
+                          assignedPartnerIds={transporterAssignments
+                            .map((a) => a.partnerId)
+                            .filter(Boolean)}
+                          selectedEmptyIds={pairedEmptyIds}
+                          onSelectTransporter={assignTransporter}
+                          onToggleEmpty={(bookingId) =>
+                            setPairedEmptyIds((prev) =>
+                              prev.includes(bookingId)
+                                ? prev.filter((id) => id !== bookingId)
+                                : [...prev, bookingId],
+                            )
+                          }
+                        />
+                      )}
                     </div>
                   </div>
+                    </>
+                  )}
                 </div>
               )}
 
-              {/* ─ STEP 3: Pricing & Review ─ */}
-              {currentStep === 3 && (
+              {/* ─ STEP 4: Pricing & Review ─ */}
+              {currentStep === 4 && (
                 <div className="space-y-6">
                   {/* Summary */}
                   <div className="space-y-3">

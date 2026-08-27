@@ -64,6 +64,31 @@ export const SHIPMENT_STEPS: readonly { rung: string; label: string }[] = [
   { rung: 'Completed', label: 'Empty Returned' },
 ];
 
+/**
+ * The steps a load with **no container** walks — the user's rule, 2026-08-27.
+ *
+ * Bulk cargo is tipped, not stripped: there is no box to empty, no depot to
+ * return one to, and no dépotage in between. So the ladder is three rungs and
+ * the last of them is the end of the job — a bulk load that has been delivered
+ * is finished, where a containerized one is only half done.
+ *
+ * `Delivered` therefore writes `Completed`, not `Arrived`. The rungs between
+ * are still walked and still stamped (`En Route`, `Arrived`, `Unloading`, `POD
+ * Submitted`), so the reports keep a real delivery timestamp — what changes is
+ * that nobody is asked to click through four more steps that describe a
+ * container this load never carried.
+ */
+export const BULK_SHIPMENT_STEPS: readonly { rung: string; label: string }[] = [
+  { rung: 'Pending', label: 'Created' },
+  { rung: 'Loaded', label: 'Picked Up' },
+  { rung: 'Completed', label: 'Delivered' },
+];
+
+/** The ladder this load actually walks, by whether it carries a box. */
+export function shipmentStepsFor(hasContainer: boolean): readonly { rung: string; label: string }[] {
+  return hasContainer ? SHIPMENT_STEPS : BULK_SHIPMENT_STEPS;
+}
+
 /** The step-rung a raw status sits under — what the six-option picker shows as selected. */
 export function stepRungFor(status: string): string {
   const label = DISPLAY_STATUS_GROUP[status] ?? status;

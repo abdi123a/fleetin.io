@@ -534,7 +534,7 @@ function missionToShipmentCardProps(
   onOpen?: (report: MissionReport) => void,
 ): ShipmentCardProps {
   const { overview } = mission;
-  const [truckPlate] = overview.truck.split(' · ');
+  const truckPlate = overview.vehiclePlate;
   const statusMeta = MISSION_STATUS_TO_SHIPMENT_CARD[mission.status];
 
   return {

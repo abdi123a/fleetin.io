@@ -1,4 +1,5 @@
 import type { ShipmentTimelineStepRecord } from '@/features/shipments/api/shipmentsService';
+import { SHIPMENT_STEPS, shipmentStepsFor } from '@/lib/shipmentStatus';
 
 /**
  * The mission lifecycle the shipper's reports are written in.
@@ -239,3 +240,174 @@ export function missionEventsFromTimeline(sources: MissionEventSources): Mission
 
   return events;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * The journey — the shipment's own steps
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+/**
+ * What the report draws, as opposed to what it measures.
+ *
+ * The thirteen rungs above are the measuring instrument: every KPI in the
+ * report is a subtraction of two of them. They are **not** thirteen recorded
+ * events. Since the user cut the picker to the steps in `SHIPMENT_STEPS`
+ * (2026-08-26) an operator reports one step and `ladderPathTo` walks the rungs
+ * underneath it, writing every one at *the same instant* — so "Left for
+ * Loading", "Arrived at Pickup" and "Loading Started" are three rows carrying
+ * one timestamp and two zero-length gaps, and on a mission still early in its
+ * life they are ten greyed-out `pending` rows under one real one.
+ *
+ * So the journey is drawn on the vocabulary the operator actually records:
+ * one row per step of `SHIPMENT_STEPS`, stamped by the rung that tops its
+ * group — which is the rung the step writes, and therefore the only one in the
+ * group whose timestamp means anything.
+ */
+export type JourneyStepKey =
+  | 'created'
+  | 'picked_up'
+  | 'delivered'
+  | 'depotage'
+  | 'empty_ready'
+  | 'empty_picked_up'
+  | 'empty_returned';
+
+
+
+export interface JourneyStepDefinition {
+  key: JourneyStepKey;
+  /** The step's name, taken verbatim from the picker the operator uses. */
+  label: string;
+  /** The stage whose timestamp stamps this step. */
+  stage: MissionStageKey;
+  /** A second stage accepted when the first was never written. */
+  fallbackStage?: MissionStageKey;
+  /** What the step means, in the shipper's words — read under the label. */
+  caption: string;
+  /** Who the step waits on, where accountability is real. */
+  responsible?: string;
+  /** Names the interval that *ends* here, where it has a name of its own. */
+  intervalLabel?: string;
+  /** Containerized missions only — a flatbed never owes an empty back. */
+  containerOnly?: boolean;
+  /**
+   * How the step reads on a load carrying no container. Only the closing step
+   * needs it: a flatbed still finishes, it just finishes by being delivered
+   * rather than by a box coming home, so its name, its meaning and the name of
+   * the interval into it are all different.
+   */
+  withoutContainer?: Partial<
+    Pick<JourneyStepDefinition, 'label' | 'caption' | 'responsible' | 'intervalLabel'>
+  >;
+}
+
+/**
+ * Ladder rung (`SHIPMENT_STEPS[].rung`) → everything the journey knows about
+ * that step, bar its name.
+ *
+ * Keyed by rung rather than by label or by position. By label, because the user
+ * has renamed these once already and a rename would silently unhook the table;
+ * by position, because an earlier cut of this paired `SHIPMENT_STEPS[i]` with
+ * `Object.keys(detail)[i]` and would have re-labelled every step from the
+ * insertion point on if either list were ever reordered. The rung is the one
+ * value on both sides that is a stable identifier.
+ */
+const JOURNEY_BY_RUNG: Record<
+  string,
+  Omit<JourneyStepDefinition, 'label'> | undefined
+> = {
+  Pending: { key: 'created', stage: 'assigned', caption: 'booking assigned to a transporter' },
+  Loaded: {
+    key: 'picked_up',
+    stage: 'loading_completed',
+    caption: 'container loaded and off the terminal',
+    responsible: 'Transporter',
+    intervalLabel: 'Pickup leg',
+  },
+  Arrived: {
+    key: 'delivered',
+    stage: 'arrived_dropoff',
+    caption: 'truck at the consignee',
+    responsible: 'Transporter',
+    intervalLabel: 'Transit',
+  },
+  'POD Submitted': {
+    key: 'depotage',
+    stage: 'container_delivered',
+    caption: 'POD submitted — stripping starts',
+    responsible: 'Client / Shipper',
+    intervalLabel: 'Unloading',
+  },
+  'Empty Ready': {
+    key: 'empty_ready',
+    stage: 'empty_ready',
+    caption: 'box stripped — the detention clock is running',
+    responsible: 'Client / Shipper',
+    intervalLabel: 'Dépotage',
+    containerOnly: true,
+  },
+  'Empty Picked Up': {
+    key: 'empty_picked_up',
+    stage: 'empty_picked_up',
+    caption: 'a truck has the empty and is running it back',
+    responsible: 'Transporter',
+    intervalLabel: 'Empty waiting',
+    containerOnly: true,
+  },
+  /* Not `containerOnly`: this is the step every mission ends on. A box comes
+     home and the rung is `empty_returned`; a flatbed has no box to bring back,
+     so the same step is stamped by `mission_closed` and reads as "Completed" —
+     which is what `displayShipmentStatus` already calls it at shipment level. */
+  Completed: {
+    key: 'empty_returned',
+    stage: 'empty_returned',
+    /* A load with no container closes on `Completed` itself, which the
+       lifecycle records as `mission_closed`, never as an empty coming back. */
+    fallbackStage: 'mission_closed',
+    caption: 'box back at the depot — the mission is over',
+    responsible: 'Transporter',
+    intervalLabel: 'Return leg',
+    withoutContainer: {
+      /* Bulk cargo is finished when it is tipped — the picker's last rung is
+         "Delivered" and it writes `Completed`, so the journey says the same. */
+      label: 'Delivered',
+      caption: 'cargo delivered — the mission is over',
+      /* Nobody "owns" the moment a mission is closed in the system — printing
+         TRANSPORTER against it names a party for a piece of bookkeeping. */
+      responsible: undefined,
+      /* No box, no return leg — the gap into the close is just the gap, and
+         naming it after a leg that does not exist would be a small lie. */
+      intervalLabel: undefined,
+    },
+  },
+};
+
+/**
+ * The steps, in the order the operator walks them, named by the picker itself.
+ *
+ * Built per load rather than once, because the two kinds of load walk different
+ * ladders: a containerized booking has seven steps and ends when the box is
+ * home, a bulk one has three and ends when it is delivered. Reading the journey
+ * off whichever list the picker offered is what keeps the report describing the
+ * job the operator actually recorded.
+ *
+ * A rung with no entry in `JOURNEY_BY_RUNG` is dropped rather than rendered
+ * nameless — that is what would happen if a step were added to the picker and
+ * not here, and a missing row is a far cheaper failure than a row labelled
+ * `undefined`.
+ */
+export function missionJourneySteps(hasContainer: boolean): readonly JourneyStepDefinition[] {
+  return shipmentStepsFor(hasContainer).flatMap((step) => {
+    const detail = JOURNEY_BY_RUNG[step.rung];
+    if (!detail) return [];
+    const spoken = hasContainer ? detail : { ...detail, ...detail.withoutContainer };
+    return [{ ...spoken, label: step.label }];
+  });
+}
+
+/** The containerized ladder — the long one, kept for callers that want it whole. */
+export const MISSION_JOURNEY_STEPS: readonly JourneyStepDefinition[] = SHIPMENT_STEPS.flatMap(
+  (step) => {
+    const detail = JOURNEY_BY_RUNG[step.rung];
+    return detail ? [{ ...detail, label: step.label }] : [];
+  },
+);

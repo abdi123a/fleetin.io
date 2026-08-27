@@ -22,6 +22,13 @@ import { defineConfig } from 'vitest/config';
  * global `localStorage` — no jsdom needed). Security-critical store logic
  * (auth's demo-mode gating) belongs under test same as business logic does.
  *
+ * `src/features/empty-returns` is included for its matching engine, on the same
+ * terms: `matching.ts` decides which empty container can be welded to which
+ * full load, it is pure TypeScript, and its rules are the kind that get
+ * loosened in a hurry — the shipping-line gate was dropped on 2026-08-27 and
+ * the location gate had to be rewritten in the same pass, because comparing a
+ * warehouse name to a port name is a rule that rejects everything.
+ *
  * `src/components/reports` is included for its arithmetic, not its components:
  * `missionReport.ts` and `monthlyReport.ts` are the definitions the shipper's
  * mission and monthly reports are made of ("what is pickup waiting time a
@@ -41,6 +48,7 @@ export default defineConfig({
       'src/lib/**/*.test.ts',
       'src/stores/**/*.test.ts',
       'src/components/reports/**/*.test.ts',
+      'src/features/empty-returns/**/*.test.ts',
     ],
     environment: 'node',
   },

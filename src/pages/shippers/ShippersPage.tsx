@@ -627,10 +627,13 @@ export function ShippersPage() {
       {/* Main Content Area */}
       {viewMode === 'list' ? (
         <div className="space-y-2 pt-1">
+          {/* No contact column. The list answers "which shipper", and a name and
+              a phone number for a person nobody is calling from a directory made
+              every row two lines taller for information that belongs on the
+              profile — which is one click away on the same row. */}
           <div className="hidden lg:grid grid-cols-12 gap-4 px-5 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-            <div className="col-span-4">Shipper & Status</div>
-            <div className="col-span-3">Commercial Reg No</div>
-            <div className="col-span-3">Primary Contact</div>
+            <div className="col-span-6">Shipper & Status</div>
+            <div className="col-span-4">Commercial Reg No</div>
             <div className="col-span-2 text-right">Actions</div>
           </div>
 
@@ -640,7 +643,7 @@ export function ShippersPage() {
               onClick={() => setDrawerState({ mode: 'profile', shipper })}
               className="group relative flex flex-col lg:grid lg:grid-cols-12 items-start lg:items-center gap-3 lg:gap-4 rounded-lg border border-border/80 bg-card hover:bg-muted/30 p-3.5 sm:px-5 cursor-pointer transition duration-150 hover:border-primary/40 hover:shadow-2xs"
             >
-              <div className="col-span-4 flex items-center gap-3 min-w-0 w-full">
+              <div className="col-span-6 flex items-center gap-3 min-w-0 w-full">
                 <ShipperLogo
                   logoUrl={shipper.logoUrl}
                   companyName={shipper.companyLegalName}
@@ -663,21 +666,11 @@ export function ShippersPage() {
                 </div>
               </div>
 
-              <div className="w-full lg:contents grid grid-cols-2 gap-2.5 p-2.5 rounded-md bg-muted/20 border border-border/40 text-xs lg:p-0 lg:bg-transparent lg:border-0">
-                <div className="lg:col-span-3 flex flex-col justify-center min-w-0">
+              <div className="w-full lg:contents">
+                <div className="lg:col-span-4 flex flex-col justify-center min-w-0">
                   <span className="text-[10px] text-muted-foreground font-medium block lg:hidden">Registration No</span>
                   <span className="text-xs font-mono font-semibold text-foreground truncate">
                     {shipper.registrationNumber || '—'}
-                  </span>
-                </div>
-
-                <div className="lg:col-span-3 flex flex-col justify-center min-w-0">
-                  <span className="text-[10px] text-muted-foreground font-medium block lg:hidden">Contact</span>
-                  <span className="text-xs font-medium text-foreground truncate">
-                    {shipper.primaryContact.name}
-                  </span>
-                  <span className="text-2xs text-muted-foreground truncate">
-                    {shipper.primaryContact.phone}
                   </span>
                 </div>
               </div>

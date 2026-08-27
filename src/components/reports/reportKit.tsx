@@ -4,6 +4,7 @@ import { Badge, Card, IconChip, type IconChipTint } from '@/design-system';
 import { ExternalLink } from '@/design-system/icons';
 import { cn } from '@/utils';
 import type { ReportBadgeStatus } from './missionReport';
+import { formatDuration } from './reportFormat';
 
 /**
  * The small vocabulary both shipper reports are typeset in.
@@ -224,13 +225,17 @@ export function ReportCard({
         className,
       )}
     >
-      <div className="flex items-center gap-2.5">
+      {/* `flex-wrap` with a `basis` floor on the title: a card whose `right`
+          slot holds two status chips squeezed the heading into a three-line
+          column on a phone. Below that width the chips take their own line
+          instead, and `ml-auto` still pins them right on a wrapped row. */}
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
         <IconChip icon={icon} tint={tint} size={36} />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1 basis-40">
           <p className="text-sm font-bold leading-tight text-foreground">{title}</p>
           {subtitle && <p className="mt-0.5 text-[11px] text-muted-foreground">{subtitle}</p>}
         </div>
-        {right && <div className="ml-auto flex shrink-0 items-center gap-2">{right}</div>}
+        {right && <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">{right}</div>}
       </div>
       {children}
     </Card>
@@ -486,8 +491,50 @@ export interface RibbonSegment {
   isLongest?: boolean;
 }
 
-const segmentFill = (segment: RibbonSegment): string =>
-  segment.tone === 'waiting' ? 'bg-accent' : STEP_FILL[segment.step];
+/**
+ * Which rung of the teal ramp each working arc gets.
+ *
+ * `segment.step` is the stage's position in the *lifecycle*, and using it
+ * directly meant a mission that only recorded its last two stages drew
+ * teal-800 beside teal-900 — two arcs the eye reads as one solid ring. So the
+ * ramp is spread across the working segments that are actually present, in
+ * lifecycle order: light for the earliest stage, darkest for the last, with
+ * the full brand range in between however many there are. Waiting is exempt —
+ * it keeps the report's one orange, and would only eat a rung of separation.
+ */
+/**
+ * A share, rounded without lying.
+ *
+ * `Math.round` printed a one-minute hold inside a twenty-hour mission as "0%"
+ * next to a "100%" — two figures that add to a hundred and describe a split
+ * that is not one. Anything measured but sub-1% says so instead.
+ */
+export function formatShare(share: number): string {
+  if (share > 0 && share < 0.5) return '<1%';
+  if (share < 100 && share >= 99.5) return '>99%';
+  return `${Math.round(share)}%`;
+}
+
+export function rampSteps(
+  segments: RibbonSegment[],
+  /** `reverse` gives rung 5 — the deepest teal — to the FIRST segment. Use it
+      where the order is rank (the biggest holder leads) rather than lifecycle. */
+  direction: 'forward' | 'reverse' = 'forward',
+): Map<string, 1 | 2 | 3 | 4 | 5> {
+  const working = segments.filter((segment) => segment.tone !== 'waiting');
+  const span = working.length - 1;
+  const ramp = new Map<string, 1 | 2 | 3 | 4 | 5>();
+  working.forEach((segment, index) => {
+    /* One lone stage sits mid-ramp rather than at an extreme end. */
+    const position = direction === 'reverse' ? span - index : index;
+    const rung = span <= 0 ? 3 : 1 + Math.round((position * 4) / span);
+    ramp.set(segment.key, Math.min(5, Math.max(1, rung)) as 1 | 2 | 3 | 4 | 5);
+  });
+  return ramp;
+}
+
+const segmentFill = (segment: RibbonSegment, ramp?: Map<string, 1 | 2 | 3 | 4 | 5>): string =>
+  segment.tone === 'waiting' ? 'bg-accent' : STEP_FILL[ramp?.get(segment.key) ?? segment.step];
 
 const STEP_STROKE: Record<1 | 2 | 3 | 4 | 5, string> = {
   1: 'stroke-[var(--chart-step-1)]',
@@ -497,8 +544,8 @@ const STEP_STROKE: Record<1 | 2 | 3 | 4 | 5, string> = {
   5: 'stroke-[var(--chart-step-5)]',
 };
 
-const segmentStroke = (segment: RibbonSegment): string =>
-  segment.tone === 'waiting' ? 'stroke-accent' : STEP_STROKE[segment.step];
+const segmentStroke = (segment: RibbonSegment, ramp?: Map<string, 1 | 2 | 3 | 4 | 5>): string =>
+  segment.tone === 'waiting' ? 'stroke-accent' : STEP_STROKE[ramp?.get(segment.key) ?? segment.step];
 
 /**
  * Where the time went, as one bar.
@@ -514,6 +561,8 @@ export function TimeRibbon({
   segments: RibbonSegment[];
   className?: string;
 }) {
+  const ramp = rampSteps(segments);
+
   if (segments.length === 0) return null;
 
   return (
@@ -526,12 +575,12 @@ export function TimeRibbon({
             style={{ width: `${Math.max(segment.share, 1.2)}%` }}
             className={cn(
               'flex items-center justify-center overflow-hidden border-r border-card/60 last:border-r-0',
-              segmentFill(segment),
+              segmentFill(segment, ramp),
             )}
           >
             {segment.share >= 11 && (
               <span className="truncate px-1 font-mono text-[10px] font-semibold text-white">
-                {Math.round(segment.share)}%
+                {formatShare(segment.share)}
               </span>
             )}
           </div>
@@ -543,7 +592,7 @@ export function TimeRibbon({
           <div key={segment.key} className="flex items-baseline gap-2">
             <span
               aria-hidden
-              className={cn('mt-1 size-2 shrink-0 rounded-sm', segmentFill(segment))}
+              className={cn('mt-1 size-2 shrink-0 rounded-sm', segmentFill(segment, ramp))}
             />
             <span className="min-w-0 flex-1 truncate text-[11.5px] text-muted-foreground">
               {segment.label}
@@ -551,7 +600,8 @@ export function TimeRibbon({
             <span
               className={cn(
                 'shrink-0 font-mono text-[11.5px] tabular-nums',
-                segment.isLongest ? 'font-bold text-accent' : 'font-semibold text-foreground',
+                segment.tone === 'waiting' ? 'text-accent' : 'text-foreground',
+                segment.isLongest ? 'font-bold' : 'font-semibold',
               )}
             >
               {segment.value}
@@ -580,13 +630,16 @@ export function TimeDonut({
   centerLabel,
   centerCaption,
   size = 168,
+  rampDirection = 'forward',
 }: {
   segments: RibbonSegment[];
   centerValue: string;
   centerLabel: string;
   centerCaption?: string;
   size?: number;
+  rampDirection?: 'forward' | 'reverse';
 }) {
+  const ramp = rampSteps(segments, rampDirection);
   const stroke = 22;
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -624,14 +677,16 @@ export function TimeDonut({
               strokeWidth={stroke}
               strokeDasharray={`${length} ${circumference - length}`}
               strokeDashoffset={-start}
-              className={segmentStroke(segment)}
+              className={segmentStroke(segment, ramp)}
             >
-              <title>{`${segment.label} — ${segment.value} (${Math.round(segment.share)}%)`}</title>
+              <title>{`${segment.label} — ${segment.value} (${formatShare(segment.share)})`}</title>
             </circle>
           ))}
         </svg>
+        {/* The centre figure carries the brand teal: it is the conclusion the
+            ring exists to state, and the arcs around it are the evidence. */}
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="font-mono text-[26px] font-extrabold tabular-nums leading-none text-foreground">
+          <span className="font-mono text-[26px] font-extrabold tabular-nums leading-none text-primary-bold">
             {centerValue}
           </span>
           <span className="mt-1 text-[9.5px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
@@ -646,33 +701,57 @@ export function TimeDonut({
   );
 }
 
-/** The legend that carries the donut's figures — colour, name, duration, share. */
-export function TimeLegend({ segments }: { segments: RibbonSegment[] }) {
+/**
+ * The legend that carries the donut's figures — name, duration, share.
+ *
+ * Rails rather than a dot-and-label grid. Two stages in a two-column grid left
+ * a legend of two lonely rows and a lake of white beside a 168px ring; and a
+ * dot the size of a full stop is a poor colour key for an arc 22px thick. Each
+ * stage now gets its own bar, in its own arc's colour, drawn to its own share —
+ * so the ring's proportions are legible a second way, and the block that ate
+ * the mission is the longest bar without needing to be labelled as such.
+ */
+export function TimeLegend({
+  segments,
+  rampDirection = 'forward',
+}: {
+  segments: RibbonSegment[];
+  rampDirection?: 'forward' | 'reverse';
+}) {
+  const ramp = rampSteps(segments, rampDirection);
+
   return (
-    <div className="grid min-w-0 flex-1 gap-x-5 gap-y-2 sm:grid-cols-2">
+    <div className="flex min-w-0 flex-1 flex-col justify-center gap-2.5 self-stretch">
       {segments.map((segment) => (
-        <div
-          key={segment.key}
-          className="flex items-center gap-2 border-b border-border/50 pb-1.5 last:border-0 sm:last:border-b sm:[&:nth-last-child(-n+2)]:border-0"
-        >
-          <span
-            aria-hidden
-            className={cn('size-2.5 shrink-0 rounded-full', segmentFill(segment))}
-          />
-          <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">
-            {segment.label}
-          </span>
-          <span
-            className={cn(
-              'shrink-0 font-mono text-[12px] tabular-nums',
-              segment.isLongest ? 'font-bold text-accent' : 'font-semibold text-foreground',
-            )}
-          >
-            {segment.value}
-          </span>
-          <span className="w-8 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground">
-            {Math.round(segment.share)}%
-          </span>
+        <div key={segment.key} className="min-w-0">
+          <div className="flex items-baseline gap-2">
+            <span
+              className={cn(
+                'min-w-0 flex-1 truncate text-[12px]',
+                segment.isLongest ? 'font-semibold text-foreground' : 'text-muted-foreground',
+              )}
+            >
+              {segment.label}
+            </span>
+            <span
+              className={cn(
+                'shrink-0 font-mono text-[12.5px] tabular-nums',
+                segment.tone === 'waiting' ? 'text-accent' : 'text-foreground',
+                segment.isLongest ? 'font-bold' : 'font-semibold',
+              )}
+            >
+              {segment.value}
+            </span>
+            <span className="w-9 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground">
+              {formatShare(segment.share)}
+            </span>
+          </div>
+          <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+            <div
+              className={cn('h-full rounded-full', segmentFill(segment, ramp))}
+              style={{ width: `${Math.max(segment.share, 2)}%` }}
+            />
+          </div>
         </div>
       ))}
     </div>
@@ -839,249 +918,383 @@ export function CompositionRing({
   );
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * The journey
+ * ═══════════════════════════════════════════════════════════════════════ */
+
 /**
- * The ordinal ramp, as CSS values.
+ * The seven journey hues, by position in the ladder.
  *
- * The design system's teal ramp encodes *order*, which is exactly what a
- * journey's chapters have: light at the pickup, dark at the depot. `tint` is the
- * same hue at reading strength for a surface behind small text.
+ * Written as literal class strings rather than composed with a template so
+ * Tailwind's scanner can see every one of them; the tokens themselves live in
+ * `tokens.semantic.css` with the reasoning for the ramp.
  */
-export function stepTone(step: 1 | 2 | 3 | 4 | 5): {
-  solid: string;
-  rail: string;
-  tint: string;
-} {
-  const solid = `var(--chart-step-${step})`;
-  return {
-    solid,
-    rail: `color-mix(in oklab, ${solid} 45%, transparent)`,
-    tint: `color-mix(in oklab, ${solid} 12%, transparent)`,
-  };
-}
+export type JourneyHue = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
-export interface MilestoneRailTone {
-  /** Fill of a recorded milestone's dot, and of the connector. */
-  solid: string;
-  rail: string;
-  /** Surface behind the duration pill. */
-  tint: string;
-}
+const JOURNEY_COLOR: Record<JourneyHue, string> = {
+  1: 'var(--journey-1)',
+  2: 'var(--journey-2)',
+  3: 'var(--journey-3)',
+  4: 'var(--journey-4)',
+  5: 'var(--journey-5)',
+  6: 'var(--journey-6)',
+  7: 'var(--journey-7)',
+};
 
-export interface MilestoneRow {
+export interface JourneyRailRow {
   key: string;
+  /** The step's name, in the operator's own vocabulary. */
   label: string;
-  /**
-   * The milestone's own mark. A rail of identical dots makes every rung look
-   * like the same event, so the eye has to read all twelve labels to find the
-   * one it wants; a truck, a gate and a warehouse are picked out at a glance.
-   * Falls back to a dot when a row has no icon.
-   */
-  icon?: ComponentType<{ className?: string }>;
-  note?: string;
+  /** What the step means, in one clause. */
+  caption?: string;
+  /** The party the step waited on. */
   responsible?: string;
-  /** Formatted timestamp, or null while the milestone is pending. */
-  at: string | null;
-  /** Formatted duration since the previous milestone. */
+  icon?: ComponentType<{ className?: string }>;
+  /** Which of the seven journey hues this step takes — its position in the ladder. */
+  hue: JourneyHue;
+  /** Formatted timestamp. Every row here is a recorded step, so never null. */
+  at: string;
+  /** The gap since the previous recorded step, formatted. Null on the first row. */
   duration: string | null;
-  /** Names the interval ending here, where it has a name (dépotage). */
+  /** What that gap is called (Transit, Dépotage, …). */
   intervalLabel?: string;
+  /** The gap's share of the whole journey, 0-100. Null on the first row. */
+  sharePct: number | null;
+  /** The longest gap of the mission — the bottleneck. */
   isLongest?: boolean;
+  /** Where the container stands right now — set on the last step of a mission
+      that is still running, and on nothing at all once it has closed. */
+  isCurrent?: boolean;
 }
 
 /**
- * The milestones as a rail, not a table.
+ * The mission as a chain of coloured links.
  *
- * A table of twelve rows and three columns is the same information, and it reads
- * as a wall. A rail gives each milestone one line, the connector does the work
- * the "stage" column header used to do, and the duration sits in a pill on the
- * right so the eye can run down the gaps without reading a word.
+ * Two drawings of one fact, stacked. The ribbon puts every interval side by
+ * side at its true share, so "where did the week go" is answered before a word
+ * is read. The rail under it names the steps, and the spine between two of them
+ * *is* the interval — same hue, carrying its own name and duration on it. The
+ * previous version drew twelve identical grey dots down a hairline, which made
+ * a four-hour gate wait and a six-day dépotage the same picture.
+ *
+ * Colour is per step, not per state: seven kinds of event owned by three
+ * parties, so the eye can find "the box was stripped" by hue instead of reading
+ * seven labels.
  */
-export function MilestoneRail({
-  rows,
-  tone,
-  className,
-}: {
-  rows: MilestoneRow[];
-  /** The chapter's colour. Falls back to the brand teal when unset. */
-  tone?: MilestoneRailTone;
-  className?: string;
-}) {
+export function JourneyRail({ rows, className }: { rows: JourneyRailRow[]; className?: string }) {
+  if (rows.length === 0) return null;
+
+  const intervals = rows.filter(
+    (row): row is JourneyRailRow & { duration: string; sharePct: number } =>
+      row.duration !== null && row.sharePct !== null,
+  );
+
+  /* One interval is not a distribution: the ribbon would be a single full-width
+     band saying "100% of the time was the only thing measured", and the pill on
+     the rail already carries the figure. Two is where a comparison starts. */
+  const showRibbon = intervals.length > 1;
+
   return (
-    <ol className={cn('relative space-y-0', className)}>
-      {/* The rail itself, run between the first and last mark's centres. The
-          insets are pixel values, not spacing steps: they track the disc's
-          geometry (18px, nudged up 1px onto the label's line), and a rounded
-          step left a visible stub above the first icon. */}
-      <span
-        aria-hidden
-        className={cn('absolute bottom-[15px] left-2 top-[14px] w-0.5 rounded-full', !tone && 'bg-border')}
-        style={tone ? { backgroundColor: tone.rail } : undefined}
-      />
-      {rows.map((row) => {
-        const isPending = row.at === null;
-        return (
-          <li key={row.key} className={cn('relative flex gap-3 py-1.5', isPending && 'opacity-45')}>
-            <span
-              aria-hidden
-              className={cn(
-                'relative z-10 -mt-px flex size-[18px] shrink-0 items-center justify-center rounded-full ring-2 ring-card',
-                isPending
-                  ? 'border border-dashed border-muted-foreground bg-card text-muted-foreground'
-                  : row.isLongest
-                    ? 'bg-accent text-accent-foreground'
-                    : tone
-                      ? 'text-white'
-                      : 'bg-primary text-primary-foreground',
-              )}
-              style={!isPending && !row.isLongest && tone ? { backgroundColor: tone.solid } : undefined}
+    <div className={cn('space-y-3.5', className)}>
+      {showRibbon && (
+        /* Every interval at its true width. A segment narrower than a tenth of
+           the run cannot hold its own duration, so it keeps only its colour and
+           hands the figure to the rail below — printing a clipped "2h" is worse
+           than printing nothing. */
+        <div className="flex h-7 w-full overflow-hidden rounded-md" role="img"
+          aria-label={intervals
+            .map((row) => `${row.intervalLabel ?? row.label} ${row.duration}`)
+            .join(', ')}
+        >
+          {intervals.map((row) => (
+            <div
+              key={row.key}
+              title={`${row.intervalLabel ?? row.label} — ${row.duration}`}
+              className="flex min-w-[3px] items-center justify-center overflow-hidden border-r border-card/70 last:border-r-0"
+              style={{ width: `${Math.max(1.2, row.sharePct)}%`, backgroundColor: JOURNEY_COLOR[row.hue] }}
             >
-              {row.icon ? (
-                <row.icon className="size-[11px]" />
-              ) : (
-                <span className="size-[7px] rounded-full bg-current" />
-              )}
-            </span>
-            <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-              <span
-                className={cn(
-                  'text-[12.5px] leading-tight text-foreground',
-                  row.isLongest ? 'font-bold' : 'font-medium',
-                )}
-              >
-                {row.label}
-              </span>
-              {row.note && <span className="text-[10px] text-muted-foreground">{row.note}</span>}
-              {row.responsible && !isPending && (
-                <span className="text-[9.5px] uppercase tracking-[0.06em] text-muted-foreground">
-                  {row.responsible}
+              {row.sharePct >= 10 && (
+                <span className="truncate px-1 font-mono text-[10.5px] font-bold tabular-nums text-[var(--journey-foreground)]">
+                  {row.duration}
                 </span>
               )}
-              <span className="ml-auto shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
-                {row.at ?? 'pending'}
-              </span>
             </div>
-            {/*
-             * The gap, as a figure in a column — not a chip.
-             *
-             * These were tinted rounded boxes: a 12% wash reads as a smudge at
-             * this size, and every duration being a different string made the
-             * boxes different widths, so the right edge of the rail came out
-             * ragged. A fixed column right-aligns the numbers under each other,
-             * which is the whole point of printing them.
-             */}
-            <span
-              className={cn(
-                'w-[66px] shrink-0 text-right font-mono text-[10.5px] font-semibold leading-tight tabular-nums',
-                row.isLongest ? 'text-accent' : 'text-foreground',
+          ))}
+        </div>
+      )}
+
+      <ol className="space-y-0">
+        {rows.map((row, index) => {
+          const previous = rows[index - 1];
+          const color = JOURNEY_COLOR[row.hue];
+          const isLast = index === rows.length - 1;
+          return (
+            <li key={row.key}>
+              {/* The link into this step: the spine, running from the previous
+                  step's colour into this one's, with the interval named on it. */}
+              {index > 0 && row.duration && (
+                <div className="flex gap-3">
+                  <div className="flex w-7 shrink-0 justify-center">
+                    <span
+                      aria-hidden
+                      className="w-[3px]"
+                      style={{
+                        backgroundImage: `linear-gradient(to bottom, ${previous ? JOURNEY_COLOR[previous.hue] : color}, ${color})`,
+                      }}
+                    />
+                  </div>
+                  <div className="flex min-h-[34px] flex-1 items-center py-1">
+                    <span
+                      className={cn(
+                        'inline-flex items-baseline gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-semibold',
+                        showRibbon && row.isLongest && 'ring-1 ring-accent',
+                      )}
+                      style={{
+                        backgroundColor: `color-mix(in oklab, ${color} 14%, transparent)`,
+                      }}
+                    >
+                      {row.intervalLabel && (
+                        <span className="uppercase tracking-[0.07em] text-muted-foreground">
+                          {row.intervalLabel}
+                        </span>
+                      )}
+                      <span className="font-mono font-bold tabular-nums text-foreground">
+                        {row.duration}
+                      </span>
+                      {showRibbon && row.sharePct !== null && row.sharePct >= 1 && (
+                        <span className="font-mono text-[9.5px] tabular-nums text-muted-foreground">
+                          {Math.round(row.sharePct)}%
+                        </span>
+                      )}
+                      {showRibbon && row.isLongest && (
+                        <span className="text-[9px] font-bold uppercase tracking-[0.07em] text-accent">
+                          longest
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                </div>
               )}
-            >
-              {row.intervalLabel && row.duration && (
-                <span className="block font-sans text-[8.5px] font-bold uppercase tracking-[0.07em] text-accent">
-                  {row.intervalLabel}
-                </span>
-              )}
-              {row.duration}
-            </span>
-          </li>
-        );
-      })}
-    </ol>
+
+              <div className="flex items-start gap-3">
+                {/*
+                 * The mark, and the rail continuing past it.
+                 *
+                 * The connector has to be drawn twice — once here and once on
+                 * the link above — because a step's row is taller than its
+                 * disc: the label, the party and the caption stack to about
+                 * 36px against the disc's 28. Drawing the rail only between
+                 * rows left an unpainted band under every mark, so the chain
+                 * came apart at each of the seven discs. `self-stretch` gives
+                 * this column the row's full height and `flex-1` paints what
+                 * the disc does not cover.
+                 */}
+                <div className="flex w-7 shrink-0 flex-col items-center self-stretch">
+                  <span className="relative flex size-7 shrink-0 items-center justify-center">
+                    {row.isCurrent && (
+                      /* Where the container is right now. The halo is the house
+                         `pulse-ring`, tinted to the step's own hue — and it is
+                         never the only signal, because motion says nothing to a
+                         reader with reduced motion on: the `NOW` mark beside the
+                         label carries the same fact in words. */
+                      <span
+                        aria-hidden
+                        className="pulse-ring absolute inset-0 rounded-full"
+                        style={{ color: `color-mix(in oklab, ${color} 55%, transparent)` }}
+                      />
+                    )}
+                    <span
+                      aria-hidden
+                      className="relative z-10 flex size-7 items-center justify-center rounded-full text-[var(--journey-foreground)]"
+                      style={{ backgroundColor: color }}
+                    >
+                      {row.icon ? (
+                        <row.icon className="size-[15px]" />
+                      ) : (
+                        <span className="size-2 rounded-full bg-current" />
+                      )}
+                    </span>
+                  </span>
+                  {!isLast && (
+                    <span
+                      aria-hidden
+                      className="-mt-px w-[3px] flex-1"
+                      style={{ backgroundColor: color }}
+                    />
+                  )}
+                </div>
+
+                <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5 pb-1 pt-0.5">
+                  <span className="text-[13px] font-bold leading-tight text-foreground">
+                    {row.label}
+                  </span>
+                  {row.isCurrent && (
+                    <span
+                      className="rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-[0.09em] text-[var(--journey-foreground)]"
+                      style={{ backgroundColor: color }}
+                    >
+                      now
+                    </span>
+                  )}
+                  {row.responsible && (
+                    <span className="text-[9.5px] uppercase tracking-[0.06em] text-muted-foreground">
+                      {row.responsible}
+                    </span>
+                  )}
+                  <span className="ml-auto shrink-0 font-mono text-[11.5px] font-semibold tabular-nums text-foreground">
+                    {row.at}
+                  </span>
+                  {row.caption && (
+                    <span className="w-full text-[10.5px] leading-snug text-muted-foreground">
+                      {row.caption}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
 
 /**
- * Free time, drawn against the deadline the shipping line set.
+ * The whole run against the deadline: what it used, and what it saved.
  *
- * The track is always two named parts, because the shipper's question has two
- * halves: how long we held the box, and how much room was left. An earlier
- * version drew only the consumed part and left the margin as unlabelled grey —
- * the answer was there but nobody could read it. Now the second part carries its
- * own duration and its own colour: green when it is time we still had, red when
- * it is time we owe.
+ * Three drawings came before this one and each failed differently. A continuous
+ * bar of free time used against free time remaining died on real data — a box
+ * back two minutes into a six-day window filled 0.02% of it. Day blocks fixed
+ * the legibility and introduced an ambiguity: a full bar conventionally means
+ * *consumed*, and here it meant the opposite. A ring removed the ambiguity and
+ * was simply ugly in the space it had.
+ *
+ * The change that mattered was not the shape, it was the span. All three
+ * measured from *delivery*, because that is when the line's free time formally
+ * starts — which is correct and useless: it left the days the shipment spent
+ * getting to the consignee out of the picture entirely. This measures the whole
+ * thing, from the day the shipment was created to the day the empty came home,
+ * against the deadline it had to beat. Two figures, one bar: **used** is the
+ * run, **saved** is the margin it finished with.
  */
-export function FreeTimeTrack({
-  usedPct,
-  usedLabel,
-  restPct,
-  restLabel,
-  restTone,
+export function ReturnSpanBar({
+  startAt,
+  endAt,
+  deadlineAt,
+  settled,
+  detentionDays,
   startLabel,
-  markerLabel,
   endLabel,
   caption,
 }: {
-  /** Delivery → the empty coming back (or the deadline, whichever comes first). */
-  usedPct: number;
-  usedLabel: string;
-  /** What is left of the window, or what was overrun. */
-  restPct: number;
-  restLabel: string;
-  restTone: 'spare' | 'late';
+  /** The day the shipment became somebody's job. */
+  startAt: number;
+  /** The empty back at the depot, or now while it is still out. */
+  endAt: number;
+  /** What the whole run had to beat. */
+  deadlineAt: number;
+  /** True once the empty is back: the figures stop moving. */
+  settled: boolean;
+  detentionDays: number;
   startLabel: string;
-  /** Sits over the boundary between the two parts — where the empty came back. */
-  markerLabel?: string;
   endLabel: string;
+  /** Only where there is something the picture cannot say. */
   caption?: string;
 }) {
-  const clamp = (value: number) => Math.min(100, Math.max(0, value));
-  const used = clamp(usedPct);
-  const rest = clamp(restPct);
-  const isLate = restTone === 'late';
+  const usedMs = Math.max(0, endAt - startAt);
+  const windowMs = Math.max(1, deadlineAt - startAt);
+  const savedMs = deadlineAt - endAt;
+  const late = savedMs < 0;
+
+  /* Late runs extend the track past the deadline rather than squeezing the
+     window to nothing — capped at one further window so a badly late return
+     cannot shrink the part being explained down to a sliver. */
+  const overrunMs = late ? Math.min(-savedMs, windowMs) : 0;
+  const totalMs = windowMs + overrunMs;
+  const pct = (ms: number) => (ms / totalMs) * 100;
+  const usedPct = pct(Math.min(usedMs, windowMs));
 
   return (
-    <div>
-      {/* Three anchors: where it started, where the empty landed, where free time ends. */}
-      <div className="relative mb-1.5 h-8">
-        <span className="absolute left-0 top-0 max-w-[38%] text-[10px] uppercase leading-tight tracking-[0.07em] text-muted-foreground">
-          {startLabel}
-        </span>
-        {markerLabel && used > 18 && used < 82 && (
-          <span
-            className="absolute top-0 max-w-[36%] -translate-x-1/2 text-center text-[10px] font-semibold uppercase leading-tight tracking-[0.07em] text-foreground"
-            style={{ left: `${used}%` }}
-          >
-            {markerLabel}
-          </span>
-        )}
-        <span className="absolute right-0 top-0 max-w-[38%] text-right text-[10px] uppercase leading-tight tracking-[0.07em] text-muted-foreground">
-          {endLabel}
-        </span>
-      </div>
-
-      {/* The bar. Two parts, and the boundary is the moment the empty came back. */}
-      <div className="relative flex h-4 w-full gap-[3px] overflow-hidden rounded-full">
-        <div
-          className="h-full rounded-l-full bg-primary"
-          style={{ width: `${used}%` }}
-          title={usedLabel}
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+        <SpanFigure
+          label={settled ? 'Used' : 'Used so far'}
+          value={formatDuration(usedMs, { compact: true })}
+          caption="created → empty back"
         />
-        <div
-          className={cn('h-full flex-1 rounded-r-full', isLate ? 'bg-destructive' : 'bg-success')}
-          style={{ width: `${rest}%` }}
-          title={restLabel}
+        <SpanFigure
+          align="right"
+          label={late ? (settled ? 'Over by' : 'Overdue by') : settled ? 'Saved' : 'Still in hand'}
+          value={formatDuration(Math.abs(savedMs), { compact: true })}
+          caption={
+            late
+              ? `${detentionDays} detention day${detentionDays === 1 ? '' : 's'} charged`
+              : 'empty back → deadline'
+          }
+          tone={late ? 'bad' : 'good'}
         />
       </div>
 
-      {/* Each part says what it is, under itself. */}
-      <div className="mt-1.5 flex w-full gap-[3px]">
-        <span
-          className="min-w-0 truncate text-[11px] font-semibold text-primary"
-          style={{ width: `${used}%` }}
-        >
-          {usedLabel}
-        </span>
-        <span
+      {/* One bar, two parts, and the join is the moment the empty came home. */}
+      <div className="flex h-5 w-full gap-[3px] overflow-hidden rounded-md">
+        <div
+          className="h-full rounded-l-md bg-primary-bold"
+          style={{ width: `${usedPct}%`, minWidth: usedMs > 0 ? 6 : 0 }}
+          title={`Used — ${formatDuration(usedMs, { compact: true })}`}
+        />
+        <div
           className={cn(
-            'min-w-0 flex-1 truncate text-right text-[11px] font-bold',
-            isLate ? 'text-destructive' : 'text-success',
+            'h-full flex-1 rounded-r-md',
+            late
+              ? 'bg-destructive'
+              : 'bg-primary/25 ring-1 ring-inset ring-primary/30',
           )}
-          style={{ width: `${rest}%` }}
-        >
-          {restLabel}
-        </span>
+          title={
+            late
+              ? `Over by ${formatDuration(-savedMs, { compact: true })}`
+              : `Saved — ${formatDuration(savedMs, { compact: true })}`
+          }
+        />
       </div>
 
-      {caption && <p className="mt-2.5 text-[11.5px] leading-relaxed text-muted-foreground">{caption}</p>}
+      <div className="flex items-baseline justify-between gap-3 text-[10px] uppercase tracking-[0.07em] text-muted-foreground">
+        <span className="truncate">{startLabel}</span>
+        <span className="truncate text-right">{endLabel}</span>
+      </div>
+
+      {caption && <p className="text-[11.5px] leading-relaxed text-muted-foreground">{caption}</p>}
+    </div>
+  );
+}
+
+/** One of the bar's two answers — the label, the figure, and what it spans. */
+function SpanFigure({
+  label,
+  value,
+  caption,
+  tone,
+  align = 'left',
+}: {
+  label: string;
+  value: string;
+  caption: string;
+  tone?: 'good' | 'bad';
+  align?: 'left' | 'right';
+}) {
+  return (
+    <div className={cn('min-w-0', align === 'right' && 'text-right')}>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
+        {label}
+      </p>
+      <p
+        className={cn(
+          'mt-0.5 font-mono text-[24px] font-extrabold tabular-nums leading-none tracking-tight sm:text-[27px]',
+          tone === 'bad' ? 'text-destructive' : 'text-primary-bold',
+        )}
+      >
+        {value}
+      </p>
+      <p className="mt-1 truncate text-[10.5px] text-muted-foreground">{caption}</p>
     </div>
   );
 }
@@ -1127,103 +1340,3 @@ export function ReportStat({
   );
 }
 
-/**
- * A party or a piece of equipment, as one labelled group.
- *
- * The alternative — one bordered chip per attribute — turned seven facts into a
- * tag cloud: seven identical pills, no hierarchy, and the eye reading every one
- * of them to find the container number. Grouping gives each fact a place
- * ("who", "what box", "who moved it"), so the reader looks once.
- */
-export function ReportIdentityGroup({
-  label,
-  primary,
-  lines = [],
-  mono = false,
-}: {
-  label: string;
-  primary: ReactNode;
-  /** Supporting lines, in decreasing importance. Empty ones are dropped. */
-  lines?: Array<ReactNode | null | undefined>;
-  mono?: boolean;
-}) {
-  return (
-    <div className="min-w-0 px-0 sm:px-4 sm:first:pl-0 sm:last:pr-0">
-      <p className="text-[10px] uppercase tracking-[0.09em] text-muted-foreground">{label}</p>
-      <p
-        className={cn(
-          'mt-1 truncate text-[13.5px] font-semibold leading-tight text-foreground',
-          mono && 'font-mono tabular-nums',
-        )}
-      >
-        {primary}
-      </p>
-      {lines.filter(Boolean).map((line, index) => (
-        <p
-          key={index}
-          className="mt-0.5 truncate text-[11.5px] leading-tight text-muted-foreground"
-        >
-          {line}
-        </p>
-      ))}
-    </div>
-  );
-}
-
-export interface DateMilestone {
-  label: string;
-  /** Already formatted, or null when the moment has not happened. */
-  value: string | null;
-  /** Drawn on the rail in place of a bare dot — see `MilestoneRow.icon`. */
-  icon?: ComponentType<{ className?: string }>;
-}
-
-/**
- * The mission's four headline dates as a strip, not a field grid.
- *
- * Same four facts either way; drawn on a hairline with a dot each, they read as
- * a sequence — which is what they are — and the eye gets the shape of the job
- * before it reads a single number.
- */
-export function DateMilestoneStrip({ items }: { items: DateMilestone[] }) {
-  return (
-    <div className="relative grid grid-cols-2 gap-x-4 gap-y-3 sm:flex sm:justify-between">
-      {/* The hairline the marks sit on — through their centres, which moved when
-          the 8px dots became 18px icon discs. Behind the row, one line only. */}
-      <span
-        aria-hidden
-        className="absolute left-1 right-1 top-[28px] hidden h-px bg-border sm:block"
-      />
-      {items.map((item) => (
-        <div key={item.label} className="relative min-w-0 sm:flex-1">
-          <p className="truncate text-[10px] uppercase tracking-[0.09em] text-muted-foreground">
-            {item.label}
-          </p>
-          <span
-            aria-hidden
-            className={cn(
-              'relative z-10 my-1 flex size-[18px] items-center justify-center rounded-full ring-2 ring-card',
-              item.value
-                ? 'bg-primary text-primary-foreground'
-                : 'border border-dashed border-muted-foreground bg-card text-muted-foreground',
-            )}
-          >
-            {item.icon ? (
-              <item.icon className="size-[11px]" />
-            ) : (
-              <span className="size-[7px] rounded-full bg-current" />
-            )}
-          </span>
-          <p
-            className={cn(
-              'truncate font-mono text-[12px] tabular-nums',
-              item.value ? 'font-medium text-foreground' : 'text-muted-foreground',
-            )}
-          >
-            {item.value ?? 'pending'}
-          </p>
-        </div>
-      ))}
-    </div>
-  );
-}

@@ -1,5 +1,6 @@
 import { CompanyAvatar } from '@/design-system';
 import { cn } from '@/utils';
+import { useCompanyLogo } from '@/features/companies/companyLogos';
 import { customerInitials, getCustomerLogoUrl } from '../mocks/customerProfiles';
 
 /**
@@ -26,9 +27,14 @@ export interface CompanyMarkProps {
 
 /** The mark on its own, for a line that already carries the name inline. */
 export function CompanyMark({ id, name, logoUrl, size = 'xs', className }: CompanyMarkProps) {
+  /* Real account first, demo fixture second. The registry is filled from
+     `/shippers` and `/partners`, so a logo uploaded through the app shows up
+     here without this component knowing anything about storage. */
+  const registered = useCompanyLogo(id, name);
+
   return (
     <CompanyAvatar
-      src={logoUrl ?? getCustomerLogoUrl(id) ?? getCustomerLogoUrl(name)}
+      src={logoUrl ?? registered ?? getCustomerLogoUrl(id) ?? getCustomerLogoUrl(name)}
       name={name}
       fallback={customerInitials(name)}
       size={size}

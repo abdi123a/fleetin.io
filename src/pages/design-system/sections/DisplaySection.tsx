@@ -261,7 +261,7 @@ function StatusMarksSubSection() {
       <div className="grid gap-6 md:grid-cols-2">
         <ShowcaseExample
           title="VerificationBadge"
-          description="Only the verified state renders anywhere in the product — a bare tick beside the name it confirms, exactly like a social-media checkmark. Every other state renders nothing; an unverified record shows no mark at all rather than a negative one."
+          description="Only the verified state renders anywhere in the product — a filled brand-teal rosette beside the name it confirms, exactly like a social-media checkmark. Every other state renders nothing; an unverified record shows no mark at all rather than a negative one."
           layout="column"
           code={`<VerificationBadge state="verified" size="sm" />`}
         >

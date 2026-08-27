@@ -64,7 +64,7 @@ export function EmptyReturnCard({
   return (
     <ConsolePanel
       className={className}
-      title="Empty Returns"
+      title="Empty Container"
       subtitle={`${returns.chains} chains running · ${returns.matchable} empties ready to match`}
       action={
         <Link to={ROUTES.emptyReturns}>

@@ -69,10 +69,23 @@ export const ROUTES = {
   missions: '/missions',
   missionDetail: '/shipments/:id',
   onboarding: '/onboarding',
+  /**
+   * Empty Container Management — five sibling views, five real URLs.
+   *
+   * The module root is the **Control Tower**, not a dashboard: an operator
+   * opening Empty Return wants the queue of containers needing a decision, and
+   * performance measurement is a place you go deliberately. `emptyReturnsChains`
+   * and `emptyReturnsTransporters` are kept as redirects so old bookmarks land
+   * somewhere real.
+   */
   emptyReturns: '/empty-returns',
-  emptyReturnsCycles: '/empty-returns/cycles',
+  emptyReturnsCalendar: '/empty-returns/calendar',
   emptyReturnsMatching: '/empty-returns/matching',
+  emptyReturnsCycles: '/empty-returns/cycles',
+  emptyReturnsPerformance: '/empty-returns/performance',
+  /** @deprecated Chains are a view of the Cycles page. */
   emptyReturnsChains: '/empty-returns/chains',
+  /** @deprecated The per-transporter view folded into Cycles. */
   emptyReturnsTransporters: '/empty-returns/transporters',
   notFound: '*',
 } as const;

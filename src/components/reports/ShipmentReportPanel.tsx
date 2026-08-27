@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, FileText, Printer } from '@/design-system/icons';
+import { ChevronDown, Printer } from '@/design-system/icons';
 import {
   Badge,
   Button,
@@ -7,7 +7,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  IconChip,
   Skeleton,
 } from '@/design-system';
 import { useBooking } from '@/features/bookings/api/queries';
@@ -90,91 +89,98 @@ export function ShipmentReportPanel({
 
   if (bookings.length === 0) return null;
 
-  const selected = bookings.find((booking) => booking.id === selectedId);
+  const selectedIndex = bookings.findIndex((booking) => booking.id === selectedId);
+  const selected = selectedIndex >= 0 ? bookings[selectedIndex] : undefined;
   const context = bookings[0]?.shipment;
 
   return (
     <section className={cn('space-y-3', className)}>
-      {/* Screen header. On paper the letterhead inside the sheet replaces it.
-          Tinted, so the document below reads as its own module on the page
-          rather than as loose text between two white cards. */}
-      <div className="report-screen-only flex flex-wrap items-center gap-2.5 rounded-card border border-primary/15 bg-primary-subtle px-3 py-2.5 sm:px-4">
-        <IconChip icon={FileText} size={36} />
-        <div className="min-w-0">
-          <h3 className="text-sm font-bold leading-tight text-primary-subtle-foreground sm:text-base">
-            Shipment Report
-          </h3>
-          <p className="text-[11.5px] text-primary-subtle-foreground/75">
-            One report per container · every duration computed from recorded timestamps
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          leadingIcon={<Printer />}
-          onClick={print}
-          className="ml-auto bg-card"
-        >
-          Download PDF
-        </Button>
-      </div>
-
-      {/* The picker — screen only; the report itself names the mission on paper. */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className={cn(
-              'report-screen-only flex w-full max-w-md cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 py-2',
-              'text-xs font-semibold text-foreground shadow-2xs transition-colors hover:border-border-strong',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
-            )}
-          >
-            <span className="font-mono">{selected?.reference ?? 'Select a container'}</span>
-            {selected?.containerNumber && (
-              <span className="truncate font-mono text-[11px] font-normal text-muted-foreground">
-                {selected.containerNumber}
-              </span>
-            )}
-            {selected && (
-              <Badge variant="subtle" intent={badgeIntentOf(selected.status)} size="sm">
-                {displayShipmentStatus(selected.status)}
-              </Badge>
-            )}
-            <span className="ml-auto shrink-0 text-[11px] font-normal text-muted-foreground">
-              {bookings.length} container{bookings.length === 1 ? '' : 's'}
-            </span>
-            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="start"
-          className="max-h-80 w-[var(--radix-dropdown-menu-trigger-width)] overflow-y-auto"
-        >
-          {bookings.map((booking) => (
-            <DropdownMenuItem
-              key={booking.id}
-              onSelect={() => setSelectedId(booking.id)}
-              className="flex items-center gap-2"
-            >
-              <span className="font-mono text-xs">{booking.reference}</span>
-              {booking.containerNumber && (
-                <span className="truncate font-mono text-[11px] text-muted-foreground">
-                  {booking.containerNumber}
-                </span>
-              )}
-              <Badge
-                variant="subtle"
-                intent={badgeIntentOf(booking.status)}
-                size="sm"
-                className="ml-auto shrink-0"
+      {/* The picker — screen only; the report itself names the mission on paper.
+          Labelled, because on its own the row reads as a summary line rather
+          than as the control that swaps the sheet underneath. */}
+      <div className="report-screen-only space-y-1.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Container shown in the report below
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  'report-screen-only flex w-full max-w-lg cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 py-2',
+                  'text-xs font-semibold text-foreground shadow-2xs transition-colors hover:border-border-strong',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
+                )}
               >
-                {displayShipmentStatus(booking.status)}
-              </Badge>
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+                {/* Two mono codes side by side — the booking's and the box's —
+                    read as a pair of anonymous ids unless the first is named. */}
+                {selected ? (
+                  <span className="flex shrink-0 items-baseline gap-1">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">
+                      Booking
+                    </span>
+                    <span className="font-mono">{selected.reference}</span>
+                  </span>
+                ) : (
+                  <span>Select a container</span>
+                )}
+                {selected?.containerNumber && (
+                  <span className="truncate font-mono text-[11px] font-normal text-muted-foreground">
+                    {selected.containerNumber}
+                  </span>
+                )}
+                {selected && (
+                  <Badge variant="subtle" intent={badgeIntentOf(selected.status)} size="sm">
+                    {displayShipmentStatus(selected.status)}
+                  </Badge>
+                )}
+                <span className="ml-auto shrink-0 text-[11px] font-normal text-muted-foreground">
+                  {selectedIndex >= 0
+                    ? `Container ${selectedIndex + 1} of ${bookings.length}`
+                    : `${bookings.length} container${bookings.length === 1 ? '' : 's'}`}
+                </span>
+                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              className="max-h-80 w-[var(--radix-dropdown-menu-trigger-width)] overflow-y-auto"
+            >
+              {bookings.map((booking) => (
+                <DropdownMenuItem
+                  key={booking.id}
+                  onSelect={() => setSelectedId(booking.id)}
+                  className="flex items-center gap-2"
+                >
+                  <span className="flex shrink-0 items-baseline gap-1">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">
+                      Booking
+                    </span>
+                    <span className="font-mono text-xs">{booking.reference}</span>
+                  </span>
+                  {booking.containerNumber && (
+                    <span className="truncate font-mono text-[11px] text-muted-foreground">
+                      {booking.containerNumber}
+                    </span>
+                  )}
+                  <Badge
+                    variant="subtle"
+                    intent={badgeIntentOf(booking.status)}
+                    size="sm"
+                    className="ml-auto shrink-0"
+                  >
+                    {displayShipmentStatus(booking.status)}
+                  </Badge>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button variant="outline" size="sm" leadingIcon={<Printer />} onClick={print}>
+            Download PDF
+          </Button>
+        </div>
+      </div>
 
       {isLoading || !detail ? (
         <div className="space-y-3">

@@ -165,6 +165,15 @@
   --color-chart-step-4: var(--chart-step-4);
   --color-chart-step-5: var(--chart-step-5);
 
+  --color-journey-1: var(--journey-1);
+  --color-journey-2: var(--journey-2);
+  --color-journey-3: var(--journey-3);
+  --color-journey-4: var(--journey-4);
+  --color-journey-5: var(--journey-5);
+  --color-journey-6: var(--journey-6);
+  --color-journey-7: var(--journey-7);
+  --color-journey-foreground: var(--journey-foreground);
+
   --color-chart-grid: var(--chart-grid);
   --color-chart-axis: var(--chart-axis);
 

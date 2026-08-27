@@ -32,7 +32,7 @@ import {
 } from '@/design-system';
 import { ROUTES } from '@/config/routes';
 import { BOOKING_LADDER } from '@/features/bookings/api/bookingsService';
-import { SHIPMENT_STEPS, displayShipmentStatus, statusIntentOf, stepRungFor } from '@/lib/shipmentStatus';
+import { displayShipmentStatus, shipmentStepsFor, statusIntentOf, stepRungFor } from '@/lib/shipmentStatus';
 import { useUpdateBooking, useUpdateBookingStatus } from '@/features/bookings/api/queries';
 import { useVehicles } from '@/features/vehicles/api/queries';
 import { useDrivers } from '@/features/drivers/api/queries';
@@ -265,20 +265,30 @@ export function BookingPreviewSheet({
   /**
    * The ladder this particular booking walks.
    *
-   * A bulk or machinery load has no box, so "Empty Ready" is not a moment in
-   * its life at all — the rung is dropped rather than offered and refused, and
-   * the backend's forced `Completed` edge carries it straight over the gap.
+   * A bulk or machinery load has no box, so neither empty-return rung is a
+   * moment in its life: there is nothing to strip and nothing to collect. Such
+   * a load runs to `POD Submitted` and then closes, which the backend allows
+   * directly — `Completed` is one of its two always-reachable edges.
+   *
+   * Dropping only `Empty Ready` here, as this did, left the picker offering
+   * "Empty Picked Up" to a booking with no box — and produced the one path the
+   * backend cannot honour. `ladderPathTo` walks *every* rung between here and
+   * the target, so a boxless booking at `POD Submitted` asked for the edge
+   * `POD Submitted → Empty Picked Up`, which is not in the backend's chain
+   * (`POD Submitted → Empty Ready → Empty Picked Up → Completed`) and was
+   * refused. The forced `Completed` edge the old comment relied on was never
+   * reached, because the walk never got that far.
    */
+  const EMPTY_RETURN_RUNGS = ['Empty Ready', 'Empty Picked Up'];
   const ladder = booking.containerNumber
     ? BOOKING_LADDER
-    : BOOKING_LADDER.filter((status) => status !== 'Empty Ready');
+    : BOOKING_LADDER.filter((status) => !EMPTY_RETURN_RUNGS.includes(status));
 
-  /* What the operator picks between: the six steps, minus the empty-return one
-     for a load that has no box. The full ladder above is still what gets
-     walked — these are just the rungs worth naming. */
-  const steps = SHIPMENT_STEPS.filter(
-    (step) => booking.containerNumber || step.rung !== 'Empty Ready',
-  );
+  /* What the operator picks between. A bulk load gets its own three rungs —
+     Created, Picked Up, Delivered — where Delivered *is* the end of the job;
+     see `BULK_SHIPMENT_STEPS`. The rungs in between are still walked and still
+     stamped, so the reports keep a real delivery time. */
+  const steps = shipmentStepsFor(Boolean(booking.containerNumber));
   /* The step the booking currently sits under, so a booking at "At Pickup"
      shows "Picked Up" selected rather than an empty field. */
   const currentStep = stepRungFor(booking.status);
@@ -391,8 +401,13 @@ export function BookingPreviewSheet({
     void applyStatus(target, occurredAt.toISOString());
   };
 
-  /** What the dialog is asking about, in the operator's own vocabulary. */
-  const pendingStepLabel = pendingStatus ? displayShipmentStatus(pendingStatus.target) : '';
+  /** What the dialog is asking about, in the operator's own vocabulary — the
+      picker's own label, so a boxless load is asked about "Completed" rather
+      than about an empty that was never on the truck. */
+  const pendingStepLabel = pendingStatus
+    ? (steps.find((step) => step.rung === pendingStatus.target)?.label ??
+      displayShipmentStatus(pendingStatus.target))
+    : '';
 
   /**
    * Closing a booking without delivering it. Off the ladder and out of the
@@ -841,14 +856,18 @@ export function BookingPreviewSheet({
               (a matched cycle, or a standalone flag) and only ever
               displayed here, never used to gate the status above. */}
           {booking.emptyReturnStage && (() => {
-            // The cycle itself has no separate status field to flip — it mirrors
-            // whatever real booking is carrying the return load. Jumping to the
-            // cycle's own detail (Cycles & Chains) surfaces the actual "Advance
-            // to X" action against that booking; there's nothing to change here.
+            // The cycle has no separate status to flip — it mirrors whichever
+            // real booking is carrying the return load. `focusRecord` narrows
+            // Empty Container Management's queue to this container and opens its
+            // dialog, which is where the pairing, the margin and the activity
+            // trail actually live; there is nothing to change from here.
             const openCycle = booking.emptyReturnCycleReference
               ? () => {
-                  focusEmptyReturnRecord(booking.emptyReturnCycleReference as string, booking.emptyReturnCycleReference as string);
-                  navigate(ROUTES.emptyReturnsCycles);
+                  focusEmptyReturnRecord(
+                    booking.emptyReturnCycleReference as string,
+                    booking.emptyReturnCycleReference as string,
+                  );
+                  navigate(ROUTES.emptyReturns);
                 }
               : undefined;
 
@@ -874,14 +893,17 @@ export function BookingPreviewSheet({
                 tint: 'amber',
                 label: 'Awaiting match',
                 description: `${booking.containerNumber ?? 'This container'} has no full load matched yet.`,
-                action: { label: 'Open matching', onClick: () => navigate(`${ROUTES.emptyReturns}?createMatch=1`) },
+                action: {
+                  label: 'Find a full load',
+                  onClick: () => navigate(ROUTES.emptyReturnsMatching),
+                },
               },
               matched: {
                 icon: RotateCcw,
                 tint: 'blue',
                 label: 'In progress',
                 description: 'Matched to a full load, heading back to the depot.',
-                action: openCycle ? { label: 'View cycle', onClick: openCycle } : undefined,
+                action: openCycle ? { label: 'Open the container', onClick: openCycle } : undefined,
               },
               returned: {
                 icon: CheckCircle2,
@@ -1043,7 +1065,17 @@ export function BookingPreviewSheet({
           <div className="absolute inset-0 z-modal flex items-center justify-center bg-overlay/70 p-4 backdrop-blur-[2px]">
             <Card className="w-full max-w-xs space-y-3 rounded-lg border border-border bg-card p-4 shadow-lg">
               <div className="flex items-start gap-3">
-                <IconChip icon={pendingStatus.target.startsWith('Empty') || pendingStatus.target === 'Completed' ? Package : Clock} size={36} />
+                <IconChip
+                  icon={
+                    pendingStatus.target === 'Completed' && !booking.containerNumber
+                      ? CheckCircle2
+                      : pendingStatus.target.startsWith('Empty') ||
+                          pendingStatus.target === 'Completed'
+                        ? Package
+                        : Clock
+                  }
+                  size={36}
+                />
                 <div className="min-w-0">
                   <p className="text-sm font-bold text-foreground">
                     When did &ldquo;{pendingStepLabel}&rdquo; happen?
@@ -1052,7 +1084,9 @@ export function BookingPreviewSheet({
                     {pendingStatus.target === 'Empty Ready'
                       ? `${booking.containerNumber ?? 'This container'} enters the empty return from this moment, and detention is counted from it.`
                       : pendingStatus.target === 'Completed'
-                        ? `${booking.containerNumber ?? 'This container'} is back at the depot from this moment — it closes the empty return and the booking.`
+                        ? booking.containerNumber
+                          ? `${booking.containerNumber} is back at the depot from this moment — it closes the empty return and the booking.`
+                          : 'Bulk cargo is finished when it is delivered — there is no empty to bring back, so this closes the booking.'
                         : 'Recorded against the booking and used for every duration in its report.'}
                   </p>
                 </div>
@@ -1094,7 +1128,9 @@ export function BookingPreviewSheet({
                   {pendingStatus.target === 'Empty Ready'
                     ? 'Start empty return'
                     : pendingStatus.target === 'Completed'
-                      ? 'Confirm returned'
+                      ? booking.containerNumber
+                        ? 'Confirm returned'
+                        : 'Confirm delivered'
                       : 'Save'}
                 </Button>
               </div>
