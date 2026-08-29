@@ -274,9 +274,14 @@ export type SuggestionLabel = 'RECOMMENDED' | 'ALTERNATIVE' | 'LAST OPTION';
 export interface PairingSuggestion {
   record: EmptyReturnRecord;
   load: FullLoadMission;
-  /** Margin between the full load's pickup and the empty's return deadline. */
+  /**
+   * Margin between the full load's pickup and the empty's return deadline.
+   * **Negative** when the pickup currently falls after the deadline — that is a
+   * pairing the operator can still take by moving the appointment, and the
+   * figure is how much earlier it has to move. Zero when no deadline is known.
+   */
   marginMs: number;
-  /** Under six hours of margin — viable, but it is the last option, not the first. */
+  /** Under six hours of positive margin — viable, but the last option, not the first. */
   tight: boolean;
   /** 45–98. Displayed as "Match {n}%". */
   score: number;
@@ -284,6 +289,27 @@ export interface PairingSuggestion {
   reasons: string[];
   /** Same location, so no repositioning leg at all. */
   sameLocation: boolean;
+  /** What the operator must arrange to make this pairing real. Empty means nothing. */
+  frictions: PairingFriction[];
+}
+
+/**
+ * Something that stands between a pairing and the yard — but that a dispatcher
+ * can arrange, unlike a different transporter or a 20′ box under a 40′ booking.
+ *
+ * These used to be hard vetoes, and on real data they refused *every* pairing in
+ * the book: the four Djibouti ports are genuinely different places, so requiring
+ * the return depot and the pickup hub to be one zone rejected all 92 pairs that
+ * already agreed on transporter and size. Driving between two ports is a cost,
+ * not an impossibility, and so is moving a pickup appointment — so they became
+ * priced frictions the screen names, instead of silent refusals.
+ */
+export interface PairingFriction {
+  kind: 'reposition' | 'reschedule' | 'no-deadline';
+  /** Chip text. Short enough to sit on a card. */
+  label: string;
+  /** The sentence that says what has to be arranged. */
+  detail: string;
 }
 
 /** A load that cannot take this container, with the reasons spelled out. */

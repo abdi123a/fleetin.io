@@ -27,6 +27,15 @@ const badgeVariants = cva(
         blue: 'bg-info text-info-foreground border-b border-r border-info-strong/20',
         /** Neutral — de-emphasised tag */
         neutral: 'bg-secondary text-secondary-foreground border-b border-r border-border',
+        /**
+         * Ink — a container that is home and a job that is closed.
+         *
+         * The container scale's third state (`--container-returned`), so a
+         * finished booking's tab is the same mark as its tag. Not `neutral`:
+         * that is a de-emphasised grey, and a finished booking washed out
+         * against a white card until you could not tell it from an unstyled one.
+         */
+        ink: 'bg-container-returned text-container-returned-foreground border-b border-r border-container-returned-border',
         /** Purple — premium / special route tag */
         purple: 'bg-chart-5 text-white border-b border-r border-chart-5/30',
       },

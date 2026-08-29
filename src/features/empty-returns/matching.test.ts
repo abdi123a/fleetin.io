@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { incompatibilityReasons, zoneOf } from '@/features/empty-returns/matching';
+import {
+  frictionsFor,
+  incompatibilityReasons,
+  suggestLoadsFor,
+  zoneOf,
+} from '@/features/empty-returns/matching';
 import { shipmentStepsFor } from '@/lib/shipmentStatus';
 import type { EmptyReturnRecord, FullLoadMission } from '@/types/emptyReturn';
 
@@ -31,26 +36,38 @@ const load = (over: Partial<FullLoadMission> = {}) =>
     ...over,
   }) as FullLoadMission;
 
+/* The v19 gates, adopted 2026-08-29 — same line, same size, pickup inside the
+   deadline. This REPLACES the 2026-08-27 rule (same transporter, line never
+   vetoes); both cannot hold, and the newer decision is the user's. These tests
+   are the mirror of `empty-return-matching.util.spec.ts` in the backend, which
+   now serves the same engine — they must not be allowed to drift. */
 describe('compatibility gates', () => {
-  it('accepts a pairing that matches on transporter, size and zone', () => {
+  it('accepts a pairing that matches on line, size and beats the deadline', () => {
     expect(incompatibilityReasons(record(), load(), NOW)).toEqual([]);
   });
 
-  /* The user's rule, 2026-08-27: what the box is booked under is the shipper's
-     problem, not the carrier's. */
-  it('does not care that the shipping lines differ', () => {
+  it('refuses a different shipping line — the line owns the equipment', () => {
     const issues = incompatibilityReasons(record({ line: 'MSC' }), load({ line: 'CMA CGM' }), NOW);
-    expect(issues).toEqual([]);
+    expect(issues.join(' ')).toContain('Different shipping line');
   });
 
-  it('refuses a different transporter — two carriers cannot share one trip', () => {
-    const issues = incompatibilityReasons(record(), load({ transporter: 'Nagad Transit SARL' }), NOW);
-    expect(issues).toContain('Different transporter');
+  it('no longer cares who the transporter is — dispatch can re-assign a truck', () => {
+    expect(
+      incompatibilityReasons(record(), load({ transporter: 'Nagad Transit SARL' }), NOW),
+    ).toEqual([]);
+    expect(incompatibilityReasons(record(), load({ transporter: null }), NOW)).toEqual([]);
   });
 
-  it('refuses a load with no transporter yet', () => {
-    const issues = incompatibilityReasons(record(), load({ transporter: null }), NOW);
-    expect(issues).toContain('Load has no transporter assigned yet');
+  it('refuses a pickup that lands after the return deadline', () => {
+    const issues = incompatibilityReasons(record({ deadline: NOW + HOUR }), load(), NOW);
+    expect(issues.join(' ')).toContain('after this container');
+  });
+
+  /* An open booking routinely sits past its own slot because nobody has driven
+     it yet. v19's literal rule refused those and emptied the live pool
+     completely on 2026-08-29, so a stale slot is re-based to now instead. */
+  it('keeps a load whose slot has already passed', () => {
+    expect(incompatibilityReasons(record(), load({ pickupAt: NOW - 12 * HOUR }), NOW)).toEqual([]);
   });
 
   it('refuses a different container size', () => {
@@ -59,24 +76,99 @@ describe('compatibility gates', () => {
     );
   });
 
-  it('refuses a different zone', () => {
+  /* The regression that made the location handling worth a test: the depot and
+     the hub are the same place under two names, and comparing the raw strings
+     called them different ports. */
+  it('reads a depot and a hub that name one zone differently as the same port', () => {
     expect(
-      incompatibilityReasons(record({ returnDepot: 'Damerjog Depot' }), load(), NOW),
-    ).toContain('Different port / free zone');
-  });
-
-  /* The regression that made the location gate worth writing a test for: the
-     depot and the hub are the same place under two names, and comparing the
-     raw strings rejected every pair in the book. */
-  it('accepts a depot and a hub that name one zone differently', () => {
-    expect(
-      incompatibilityReasons(record({ returnDepot: 'Doraleh Depot' }), load({ pickupHub: 'DCT Doraleh', locationId: 'DCT Doraleh' }), NOW),
+      frictionsFor(
+        record({ returnDepot: 'Doraleh Depot' }),
+        load({ pickupHub: 'DCT Doraleh', locationId: 'DCT Doraleh' }),
+        NOW,
+      ),
     ).toEqual([]);
   });
+});
 
-  it('refuses a pickup after the deadline', () => {
-    const issues = incompatibilityReasons(record({ deadline: NOW + HOUR }), load(), NOW);
-    expect(issues).toContain('Pickup falls after the return deadline');
+/* The 2026-08-27 rule: only what a dispatcher *cannot* arrange may veto a
+   pairing. These two used to be hard gates, and between them they refused all
+   920 candidate pairs in the real book — including the 92 that already agreed
+   on transporter and size. */
+describe('arrangeable frictions', () => {
+  it('allows a different port, and names the leg between the two', () => {
+    const empty = record({ returnDepot: 'Damerjog Depot' });
+    expect(incompatibilityReasons(empty, load(), NOW)).toEqual([]);
+
+    const frictions = frictionsFor(empty, load(), NOW);
+    expect(frictions.map((f) => f.kind)).toEqual(['reposition']);
+    expect(frictions[0].detail).toContain('Damerjog Depot');
+    expect(frictions[0].detail).toContain('SGTD');
+  });
+
+  /* Promoted from friction to GATE on 2026-08-29. v19 will not offer a pairing
+     whose pickup lands after the deadline at all — the whole point of pairing
+     is beating that clock, so a pair that cannot is not a cheaper option, it is
+     not an option. The friction it used to produce is gone with it. */
+  it('refuses a pickup after the deadline outright — no longer a friction', () => {
+    const empty = record({ deadline: NOW + HOUR });
+    expect(incompatibilityReasons(empty, load(), NOW)).not.toEqual([]);
+    expect(suggestLoadsFor({ ...empty, stage: 'empty' } as EmptyReturnRecord, [load()], NOW)).toEqual([]);
+  });
+
+  it('allows a container with no deadline, flagged as unknown margin', () => {
+    const empty = record({ deadline: null });
+    expect(incompatibilityReasons(empty, load(), NOW)).toEqual([]);
+    expect(frictionsFor(empty, load(), NOW).map((f) => f.kind)).toEqual(['no-deadline']);
+  });
+
+  it('still refuses the two things nobody can arrange', () => {
+    expect(incompatibilityReasons(record(), load({ line: 'CMA CGM' }), NOW).join(' ')).toContain(
+      'Different shipping line',
+    );
+    expect(incompatibilityReasons(record(), load({ size: "20'" }), NOW)).toEqual([
+      'Different container size',
+    ]);
+  });
+});
+
+describe('ranking with frictions', () => {
+  it('puts the pairing at the same port first, and never headlines a tight one', () => {
+    const clean = load({ pickupHub: 'SGTD', locationId: 'SGTD', pickupAt: NOW + 4 * HOUR });
+    /* Same line and size so it is legal, but the box has to be trucked between
+       two ports first — a real cost, priced, and never the headline. */
+    const needsLeg = load({
+      pickupHub: 'Damerjog Depot',
+      locationId: 'Damerjog Depot',
+      pickupAt: NOW + 6 * HOUR,
+    });
+    /* Deliberately offered worst-first, so a passing test means the sort ran. */
+    const ranked = suggestLoadsFor(
+      record({ stage: 'empty' } as Partial<EmptyReturnRecord>),
+      [needsLeg, clean],
+      NOW,
+    );
+
+    expect(ranked).toHaveLength(2);
+    expect(ranked[0].load).toBe(clean);
+    expect(ranked[0].frictions).toEqual([]);
+    expect(ranked[0].label).toBe('RECOMMENDED');
+    expect(ranked[1].frictions.map((f) => f.kind)).toContain('reposition');
+  });
+
+  /* Margin can no longer go negative: a pickup past the deadline is refused by
+     the gate before it is ever scored. What survives is the TIGHT band — a
+     positive but small margin, which is a real option somebody may have to
+     take and so is offered, labelled the last resort. */
+  it('marks a small positive margin tight and never recommends it', () => {
+    const tight = load({ pickupHub: 'SGTD', locationId: 'SGTD', pickupAt: NOW + 45 * HOUR });
+    const [only] = suggestLoadsFor(
+      record({ stage: 'empty' } as Partial<EmptyReturnRecord>),
+      [tight],
+      NOW,
+    );
+    expect(only.marginMs).toBeGreaterThan(0);
+    expect(only.tight).toBe(true);
+    expect(only.label).toBe('LAST OPTION');
   });
 });
 

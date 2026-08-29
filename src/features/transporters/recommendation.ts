@@ -29,14 +29,32 @@ import type { PartnerRecord } from '@/types/partner';
 /** How the hundred points are split. Named, because this is the argument. */
 export const RECOMMENDATION_WEIGHTS = {
   /** Empties this shipment could actually pair away. The whole point. */
-  empties: 50,
-  /** Of those, the ones whose return deadline this pickup genuinely beats. */
-  urgency: 20,
+  empties: 40,
+  /**
+   * Already booked to run an empty back around this pickup.
+   *
+   * Read straight off the Empty Return calendar. A carrier with a return
+   * scheduled that week is going to be at the depot anyway, so this load costs
+   * them a detour rather than a trip — a different saving from pairing, and one
+   * that survives even when no box of theirs suits this shipment.
+   */
+  scheduled: 20,
+  /** Of the pairable empties, those whose deadline this pickup genuinely beats. */
+  urgency: 15,
   /** Trucks. A carrier who cannot field them is not an answer. */
-  fleet: 20,
+  fleet: 15,
   /** Price, relative to the others in the running. */
   price: 10,
 } as const;
+
+/**
+ * How close a scheduled return has to be to count as "the same trip".
+ *
+ * Two days either side of the pickup. Tighter and a return planned for the
+ * morning after stops counting; looser and every carrier with anything on the
+ * calendar that week scores, which is the same as nobody scoring.
+ */
+export const SCHEDULED_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
 
 /**
  * A deadline this close is worth beating.
@@ -85,14 +103,17 @@ export interface TransporterScore {
   score: number;
   /** Compatible empties this carrier is holding. */
   emptiesHeld: number;
+  /** Empty returns already on their calendar within the pickup window. */
+  scheduledReturns: number;
   /** How many of them this shipment has the vehicles to take. */
   pairable: number;
   /** Of the pairable ones, those whose deadline falls inside the watch window. */
   urgent: number;
   vehicles: number;
+  /** False when this carrier cannot field every truck the shipment needs. */
+  coversFleet: boolean;
+  vehiclesNeeded: number;
   ratePerVehicle: number;
-  /** Short phrases the panel prints under the score, in order of weight. */
-  reasons: string[];
 }
 
 export interface RecommendationInput {
@@ -108,6 +129,14 @@ export interface RecommendationInput {
   rateOf: (partner: PartnerRecord) => number;
   /** Container shipments only — bulk and machinery have no box to reuse. */
   considerEmpties: boolean;
+  /**
+   * Empty returns already scheduled near this pickup, by carrier legal name.
+   *
+   * Keyed by name rather than id because the Empty Return record carries the
+   * carrier as the company name it was delivered under, and there is no partner
+   * id on it to join by.
+   */
+  scheduledByName?: ReadonlyMap<string, number>;
 }
 
 export interface RecommendationResult {
@@ -126,6 +155,7 @@ export function recommendTransporters({
   vehiclesNeeded,
   rateOf,
   considerEmpties,
+  scheduledByName,
 }: RecommendationInput): RecommendationResult {
   const needed = Math.max(1, vehiclesNeeded);
 
@@ -150,6 +180,34 @@ export function recommendTransporters({
   const dearest = rates.length > 0 ? Math.max(...rates) : 0;
   const spread = dearest - cheapest;
 
+  /**
+   * The most any carrier could score on THIS shipment.
+   *
+   * Fleet and price are always in play. The three empty-container dimensions
+   * are only winnable if some carrier actually holds a compatible box or has a
+   * return already booked — otherwise they are dead weight that drags every
+   * score down equally and tells the reader nothing.
+   *
+   * Dropping them from the denominator is what makes the percentage mean
+   * "how good is this carrier among the ones available", which is the question
+   * the panel is actually answering.
+   */
+  /** The biggest fleet on offer — the yardstick headroom is scored against. */
+  const largestFleet = partners.reduce((max, p) => Math.max(max, p.vehicles?.length ?? 0), 0);
+
+  const anyEmpties = [...emptiesByPartner.values()].some((held) => held.total > 0);
+  const anyScheduled = considerEmpties
+    ? partners.some(
+        (partner) =>
+          (scheduledByName?.get(partner.companyLegalName.trim().toLowerCase()) ?? 0) > 0,
+      )
+    : false;
+  const achievable =
+    RECOMMENDATION_WEIGHTS.fleet +
+    RECOMMENDATION_WEIGHTS.price +
+    (anyEmpties ? RECOMMENDATION_WEIGHTS.empties + RECOMMENDATION_WEIGHTS.urgency : 0) +
+    (anyScheduled ? RECOMMENDATION_WEIGHTS.scheduled : 0);
+
   const ranked = partners
     .map((partner): TransporterScore => {
       const held = emptiesByPartner.get(partner.id) ?? { total: 0, urgent: 0 };
@@ -160,40 +218,70 @@ export function recommendTransporters({
       const vehicles = partner.vehicles?.length ?? 0;
       const rate = rateOf(partner);
 
+      /* Straight off their Empty Return calendar. One scheduled return in the
+         window earns most of the weight — they are already going — and a second
+         earns the rest; beyond that it is the same trip either way. */
+      const scheduledReturns = considerEmpties
+        ? (scheduledByName?.get(partner.companyLegalName.trim().toLowerCase()) ?? 0)
+        : 0;
+      const scheduledPts =
+        Math.min(scheduledReturns, 2) / 2 * RECOMMENDATION_WEIGHTS.scheduled;
+
       const emptiesPts = (pairable / needed) * RECOMMENDATION_WEIGHTS.empties;
       const urgencyPts =
         pairable > 0 ? (urgent / pairable) * RECOMMENDATION_WEIGHTS.urgency : 0;
-      const fleetPts = (Math.min(vehicles, needed) / needed) * RECOMMENDATION_WEIGHTS.fleet;
+
+      /* Fleet is two parts, not one.
+       *
+       * It used to be `min(vehicles, needed) / needed`, which awards full marks
+       * to anyone who merely meets the minimum — so on a one-truck shipment a
+       * carrier with 8 vehicles and one with 10 scored identically, and the
+       * whole list tied. Covering the job is most of it, but headroom is a real
+       * signal: the carrier with spare trucks is the one who still delivers
+       * when a vehicle breaks down. Capped at 3× the need, beyond which more
+       * trucks tell you nothing about today. */
+      const coverage = Math.min(vehicles, needed) / needed;
+      /* Headroom is measured against the biggest fleet in the running, not
+         against a multiple of the need. A fixed multiple saturates: on a
+         one-truck job anything with 3+ vehicles maxed out, so 8 trucks and 10
+         trucks tied again and the sort fell back to input order. Relative to
+         the field, the answer is always "who has the most spare capacity of
+         the carriers you are actually choosing between". */
+      const headroom =
+        largestFleet > needed
+          ? Math.min(Math.max(vehicles - needed, 0) / (largestFleet - needed), 1)
+          : 0;
+      const fleetPts = (coverage * 0.75 + headroom * 0.25) * RECOMMENDATION_WEIGHTS.fleet;
+
       const pricePts =
         rate <= 0 || spread <= 0
           ? RECOMMENDATION_WEIGHTS.price
           : (1 - (rate - cheapest) / spread) * RECOMMENDATION_WEIGHTS.price;
 
-      const reasons: string[] = [];
-      if (held.total > 0) {
-        reasons.push(`${held.total} empty${held.total === 1 ? '' : ' boxes'} waiting`);
-      }
-      if (urgent > 0) {
-        reasons.push(`${urgent} due back within 3 days`);
-      }
-      reasons.push(
-        vehicles >= needed
-          ? `${vehicles} vehicles — covers all ${needed}`
-          : `${vehicles} vehicle${vehicles === 1 ? '' : 's'} of ${needed} needed`,
-      );
-      if (rate > 0) reasons.push(`${rate.toLocaleString()} FDJ per vehicle`);
-
+      /* Figures, not sentences. Composing the phrases here meant the panel read
+         them back positionally — and on a carrier with boxes but none urgent,
+         the fleet count landed in the slot reserved for the urgency line and
+         was printed as if it were one. */
       return {
         partnerId: partner.id,
         name: partner.companyLegalName,
         logoUrl: partner.logoUrl,
-        score: Math.round(emptiesPts + urgencyPts + fleetPts + pricePts),
+        /* Scored against what is WINNABLE here, not against a fixed 100.
+           See `achievable` below: when nobody is holding a box, those 75
+           points cannot be earned by anyone and dividing by them printed 25%
+           beside every carrier — a number that reads as "all of these are
+           bad" when it actually meant "this dimension does not apply today". */
+        score: Math.round(
+          ((emptiesPts + scheduledPts + urgencyPts + fleetPts + pricePts) / achievable) * 100,
+        ),
         emptiesHeld: held.total,
+        scheduledReturns,
         pairable,
         urgent,
         vehicles,
+        coversFleet: vehicles >= needed,
+        vehiclesNeeded: needed,
         ratePerVehicle: rate,
-        reasons,
       };
     })
     /* Score first; ties go to the carrier holding more boxes, then the cheaper
@@ -202,6 +290,7 @@ export function recommendTransporters({
       (a, b) =>
         b.score - a.score ||
         b.emptiesHeld - a.emptiesHeld ||
+        b.scheduledReturns - a.scheduledReturns ||
         a.ratePerVehicle - b.ratePerVehicle,
     );
 

@@ -13,6 +13,11 @@ import { useBooking } from '@/features/bookings/api/queries';
 import type { BookingRecord } from '@/features/bookings/api/bookingsService';
 import type { EmptyReturnCycleRecord } from '@/features/empty-returns/api/emptyReturnsService';
 import { displayShipmentStatus, statusIntentOf } from '@/lib/shipmentStatus';
+import {
+  CONTAINER_STATE_BADGE_CLASS,
+  CONTAINER_STATE_BADGE_INTENT,
+  containerStateOf,
+} from '@/lib/containerState';
 import { cn, formatDate } from '@/utils';
 import { MissionReportView } from './MissionReportView';
 import { computeMissionReport } from './missionReport';
@@ -49,8 +54,21 @@ export interface ShipmentReportPanelProps {
   className?: string;
 }
 
-const badgeIntentOf = (status: string) => {
-  switch (statusIntentOf(status)) {
+/**
+ * Every row here is one container, so it takes the app-wide container pair —
+ * teal while the box is full, brand yellow once it is empty. The same chip on
+ * the booking card above this panel says the same thing in the same colour.
+ */
+/** The ink classes a finished container's chip needs — no `Badge` intent carries them. */
+const badgeClassOf = (booking: { status: string; containerNumber?: string | null }) => {
+  const state = containerStateOf(booking.status, Boolean(booking.containerNumber));
+  return state ? CONTAINER_STATE_BADGE_CLASS[state] : '';
+};
+
+const badgeIntentOf = (booking: { status: string; containerNumber?: string | null }) => {
+  const state = containerStateOf(booking.status, Boolean(booking.containerNumber));
+  if (state) return CONTAINER_STATE_BADGE_INTENT[state];
+  switch (statusIntentOf(booking.status)) {
     case 'green':
       return 'success' as const;
     case 'blue':
@@ -131,7 +149,7 @@ export function ShipmentReportPanel({
                   </span>
                 )}
                 {selected && (
-                  <Badge variant="subtle" intent={badgeIntentOf(selected.status)} size="sm">
+                  <Badge variant="subtle" intent={badgeIntentOf(selected)} size="sm" className={badgeClassOf(selected)}>
                     {displayShipmentStatus(selected.status)}
                   </Badge>
                 )}
@@ -166,9 +184,9 @@ export function ShipmentReportPanel({
                   )}
                   <Badge
                     variant="subtle"
-                    intent={badgeIntentOf(booking.status)}
+                    intent={badgeIntentOf(booking)}
                     size="sm"
-                    className="ml-auto shrink-0"
+                    className={`ml-auto shrink-0 ${badgeClassOf(booking)}`}
                   >
                     {displayShipmentStatus(booking.status)}
                   </Badge>

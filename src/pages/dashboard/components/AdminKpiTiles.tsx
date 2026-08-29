@@ -175,10 +175,7 @@ export function AdminKpiTiles({ model, className }: { model: AdminConsoleModel; 
       icon: <AlertTriangle className="size-3.5" aria-hidden />,
       tone: breaches > 0 ? 'alarm' : 'quiet',
       value: String(breaches),
-      description:
-        breaches > 0
-          ? 'deadlines, documents and payments'
-          : 'nothing overdue',
+      description: breaches > 0 ? 'to clear today' : 'nothing overdue',
       to: ROUTES.shipmentsList,
     },
   ];

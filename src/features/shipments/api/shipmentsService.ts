@@ -110,6 +110,17 @@ export interface ShipmentRecord {
    */
   bookingCount?: number;
 
+  /**
+   * Every carrier working this shipment, deduped, in booking order.
+   *
+   * The `partnerId` / `transporterCompany` fields above are a snapshot taken
+   * when the shipment was created; the carrier is really assigned per booking,
+   * so a job split between two hauliers has two of these and the snapshot names
+   * only one — sometimes not even one that is still on the job. Counted
+   * server-side on the list and detail responses alike.
+   */
+  transporters?: { id: string; name: string }[];
+
   /** Only populated on the detail response (`GET /shipments/:id`) — list rows omit it for efficiency. */
   timeline?: ShipmentTimelineStepRecord[];
 }
@@ -158,6 +169,12 @@ export function mapShipmentToMission(s: ShipmentRecord): Mission {
       fleetCode: s.transporterFleetCode,
       rating: s.transporterRating,
     },
+    /* Falls back to the snapshot for a payload that predates the field — a
+       cached response, or the create/update reply, which returns the shipment
+       before it has any bookings to read carriers from. */
+    transporters:
+      s.transporters ??
+      (s.partnerId ? [{ id: s.partnerId, name: s.transporterCompany }] : []),
     driver: s.driverId
       ? {
           id: s.driverId,

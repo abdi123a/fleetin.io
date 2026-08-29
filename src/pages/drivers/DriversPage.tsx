@@ -493,7 +493,6 @@ export function DriversPage() {
       {/* Page Header */}
       <PageHeader
         title="Drivers"
-        description="Driver roster, licensing and transporter assignments."
         actions={
           <Button
             onClick={() => setIsAddDriverOpen(true)}
@@ -654,7 +653,6 @@ export function DriversPage() {
         <StatisticCard
           title="Total Drivers"
           value={totalDrivers}
-          subtitle="Registered drivers"
           variant="teal"
           trend="up"
           percentage="100%"
@@ -663,7 +661,6 @@ export function DriversPage() {
         <StatisticCard
           title="Available"
           value={availableCount}
-          subtitle="Ready for dispatch"
           variant="blue"
           trend="up"
           percentage={`${Math.round((availableCount / (totalDrivers || 1)) * 100)}%`}
@@ -672,7 +669,6 @@ export function DriversPage() {
         <StatisticCard
           title="In Transit"
           value={inTransitCount}
-          subtitle="On active bookings"
           variant="peach"
           trend="up"
           percentage="+15%"
@@ -681,7 +677,6 @@ export function DriversPage() {
         <StatisticCard
           title="License Alerts"
           value={licenseAlerts}
-          subtitle="Requires attention"
           variant="pink"
           trend={licenseAlerts > 0 ? 'down' : 'neutral'}
           percentage={`${licenseAlerts} alerts`}

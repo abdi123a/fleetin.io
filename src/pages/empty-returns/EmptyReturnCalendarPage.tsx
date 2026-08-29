@@ -51,6 +51,19 @@ import { CompanyName, EmptyTag, FullTag, LocationLine, Mono, RiskBadge } from '.
  * and transporter consoles. This page maps its records into `PlanningEvent[]`
  * and decides what a click means; it does not own a second grid.
  */
+/**
+ * Event types this board deliberately does not draw.
+ *
+ * Removed 2026-08-29 at the user's request. Both are *history* rather than
+ * plan: a pairing that has been confirmed needs nothing further from anyone,
+ * and a returned box is finished work. On a calendar — which exists to answer
+ * "what happens next" — they were the two loudest chips on the strip (11
+ * returned against 7 actually-open containers) and buried the events that still
+ * need a decision. Their history is still on the container's own dialog and in
+ * Cycles; it is only this forward-looking board they are dropped from.
+ */
+const HIDDEN_EVENT_TYPES: readonly EmptyReturnEvent['type'][] = ['paired', 'returned'];
+
 export function EmptyReturnCalendarPage() {
   const { records, loads, now } = useEmptyContainers();
   const filters = useEmptyReturnStore((state) => state.calendarFilters);
@@ -60,7 +73,10 @@ export function EmptyReturnCalendarPage() {
   const [selected, setSelected] = useState<EmptyReturnEvent | null>(null);
 
   const events = useMemo(
-    () => buildEmptyReturnEvents({ records, loads, now, filters }),
+    () =>
+      buildEmptyReturnEvents({ records, loads, now, filters }).filter(
+        (event) => !HIDDEN_EVENT_TYPES.includes(event.type),
+      ),
     [records, loads, now, filters],
   );
 
@@ -139,7 +155,7 @@ export function EmptyReturnCalendarPage() {
             Next 24h
           </span>
           <span className="shrink-0">
-            <Mono className="font-bold text-info-subtle-foreground">{next24.available}</Mono> empty
+            <Mono className="font-bold text-container-empty-subtle-foreground">{next24.available}</Mono> empty
           </span>
           <span className="shrink-0">
             <Mono className="font-bold text-primary">{next24.pickups}</Mono> pickup
@@ -163,7 +179,9 @@ export function EmptyReturnCalendarPage() {
               }
               options={[
                 { value: 'all', label: 'All events' },
-                ...EMPTY_RETURN_EVENT_ORDER.map((type) => ({
+                ...EMPTY_RETURN_EVENT_ORDER.filter(
+                  (type) => !HIDDEN_EVENT_TYPES.includes(type),
+                ).map((type) => ({
                   value: type,
                   label: EMPTY_RETURN_EVENT_META[type].label,
                 })),
@@ -209,14 +227,17 @@ export function EmptyReturnCalendarPage() {
         <PlanningCalendar
           events={planningEvents}
           now={now}
-          defaultView="week"
+          defaultView="month"
           unitLabel={{ one: 'event', many: 'events' }}
+          /* v19's event map, one chip per kind of thing that happens to a box.
+             The board is read by WHAT the event is, not by how urgent it is —
+             urgency stays a small badge, and the Control Tower is where it is
+             actually acted on. */
           legend={[
+            { tone: 'empty', label: 'Empty available' },
+            { tone: 'full', label: 'Full load pickup' },
+            { tone: 'returning', label: 'Empty return' },
             { tone: 'late', label: 'Deadline passed' },
-            { tone: 'soon', label: 'Deadline ahead' },
-            { tone: 'locked', label: 'Paired' },
-            { tone: 'planned', label: 'Waiting on a decision' },
-            { tone: 'done', label: 'Returned' },
           ]}
           onSelectEvent={(event) => setSelected(byKey.get(event.id) ?? null)}
         />
@@ -226,7 +247,7 @@ export function EmptyReturnCalendarPage() {
           title — a legend that takes four lines competes with the board it is
           meant to annotate. */}
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-muted-foreground">
-        {EMPTY_RETURN_EVENT_ORDER.map((type) => {
+        {EMPTY_RETURN_EVENT_ORDER.filter((type) => !HIDDEN_EVENT_TYPES.includes(type)).map((type) => {
           const meta = EMPTY_RETURN_EVENT_META[type];
           const Icon = meta.icon;
           return (
@@ -261,28 +282,34 @@ export function EmptyReturnCalendarPage() {
  * ------------------------------------------------------------------------- */
 
 /**
- * Tone is the *clock*, the icon is the *thing*.
+ * Tone is the *event*, the icon is the *thing*.
  *
- * The shared grid's five tones are all about time — passed, ahead, committed,
- * waiting, done — so a deadline that has blown reads red whatever kind of
- * container it belongs to, and a pairing reads as committed work whatever its
- * urgency. What sort of event it is rides in the glyph instead, which is the
- * one channel the grid had spare.
+ * Three rules have stood here. It began as the clock (passed/ahead/committed/
+ * waiting/done) — five tones grading urgency on a page whose own job is only to
+ * monitor. It briefly became the container's state (full/empty/returned), which
+ * was truer but collapsed five genuinely different happenings into three.
+ *
+ * v19 settles it: colour says WHAT the event is — a box becoming available, a
+ * full load being collected, a pairing, a return going out, a box home, a
+ * deadline blown. Urgency stays a small separate badge, because a board where
+ * every card is graded by risk reads as one long alarm and stops meaning
+ * anything. `deadline` is the one exception that keeps a clock colour, since a
+ * deadline that has already passed IS the event.
  */
 function toPlanningEvent(event: EmptyReturnEvent): PlanningEvent {
   const meta = EMPTY_RETURN_EVENT_META[event.type];
   const tone: PlanningEvent['tone'] =
     event.type === 'returned'
-      ? 'done'
-      : event.type === 'paired'
-        ? 'locked'
-        : event.type === 'deadline'
-          ? event.overdue
-            ? 'late'
-            : 'soon'
-          : event.type === 'full_pickup'
-            ? 'soon'
-            : 'planned';
+      ? 'returned'
+      : event.type === 'full_pickup'
+        ? 'full'
+        : event.type === 'paired'
+          ? 'paired'
+          : event.type === 'return_planned'
+            ? 'returning'
+            : event.type === 'deadline' && event.overdue
+              ? 'late'
+              : 'empty';
 
   return {
     id: event.key,

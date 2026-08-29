@@ -60,8 +60,32 @@ export interface ShipmentCardProps extends HTMLAttributes<HTMLDivElement> {
   paymentStatus?: string;
   /** Primary status badge label */
   status?: string;
-  /** Primary status badge color intent */
-  statusIntent?: 'orange' | 'green' | 'blue' | 'slate' | 'red';
+  /**
+   * Primary status badge color intent.
+   *
+   * `container-*` is the app-wide container scale (teal while the box is loaded,
+   * brand yellow once it is stripped, grey once it is home) — see
+   * `@/lib/containerState`. A card showing a containerized shipment should use
+   * it rather than the ladder colours, so the same box reads the same here as
+   * it does on the booking cards inside the shipment.
+   */
+  statusIntent?:
+    | 'orange'
+    | 'green'
+    | 'blue'
+    | 'slate'
+    | 'red'
+    | 'container-full'
+    | 'container-empty'
+    | 'container-returned';
+  /**
+   * 0–100, how far through its job this shipment is.
+   *
+   * Given, the card prints the figure under the status chip: the chip names the
+   * stage once and this says how far along it is, instead of a second chip
+   * repeating the same fact in a different vocabulary.
+   */
+  progressPercent?: number;
   /** Corner tab colour — teal for an ordinary card, e.g. `orange` to flag one card as the standout in a list. */
   cornerIntent?: CornerBadgeProps['intent'];
   /** Optional cancel callback */
@@ -112,6 +136,7 @@ export const ShipmentCard = forwardRef<HTMLDivElement, ShipmentCardProps>(
       paymentStatus,
       status = 'Created',
       statusIntent = 'orange',
+      progressPercent,
       cornerIntent = 'teal',
       onCancel,
       clickable = false,
@@ -128,6 +153,9 @@ export const ShipmentCard = forwardRef<HTMLDivElement, ShipmentCardProps>(
       blue: 'bg-info text-white',
       slate: 'bg-secondary text-secondary-foreground',
       red: 'bg-destructive text-destructive-foreground',
+      'container-full': 'bg-container-full text-container-full-foreground',
+      'container-empty': 'bg-container-empty text-container-empty-foreground',
+      'container-returned': 'bg-container-returned text-container-returned-foreground',
     };
 
     const compact = density === 'compact';
@@ -289,6 +317,14 @@ export const ShipmentCard = forwardRef<HTMLDivElement, ShipmentCardProps>(
                   )}
                 >
                   {status}
+                </span>
+              )}
+              {progressPercent !== undefined && (
+                <span
+                  className="text-sm font-extrabold leading-none tabular-nums text-foreground"
+                  title={`${Math.round(progressPercent)}% complete`}
+                >
+                  {Math.round(progressPercent)}%
                 </span>
               )}
               {paymentStatus && (

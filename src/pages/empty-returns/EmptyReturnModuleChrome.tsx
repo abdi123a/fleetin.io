@@ -24,10 +24,10 @@ import { viewForPath } from './components/views';
  * mount and unmount as the operator moves between tabs; the layout does not.
  *
  * **The title.** The app's own `PageHeader`, so this module opens exactly like
- * Shipments and Partners do — same 2xl primary title, same description line,
- * same action slot. The subtitle is the current view's own question, because
- * those questions are the product architecture, not decoration, and printing
- * one keeps each screen honest about its job.
+ * Shipments and Partners do. The subtitle is the current view's name — three
+ * screens share one H1, so something has to say which one is open. It used to
+ * be the view's question; a sentence per screen was a sentence of explanation
+ * the operator had already read once.
  *
  * Deliberately *not* here: a tab strip. The sidebar already lists all five
  * views under Empty Container, and repeating them under the page title is the
@@ -40,7 +40,11 @@ import { viewForPath } from './components/views';
  *
  * **The container dialog.** Every view opens the same one, driven by
  * `store.openRecordId` — a container detail that differed between the Control
- * Tower and the Calendar would be two products.
+ * Tower and Cycles would be two products.
+ *
+ * The Match Recommendations popup was deleted on 2026-08-29: matching is the
+ * v19 Matching PAGE and nothing else. Two surfaces for one decision was the
+ * complaint this module started from, and the page is the one the user kept.
  */
 export function EmptyReturnModuleChrome() {
   const location = useLocation();
@@ -58,7 +62,7 @@ export function EmptyReturnModuleChrome() {
     <div className="mx-auto flex w-full min-w-0 max-w-[1600px] flex-col gap-5 px-4 pb-12 pt-1 sm:px-6">
       <PageHeader
         title="Empty Container"
-        description={view.question}
+        description={view.label}
         actions={
           <>
             <span className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:inline-flex">
@@ -87,6 +91,7 @@ export function EmptyReturnModuleChrome() {
       <Outlet />
 
       <ContainerDetailDialog />
+
 
       {toast !== null && (
         <div

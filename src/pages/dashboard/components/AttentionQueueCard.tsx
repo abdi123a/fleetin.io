@@ -84,7 +84,11 @@ export function AttentionQueueCard({
 
             <span className="min-w-[11rem] flex-1">
               <span className="block text-sm font-bold leading-snug text-foreground">{item.title}</span>
-              <span className="type-body-xs mt-0.5 block leading-snug text-muted-foreground">{item.detail}</span>
+              {item.detail && (
+                <span className="type-body-xs mt-0.5 block leading-snug text-muted-foreground">
+                  {item.detail}
+                </span>
+              )}
             </span>
 
             <span className="type-body-xs shrink-0 rounded-full bg-surface px-2.5 py-1 font-bold text-muted-foreground">

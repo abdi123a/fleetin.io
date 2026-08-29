@@ -88,12 +88,9 @@ export const NAVIGATION: NavSection[] = [
             path: ROUTES.emptyReturns,
             icon: Repeat,
           },
-          {
-            id: 'empty-return-calendar',
-            label: 'Calendar',
-            path: ROUTES.emptyReturnsCalendar,
-            icon: CalendarDays,
-          },
+          // No Calendar row: the planning calendar moved to the Shipments
+          // page as a tab on 2026-08-29 — it plans shipments, so it belongs
+          // beside them. `/empty-returns/calendar` now redirects there.
           {
             id: 'empty-return-matching',
             label: 'Matching',
@@ -106,12 +103,11 @@ export const NAVIGATION: NavSection[] = [
             path: ROUTES.emptyReturnsCycles,
             icon: Link2,
           },
-          {
-            id: 'empty-return-dashboard',
-            label: 'Dashboard',
-            path: ROUTES.emptyReturnsPerformance,
-            icon: LayoutDashboard,
-          },
+          // No Dashboard row. `/empty-returns/performance` is still a live
+          // route, but the user has removed this link TWICE (2026-08-29) — once
+          // after a review flagged the page as unreachable, and again after the
+          // v19 restore put it back. The absence is the decision: do not
+          // re-add it because v19's sidebar lists it.
         ],
       },
       {

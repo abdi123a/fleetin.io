@@ -89,6 +89,78 @@ export function shipmentStepsFor(hasContainer: boolean): readonly { rung: string
   return hasContainer ? SHIPMENT_STEPS : BULK_SHIPMENT_STEPS;
 }
 
+/**
+ * The raw rungs in ladder order.
+ *
+ * Taken from `DISPLAY_STATUS_GROUP`'s own keys rather than restated, so the two
+ * cannot drift: that map is written in ladder order and says so, and a rung
+ * added to it is a rung this knows about for free.
+ */
+const LADDER_ORDER = Object.keys(DISPLAY_STATUS_GROUP);
+
+export interface ShipmentProgress {
+  /** 0–100, rounded. */
+  percent: number;
+  /** Which step of `of` this shipment is standing on, 1-based. */
+  step: number;
+  of: number;
+}
+
+/**
+ * How far through its job a shipment is — one number instead of two words.
+ *
+ * The list used to print the status *and* the container mark side by side —
+ * "RETURNED  Completed", "FULL  Created" — which is the same fact twice in two
+ * vocabularies, and the user could not read it at a glance. A row now says what
+ * stage it is at once and how far along that is, which is the question the list
+ * is actually being scanned for.
+ *
+ * Measured in **steps a person can name**, not in raw rungs: the ladder's
+ * thirteen rungs collapse to the seven steps the picker offers (three for a
+ * bulk load, which ends at delivery — there is no box to bring back), so 4 of 7
+ * on the page means the same thing as 4 of 7 in the picker. Off-ladder statuses
+ * — `Cancelled`, `Failed` — return `null`: a job that stopped has no progress,
+ * and drawing a part-filled rail for one would say it is still running.
+ */
+export function shipmentProgress(status: string, hasContainer: boolean): ShipmentProgress | null {
+  const rank = LADDER_ORDER.indexOf(status);
+  if (rank < 0) return null;
+
+  const steps = shipmentStepsFor(hasContainer);
+
+  /*
+   * Counted by the step's NAME, not by its rung.
+   *
+   * A step's `rung` is the TOP of its group — choosing "Picked Up" writes
+   * `Loaded` — so a shipment sitting at `Driver Assigned` has not reached that
+   * rung even though it displays as "Picked Up". Ranking by rung therefore drew
+   * 0% beside a chip reading "Picked Up", which is the same disagreement between
+   * two marks that this figure exists to remove. Grouping is what the chip uses,
+   * so grouping is what the rail counts: the two can no longer contradict.
+   */
+  let index = steps.findIndex((step) => step.label === displayShipmentStatus(status));
+
+  if (index < 0) {
+    /*
+     * The status belongs to a step this ladder does not have — a containerized
+     * rung ("Depotage", "Empty Ready") on a bulk load, which is tipped rather
+     * than stripped and ends at delivery. Fall back to the last step whose rung
+     * it has actually passed, which keeps a bulk load monotonic: it cannot read
+     * 100% at `Arrived` and 50% again at `Unloading`.
+     */
+    index = 0;
+    steps.forEach((step, i) => {
+      if (rank >= LADDER_ORDER.indexOf(step.rung)) index = i;
+    });
+  }
+
+  return {
+    percent: Math.round((index / (steps.length - 1)) * 100),
+    step: index + 1,
+    of: steps.length,
+  };
+}
+
 /** The step-rung a raw status sits under — what the six-option picker shows as selected. */
 export function stepRungFor(status: string): string {
   const label = DISPLAY_STATUS_GROUP[status] ?? status;

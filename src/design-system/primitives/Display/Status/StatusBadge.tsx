@@ -108,25 +108,27 @@ const VERIFICATION_ICON_SIZE: Record<NonNullable<VerificationBadgeProps['size']>
 export function VerificationBadge({ state, size = 'md', className }: VerificationBadgeProps) {
   if (state !== 'verified') return null;
   /*
-   * Filled, in the brand teal, with the tick knocked out of it.
+   * Filled green, with the tick knocked out of it.
    *
    * Lucide's `BadgeCheck` is two paths — the scalloped rosette and the tick —
    * and a blanket `fill="currentColor"` floods both, turning it into a blob.
    * So the rosette takes the fill and the tick is re-stroked in the badge's
    * foreground, which is what makes it read at 14px.
    *
-   * `--primary-bold` (teal-700), not `--primary`: this is a filled surface
-   * carrying a mark, and the ramp's own note is that teal-700 is the step that
-   * carries white at 5.6:1.
+   * Green, not the brand teal it started as: "verified" is a *status*, and
+   * `--success` is the role the system already gives that meaning. In teal it
+   * was competing with the container scale — a teal tick beside a teal FULL tag
+   * read as part of the same signal rather than as a separate fact about the
+   * driver's licence. Set by the user on 2026-08-29.
    */
   return (
     <BadgeCheck
       aria-label="Verified"
       className={cn(
         VERIFICATION_ICON_SIZE[size],
-        'shrink-0 text-primary-bold',
+        'shrink-0 text-success',
         '[&>path:first-child]:fill-current [&>path:first-child]:stroke-current',
-        '[&>path:last-child]:stroke-primary-bold-foreground',
+        '[&>path:last-child]:stroke-success-foreground',
         className,
       )}
     />

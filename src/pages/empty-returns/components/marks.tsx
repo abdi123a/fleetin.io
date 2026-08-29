@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 
-import { CompanyAvatar } from '@/design-system';
+import { CompanyAvatar, ContainerStateTag, type ContainerStateTagProps } from '@/design-system';
 import { useCompanyLogo } from '@/features/companies/companyLogos';
-import { AlertTriangle, MapPin, Package, PackageOpen, Timer } from '@/design-system/icons';
+import { AlertTriangle, MapPin, Timer, Truck } from '@/design-system/icons';
 import {
   CONTAINER_OUTCOME_LABEL,
   CONTAINER_STAGE_META,
@@ -31,20 +31,22 @@ import { cn } from '@/utils';
  *
  * ## The one rule this file exists to hold
  *
- * **FULL and EMPTY must never be mistakable for each other.** A pairing links
- * two different physical containers, and every misreading of this product comes
- * from someone thinking the empty box becomes the next full box. So the two
- * marks differ in every channel at once: a full container is a solid brand slab
- * with a closed-box icon, an empty one is a dashed outline with an open-box
- * icon. Colour alone would not survive a monochrome print or a colour-blind
- * reader; the dash and the icon do.
+ * **FULL and EMPTY must never be mistakable for each other.** It is now an
+ * app-wide rule rather than this module's own — `@/lib/containerState` decides
+ * which of the two a container is, and `ContainerStateTag` draws it: teal and
+ * solid with a closed box while the cargo is in there, brand yellow and dashed
+ * with an open box once it has been stripped. Every misreading of this product
+ * comes from someone thinking the empty box becomes the next full box, so the
+ * two marks differ in colour, fill, border and icon at once — colour alone
+ * would not survive a monochrome print or a colour-blind reader.
  *
  * ## The colour law
  *
- * Teal is the good outcome (a full load, a pairing, a deadline protected). Blue
- * is a container still asking. Orange asks (return planned, watch). Red fails
- * (critical, overdue). Green confirms. Everything resolves through a semantic
- * token — no raw palette step appears here, and `npm run check:ds` enforces it.
+ * Teal is a full container and the good outcome (a pairing, a deadline
+ * protected). Brand yellow is an empty one — a box that owes a return. Blue
+ * informs. Orange asks (return planned, watch). Red fails (critical, overdue).
+ * Green confirms. Everything resolves through a semantic token — no raw
+ * palette step appears here, and `npm run check:ds` enforces it.
  *
  * Stage and urgency collide in hue by construction, so they are separated by
  * *shape*: the risk pill is `rounded-md` with a Timer, the stage chip is a
@@ -74,43 +76,44 @@ export function Mono({ children, className }: MonoProps) {
 
 /* ---------------------------------------------------------------------------
  * FULL / EMPTY tags
+ * ---------------------------------------------------------------------------
+ * Now the app-wide mark: `ContainerStateTag` in the design system. The pair
+ * used to live here, which made "this box is empty" a private idiom of the one
+ * module that cares most about it — a booking card under a shipment had no way
+ * to say the same thing, so it said nothing. The user made the pair system-wide
+ * on 2026-08-29 (teal full, yellow empty) and the implementation moved out;
+ * these two names stay so the five views here keep reading the same.
  * ------------------------------------------------------------------------- */
 
-export interface ContainerTagProps {
-  small?: boolean;
-  className?: string;
-}
+export type ContainerTagProps = Omit<ContainerStateTagProps, 'state'>;
 
 /** A loaded container. Solid brand slab, closed box. */
-export function FullTag({ small, className }: ContainerTagProps) {
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1 rounded-sm bg-primary-bold font-extrabold uppercase tracking-widest text-primary-bold-foreground',
-        small ? 'px-1 py-px text-[8px]' : 'px-1.5 py-0.5 text-[9px]',
-        className,
-      )}
-    >
-      <Package className={small ? 'size-2' : 'size-2.5'} aria-hidden />
-      Full
-    </span>
-  );
+export function FullTag(props: ContainerTagProps) {
+  return <ContainerStateTag state="full" {...props} />;
 }
 
-/** An empty container. Dashed outline, open box — the visual opposite of Full. */
-export function EmptyTag({ small, className }: ContainerTagProps) {
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1 rounded-sm border border-dashed border-info bg-surface font-extrabold uppercase tracking-widest text-info-subtle-foreground',
-        small ? 'px-1 py-px text-[8px]' : 'px-1.5 py-0.5 text-[9px]',
-        className,
-      )}
-    >
-      <PackageOpen className={small ? 'size-2' : 'size-2.5'} aria-hidden />
-      Empty
-    </span>
-  );
+/** An emptied container. Dashed brand-yellow outline, open box. */
+export function EmptyTag(props: ContainerTagProps) {
+  return <ContainerStateTag state="empty" {...props} />;
+}
+
+/** A container this module is done with. Grey, checked box — quiet on purpose. */
+export function ReturnedTag(props: ContainerTagProps) {
+  return <ContainerStateTag state="returned" {...props} />;
+}
+
+/**
+ * The tag a record wears in this module's own lists.
+ *
+ * Everything here is an empty container by definition — that is what the module
+ * manages — **until it closes**: a closed row is history, and history keeps the
+ * yellow "owes a return" mark it no longer earns. Grey says done.
+ */
+export function RecordStateTag({
+  record,
+  ...props
+}: ContainerTagProps & { record: EmptyReturnRecord }) {
+  return record.stage === 'closed' ? <ReturnedTag {...props} /> : <EmptyTag {...props} />;
 }
 
 /* ---------------------------------------------------------------------------
@@ -362,6 +365,42 @@ export function CompanyName({ name, tone = 'default', size = 'xs', className }: 
         className={cn('shrink-0', tone === 'inverse' && 'bg-primary-bold-foreground')}
       />
       <span className="truncate">{name}</span>
+    </span>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * TransporterLine
+ * ------------------------------------------------------------------------- */
+
+export interface TransporterLineProps {
+  /** `null` when the load has no transporter assigned yet. */
+  name: string | null;
+  className?: string;
+}
+
+/**
+ * The transporter, with the truck mark — the one company named on every
+ * screen this module has. "Same transporter" is the hard gate the whole
+ * matching engine turns on (see `matching.ts`), and the one identity that
+ * stays constant across an entire cycle chain (a chain is a run of pairings,
+ * and every pairing requires the two sides to share a transporter) — the
+ * shipper and shipping line do not carry that guarantee, since neither is a
+ * gate and either can differ link to link.
+ */
+export function TransporterLine({ name, className }: TransporterLineProps) {
+  if (!name) {
+    return (
+      <p className={cn('flex items-center gap-1 text-[11px] text-warning-subtle-foreground', className)}>
+        <Truck className="size-3 shrink-0" aria-hidden />
+        No transporter assigned
+      </p>
+    );
+  }
+  return (
+    <span className={cn('flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground', className)}>
+      <Truck className="size-3 shrink-0" aria-hidden />
+      <CompanyName name={name} className="min-w-0" />
     </span>
   );
 }

@@ -158,30 +158,45 @@ export const EMPTY_RETURN_EXCEPTIONS = {
  * The four stages, as chips.
  *
  * Deliberately de-saturated: neutral outline plus a coloured 6px dot. The dot
- * carries the identity — blue for a box still asking, teal for a decided
- * pairing, orange for a planned return, neutral once closed — and the pill
- * behind the words stays quiet so the urgency badge beside it still lands.
+ * carries the identity — the container pair's yellow for a box still asking,
+ * teal for a decided pairing, orange for a planned return, neutral once
+ * closed — and the pill behind the words stays quiet so the urgency badge
+ * beside it still lands.
+ */
+/**
+ * The four decisions a container can be at, and how each one looks.
+ *
+ * Repainted 2026-08-29 onto the `--stage-*` scale the v19 design introduced.
+ * Every chip used to be `bg-card` with only a coloured dot to tell them apart,
+ * which meant a queue of forty rows was forty identical white pills — the
+ * stage was technically present and practically invisible. Each stage now
+ * carries its own tinted chip, and the dot keeps the solid fill so the two
+ * read as one mark rather than a pill with an unrelated bullet in it.
+ *
+ * Note `paired` is violet, not teal. Teal is FULL in this module
+ * (`--container-full`), and a pairing drawn in it looked like a statement
+ * about the cargo instead of a statement about the decision.
  */
 export const CONTAINER_STAGE_META: Record<ContainerStage, ContainerStageMeta> = {
   empty: {
     label: 'Empty Ready',
-    dotClassName: 'bg-info',
-    chipClassName: 'bg-card text-foreground border-border',
+    dotClassName: 'bg-stage-available',
+    chipClassName: 'bg-stage-available-subtle text-stage-available-subtle-foreground border-stage-available-border/40',
   },
   paired: {
     label: 'Paired',
-    dotClassName: 'bg-primary',
-    chipClassName: 'bg-card text-foreground border-border',
+    dotClassName: 'bg-stage-paired',
+    chipClassName: 'bg-stage-paired-subtle text-stage-paired-subtle-foreground border-stage-paired-border/50',
   },
   return_planned: {
     label: 'Return Planned',
-    dotClassName: 'bg-warning',
-    chipClassName: 'bg-card text-foreground border-border',
+    dotClassName: 'bg-stage-returning',
+    chipClassName: 'bg-stage-returning-subtle text-stage-returning-subtle-foreground border-stage-returning-border/40',
   },
   closed: {
     label: 'Closed',
-    dotClassName: 'bg-muted-foreground',
-    chipClassName: 'bg-card text-muted-foreground border-border',
+    dotClassName: 'bg-stage-closed',
+    chipClassName: 'bg-stage-closed-subtle text-stage-closed-subtle-foreground border-stage-closed-border/50',
   },
 };
 
@@ -308,8 +323,8 @@ export const EMPTY_RETURN_EVENT_META: Record<EmptyReturnEventType, EmptyReturnEv
   empty_ready: {
     label: 'Empty Available',
     icon: PackageOpen,
-    railClassName: 'border-l-info',
-    textClassName: 'text-info-subtle-foreground',
+    railClassName: 'border-l-container-empty',
+    textClassName: 'text-container-empty-subtle-foreground',
     hint: 'A container finished unloading and now needs a decision.',
   },
   full_pickup: {

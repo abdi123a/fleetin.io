@@ -4,6 +4,7 @@ import type {
   EmptyReturnRecord,
   FullLoadMission,
   IncompatibleLoad,
+  PairingFriction,
   PairingSuggestion,
   SuggestionLabel,
 } from '@/types/emptyReturn';
@@ -19,32 +20,42 @@ import type {
  * Matching workbench and a container's own detail dialog from recommending
  * different things about the same pair.
  *
- * ## What "compatible" means
+ * ## Two hard gates, and everything else is a price
  *
- * Four hard gates, and they are hard because the yard is:
+ * The engine refuses a pairing for exactly two reasons, because exactly two
+ * things cannot be arranged by a dispatcher on a phone:
  *
  * 1. **Same transporter.** The pairing exists so one truck drops the full load
  *    and takes the empty away on the same trip. Two carriers cannot share a
  *    trip, so a different transporter is not a worse pairing — it is not a
- *    pairing at all.
- * 2. **Same container size.** A 40HC chassis is not a 20′ chassis.
- * 3. **Same port / free zone.** The depot the empty owes itself to and the hub
- *    the load is collected from have to be the same zone — that is what makes
- *    the two legs one trip instead of two. Compared by zone rather than by
- *    name, because `SGTD` and `SGTD Yard` are one place (see `zoneOf`).
- * 4. **Collected before the deadline.** A pickup after the empty's return
- *    deadline protects nothing — the box is already accruing detention by then.
+ *    pairing at all. A load with no transporter yet fails this too: confirming
+ *    against one would book a trip nobody is committed to running.
+ * 2. **Same container size.** A 40HC chassis is not a 20′ chassis. Physics.
  *
- * **Shipping line is deliberately not a gate** (the user's rule, 2026-08-27).
- * It was one until now, on the assumption that a Maersk box cannot go out under
- * a CMA CGM booking — but what the truck is carrying is the shipper's problem,
- * not the carrier's, and refusing those pairings only sent empty trucks across
- * Djibouti. The line still shows on the card so an operator can see it differs;
- * it just cannot veto.
+ * Everything else is a **friction** — real cost, named on the card, priced into
+ * the score, and left for the operator to accept or refuse:
  *
- * Nothing else can veto a pairing. Timing and tightness only move the *score*,
- * because they are trade-offs an operator is allowed to make and the engine is
- * not allowed to make for them.
+ * - **Different port** (`reposition`) — the return depot and the pickup hub are
+ *   two of Djibouti's four ports. That is a leg between them, not an
+ *   impossibility.
+ * - **Pickup after the deadline** (`reschedule`) — the appointment has to move
+ *   earlier. Appointments move.
+ * - **No deadline recorded** (`no-deadline`) — the margin is unknown, so the
+ *   engine cannot promise the pairing beats a clock it cannot see.
+ *
+ * ### Why they stopped being gates
+ *
+ * They were gates until 2026-08-27, and on the real book they refused
+ * **every single pairing**: 920 candidate pairs, 92 of which already agreed on
+ * transporter and size, and the port gate rejected all 92 — because the empty
+ * goes back to one port and the load is collected from another, which is the
+ * normal shape of the work rather than an error. A gate that rejects everything
+ * is not a rule, it is a bug, and it left an operator staring at 23 open loads
+ * and 40 waiting boxes with the screen insisting none of them fit.
+ *
+ * **Shipping line is not a gate either** (the user's rule, 2026-08-27). What the
+ * truck is carrying is the shipper's problem, not the carrier's. The line still
+ * shows on the card so an operator can see it differs; it just cannot veto.
  *
  * ## Why a load whose slot has passed still counts
  *
@@ -97,6 +108,10 @@ const ZONE_KEYWORDS: readonly (readonly [keyword: string, zone: string])[] = [
   ['ambouli', 'ambouli'],
   ['gabode', 'gabode'],
   ['tadjourah', 'tadjourah'],
+  /* Before the country fallback: "Djibouti Free Zone (DFZ)" carries the
+     country's name but is a free zone, not the port — without its own keyword
+     it fell through to `djibouti-port` and the Port filter claimed it. */
+  ['dfz', 'dfz'],
   /* Last: "Port de Djibouti" is the city's own port, but half the other names
      carry the country in them too. */
   ['djibouti', 'djibouti-port'],
@@ -109,6 +124,47 @@ export function zoneOf(place: string | null | undefined): string {
     if (text.includes(keyword)) return zone;
   }
   return text;
+}
+
+/**
+ * Which of the known zones are actual ports — quay, gate, vessel — as opposed
+ * to the free zones and inland depots the cargo is delivered into.
+ *
+ * The split exists because a filter has to offer them separately: a full load
+ * is *collected at a port* and *delivered to a free zone*, and one combined
+ * "Port / free zone" list asked the operator to know which was which.
+ */
+const PORT_ZONES: ReadonlySet<string> = new Set([
+  'doraleh',
+  'sgtd',
+  'horizon',
+  'damerjog',
+  'tadjourah',
+  'djibouti-port',
+]);
+
+export function isPortZone(zone: string): boolean {
+  return PORT_ZONES.has(zone);
+}
+
+/** Display names for the known zones. An unknown zone has none — show its raw place name. */
+const ZONE_LABELS: Record<string, string> = {
+  doraleh: 'Doraleh',
+  sgtd: 'SGTD',
+  horizon: 'Horizon Terminal',
+  damerjog: 'Damerjog',
+  tadjourah: 'Tadjourah',
+  'djibouti-port': 'Port of Djibouti',
+  dfz: 'Djibouti Free Zone (DFZ)',
+  diftz: 'DIFTZ',
+  pk12: 'PK12 Free Zone',
+  boulaos: 'Boulaos',
+  ambouli: 'Ambouli',
+  gabode: 'Gabode',
+};
+
+export function zoneLabel(zone: string): string | undefined {
+  return ZONE_LABELS[zone];
 }
 
 /** The earliest the load can really be collected. Never earlier than now. */
@@ -126,37 +182,100 @@ export function marginFor(
   return record.deadline - effectivePickup(load, now);
 }
 
+/** True when the empty goes back to the same port the load is collected from. */
+export function isSamePort(record: EmptyReturnRecord, load: FullLoadMission): boolean {
+  return zoneOf(record.returnDepot) === zoneOf(load.pickupHub);
+}
+
 /**
- * Why this load cannot take this container. Empty means it can.
+ * Why this load **cannot** take this container. Empty means it can.
+ *
+ * Only the two things a dispatcher cannot arrange. Everything else that used to
+ * live here is now a friction — see `frictionsFor` and the note at the top of
+ * this file about the day these gates refused all 920 pairs in the book.
  *
  * Returned as a list rather than a boolean because the screen shows it: an
- * operator who asks "why is there nothing to pair with?" gets the three
- * reasons, not silence.
+ * operator who asks "why is there nothing to pair with?" gets the reason, not
+ * silence.
  */
 export function incompatibilityReasons(
   record: EmptyReturnRecord,
   load: FullLoadMission,
-  now: number,
+  now: number = Date.now(),
 ): string[] {
   const issues: string[] = [];
-  if (!load.transporter || record.transporter !== load.transporter) {
-    /* An unassigned load fails this too, and should: "same transporter" cannot
-       be true of a load that has no transporter yet, and confirming a pairing
-       on one would book a trip nobody is committed to running. */
+
+  /* ── The v19 gates, adopted 2026-08-29 ────────────────────────────────────
+   *
+   * The user replaced this module with the v19 design and chose its rule
+   * explicitly: **same shipping line, same size**. Transporter is no longer a
+   * gate at all — the line owns the equipment, and dispatch can re-assign a
+   * truck, so who drives it is not what constrains a return.
+   *
+   * This inverts the rule that stood here from 2026-08-27 ("same transporter,
+   * line never vetoes"). Both cannot be true; the newer decision wins, and the
+   * old one is described in the file header for the reasoning it still carries.
+   *
+   * Kept byte-identical to the backend's `empty-return-matching.util.ts`,
+   * which now serves the same engine over `/empty-returns/**\/suggestions`.
+   * If these two ever disagree the board offers pairings the API refuses. */
+  if (!record.line || !load.line || record.line !== load.line) {
     issues.push(
-      load.transporter ? 'Different transporter' : 'Load has no transporter assigned yet',
+      record.line && load.line
+        ? `Different shipping line (${record.line} → ${load.line})`
+        : 'Shipping line not recorded on one side',
     );
   }
   if (record.size !== load.size) issues.push('Different container size');
-  if (zoneOf(record.returnDepot) !== zoneOf(load.pickupHub)) {
-    issues.push('Different port / free zone');
-  }
-  if (!record.deadline) {
-    issues.push('This container has no return deadline recorded');
-  } else if (effectivePickup(load, now) > record.deadline) {
-    issues.push('Pickup falls after the return deadline');
+
+  /* The pickup has to beat the deadline. Measured from `effectivePickup`, not
+     the raw slot: a real open booking often sits past its own scheduled
+     pickup, and refusing those emptied the pool completely when v19's literal
+     rule was tried against the live book on 2026-08-29. */
+  if (record.deadline !== null && effectivePickup(load, now) > record.deadline) {
+    issues.push('The pickup falls after this container’s return deadline');
   }
   return issues;
+}
+
+/**
+ * What the operator has to arrange to make this pairing real.
+ *
+ * Each one is a cost the yard actually pays — a leg between two ports, a phone
+ * call to move an appointment — so each is named in the operator's terms and
+ * priced in `scoreOf`, rather than quietly deciding the answer for them.
+ */
+export function frictionsFor(
+  record: EmptyReturnRecord,
+  load: FullLoadMission,
+  now: number,
+): PairingFriction[] {
+  const frictions: PairingFriction[] = [];
+
+  if (!isSamePort(record, load)) {
+    frictions.push({
+      kind: 'reposition',
+      label: 'Different port',
+      detail: `The empty goes back to ${record.returnDepot} but the load is collected at ${load.pickupHub} — one leg between the two.`,
+    });
+  }
+
+  if (!record.deadline) {
+    frictions.push({
+      kind: 'no-deadline',
+      label: 'No deadline',
+      detail: 'This container has no return deadline recorded, so the margin cannot be checked.',
+    });
+  } else if (effectivePickup(load, now) > record.deadline) {
+    const late = effectivePickup(load, now) - record.deadline;
+    frictions.push({
+      kind: 'reschedule',
+      label: 'Move the pickup',
+      detail: `The pickup currently falls ${formatSpan(late)} after the return deadline — bring the appointment forward and the pairing holds.`,
+    });
+  }
+
+  return frictions;
 }
 
 /* ---------------------------------------------------------------------------
@@ -173,11 +292,27 @@ export function incompatibilityReasons(
  * from a detention charge). Clamped at both ends so the label, not the decimal,
  * carries the recommendation.
  */
-function scoreOf(params: { sameLocation: boolean; hoursToPickup: number; tight: boolean }): number {
+function scoreOf(params: {
+  sameLocation: boolean;
+  hoursToPickup: number;
+  tight: boolean;
+  frictions: PairingFriction[];
+}): number {
   let score = 100;
-  if (!params.sameLocation) score -= 18;
+  if (!params.sameLocation) score -= 8;
   score -= Math.min(25, Math.max(0, params.hoursToPickup) * 0.3);
   if (params.tight) score -= 20;
+
+  /* Frictions are priced by how much work they actually are. Moving a booked
+     appointment costs the most because it is a negotiation with the terminal;
+     a leg between two ports is a truck-hour; an unknown deadline is a risk
+     rather than a cost, so it is the cheapest of the three. */
+  for (const friction of params.frictions) {
+    if (friction.kind === 'reschedule') score -= 22;
+    else if (friction.kind === 'reposition') score -= 12;
+    else score -= 6;
+  }
+
   return Math.min(98, Math.max(45, Math.round(score)));
 }
 
@@ -194,16 +329,22 @@ function reasonsFor(params: {
   marginMs: number;
   sameLocation: boolean;
   tight: boolean;
+  frictions: PairingFriction[];
 }): string[] {
-  const { record, load, now, marginMs, sameLocation, tight } = params;
+  const { record, load, now, marginMs, sameLocation, tight, frictions } = params;
   const reasons: string[] = [];
 
-  reasons.push(
-    sameLocation
-      ? `Same location — the box is already at ${record.locationName}`
-      : `Same zone — ${record.returnDepot} and ${load.pickupHub} are one trip`,
-  );
+  /* The transporter leads, because it is the gate that decided this pairing was
+     possible at all and the one an operator most often doubts on sight. */
   reasons.push(`Same transporter — ${record.transporter} runs both legs`);
+  reasons.push(
+    isSamePort(record, load)
+      ? `Same port — ${record.returnDepot} is where the load is collected`
+      : `${record.returnDepot} → ${load.pickupHub} — one leg between two ports`,
+  );
+  if (sameLocation) {
+    reasons.push(`No repositioning — the box is already at ${record.locationName}`);
+  }
   /* Named only when it differs, and as a note rather than a warning: it no
      longer blocks anything, but an operator reading the card should not have to
      discover it on the paperwork. */
@@ -220,11 +361,21 @@ function reasonsFor(params: {
     reasons.push(`Pickup in ${formatSpan(untilPickup)}`);
   }
 
-  if (tight) {
+  if (!record.deadline) {
+    reasons.push('No return deadline recorded — the margin cannot be checked');
+  } else if (marginMs < 0) {
+    reasons.push(
+      `Pickup is ${formatSpan(-marginMs)} past the deadline — move it earlier and this holds`,
+    );
+  } else if (tight) {
     reasons.push(`Tight window — only ${formatSpan(marginMs)} of margin before the deadline`);
   } else {
     reasons.push(`${formatSpan(marginMs)} of margin before the return deadline`);
   }
+
+  /* Named last and in full, because these are the sentences that turn a card
+     into a task the operator can actually go and do. */
+  for (const friction of frictions) reasons.push(friction.detail);
 
   return reasons;
 }
@@ -238,7 +389,10 @@ function reasonsFor(params: {
 function labelSuggestions(sorted: PairingSuggestion[]): PairingSuggestion[] {
   return sorted.map((suggestion, index) => ({
     ...suggestion,
-    label: (suggestion.tight
+    /* A pairing that needs an appointment moved is never the headline, even when
+       it is the only one left — the operator should see it is the last resort
+       before they take it, exactly as a tight window is. */
+    label: (suggestion.tight || suggestion.frictions.some((f) => f.kind === 'reschedule')
       ? 'LAST OPTION'
       : index === 0
         ? 'RECOMMENDED'
@@ -246,9 +400,19 @@ function labelSuggestions(sorted: PairingSuggestion[]): PairingSuggestion[] {
   }));
 }
 
-/** Safe first, then best score. Tightness outranks score because it is a risk, not a preference. */
+/**
+ * Clean pairings first, then safe ones, then best score.
+ *
+ * Friction count outranks score because a pairing needing nothing arranged is
+ * categorically better than a cheaper-looking one that needs a phone call, and
+ * tightness outranks score because it is a risk rather than a preference.
+ */
 function rank(a: PairingSuggestion, b: PairingSuggestion): number {
-  return Number(a.tight) - Number(b.tight) || b.score - a.score;
+  return (
+    a.frictions.length - b.frictions.length ||
+    Number(a.tight) - Number(b.tight) ||
+    b.score - a.score
+  );
 }
 
 function buildSuggestion(
@@ -258,11 +422,15 @@ function buildSuggestion(
 ): PairingSuggestion | null {
   if (incompatibilityReasons(record, load, now).length > 0) return null;
 
-  const marginMs = marginFor(record, load, now);
-  if (marginMs === null) return null;
+  const frictions = frictionsFor(record, load, now);
+  /* Null margin means no deadline is recorded — that is a friction, not a
+     refusal, so it scores as zero margin rather than dropping the pairing. */
+  const marginMs = marginFor(record, load, now) ?? 0;
 
   const sameLocation = isSameLocation(record, load);
-  const tight = marginMs < TIGHT_PAIRING_WINDOW_MS;
+  /* Only a *positive* but small margin is "tight". A negative one is the
+     reschedule friction, and calling it tight as well would price it twice. */
+  const tight = marginMs > 0 && marginMs < TIGHT_PAIRING_WINDOW_MS;
   const hoursToPickup = Math.max(0, load.pickupAt - now) / HOUR_MS;
 
   return {
@@ -271,9 +439,10 @@ function buildSuggestion(
     marginMs,
     tight,
     sameLocation,
-    score: scoreOf({ sameLocation, hoursToPickup, tight }),
+    frictions,
+    score: scoreOf({ sameLocation, hoursToPickup, tight, frictions }),
     label: 'ALTERNATIVE',
-    reasons: reasonsFor({ record, load, now, marginMs, sameLocation, tight }),
+    reasons: reasonsFor({ record, load, now, marginMs, sameLocation, tight, frictions }),
   };
 }
 

@@ -7,8 +7,15 @@ import { PageHeader, TablePager, usePagedRows } from '@/components';
 import type { Mission, MissionFilterState } from '@/types/mission';
 import { MissionFilterToolbar } from './MissionFilterToolbar';
 import { MissionRowCard } from './MissionRowCard';
-import { displayShipmentStatus, statusIntentOf } from '@/lib/shipmentStatus';
+import { displayShipmentStatus, shipmentProgress, statusIntentOf } from '@/lib/shipmentStatus';
+import {
+  CONTAINER_STATE_CORNER_INTENT,
+  carriesContainer,
+  containerStateOf,
+} from '@/lib/containerState';
 import { ROUTES, buildPath } from '@/config/routes';
+import { EmptyReturnCalendarPage } from '@/pages/empty-returns';
+import { cn } from '@/utils';
 import { useShipmentStore } from '@/stores/shipment.store';
 import { useAvailableEmpties, useCycles } from '@/features/empty-returns/api/queries';
 import { useShippers } from '@/features/shippers/api/queries';
@@ -31,6 +38,12 @@ export interface ShipmentsListViewProps {
  * component instead of a second, drifting implementation — only the
  * `missions` array passed in differs.
  */
+/** Two readings of one book: the list decides, the calendar looks ahead. */
+const SHIPMENT_TABS = [
+  { key: 'list', label: 'Shipments' },
+  { key: 'calendar', label: 'Calendar' },
+] as const;
+
 export function ShipmentsListView({ missions, canCreateShipment = true }: ShipmentsListViewProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -52,6 +65,11 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
 
   // State for view mode: 'rows' (long view) vs 'cards' (grid cards)
   const [viewMode, setViewMode] = useState<'rows' | 'cards'>('rows');
+  /* Shipments and the empty-container calendar are two readings of one book:
+     the list is every job dispatch-to-delivery, the calendar is the same work
+     laid on dates. Moved here from the Empty Container module on 2026-08-29 —
+     a planning view belongs beside the thing it plans, not two modules away. */
+  const [tab, setTab] = useState<'list' | 'calendar'>('list');
 
   // Filter state
   const [filters, setFilters] = useState<MissionFilterState>({
@@ -231,7 +249,6 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
       {/* Page Header */}
       <PageHeader
         title="Shipments"
-        description="Every shipment, dispatch to delivery."
         actions={
           canCreateShipment ? (
             <Button
@@ -246,12 +263,41 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
         }
       />
 
+      {/* The same segmented control the Control Tower and the planning calendar
+          use, so every switch in the app reads as one control language. */}
+      <div
+        className="inline-flex w-fit items-center gap-0.5 rounded-md border border-border bg-surface-sunken p-0.5"
+        role="group"
+        aria-label="Shipments view"
+      >
+        {SHIPMENT_TABS.map((option) => (
+          <button
+            key={option.key}
+            type="button"
+            aria-pressed={tab === option.key}
+            onClick={() => setTab(option.key)}
+            className={cn(
+              'h-7 cursor-pointer rounded-sm px-3.5 text-xs font-semibold transition-colors',
+              tab === option.key
+                ? 'bg-primary text-primary-foreground shadow-2xs'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'calendar' ? (
+        <EmptyReturnCalendarPage />
+      ) : (
+        <>
+
       {/* KPI Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
         <StatisticCard
           title="Total Shipments"
           value={counts.all}
-          subtitle="All statuses"
           variant="teal"
           trend="up"
           percentage="100%"
@@ -260,7 +306,6 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
         <StatisticCard
           title="Started Shipments"
           value={counts.started}
-          subtitle="Underway"
           variant="blue"
           trend="up"
           percentage={`${Math.round((counts.started / (counts.all || 1)) * 100)}%`}
@@ -269,7 +314,6 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
         <StatisticCard
           title="Waiting Empty Return"
           value={waitingEmptyReturn}
-          subtitle="Containers still out"
           variant="peach"
           trend={waitingEmptyReturn > 0 ? 'down' : 'neutral'}
           percentage={waitingEmptyReturn > 0 ? `${waitingEmptyReturn} pending` : '0'}
@@ -278,7 +322,6 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
         <StatisticCard
           title="Completed Shipments"
           value={counts.completed}
-          subtitle="Delivered"
           variant="pink"
           trend="up"
           percentage={`${Math.round((counts.completed / (counts.all || 1)) * 100)}%`}
@@ -349,7 +392,15 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {pagedMissions.rows.map((mission) => (
+            {pagedMissions.rows.map((mission) => {
+              /* Same container scale as the list rows and the shipment page:
+                 teal while the boxes are full, brand yellow while one is out
+                 empty, grey once they are all home. A bulk load has no box and
+                 keeps the ladder colours. */
+              const hasContainer = carriesContainer(mission);
+              const containerState = containerStateOf(mission.status, hasContainer);
+              const progress = shipmentProgress(mission.status, hasContainer);
+              return (
               <ShipmentCard
                 key={mission.id}
                 shipmentNumber={mission.id}
@@ -373,11 +424,18 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
                    its own, so the grid said "Unloading / orange" for the row the
                    list called "Depotage / blue". */
                 status={displayShipmentStatus(mission.status, 'shipment')}
-                statusIntent={statusIntentOf(mission.status)}
+                statusIntent={
+                  containerState
+                    ? (`container-${containerState}` as const)
+                    : statusIntentOf(mission.status)
+                }
+                cornerIntent={containerState ? CONTAINER_STATE_CORNER_INTENT[containerState] : 'teal'}
+                progressPercent={progress?.percent}
                 clickable
                 onClick={() => handleRowClick(mission)}
               />
-            ))}
+              );
+            })}
 
             {filteredMissions.length === 0 && (
               <Card className="col-span-2 p-12 text-center text-muted-foreground rounded-lg border border-border/80">
@@ -396,6 +454,8 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
             />
           )}
         </div>
+      )}
+        </>
       )}
     </div>
   );

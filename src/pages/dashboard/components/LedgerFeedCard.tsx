@@ -32,7 +32,6 @@ export function LedgerFeedCard({
     <ConsolePanel
       className={className}
       title="Ledger Activity"
-      subtitle="Newest first"
       action={
         <Link to={ROUTES.finance}>
           <PanelLink>Finance</PanelLink>

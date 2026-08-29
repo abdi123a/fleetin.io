@@ -75,6 +75,44 @@
    * person" and "warning" were never actually distinguishable, so the system
    * now ships one yellow and the distinction lives in the role name. */
 
+  /* COLOR — Status: Sky (the empty container awaiting a decision)
+   * Added 2026-08-29 with the v19 Empty Container design. The system already
+   * had `blue` (#3983de, informational/links) and `cyan` (#0094a6, chart series
+   * 1) — but blue is spoken for by links and cyan sits 12° from the brand teal,
+   * so an "empty is available" chip drawn in it read as a brand accent rather
+   * than a state. Sky is the gap between the two: unmistakably not-teal, and
+   * not the link colour either. Slightly deeper than Tailwind's sky so the 500
+   * step still carries white at AA. */
+  --fl-sky-50: #eff8fe;
+  --fl-sky-100: #d9eefc;
+  --fl-sky-200: #b5ddf9;
+  --fl-sky-300: #82c8f3;
+  --fl-sky-400: #46adea;
+  --fl-sky-500: #1a92d8;
+  --fl-sky-600: #0f76b4;
+  --fl-sky-700: #0e5f91;
+  --fl-sky-800: #114f78;
+  --fl-sky-900: #134364;
+  --fl-sky-950: #0d2a42;
+
+  /* COLOR — Status: Emerald (a container that made it home)
+   * Distinct from `green` (#2e7d32) on purpose. Green is the house "verified /
+   * delivered" forest tone and reads as administrative; the v19 design wanted
+   * the closing state to actually land, so emerald keeps its brightness. Both
+   * ramps ship: `--success` still rides green, and only the empty-container
+   * lifecycle spends emerald. */
+  --fl-emerald-50: #ecfaf3;
+  --fl-emerald-100: #d0f4e3;
+  --fl-emerald-200: #a3e8c9;
+  --fl-emerald-300: #6bd6a9;
+  --fl-emerald-400: #35bd88;
+  --fl-emerald-500: #12a06e;
+  --fl-emerald-600: #0a8159;
+  --fl-emerald-700: #0a6749;
+  --fl-emerald-800: #0b523b;
+  --fl-emerald-900: #0a4432;
+  --fl-emerald-950: #04261c;
+
   /* COLOR — Status: Blue (informational, links, tracking) */
   --fl-blue-50: #edf3fc;
   --fl-blue-100: #d2e1f8;

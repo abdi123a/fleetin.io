@@ -20,6 +20,10 @@ import {
   ChevronRight,
   Clock,
   Link2,
+  Package,
+  PackageCheck,
+  PackageOpen,
+  RotateCcw,
   Timer,
   X,
 } from '@/design-system/icons';
@@ -73,8 +77,30 @@ import { cn } from '@/utils';
  * pairing decision: an empty needs a full, a full needs an empty, and a matched
  * pair is committed work that needs nothing further. Hosts opt in — a console
  * that only emits done/planned/soon/late keeps exactly the four it had.
+ *
+ * `full` / `empty` / `returned` extend the same way, for Empty Return again:
+ * its calendar used to grade every event by the clock (deadline passed, deadline
+ * ahead, paired, waiting, returned) — five tones answering "how urgent", laid
+ * on top of a board whose real subject is a physical container. Urgency already
+ * has a home on the Control Tower, the module's one action surface; this
+ * calendar only monitors. So its tones stopped being about the clock and became
+ * the one fact every event on it actually shares: what is inside the box right
+ * now — the same three-state axis (`ContainerState` in `@/lib/containerState`)
+ * every other Empty Return surface reads a container by. A host that never
+ * emits these three sees no change; a host that does gets the same yellow/teal/
+ * grey pairing the rest of the app already uses for "empty / full / done".
  */
-export type PlanningEventTone = 'done' | 'locked' | 'planned' | 'soon' | 'late';
+export type PlanningEventTone =
+  | 'done'
+  | 'locked'
+  | 'planned'
+  | 'soon'
+  | 'late'
+  | 'full'
+  | 'empty'
+  | 'paired'
+  | 'returning'
+  | 'returned';
 
 export interface PlanningEvent {
   id: string;
@@ -152,6 +178,56 @@ const TONE: Record<PlanningEventTone, ToneStyle> = {
     chipActive: 'border-destructive bg-destructive text-destructive-foreground',
     icon: AlertCircle,
     label: 'Overdue',
+  },
+  /* The container-state trio — same tokens, same icons, same pairing every
+   * other Empty Return surface uses (`@/lib/containerState`,
+   * `ContainerStateTag`). `full` stays solid like `locked`/`planned`/`soon`;
+   * `empty` is the one dashed card on this board, because a dashed yellow
+   * outline is what "empty" means everywhere else in the app and a solid chip
+   * here would be the one surface that disagreed. `returned` stays as quiet as
+   * `done` — a finished container should be the thing the eye skips. */
+  full: {
+    card: 'border-container-full bg-container-full text-container-full-foreground hover:brightness-[1.06]',
+    mark: 'var(--container-full)',
+    chipActive: 'border-container-full bg-container-full text-container-full-foreground',
+    icon: Package,
+    label: 'Full',
+  },
+  /* An empty box awaiting a decision. Repainted 2026-08-29 from the brand
+     yellow onto `--stage-available` (sky), which is what the v19 design gives
+     "EMPTY AVAILABLE". Yellow still means *the box is empty* on a container
+     tag; this scale answers the other question — what is happening to it — and
+     on a calendar cell that is the one worth colouring. Dashed either way, so
+     the empty/full distinction survives without leaning on hue. */
+  empty: {
+    card: 'border-2 border-dashed border-stage-available-border bg-stage-available-subtle text-stage-available-subtle-foreground hover:brightness-[0.98]',
+    mark: 'var(--stage-available)',
+    chipActive: 'border-2 border-dashed border-stage-available-border bg-stage-available text-stage-available-foreground',
+    icon: PackageOpen,
+    label: 'Empty available',
+  },
+  /* Two different containers welded into one movement — v19's violet. */
+  paired: {
+    card: 'border-stage-paired-border bg-stage-paired-subtle text-stage-paired-subtle-foreground hover:brightness-[0.98]',
+    mark: 'var(--stage-paired)',
+    chipActive: 'border-stage-paired-border bg-stage-paired text-stage-paired-foreground',
+    icon: Link2,
+    label: 'Pairing',
+  },
+  /* Going back alone, slot chosen. */
+  returning: {
+    card: 'border-stage-returning-border bg-stage-returning-subtle text-stage-returning-subtle-foreground hover:brightness-[0.98]',
+    mark: 'var(--stage-returning)',
+    chipActive: 'border-stage-returning-border bg-stage-returning text-stage-returning-foreground',
+    icon: RotateCcw,
+    label: 'Empty return',
+  },
+  returned: {
+    card: 'border-stage-closed-border bg-stage-closed-subtle text-stage-closed-subtle-foreground hover:brightness-[0.98]',
+    mark: 'var(--stage-closed)',
+    chipActive: 'border-stage-closed-border bg-stage-closed text-stage-closed-foreground',
+    icon: PackageCheck,
+    label: 'Returned',
   },
 };
 
@@ -247,6 +323,11 @@ export function PlanningCalendar({
       planned: 0,
       soon: 0,
       late: 0,
+      full: 0,
+      empty: 0,
+      paired: 0,
+      returning: 0,
+      returned: 0,
     };
     const inRange = view === 'week' ? days : days.filter((day) => isSameMonth(day, cursor));
     for (const day of inRange) {
@@ -467,7 +548,18 @@ export function PlanningCalendar({
 
 /** Worst first — the tone a day is judged by. */
 /** Which tone a day takes when it holds several — the one most worth acting on. */
-const TONE_SEVERITY: readonly PlanningEventTone[] = ['late', 'soon', 'planned', 'locked', 'done'];
+const TONE_SEVERITY: readonly PlanningEventTone[] = [
+  'late',
+  'soon',
+  'empty',
+  'returning',
+  'planned',
+  'paired',
+  'locked',
+  'full',
+  'done',
+  'returned',
+];
 
 function worstTone(events: PlanningEvent[]): PlanningEventTone | null {
   for (const tone of TONE_SEVERITY) {

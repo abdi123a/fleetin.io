@@ -17,3 +17,13 @@ export {
   type VerificationBadgeProps,
   type VerificationState,
 } from './StatusBadge';
+
+export {
+  ContainerStateTag,
+  EmptyTag,
+  FullTag,
+  ReturnedTag,
+  containerStateClasses,
+  type ContainerStateTagProps,
+  type ContainerTagTone,
+} from './ContainerStateTag';

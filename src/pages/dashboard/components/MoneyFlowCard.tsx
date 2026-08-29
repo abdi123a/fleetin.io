@@ -106,7 +106,6 @@ export function MoneyFlowCard({ movement, className }: { movement: MovementModel
     <ConsolePanel
       className={className}
       title="Revenue &amp; Commission"
-      subtitle="Billed, transport cost and commission by month"
       action={
         <div className="text-right">
           <p className="type-body-xs text-muted-foreground">This month</p>

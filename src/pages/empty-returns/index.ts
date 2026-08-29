@@ -1,21 +1,22 @@
 /**
- * Empty Container Management — five views, five real URLs.
+ * Empty Container Management — the views, one route each.
  *
- * The product architecture, one route each:
+ * The product architecture:
  *
  * | View          | The question it answers                                  |
  * |---------------|----------------------------------------------------------|
  * | Control Tower | What needs my attention now? — the only view that asks   |
- * | Calendar      | What happens next? — read-only, monitors, never acts     |
- * | Matching      | What can I pair? — the workbench for working down a pile |
+ * | Calendar      | What happens next? — a tab on the Control Tower          |
  * | Cycles        | What happened? — chains drawn, not tabulated             |
  * | Dashboard     | How are we performing? — measurement, no queue           |
  *
- * The module root is the Control Tower rather than a dashboard: an operator
- * opening Empty Return wants the queue, and measurement is a place you go
- * deliberately. Navigation between the five lives in the sidebar alone —
- * `EmptyReturnModuleChrome` is the layout route that owns the clock, the title,
- * the toast and the one container dialog every view opens.
+ * Matching is deliberately **not** a view: it is the popup the Control Tower's
+ * "Find full load" button leads to (the Matching page), and the one
+ * place a pairing is made. The module root is the Control Tower rather than a
+ * dashboard: an operator opening Empty Return wants the queue, and measurement
+ * is a place you go deliberately. `EmptyReturnModuleChrome` is the layout route
+ * that owns the clock, the title, the toast and the one container dialog every
+ * view opens.
  *
  * `default` is the Control Tower, so a bare `import` of this barrel lands on the
  * screen the module is actually about.

@@ -48,7 +48,6 @@ export function CommissionCard({ money, className }: { money: MoneyModel; classN
     <ConsolePanel
       className={className}
       title="Commission"
-      subtitle="Share of billing kept after transport cost"
     >
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="h-[168px] w-[168px] shrink-0">

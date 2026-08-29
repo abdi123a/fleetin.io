@@ -126,3 +126,38 @@ export type ButtonVariant = NonNullable<ButtonVariantProps['variant']>;
 
 /** Size step. `icon` is shorthand for a square medium button. */
 export type ButtonSize = NonNullable<ButtonVariantProps['size']>;
+
+/* ---------------------------------------------------------------------------
+ * rowCardActionClasses
+ * ---------------------------------------------------------------------------
+ * The "View" button on a row card — the one that lights up teal when the CARD
+ * is hovered, not just the button.
+ *
+ * ## Why the direct-hover classes are spelled out
+ *
+ * The button sits inside the card's `group`, so pointing at the button is also
+ * a group hover and BOTH rule sets fire at once. The variant then painted the
+ * background (`hover:bg-muted`, a pale grey) while `group-hover:` painted the
+ * text (`text-primary-foreground`, white) — two rules of equal specificity
+ * deciding two halves of the same button, and they disagreed. The result was
+ * white type on a pale grey fill: the button disappeared at the exact moment
+ * you pointed at it.
+ *
+ * Naming `hover:bg-*` and `hover:text-*` here fixes it deterministically rather
+ * than by luck of stylesheet order, because `cn` runs `twMerge`: a `hover:`
+ * background in `className` *removes* the variant's instead of racing it. The
+ * direct hover is deliberately one step deeper than the card hover, so moving
+ * from the card onto the button still reads as a change. `active:` is spelled
+ * out for the same reason — the variant's grey would have flashed under white
+ * type on every click.
+ *
+ * Use it for any row-card action, and do not re-hand-roll the group-hover
+ * classes: this bug shipped twice, in two modules, from the same six-class
+ * incantation being copied.
+ * ------------------------------------------------------------------------- */
+export const rowCardActionClasses = [
+  'border-border/80 transition cursor-pointer shrink-0',
+  'group-hover:border-primary/40 group-hover:bg-primary group-hover:text-primary-foreground',
+  'hover:border-primary hover:bg-primary-hover hover:text-primary-foreground',
+  'active:bg-primary-active active:text-primary-foreground',
+].join(' ');

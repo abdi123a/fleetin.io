@@ -538,7 +538,12 @@ export function CreateShipmentModal() {
   // Route Locations (Dropdown values & Pickup Date/Time)
   const [pickupLocation, setPickupLocation] = useState<string>(PICKUP_LOCATION_OPTIONS[0]?.value ?? 'Port of Djibouti');
   const [pickupCity, setPickupCity] = useState<string>('Djibouti');
-  const [pickupDate, setPickupDate] = useState<string>('2026-07-29');
+  /* Today, not a date hardcoded when this wizard was written. The stale
+     literal was quietly fatal to the empty-container recommendation: a box is
+     only pairable if it is empty *before* the truck is needed, and every
+     container that came free after 29 Jul failed that test against a pickup
+     the operator never chose. */
+  const [pickupDate, setPickupDate] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
   const [pickupTime, setPickupTime] = useState<string>('08:30');
   const [customPickupLocations, setCustomPickupLocations] = useState<string[]>(() => loadCustomPickupLocations());
   const [newPickupLocationName, setNewPickupLocationName] = useState<string>('');

@@ -241,7 +241,6 @@ export function PartnersPage() {
       {/* Page Header */}
       <PageHeader
         title="Partners"
-        description="Transporter profiles, fleet, regions and compliance documents."
         actions={
           <Button
             onClick={() => setDrawerState({ mode: 'create' })}
@@ -267,7 +266,6 @@ export function PartnersPage() {
         <StatisticCard
           title="Active Transporters"
           value={activeCount}
-          subtitle="Verified"
           variant="blue"
           trend="up"
           percentage={`${Math.round((activeCount / (totalPartnersCount || 1)) * 100)}%`}
@@ -276,7 +274,6 @@ export function PartnersPage() {
         <StatisticCard
           title="Fleet Vehicles"
           value={totalFleetCount}
-          subtitle="Registered"
           variant="peach"
           trend="up"
           percentage="+18%"
@@ -285,7 +282,6 @@ export function PartnersPage() {
         <StatisticCard
           title="Pending Review"
           value={pendingReviewCount}
-          subtitle="Requires action"
           variant="pink"
           trend={pendingReviewCount > 0 ? 'down' : 'neutral'}
           percentage={pendingReviewCount > 0 ? `${pendingReviewCount} pending` : '0'}

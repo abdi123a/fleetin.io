@@ -2,9 +2,13 @@ import { useMemo } from 'react';
 
 import { Badge, Button } from '@/design-system';
 import { Check, PackageOpen, Zap } from '@/design-system/icons';
-import { useAvailableEmpties } from '@/features/empty-returns';
+import { useAvailableEmpties, useEmptyContainers } from '@/features/empty-returns';
 import type { PartnerRecord } from '@/types/partner';
-import { recommendTransporters, type TransporterScore } from '@/features/transporters/recommendation';
+import {
+  SCHEDULED_WINDOW_MS,
+  recommendTransporters,
+  type TransporterScore,
+} from '@/features/transporters/recommendation';
 import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
 import { cn } from '@/utils';
 
@@ -47,6 +51,31 @@ export function TransporterRecommendations({
   onChooseManually: () => void;
 }) {
   const { data: available = [], isLoading } = useAvailableEmpties();
+  /* The Empty Return calendar. `records` is the module's own book of
+     containers, so a return planned in Empty Container Management shows up here
+     without a second source of truth to keep in step. */
+  const { records } = useEmptyContainers();
+
+  /**
+   * Returns already booked around this pickup, per carrier.
+   *
+   * Keyed by lowercased legal name: the empty-return record carries its carrier
+   * as the company name the original load was delivered under, with no partner
+   * id to join on.
+   */
+  const scheduledByName = useMemo(() => {
+    const counts = new Map<string, number>();
+    if (!considerEmpties) return counts;
+    for (const record of records) {
+      if (record.stage !== 'return_planned') continue;
+      if (record.plannedReturnAt === null) continue;
+      if (Math.abs(record.plannedReturnAt - pickupAt) > SCHEDULED_WINDOW_MS) continue;
+      const key = record.transporter.trim().toLowerCase();
+      if (!key) continue;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  }, [records, pickupAt, considerEmpties]);
 
   const { ranked, noEmptiesAnywhere } = useMemo(
     () =>
@@ -59,8 +88,19 @@ export function TransporterRecommendations({
         vehiclesNeeded,
         rateOf,
         considerEmpties,
+        scheduledByName,
       }),
-    [partners, available, line, sizes, pickupAt, vehiclesNeeded, rateOf, considerEmpties],
+    [
+      partners,
+      available,
+      line,
+      sizes,
+      pickupAt,
+      vehiclesNeeded,
+      rateOf,
+      considerEmpties,
+      scheduledByName,
+    ],
   );
 
   const top = ranked.slice(0, 5);
@@ -79,35 +119,35 @@ export function TransporterRecommendations({
 
       <p className="text-[11px] leading-snug text-muted-foreground">
         {considerEmpties
-          ? 'Scored mostly on the empty containers each carrier is already holding for this line and size — pairing one turns two trips into one and the return it was heading for never happens. Fleet size and price make up the rest.'
+          ? 'Scored on the empty containers each carrier is already holding for this line and size, and on the empty returns already booked in their calendar around this pickup — either way the trip is one they are largely making anyway. Fleet size and price make up the rest.'
           : 'This shipment carries no container to reuse, so carriers are scored on fleet size and price alone.'}
       </p>
 
       {isLoading && considerEmpties ? (
-        <p className="rounded-lg border border-dashed border-border bg-card p-3 text-[11px] text-muted-foreground">
+        <p className="rounded-card-nested border border-dashed border-border bg-card px-4 py-3 text-[11px] text-muted-foreground">
           Checking which carriers are holding a container this shipment could take…
         </p>
       ) : (
         <>
           {considerEmpties && noEmptiesAnywhere && (
-            <p className="rounded-lg border border-dashed border-border bg-card p-2.5 text-[11px] text-muted-foreground">
+            <p className="rounded-card-nested border border-dashed border-border bg-card px-4 py-3 text-[11px] text-muted-foreground">
               No carrier is holding a container this shipment could reuse, so these are ranked on
               fleet and price alone.
             </p>
           )}
 
-          <ol className="space-y-1.5">
+          <ol className="space-y-2">
             {top.map((entry, index) => (
               <RecommendationRow
                 key={entry.partnerId}
-                rank={index + 1}
+                best={index === 0}
                 entry={entry}
                 assigned={assignedPartnerIds.includes(entry.partnerId)}
                 onChoose={() => onChoose(entry.partnerId)}
               />
             ))}
             {top.length === 0 && (
-              <li className="rounded-lg border border-dashed border-border bg-card p-3 text-[11px] text-muted-foreground">
+              <li className="rounded-card-nested border border-dashed border-border bg-card px-4 py-3 text-[11px] text-muted-foreground">
                 No transporters on the account yet.
               </li>
             )}
@@ -123,79 +163,123 @@ export function TransporterRecommendations({
 }
 
 function RecommendationRow({
-  rank,
+  best,
   entry,
   assigned,
   onChoose,
 }: {
-  rank: number;
+  /** First in the ranking — the only position worth marking. */
+  best: boolean;
   entry: TransporterScore;
   assigned: boolean;
   onChoose: () => void;
 }) {
+  /* The empties are the argument this panel exists to make; the fleet and the
+     price are the context that stops it being a bad one. So they are typeset
+     differently — one line in brand teal, one in muted small caps — rather than
+     as four identical grey pills where the reader has to find the point. */
+  const leadsWithEmpties = entry.emptiesHeld > 0 || entry.scheduledReturns > 0;
+  const emptiesLine = [
+    /* Spelled out rather than "boxes": this line answers "how many empty
+       containers is this carrier holding that I could reuse", and the reader
+       should not have to infer that "box" means container. */
+    entry.emptiesHeld > 0
+      ? `${entry.emptiesHeld} empty container${entry.emptiesHeld === 1 ? '' : 's'} held`
+      : null,
+    entry.urgent > 0 ? `${entry.urgent} due back in 3d` : null,
+    /* The calendar signal, said plainly: they are already going. */
+    entry.scheduledReturns > 0
+      ? `${entry.scheduledReturns} return${entry.scheduledReturns === 1 ? '' : 's'} already booked`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const contextLine = [
+    entry.coversFleet
+      ? `${entry.vehicles} vehicles`
+      : `only ${entry.vehicles} of ${entry.vehiclesNeeded} vehicles`,
+    entry.ratePerVehicle > 0 ? `${entry.ratePerVehicle.toLocaleString()} FDJ` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
     <li>
       <button
         type="button"
         onClick={onChoose}
         className={cn(
-          'w-full cursor-pointer rounded-lg border p-2.5 text-left transition-colors',
+          /* `rounded-card-nested`, not an ad-hoc radius: these sit inside the
+             wizard's own panel, and the design system's second rung is what a
+             card nested in a card wears. */
+          'group w-full cursor-pointer overflow-hidden rounded-card-nested border text-left transition-colors',
           assigned
             ? 'border-primary bg-primary-subtle'
-            : 'border-border/60 bg-card hover:border-primary/50 hover:bg-primary-subtle/40',
+            : best
+              ? 'border-primary/40 bg-card hover:border-primary'
+              : 'border-border/60 bg-card hover:border-primary/50',
         )}
       >
-        <div className="flex items-center gap-2.5">
-          <span className="w-4 shrink-0 text-center font-mono text-[11px] font-bold text-muted-foreground">
-            {rank}
-          </span>
+        {/* No rank numeral. The list is already in rank order and the score is
+            printed on every row — a circled "4" beside them said nothing the
+            reader could not see, and cost the logo its breathing room. */}
+        <div className="flex items-center gap-3.5 px-4 py-3.5">
           <CompanyMark
             id={entry.partnerId}
             name={entry.name}
             logoUrl={entry.logoUrl ?? undefined}
-            size="xs"
+            size="sm"
           />
-          <span className="min-w-0 flex-1 truncate text-xs font-bold text-foreground">
-            {entry.name}
-          </span>
-          {assigned ? (
-            <Badge variant="subtle" intent="success" size="sm">
-              <Check className="h-3 w-3" />
-              Assigned
-            </Badge>
-          ) : (
-            <span className="shrink-0 font-mono text-[17px] font-extrabold leading-none text-primary-bold">
-              {entry.score}%
-            </span>
-          )}
-        </div>
 
-        {/* The score as a bar, so five of them compare at a glance rather than
-            by reading five numbers. */}
-        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
-          <span
-            className="block h-full rounded-full bg-primary-bold"
-            style={{ width: `${Math.max(entry.score, 2)}%` }}
-          />
-        </div>
+          <div className="min-w-0 flex-1">
+            <p className="flex items-center gap-1.5 truncate text-[13px] font-bold leading-tight text-foreground">
+              <span className="truncate">{entry.name}</span>
+              {assigned && <Check className="size-3.5 shrink-0 text-primary-bold" aria-label="Assigned" />}
+            </p>
 
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {entry.reasons.map((reason, index) => (
-            <span
-              key={reason}
+            {/* The empty count is the whole reason this panel exists, so it is
+                stated on every row — including zero. "Nothing of theirs on this
+                route" hid the number behind a phrase and made a carrier holding
+                none look like a carrier the engine had not checked. */}
+            <p
               className={cn(
-                'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold',
-                /* The empties are the argument; everything else is context. */
-                index === 0 && entry.emptiesHeld > 0
-                  ? 'bg-primary-subtle text-primary-subtle-foreground'
-                  : 'bg-secondary text-muted-foreground',
+                'mt-1 flex items-center gap-1 text-[11px] leading-tight',
+                leadsWithEmpties
+                  ? 'font-semibold text-primary-bold'
+                  : 'text-muted-foreground',
               )}
             >
-              {index === 0 && entry.emptiesHeld > 0 && <PackageOpen className="h-3 w-3" />}
-              {reason}
-            </span>
-          ))}
+              <PackageOpen className="size-3.5 shrink-0" aria-hidden />
+              <span className="truncate">
+                {entry.emptiesHeld > 0
+                  ? emptiesLine
+                  : entry.scheduledReturns > 0
+                    ? emptiesLine
+                    : '0 empty containers held'}
+              </span>
+            </p>
+
+            <p
+              className={cn(
+                'mt-0.5 truncate text-[10.5px] uppercase tracking-[0.04em]',
+                entry.coversFleet ? 'text-muted-foreground' : 'text-warning-subtle-foreground',
+              )}
+            >
+              {contextLine}
+            </p>
+          </div>
+
+          <div className="shrink-0 text-right">
+            <p className="font-mono text-[22px] font-extrabold leading-none tracking-tight text-primary-bold">
+              {entry.score}
+              <span className="text-[13px] font-bold">%</span>
+            </p>
+            <p className="mt-1 text-[9px] font-bold uppercase tracking-[0.11em] text-muted-foreground">
+              {best ? 'Best match' : 'Match'}
+            </p>
+          </div>
         </div>
+
       </button>
     </li>
   );

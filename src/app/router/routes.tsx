@@ -99,17 +99,13 @@ const EmptyReturnControlTowerPage = lazyWithRetry(
   () => import('@/pages/empty-returns'),
   'ControlTowerPage',
 );
-const EmptyReturnCalendarPage = lazyWithRetry(
+const EmptyReturnCyclesPage = lazyWithRetry(
   () => import('@/pages/empty-returns'),
-  'EmptyReturnCalendarPage',
+  'EmptyReturnCyclesPage',
 );
 const EmptyReturnMatchingPage = lazyWithRetry(
   () => import('@/pages/empty-returns'),
   'MatchingPage',
-);
-const EmptyReturnCyclesPage = lazyWithRetry(
-  () => import('@/pages/empty-returns'),
-  'EmptyReturnCyclesPage',
 );
 const EmptyReturnPerformancePage = lazyWithRetry(
   () => import('@/pages/empty-returns'),
@@ -253,13 +249,12 @@ export const routes: RouteObject[] = [
       { path: ROUTES.bookingDetail, element: <ShipmentOverviewPage /> },
       { path: ROUTES.missions, element: <MissionsPage /> },
       { path: ROUTES.missionDetail, element: <ShipmentOverviewPage /> },
-      // Pathless layout route: the three views are siblings in the URL, but they
+      // Pathless layout route: the views are siblings in the URL, but they
       // share one 30s clock and one toast renderer. See EmptyReturnModuleChrome.
-      // Chains used to be a sibling here; it's now a tab inside Cycles
-      // (`?tab=chains`) — the old path redirects there, below. Matching used to
-      // be a sibling too; it is now the DualTransactionsRecommendationsModal
-      // popup opened in place from Cycles and the Dashboard, so the old path
-      // redirects to Cycles, where every "create a match" entry point lives.
+      // Chains used to be a sibling here; it's now drawn inside Cycles — the
+      // old path redirects there, below. Matching used to be a sibling too; it
+      // is the Matching page again since 2026-08-29, so the
+      // old path lands there with the popup already open.
       {
         element: <EmptyReturnModuleChrome />,
         children: [
@@ -267,13 +262,24 @@ export const routes: RouteObject[] = [
           // opening Empty Return wants the queue of containers needing a
           // decision. Measurement is a place you go deliberately.
           { path: ROUTES.emptyReturns, element: <EmptyReturnControlTowerPage /> },
-          { path: ROUTES.emptyReturnsCalendar, element: <EmptyReturnCalendarPage /> },
+          // Matching is a page again as of 2026-08-29, restored with the rest
+          // of v19. It works ONE container deeply (score, margin, checklist,
+          // refusal reasons); the Control Tower's popup works the whole pile at
+          // once. Same engine behind both, so they cannot disagree.
           { path: ROUTES.emptyReturnsMatching, element: <EmptyReturnMatchingPage /> },
           { path: ROUTES.emptyReturnsCycles, element: <EmptyReturnCyclesPage /> },
           { path: ROUTES.emptyReturnsPerformance, element: <EmptyReturnPerformancePage /> },
-          // Chains are drawn inside Cycles, and the per-transporter table folded
-          // into the Dashboard's filters. Both paths stay so old bookmarks and
-          // any link outside this repo still land somewhere real.
+          // Chains are drawn inside Cycles, the per-transporter table folded into
+          // the Dashboard's filters, and the Calendar is now a tab on the
+          // Control Tower. Every path stays so old bookmarks and any link
+          // outside this repo still land somewhere real.
+          // The Calendar moved to the Shipments page as a tab on 2026-08-29 —
+          // it plans shipments, so it belongs beside them. The old path stays
+          // so bookmarks and any link outside this repo still land somewhere.
+          {
+            path: ROUTES.emptyReturnsCalendar,
+            element: <Navigate to={ROUTES.shipmentsList} replace />,
+          },
           {
             path: ROUTES.emptyReturnsChains,
             element: <Navigate to={ROUTES.emptyReturnsCycles} replace />,

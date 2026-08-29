@@ -3,6 +3,12 @@ import type { MissionStatus } from '@/types/mission';
 import { Badge } from '@/design-system';
 import { displayShipmentStatus } from '@/lib/shipmentStatus';
 import {
+  CONTAINER_STATE_BADGE_CLASS,
+  CONTAINER_STATE_BADGE_INTENT,
+  CONTAINER_STATE_SENTENCE,
+  type ContainerState,
+} from '@/lib/containerState';
+import {
   Clock,
   DollarSign,
   UserCheck,
@@ -10,6 +16,7 @@ import {
   Navigation,
   MapPin,
   Package,
+  ContainerIcon,
   ArrowRight,
   FileCheck,
   CheckCircle2,
@@ -21,12 +28,23 @@ interface MissionStatusBadgeProps {
   status: MissionStatus;
   className?: string;
   size?: 'sm' | 'md' | 'lg';
+  /**
+   * What is in the box — teal while full, brand yellow once empty.
+   *
+   * When the caller knows a shipment carries containers it passes this, and the
+   * badge takes the app-wide container pair instead of the ladder's own hues:
+   * the same shipment then reads identically on the list, in the grid and on
+   * its own page. Left out (a bulk load, or a caller with no container context)
+   * the badge keeps the per-rung colours it always had.
+   */
+  containerState?: ContainerState | null;
 }
 
 export const MissionStatusBadge: React.FC<MissionStatusBadgeProps> = ({
   status,
   className = '',
   size = 'md',
+  containerState,
 }) => {
   const getStatusConfig = (
     status: MissionStatus,
@@ -74,7 +92,12 @@ export const MissionStatusBadge: React.FC<MissionStatusBadgeProps> = ({
   };
 
   const config = getStatusConfig(status);
-  const Icon = config.icon;
+  /* A container, not a parcel — this chip is about a shipping box. The
+     full/empty/returned distinction is carried by colour and by the word;
+     `ContainerStateTag` keeps the three distinct box icons where the two states
+     sit side by side and must never be mistaken for each other. */
+  const Icon = containerState ? ContainerIcon : config.icon;
+  const intent = containerState ? CONTAINER_STATE_BADGE_INTENT[containerState] : config.intent;
   // The icon and colour still track the precise rung of the ladder; only the
   // word is the shared plain-language one, so this badge and the booking
   // cards under a shipment can never disagree about what to call the same
@@ -83,9 +106,10 @@ export const MissionStatusBadge: React.FC<MissionStatusBadgeProps> = ({
 
   return (
     <Badge
-      intent={config.intent}
+      intent={intent}
       size={size}
-      className={`inline-flex items-center gap-1.5 font-semibold ${className}`}
+      title={containerState ? CONTAINER_STATE_SENTENCE[containerState] : undefined}
+      className={`inline-flex items-center gap-1.5 font-semibold ${containerState ? CONTAINER_STATE_BADGE_CLASS[containerState] : ''} ${className}`}
     >
       <Icon className="w-3.5 h-3.5" />
       <span>{label}</span>

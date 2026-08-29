@@ -56,7 +56,21 @@ export const Avatar = forwardRef<ElementRef<typeof AvatarPrimitive.Root>, Avatar
     return (
       <AvatarPrimitive.Root
         ref={ref}
-        className={cn(avatarVariants({ size, shape }), className)}
+        className={cn(
+          avatarVariants({ size, shape }),
+          /* A company mark needs its own edge.
+             Most supplied logos are artwork on white, so on a white card the
+             frame vanished and the mark floated with no shape at all — you
+             could not tell whether a logo was there or missing. The ring draws
+             that edge — and it is `border-strong`, not `border`: the plain rule
+             is one step off the card surface and disappeared under exactly the
+             white-on-white logos it exists for (the user flagged it on
+             2026-08-29). `ring-inset`, because the frame clips its contents: an
+             outset ring on a `rounded-full` avatar is cut off at the corners.
+             Photographs (`cover`) carry their own edge and get none. */
+          fit === 'contain' && 'ring-1 ring-inset ring-border-strong/80',
+          className,
+        )}
         {...props}
       >
         {src && (
@@ -65,7 +79,32 @@ export const Avatar = forwardRef<ElementRef<typeof AvatarPrimitive.Root>, Avatar
             alt={name ?? ''}
             className={cn(
               'size-full',
-              fit === 'contain' ? 'object-contain p-0.5' : 'aspect-square object-cover',
+              fit === 'contain'
+                ? cn(
+                    /* The artwork sits on the frame's own surface, not the
+                       fallback's grey chip. Supplied logos are mostly opaque
+                       white squares, and letterboxing one onto grey drew a
+                       visible white square inside the circle — which is what
+                       "the logo doesn't fit" actually was. */
+                    'bg-card object-contain',
+                    /* No inset. The artwork already carries one.
+                       Every logo on file is squared and padded by
+                       `normalise-logos.py` before upload — measured across all
+                       17, the ink occupies 82.5–83.2% of the frame, i.e. a
+                       consistent ~8.3% margin — and the generated SVG wordmarks
+                       are deliberately full-bleed colour. Adding 12% on top of
+                       that padded a padded image: the mark ended up filling
+                       about 63% of the circle's width, which read as "the logo
+                       doesn't fit its placeholder" at every size, and worse on
+                       an SVG mark, where it drew a solid coloured square with
+                       white corners inside a circle.
+                       At `p-0` the ink lands at ~83% of the circle and the
+                       artwork's own margin does the job the inset was invented
+                       for. If a logo ever arrives unpadded it meets the rim
+                       rather than overflowing it, because the frame clips. */
+                    'p-0',
+                  )
+                : 'aspect-square object-cover',
             )}
           />
         )}

@@ -45,13 +45,15 @@ interface FlowCardProps {
 }
 
 const TONE: Record<FlowCardProps['tone'], string> = {
-  /* A loaded container is the brand slab everywhere in this module. */
-  full: 'bg-primary-bold text-primary-bold-foreground border-primary-bold',
-  /* An empty one is always a dashed outline — the shape carries it, not the hue. */
-  empty: 'border-2 border-dashed border-info bg-info-subtle/40 text-foreground',
-  paired: 'border-2 border-primary bg-primary-subtle text-primary-subtle-foreground',
+  /* The app-wide container pair: teal slab while full, yellow dashed once
+     empty, grey once home — the same colours the shipment view uses. */
+  full: 'bg-container-full text-container-full-foreground border-container-full',
+  empty:
+    'border-2 border-dashed border-container-empty-border bg-container-empty-subtle/60 text-foreground',
+  paired:
+    'border-2 border-container-full-border bg-container-full-subtle text-container-full-subtle-foreground',
   return: 'border-2 border-warning bg-warning-subtle text-warning-subtle-foreground',
-  done: 'border-2 border-success bg-success-subtle text-success-subtle-foreground',
+  done: 'border-2 border-container-returned-border bg-container-returned-subtle text-container-returned-subtle-foreground',
   undecided: 'border-2 border-dashed border-border-strong bg-surface-sunken text-muted-foreground',
 };
 
@@ -116,7 +118,7 @@ export function OperationFlow({ record, now, className }: OperationFlowProps) {
 
       {/* NOW — the same box, empty */}
       <FlowCard label={record.stage === 'closed' ? 'Empty' : 'Current'} tone="empty">
-        <div className="flex items-center gap-1.5 text-info-subtle-foreground">
+        <div className="flex items-center gap-1.5 text-container-empty-subtle-foreground">
           <PackageOpen className="size-3 shrink-0" aria-hidden />
           <Mono className="truncate text-sm font-bold text-foreground">
             {record.container || '—'}

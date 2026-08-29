@@ -48,11 +48,14 @@ export {
   effectivePickup,
   incompatibilityReasons,
   incompatibleLoadsFor,
+  isPortZone,
   isSameLocation,
   marginFor,
   suggestEmptiesFor,
   suggestLoadsFor,
   unclaimedLoads,
+  zoneLabel,
+  zoneOf,
 } from './matching';
 
 export {

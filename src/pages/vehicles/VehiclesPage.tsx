@@ -515,7 +515,6 @@ export function VehiclesPage() {
       {/* Page Header */}
       <PageHeader
         title="Vehicles"
-        description="Vehicle records, capacity and compliance."
         actions={
           <Button
             onClick={() => setIsAddVehicleOpen(true)}
@@ -695,7 +694,6 @@ export function VehiclesPage() {
         <StatisticCard
           title="Total Fleet"
           value={totalVehicles}
-          subtitle="Registered vehicles"
           variant="teal"
           trend="up"
           percentage="100%"
@@ -704,7 +702,6 @@ export function VehiclesPage() {
         <StatisticCard
           title="Available"
           value={availableCount}
-          subtitle="Ready for dispatch"
           variant="blue"
           trend="up"
           percentage={`${Math.round((availableCount / (totalVehicles || 1)) * 100)}%`}
@@ -713,7 +710,6 @@ export function VehiclesPage() {
         <StatisticCard
           title="In Transit"
           value={inTransitCount}
-          subtitle="On active bookings"
           variant="peach"
           trend="up"
           percentage="+12%"
@@ -722,7 +718,6 @@ export function VehiclesPage() {
         <StatisticCard
           title="Maintenance"
           value={maintenanceCount}
-          subtitle="Requires attention"
           variant="pink"
           trend={maintenanceCount > 0 ? 'down' : 'neutral'}
           percentage={`${maintenanceCount} vehicles`}

@@ -288,6 +288,132 @@
   --tile-peach: var(--fl-fill-peach);
   --tile-sky: var(--fl-fill-sky);
   --tile-foreground: var(--fl-neutral-950);
+  /* The record masthead when every container on it is home. Same slab, same
+   * white ink, brand hue removed — a finished shipment should read as closed
+   * the moment the page opens, and grey is how the container scale below says
+   * "done". A dark neutral rather than a light one so nothing inside the header
+   * has to change: `--tile-*-foreground` is white either way. */
+  --tile-done: var(--fl-neutral-950);
+  --tile-done-foreground: var(--fl-neutral-0);
+
+  /* ---------------------------------------------------------------------------
+   * Container state — is the box FULL or EMPTY?
+   * ---------------------------------------------------------------------------
+   * The one colour axis the whole app reads a container by, set by the user on
+   * 2026-08-29: **teal while the box is still full, yellow once it is empty,
+   * grey once it is back at the depot.**
+   * Nothing else in the system is allowed to speak this scale, and every surface
+   * that shows a container — a booking card under a shipment, a shipments list
+   * row, the Empty Container queue, the calendar — must use it, so a screen full
+   * of boxes can be triaged without reading a single word.
+   *
+   * The two brand hues carry the live half because the distinction *is* the
+   * product: teal (#60969D) is cargo still moving under a shipment, yellow
+   * (#F9AC17) is a box that has been stripped and now owes a return. It flips on
+   * the `Empty Ready` rung, which is the moment Operations records the box as
+   * stripped, and the same moment the empty return and its detention clock open.
+   *
+   * Black closes it. A returned box is the one state that must NOT carry a brand
+   * hue: the clock has stopped, nothing is owed, and a finished container that
+   * still glows yellow reads as work outstanding. It went in as a mid grey on
+   * the reasoning that "done" should recede; the user overruled that on
+   * 2026-08-29 — against a white card the grey mark and the grey chip both
+   * washed out until you could not tell a finished booking from an unstyled one.
+   * Ink, not grey: the neutral ramp's darkest step, which is the strongest mark
+   * available that still carries no hue.
+   *
+   * Aliases, not ramp steps: the pair is the brand pair, so if a brand role
+   * moves the container marks move with it. They ride the `*-bold` roles rather
+   * than `--primary`/`--accent` because these are slabs carrying text, and the
+   * bold roles hold the same value in both themes — a FULL/EMPTY mark must not
+   * change hue when the operator flips to dark. That also means this block needs
+   * no dark override: the subtle rungs below already theme themselves through
+   * the roles they alias.
+   *
+   * Colour is never the only channel. `ContainerStateTag` also differs in fill,
+   * border and icon (solid + closed box vs dashed + open box) so the pair
+   * survives a monochrome print and a colour-blind reader.
+   * ------------------------------------------------------------------------ */
+  --container-full: var(--primary-bold);
+  --container-full-foreground: var(--primary-bold-foreground);
+  --container-full-subtle: var(--primary-subtle);
+  --container-full-subtle-foreground: var(--primary-subtle-foreground);
+  --container-full-border: var(--primary);
+
+  --container-empty: var(--accent-bold);
+  --container-empty-foreground: var(--accent-bold-foreground);
+  --container-empty-subtle: var(--accent-subtle);
+  --container-empty-subtle-foreground: var(--accent-subtle-foreground);
+  --container-empty-border: var(--accent);
+
+  --container-returned: var(--fl-neutral-950);
+  --container-returned-foreground: var(--fl-neutral-0);
+  --container-returned-subtle: var(--fl-neutral-100);
+  --container-returned-subtle-foreground: var(--fl-neutral-950);
+  --container-returned-border: var(--fl-neutral-950);
+
+  /* --------------------------------------------------------------------------
+   * Empty-container LIFECYCLE STAGE — what is HAPPENING to the box
+   * --------------------------------------------------------------------------
+   * The second axis of the Empty Container module, added 2026-08-29 with the
+   * v19 design. It does not replace `--container-*` above and must never be
+   * confused with it:
+   *
+   *   --container-*   what is INSIDE the box   full · empty · returned
+   *   --stage-*       what is HAPPENING to it  available · paired · returning · closed · overdue
+   *
+   * A box can be EMPTY (yellow, `--container-empty`) and simultaneously PAIRED
+   * (violet, `--stage-paired`) — those are two true facts about one container,
+   * which is exactly why they get two scales instead of fighting over one.
+   *
+   * Why these hues rather than the brand: the module's five stages were
+   * previously drawn in teal, grey and amber alone, and every board it produced
+   * read as one temperature. The v19 design assigns each stage its own hue so a
+   * calendar cell or a queue row is legible at a glance without reading a word.
+   * Violet for a pairing is the load-bearing one — a pairing is the product's
+   * whole point, it is not a shade of "full", and teal made it look like one.
+   *
+   * `available` and `paired` are the only genuinely new hues; the closing three
+   * alias roles the system already had, so a stage chip and a status badge
+   * elsewhere on the page cannot drift apart.
+   * ------------------------------------------------------------------------ */
+  /* The box is empty and nothing has been decided — the module's open question. */
+  --stage-available: var(--fl-sky-500);
+  --stage-available-foreground: var(--fl-neutral-0);
+  --stage-available-subtle: var(--fl-sky-50);
+  --stage-available-subtle-foreground: var(--fl-sky-800);
+  --stage-available-border: var(--fl-sky-400);
+
+  /* Welded to a next full load — one truck runs both legs. The win state. */
+  --stage-paired: var(--fl-violet-500);
+  --stage-paired-foreground: var(--fl-neutral-0);
+  --stage-paired-subtle: var(--fl-violet-50);
+  --stage-paired-subtle-foreground: var(--fl-violet-800);
+  --stage-paired-border: var(--fl-violet-300);
+
+  /* Going back on its own, slot chosen. Rides the house warning ramp: it is an
+     outstanding ask, and it must match every other "needs doing" amber. */
+  --stage-returning: var(--warning);
+  --stage-returning-foreground: var(--warning-foreground);
+  --stage-returning-subtle: var(--warning-subtle);
+  --stage-returning-subtle-foreground: var(--warning-subtle-foreground);
+  --stage-returning-border: var(--warning);
+
+  /* Home, on time. Emerald rather than `--success` green so a closed cycle
+     actually reads as an achievement on a board of live ones. */
+  --stage-closed: var(--fl-emerald-500);
+  --stage-closed-foreground: var(--fl-neutral-0);
+  --stage-closed-subtle: var(--fl-emerald-50);
+  --stage-closed-subtle-foreground: var(--fl-emerald-800);
+  --stage-closed-border: var(--fl-emerald-300);
+
+  /* Past the return deadline — detention is accruing. The house destructive
+     role, because this is the one stage that is genuinely a failure. */
+  --stage-overdue: var(--destructive);
+  --stage-overdue-foreground: var(--destructive-foreground);
+  --stage-overdue-subtle: var(--destructive-subtle);
+  --stage-overdue-subtle-foreground: var(--destructive-subtle-foreground);
+  --stage-overdue-border: var(--destructive);
 
   /* Elevation — light theme uses the neutral-tinted shadow ramp */
   --elevation-card: 0 3px 3px 0 rgb(17 36 53 / 0.086);
@@ -468,6 +594,31 @@
   --chart-7: var(--fl-magenta-600);
   --chart-other: var(--fl-slate-600);
 
+  /* Empty-container lifecycle stages — dark.
+   * Only the three that ride raw ramp steps need restating; `returning` and
+   * `overdue` alias `--warning`/`--destructive`, which have already flipped by
+   * the time this block runs. The pattern matches every other dark override
+   * here: the fill lightens a step so it carries dark text, and the subtle rung
+   * becomes a low-alpha wash of the fill rather than the light 50 step, which
+   * would glow on a dark card. */
+  --stage-available: var(--fl-sky-400);
+  --stage-available-foreground: var(--fl-sky-950);
+  --stage-available-subtle: color-mix(in srgb, var(--fl-sky-400) 16%, transparent);
+  --stage-available-subtle-foreground: var(--fl-sky-200);
+  --stage-available-border: var(--fl-sky-500);
+
+  --stage-paired: var(--fl-violet-400);
+  --stage-paired-foreground: var(--fl-violet-950);
+  --stage-paired-subtle: color-mix(in srgb, var(--fl-violet-400) 18%, transparent);
+  --stage-paired-subtle-foreground: var(--fl-violet-200);
+  --stage-paired-border: var(--fl-violet-500);
+
+  --stage-closed: var(--fl-emerald-400);
+  --stage-closed-foreground: var(--fl-emerald-950);
+  --stage-closed-subtle: color-mix(in srgb, var(--fl-emerald-400) 16%, transparent);
+  --stage-closed-subtle-foreground: var(--fl-emerald-200);
+  --stage-closed-border: var(--fl-emerald-500);
+
   /* Ordinal ramp flips its anchor: on a dark surface the sequence has to run
    * from the light end of the teal ramp for the steps to stay separable. */
   --chart-step-1: var(--fl-teal-200);
@@ -496,6 +647,21 @@
    * rather than being re-pointed at a dark primitive. */
   --tile-teal: var(--fl-fill-teal);
   --tile-teal-foreground: var(--fl-neutral-0);
+  /* Ink inverts in the dark, because ink IS the canvas here.
+     `--card` is #0e1212 and the light theme's finished mark is #111515 — the
+     two are three points apart, so a black slab on a dark card is an invisible
+     slab. What the mark actually means is "maximum contrast, no hue"; in a dark
+     theme that is a light slab with dark type, which is the same statement read
+     from the other side. */
+  --tile-done: var(--fl-neutral-100);
+  --tile-done-foreground: var(--fl-neutral-950);
+
+  /* Same inversion for the container mark — see the note above. */
+  --container-returned: var(--fl-neutral-100);
+  --container-returned-foreground: var(--fl-neutral-950);
+  --container-returned-subtle: var(--fl-slate-800);
+  --container-returned-subtle-foreground: var(--fl-neutral-100);
+  --container-returned-border: var(--fl-neutral-100);
   --tile-pink: var(--fl-fill-pink);
   --tile-peach: var(--fl-fill-peach);
   --tile-sky: var(--fl-fill-sky);

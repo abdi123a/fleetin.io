@@ -11,7 +11,7 @@ import type {
   PerformanceFilters,
 } from '@/types/emptyReturn';
 
-import { incompatibilityReasons, suggestLoadsFor } from './matching';
+import { frictionsFor, incompatibilityReasons, suggestLoadsFor } from './matching';
 
 /**
  * The Dashboard's arithmetic — every figure on the performance page, computed
@@ -174,7 +174,15 @@ function buildFailureReasons(
       continue;
     }
     for (const load of loads) {
-      for (const issue of incompatibilityReasons(record, load, now)) {
+      /* Hard refusals and arrangeable frictions both counted, because "why did
+         this box not get paired?" is answered by either — and since 2026-08-27
+         only two reasons can actually refuse a pairing, a tally of refusals
+         alone would report almost nothing. */
+      const issues = [
+        ...incompatibilityReasons(record, load),
+        ...frictionsFor(record, load, now).map((friction) => friction.label),
+      ];
+      for (const issue of issues) {
         tally.set(issue, (tally.get(issue) ?? 0) + 1);
         total += 1;
       }

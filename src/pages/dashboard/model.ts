@@ -692,7 +692,13 @@ export interface AttentionItem {
   /** Which module owns the fix. */
   module: 'Shipments' | 'Empty Container' | 'Finance' | 'HR' | 'Fleet';
   title: string;
-  detail: string;
+  /**
+   * A second line, only where it carries a fact the title does not — a bucket
+   * count, a location. Most rows have none: "Shipments with no vehicle"
+   * followed by "No vehicle assigned yet." was the same sentence twice, and
+   * thirteen of those cost the queue a screen.
+   */
+  detail?: string;
   count: number;
   /** Where clicking it lands. */
   to: string;
@@ -824,7 +830,6 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     severity: 'breach',
     module: 'Empty Container',
     title: 'Containers past return deadline',
-    detail: 'Detention accruing.',
     count: returns.kpis.overdue,
     // The Control Tower, not Cycles: Cycles is the history of what happened,
     // and a container still out is not history.
@@ -836,8 +841,8 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     module: 'Finance',
     title: 'Overdue invoices',
     detail: overdueBucket && overdueBucket.count > 0
-      ? `${overdueBucket.count} over 60 days overdue.`
-      : 'Billed, not collected.',
+      ? `${overdueBucket.count} over 60 days overdue`
+      : undefined,
     count: money.overdueInvoices,
     to: routes.financeInvoices,
   });
@@ -846,7 +851,6 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     severity: 'breach',
     module: 'Fleet',
     title: 'Expired vehicle and driver documents',
-    detail: 'Not compliant to run today.',
     count: fleet.expired,
     to: routes.vehicles,
   });
@@ -855,7 +859,6 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     severity: 'breach',
     module: 'Finance',
     title: 'Overdue drawdowns',
-    detail: 'Repayment date passed.',
     count: money.drawdownsOverdue,
     to: routes.finance,
   });
@@ -864,7 +867,6 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     severity: 'ask',
     module: 'Empty Container',
     title: 'Containers in critical window',
-    detail: 'Under 24 hours before the return deadline.',
     count: returns.kpis.critical,
     to: routes.emptyReturns,
   });
@@ -873,7 +875,6 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     severity: 'ask',
     module: 'Finance',
     title: 'Settlements on hold',
-    detail: 'Blocked until the hold clears.',
     count: money.openHolds,
     to: routes.finance,
   });
@@ -882,7 +883,6 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     severity: 'ask',
     module: 'Finance',
     title: 'Unpriced released shipments',
-    detail: 'Released, nothing billable yet.',
     count: operations.releasedUnpriced,
     to: routes.finance,
   });
@@ -891,7 +891,6 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     severity: 'ask',
     module: 'Shipments',
     title: 'Shipments pending release',
-    detail: 'POD filed, release pending.',
     count: operations.awaitingRelease,
     to: routes.shipments,
   });
@@ -900,7 +899,11 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     severity: 'ask',
     module: 'Empty Container',
     title: 'Empties awaiting a decision',
-    detail: `${returns.sameDepotPairs} already at a location with an open load.`,
+    /* Only when there are any: "0 already at a location…" is a line that says
+       nothing, and a row with nothing to add is shorter without one. */
+    detail: returns.sameDepotPairs > 0
+      ? `${returns.sameDepotPairs} already at a location with an open load`
+      : undefined,
     count: returns.matchable,
     // Straight to the workbench — this row is an invitation to work the pile.
     to: routes.emptyReturnMatching,
@@ -910,7 +913,6 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     severity: 'ask',
     module: 'HR',
     title: 'Employee documents expiring',
-    detail: 'Expiring within 30 days.',
     count: workforce?.expiring.in30 ?? 0,
     to: routes.hrEmployees,
   });
@@ -919,7 +921,6 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     severity: 'ask',
     module: 'HR',
     title: 'Leave requests pending',
-    detail: 'No decision recorded yet.',
     count: workforce?.leave.pendingRequests ?? 0,
     to: routes.hr,
   });
@@ -928,7 +929,6 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     severity: 'ask',
     module: 'Fleet',
     title: 'Vehicle and driver documents expiring',
-    detail: 'Expiring within 30 days.',
     count: fleet.expiring,
     to: routes.vehicles,
   });
@@ -937,7 +937,6 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     severity: 'ask',
     module: 'Shipments',
     title: 'Shipments with no vehicle',
-    detail: 'No vehicle assigned yet.',
     count: operations.unassigned,
     to: routes.shipments,
   });

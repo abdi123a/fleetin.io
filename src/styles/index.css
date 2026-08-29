@@ -183,6 +183,53 @@
   --color-tile-peach: var(--tile-peach);
   --color-tile-sky: var(--tile-sky);
   --color-tile-foreground: var(--tile-foreground);
+  --color-tile-done: var(--tile-done);
+  --color-tile-done-foreground: var(--tile-done-foreground);
+
+  /* Container state — teal full, yellow empty, grey returned (see tokens.semantic.css) */
+  --color-container-full: var(--container-full);
+  --color-container-full-foreground: var(--container-full-foreground);
+  --color-container-full-subtle: var(--container-full-subtle);
+  --color-container-full-subtle-foreground: var(--container-full-subtle-foreground);
+  --color-container-full-border: var(--container-full-border);
+  --color-container-empty: var(--container-empty);
+  --color-container-empty-foreground: var(--container-empty-foreground);
+  --color-container-empty-subtle: var(--container-empty-subtle);
+  --color-container-empty-subtle-foreground: var(--container-empty-subtle-foreground);
+  --color-container-empty-border: var(--container-empty-border);
+  --color-container-returned: var(--container-returned);
+  --color-container-returned-foreground: var(--container-returned-foreground);
+  --color-container-returned-subtle: var(--container-returned-subtle);
+  --color-container-returned-subtle-foreground: var(--container-returned-subtle-foreground);
+  --color-container-returned-border: var(--container-returned-border);
+  /* Empty-container lifecycle stage — see tokens.semantic.css. Two axes:
+     --container-* is what is inside the box, --stage-* is what is happening
+     to it. A box can be EMPTY and PAIRED at once, hence both scales. */
+  --color-stage-available: var(--stage-available);
+  --color-stage-available-foreground: var(--stage-available-foreground);
+  --color-stage-available-subtle: var(--stage-available-subtle);
+  --color-stage-available-subtle-foreground: var(--stage-available-subtle-foreground);
+  --color-stage-available-border: var(--stage-available-border);
+  --color-stage-paired: var(--stage-paired);
+  --color-stage-paired-foreground: var(--stage-paired-foreground);
+  --color-stage-paired-subtle: var(--stage-paired-subtle);
+  --color-stage-paired-subtle-foreground: var(--stage-paired-subtle-foreground);
+  --color-stage-paired-border: var(--stage-paired-border);
+  --color-stage-returning: var(--stage-returning);
+  --color-stage-returning-foreground: var(--stage-returning-foreground);
+  --color-stage-returning-subtle: var(--stage-returning-subtle);
+  --color-stage-returning-subtle-foreground: var(--stage-returning-subtle-foreground);
+  --color-stage-returning-border: var(--stage-returning-border);
+  --color-stage-closed: var(--stage-closed);
+  --color-stage-closed-foreground: var(--stage-closed-foreground);
+  --color-stage-closed-subtle: var(--stage-closed-subtle);
+  --color-stage-closed-subtle-foreground: var(--stage-closed-subtle-foreground);
+  --color-stage-closed-border: var(--stage-closed-border);
+  --color-stage-overdue: var(--stage-overdue);
+  --color-stage-overdue-foreground: var(--stage-overdue-foreground);
+  --color-stage-overdue-subtle: var(--stage-overdue-subtle);
+  --color-stage-overdue-subtle-foreground: var(--stage-overdue-subtle-foreground);
+  --color-stage-overdue-border: var(--stage-overdue-border);
 
   /* Urgency scale (empty-return control tower + any triage list) */
   --color-urgency-overdue-bg: var(--urgency-overdue-bg);

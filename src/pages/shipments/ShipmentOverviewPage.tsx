@@ -1,20 +1,23 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { RotateCcw } from 'lucide-react';
 import {
-  MoreVertical,
   FolderOpen,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Package,
+  PackageCheck,
   Route,
 } from '@/design-system/icons';
 import {
   Badge,
   Button,
   Card,
+  ContainerStateTag,
   CornerBadge,
   IconChip,
+  Tooltip,
   VerificationBadge,
 } from '@/design-system';
 import { ROUTES } from '@/config/routes';
@@ -23,10 +26,21 @@ import { useShipment, useShipmentRaw } from '@/features/shipments/api/queries';
 import { useBookingsForShipment } from '@/features/bookings/api/queries';
 import { ShipmentReportPanel } from '@/components/reports';
 import { type BookingRecord } from '@/features/bookings/api/bookingsService';
-import { displayShipmentStatus, statusIntentOf } from '@/lib/shipmentStatus';
+import { displayShipmentStatus, shipmentProgress, statusIntentOf } from '@/lib/shipmentStatus';
+import { BookingStatusPicker } from './components/BookingStatusPicker';
+import {
+  CONTAINER_STATE_BADGE_CLASS,
+  CONTAINER_STATE_BADGE_INTENT,
+  CONTAINER_STATE_CORNER_INTENT,
+  carriesContainer,
+  allContainersReturned,
+  containerStateOf,
+  type ContainerState,
+} from '@/lib/containerState';
 import { useCycles } from '@/features/empty-returns/api/queries';
 import type { EmptyReturnCycleRecord } from '@/features/empty-returns/api/emptyReturnsService';
 import { useProject } from '@/features/finance';
+import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
 
 /**
  * Booking cards per page.
@@ -104,6 +118,41 @@ function bookingToPreviewItem(booking: BookingRecord, cycle: EmptyReturnCycleRec
   };
 }
 
+/**
+ * One label → value line on a booking card, joined by a hairline that leads the
+ * eye toward the value.
+ *
+ * The cards sit three to a row, so a label lands at the far left of a ~160px
+ * line and its value at the far right with a hand's width of nothing in
+ * between. At a glance the eye loses which value belongs to which label and has
+ * to track back along the row — three times per card, six cards to a page.
+ *
+ * Two attempts were rejected before this one, and both taught it something. A
+ * **dot leader** read as table-of-contents furniture: something to look at
+ * rather than something that helps. A **tinted band** fixed the tracking but
+ * put a shape around every row, which is far too much weight for three short
+ * lines of text.
+ *
+ * So: a line again, but one that does a job. It is one pixel tall and starts
+ * invisible at the label — which you have already read — then resolves as it
+ * travels right, landing at full strength on the value you actually want. The
+ * gradient is what makes it directional: a uniform rule is a divider and sits
+ * there being a rule, while this one points. It adds no height, no shape and no
+ * colour, and at rest it barely registers as a mark at all.
+ */
+function BookingField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span
+        aria-hidden
+        className="h-px min-w-4 flex-1 bg-gradient-to-r from-transparent via-border to-border-strong"
+      />
+      {children}
+    </div>
+  );
+}
+
 export function ShipmentOverviewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -168,6 +217,27 @@ export function ShipmentOverviewPage() {
   const hasPagination = bookings.length > PAGE_SIZE;
 
   /**
+   * How this shipment's boxes split — counted over every booking, not just the
+   * page on screen, because "one of these four is still full" is a fact about
+   * the shipment and not about pagination.
+   */
+  const containerSplit = useMemo(() => {
+    const states = bookings.map((item) =>
+      containerStateOf(item.status, Boolean(item.containerNumber)),
+    );
+    return {
+      full: states.filter((state) => state === 'full').length,
+      empty: states.filter((state) => state === 'empty').length,
+      returned: states.filter((state) => state === 'returned').length,
+      /* Every box on this shipment is back at the depot — nothing is owed and
+         the job is closed. This is what greys the masthead: the user asked for
+         the done colour to reach the shipment itself, not just the cards, so a
+         finished consignment reads as finished the moment it opens. */
+      done: allContainersReturned(states),
+    };
+  }, [bookings]);
+
+  /**
    * Columns follow the count, so a page never ends in a lonely card: four
    * containers read as a 2×2 block rather than three and a straggler. Three is
    * the ceiling — wider cards than that lose the labels inside them.
@@ -189,6 +259,30 @@ export function ShipmentOverviewPage() {
     setSelectedBooking(updatedBooking);
   };
 
+  /**
+   * Every carrier on this job.
+   *
+   * Preferred from the shipment payload, which counts them server-side; the
+   * bookings already loaded on this page are the fallback, since they carry the
+   * same fact and a detail response that predates the field would otherwise
+   * name one carrier on a two-carrier shipment.
+   *
+   * Above the early returns, like every other hook here — it used to sit beside
+   * the header markup it feeds, which meant a loading render called fewer hooks
+   * than the loaded one and React refused the whole page.
+   */
+  const shipmentTransporters = useMemo(() => {
+    if (mission?.transporters?.length) return mission.transporters;
+    const seen = new Map<string, { id: string; name: string }>();
+    for (const booking of bookingRecords ?? []) {
+      const id = booking.partnerId;
+      const name = booking.partner?.companyLegalName;
+      if (!id || !name || seen.has(id)) continue;
+      seen.set(id, { id, name });
+    }
+    return [...seen.values()];
+  }, [mission?.transporters, bookingRecords]);
+
   if (isLoading) {
     return <div className="py-16 text-center text-sm text-muted-foreground">Loading shipment…</div>;
   }
@@ -204,16 +298,62 @@ export function ShipmentOverviewPage() {
     );
   }
 
-  /** The header badge speaks the same status vocabulary as the booking cards. */
-  const headerIntent = statusIntentOf(mission.status);
-  const headerStatusIntent =
-    headerIntent === 'green'
-      ? ('success' as const)
-      : headerIntent === 'blue'
-        ? ('info' as const)
-        : headerIntent === 'orange'
-          ? ('warning' as const)
-          : ('default' as const);
+  /**
+   * The masthead speaks the same container scale as the cards below it — teal
+   * while boxes are still full, brand yellow while one is out empty, grey once
+   * they are all home.
+   *
+   * The slab itself carries it, not just the chip: a shipment is either live or
+   * history, and that is the first thing worth knowing on opening the page.
+   * White ink either way, so nothing inside the header changes with it.
+   */
+  const slab = containerSplit.done
+    ? {
+        bg: 'bg-tile-done',
+        fg: 'text-tile-done-foreground',
+        fgMuted: 'text-tile-done-foreground/80',
+        fgSoft: 'text-tile-done-foreground/85',
+        rule: 'bg-tile-done-foreground/30',
+        ink: 'text-tile-done',
+      }
+    : {
+        bg: 'bg-tile-teal',
+        fg: 'text-tile-teal-foreground',
+        fgMuted: 'text-tile-teal-foreground/80',
+        fgSoft: 'text-tile-teal-foreground/85',
+        rule: 'bg-tile-teal-foreground/30',
+        ink: 'text-tile-teal',
+      };
+
+  /**
+   * The status chip, coloured on the slab rather than on a card.
+   *
+   * `--container-full` is teal on a teal tile, so the live-and-loaded chip
+   * inverts to the tile's own white-plate idiom instead. Empty and returned keep
+   * the exact fills the booking cards use, since both already contrast.
+   */
+  /* Off the ladder (cancelled, failed) there is no progress to draw — a
+     part-filled rail on a stopped job would say it is still running. */
+  const headerProgress = shipmentProgress(mission.status, carriesContainer(mission));
+
+
+  const shipmentState: ContainerState | null = containerSplit.done
+    ? 'returned'
+    : containerSplit.empty > 0
+      ? 'empty'
+      : containerSplit.full > 0
+        ? 'full'
+        : null;
+  const headerChipClass =
+    shipmentState === 'empty'
+      ? 'bg-container-empty text-container-empty-foreground'
+      : shipmentState === 'returned'
+        ? /* On the ink slab the chip inverts, the way the live states do on
+             teal — a black chip on a black masthead would disappear. */
+          'bg-tile-done-foreground text-tile-done'
+        : shipmentState === 'full'
+          ? `bg-white ${slab.ink}`
+          : 'bg-secondary text-secondary-foreground';
 
   return (
     /* `report-host`: printing the Shipment Report prints the report, not the page
@@ -231,38 +371,89 @@ export function ShipmentOverviewPage() {
        * you are. Status and route ride along, since they are what every block
        * below is about, and the status is a labelled chip, never colour alone.
        */}
-      <header className="rounded-card bg-tile-teal text-tile-teal-foreground shadow-sm">
+      <header className={`rounded-card ${slab.bg} ${slab.fg} shadow-sm transition-colors`}>
         <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:p-5">
           <div className="flex min-w-0 items-center gap-3.5">
-            <IconChip icon={Package} tint="on-teal" size={44} className="hidden sm:flex" />
+            <IconChip
+              icon={containerSplit.done ? PackageCheck : Package}
+              tint="on-teal"
+              size={44}
+              className="hidden sm:flex"
+            />
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.11em] text-tile-teal-foreground/80">
+              <p className={`text-[11px] font-semibold uppercase tracking-[0.11em] ${slab.fgMuted}`}>
                 Shipment Overview
               </p>
               <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                <h1 className="font-mono text-2xl font-extrabold leading-none tracking-tight text-tile-teal-foreground sm:text-[28px]">
+                <h1 className={`font-mono text-2xl font-extrabold leading-none tracking-tight ${slab.fg} sm:text-[28px]`}>
                   {id ?? mission.id}
                 </h1>
                 <Badge
                   variant="solid"
-                  intent={headerStatusIntent}
                   size="md"
-                  className="uppercase tracking-[0.08em]"
+                  className={`uppercase tracking-[0.08em] ${headerChipClass}`}
                 >
                   {displayShipmentStatus(mission.status, 'shipment')}
                 </Badge>
+                {/* One status, and how far along it is — the same pairing the
+                    shipments list uses, so a shipment reads the same on the row
+                    you clicked and the page it opened. */}
+                {headerProgress && (
+                  <span
+                    className={`text-base font-extrabold tabular-nums ${slab.fg}`}
+                    title={`Step ${headerProgress.step} of ${headerProgress.of}`}
+                  >
+                    {headerProgress.percent}% done
+                  </span>
+                )}
               </div>
 
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-tile-teal-foreground/85">
+              <div className={`mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] ${slab.fgSoft}`}>
                 <span className="inline-flex min-w-0 items-center gap-1.5">
                   <Route className="w-3.5 h-3.5 shrink-0" aria-hidden />
                   <span className="truncate">
                     {mission.pickupLocation.name} → {mission.deliveryLocation.name}
                   </span>
                 </span>
+                {/* Who is carrying it — all of them.
+                    The carrier is assigned per booking, so a split job has two
+                    or three, and the shipment's own `transporter` field is only
+                    a snapshot of whichever one was named at creation. The marks
+                    are white-ringed for the slab they sit on, and the names are
+                    on hover. */}
+                {shipmentTransporters.length > 0 && (
+                  <>
+                    <span aria-hidden className={`h-3 w-px ${slab.rule}`} />
+                    <Tooltip
+                      content={
+                        shipmentTransporters.length === 1
+                          ? `Transporter · ${shipmentTransporters[0]?.name}`
+                          : `${shipmentTransporters.length} transporters · ${shipmentTransporters
+                              .map((t) => t.name)
+                              .join(', ')}`
+                      }
+                    >
+                      <span className="inline-flex shrink-0 cursor-default items-center">
+                        {shipmentTransporters.map((transporter, index) => (
+                          <CompanyMark
+                            key={transporter.id}
+                            id={transporter.id}
+                            name={transporter.name}
+                            size="sm"
+                            className={index > 0 ? '-ml-2 ring-white/70' : 'ring-white/70'}
+                          />
+                        ))}
+                        <span className="sr-only">
+                          {shipmentTransporters.length === 1 ? 'Transporter: ' : 'Transporters: '}
+                          {shipmentTransporters.map((t) => t.name).join(', ')}
+                        </span>
+                      </span>
+                    </Tooltip>
+                  </>
+                )}
                 {linkedProject && (
                   <>
-                    <span aria-hidden className="h-3 w-px bg-tile-teal-foreground/30" />
+                    <span aria-hidden className={`h-3 w-px ${slab.rule}`} />
                     <span className="inline-flex min-w-0 items-center gap-1.5">
                       <FolderOpen className="w-3.5 h-3.5 shrink-0" aria-hidden />
                       <span className="truncate font-semibold">{linkedProject.name}</span>
@@ -288,7 +479,7 @@ export function ShipmentOverviewPage() {
               size="sm"
               onClick={() => navigate(ROUTES.emptyReturns)}
               leadingIcon={<RotateCcw />}
-              className="cursor-pointer bg-white text-tile-teal shadow-xs hover:bg-white/90 active:bg-white/80"
+              className={`cursor-pointer bg-white ${slab.ink} shadow-xs hover:bg-white/90 active:bg-white/80`}
             >
               Empty Returns
             </Button>
@@ -298,18 +489,53 @@ export function ShipmentOverviewPage() {
 
       {/* ── BOOKINGS CARD ── */}
       <Card className="p-4 sm:p-5 rounded-lg border border-border/80 bg-card space-y-3">
-        {/* Header */}
-        <div className="flex items-center justify-between">
+        {/* Header — the count, then the split that matters: how many of these
+            boxes are still carrying cargo and how many are waiting to go back.
+            Same two colours as the cards under it. */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-bold text-foreground text-sm sm:text-base">Bookings</h3>
-          <Badge variant="solid" intent="primary" size="sm">
-            {bookings.length}/{bookings.length}
-          </Badge>
+          <div className="flex items-center gap-1.5">
+            {containerSplit.full > 0 && (
+              <Badge variant="subtle" intent="primary" size="sm" className="font-bold">
+                {containerSplit.full} Full
+              </Badge>
+            )}
+            {containerSplit.empty > 0 && (
+              <Badge variant="subtle" intent="accent" size="sm" className="font-bold">
+                {containerSplit.empty} Empty
+              </Badge>
+            )}
+            {containerSplit.returned > 0 && (
+              <Badge
+                variant="subtle"
+                intent="default"
+                size="sm"
+                className="font-bold text-container-returned-subtle-foreground"
+              >
+                {containerSplit.returned} Returned
+              </Badge>
+            )}
+            <Badge variant="solid" intent="primary" size="sm">
+              {bookings.length}
+            </Badge>
+          </div>
         </div>
 
         {/* Booking Items */}
         <div className={`grid grid-cols-1 gap-2.5 sm:grid-cols-2 ${bookingColumnsClass}`}>
           {pagedBookings.map(item => {
+            /* Teal while the box is full, brand yellow once it is empty — the
+               app-wide container rule (`@/lib/containerState`). It is the whole
+               point of this grid: four cards, and which of them are still
+               carrying cargo is a colour, not a sentence you have to read. The
+               corner tab carries it because it is the loudest mark on the card,
+               and the status chip follows so the two never disagree. */
+            const containerState = containerStateOf(item.status, Boolean(item.containerNumber));
+
+            /* No box on this booking (a bulk or machinery load) — it has no
+               full/empty state at all, so it keeps the ladder's own colours. */
             const getBadgeIntent = () => {
+              if (containerState) return CONTAINER_STATE_BADGE_INTENT[containerState];
               switch (item.statusIntent) {
                 case 'green': return 'success';
                 case 'blue': return 'info';
@@ -326,51 +552,102 @@ export function ShipmentOverviewPage() {
               >
                 {/* Corner Badge */}
                 <div className="absolute top-0 left-0">
-                  <CornerBadge label={`Booking No. ${item.bookingNumber}`} intent="teal" position="top" />
+                  <CornerBadge
+                    label={`Booking No. ${item.bookingNumber}`}
+                    intent={containerState ? CONTAINER_STATE_CORNER_INTENT[containerState] : 'teal'}
+                    position="top"
+                  />
                 </div>
 
-                {/* Status Badge */}
+                {/* Status badge, and the control. Changing a rung is the most
+                    frequent action in the app and it used to cost three clicks
+                    and a side panel over the rest of the shipment; the badge
+                    already says the status, so it is what you click. */}
                 <div className="absolute top-2 right-2 flex items-center gap-1.5">
-                  <Badge variant="subtle" intent={getBadgeIntent()} size="sm">{displayShipmentStatus(item.status)}</Badge>
+                  <BookingStatusPicker
+                    booking={item}
+                    onChanged={(status) =>
+                      setBookings((prev) =>
+                        prev.map((row) =>
+                          row.id === item.id
+                            ? { ...row, status, statusIntent: statusIntentOf(status) }
+                            : row,
+                        ),
+                      )
+                    }
+                  >
+                    <Badge
+                      variant="subtle"
+                      intent={getBadgeIntent()}
+                      size="sm"
+                      className={`cursor-pointer gap-1 pr-1.5 ${containerState ? CONTAINER_STATE_BADGE_CLASS[containerState] : ''}`}
+                    >
+                      {displayShipmentStatus(item.status)}
+                      <ChevronDown className="size-3 opacity-60" aria-hidden />
+                    </Badge>
+                  </BookingStatusPicker>
                 </div>
 
                 {/* Fields */}
                 <div className="space-y-1.5 text-xs">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground shrink-0">Driver</span>
-                    <div className="flex items-center gap-1 min-w-0">
-                      <span className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+                  {containerState && (
+                    <BookingField label="Container">
+                      {/* Wraps rather than truncates: at three columns the row
+                          is ~160px, and a squeezed `truncate` ate the container
+                          number entirely and left the tag reading "EMPTY" with
+                          nothing to be empty. */}
+                      <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-1.5 gap-y-1">
+                        <span
+                          className="truncate font-mono font-semibold text-foreground"
+                          title={item.containerNumber}
+                        >
+                          {item.containerNumber}
+                        </span>
+                        <ContainerStateTag state={containerState} status={item.status} small className="shrink-0" />
+                        {/* The return's progress rides here rather than on a
+                            labelled row of its own. The card was saying "empty"
+                            three times — the status badge, this tag, and an
+                            "Empty Return" row underneath — and a reader had to
+                            work out which of the three was the news. The tag
+                            supplies the noun, so this only has to add the verb. */}
+                        {/* `returned` is dropped as well as `awaiting_empty`: the
+                            tag beside it already reads RETURNED, and the card was
+                            printing the same word twice on the same line. What
+                            survives here is only what the tag cannot say — which
+                            *stage of the return* an empty box is in. */}
+                        {item.emptyReturnStage &&
+                          item.emptyReturnStage !== 'awaiting_empty' &&
+                          item.emptyReturnStage !== 'returned' && (
+                          <span
+                            className="shrink-0 whitespace-nowrap text-[11px] font-semibold text-warning-subtle-foreground"
+                            title={`Empty return — ${EMPTY_RETURN_STAGE_LABEL[item.emptyReturnStage]}`}
+                          >
+                            · {EMPTY_RETURN_STAGE_LABEL[item.emptyReturnStage]}
+                          </span>
+                        )}
+                      </div>
+                    </BookingField>
+                  )}
+
+                  <BookingField label="Driver">
+                    <div className="flex min-w-0 items-center gap-1">
+                      <span className="truncate font-semibold text-foreground transition-colors group-hover:text-primary">
                         {item.driverName}
                       </span>
                       {item.driverVerified && <VerificationBadge state="verified" size="sm" />}
                     </div>
-                  </div>
+                  </BookingField>
 
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground shrink-0">Vehicle No.</span>
+                  <BookingField label="Vehicle No.">
                     <div className="flex items-center gap-1">
                       <span className="font-semibold text-foreground">{item.vehicleNumber}</span>
                       {item.vehicleVerified && <VerificationBadge state="verified" size="sm" />}
                     </div>
-                  </div>
+                  </BookingField>
 
-                  {item.emptyReturnStage && (
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground shrink-0">Empty Return</span>
-                      <span
-                        className={`font-semibold ${
-                          item.emptyReturnStage === 'returned' ? 'text-success' : 'text-warning-subtle-foreground'
-                        }`}
-                      >
-                        {EMPTY_RETURN_STAGE_LABEL[item.emptyReturnStage]}
-                      </span>
-                    </div>
-                  )}
                 </div>
 
-                <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <MoreVertical className="w-3.5 h-3.5 text-muted-foreground" />
-                </div>
+
               </div>
             );
           })}

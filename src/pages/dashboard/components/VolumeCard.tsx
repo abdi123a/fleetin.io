@@ -61,7 +61,6 @@ export function VolumeCard({ movement, className }: { movement: MovementModel; c
     <ConsolePanel
       className={className}
       title="Volume"
-      subtitle="Shipments and containers by month"
       action={
         <div className="text-right">
           <p className="type-body-xs text-muted-foreground">This month</p>

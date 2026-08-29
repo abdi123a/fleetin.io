@@ -74,6 +74,7 @@ import { useBreadcrumbLabel } from '@/hooks/useBreadcrumbLabel';
 import { useBookings } from '@/features/bookings/api/queries';
 import type { BookingRecord } from '@/features/bookings/api/bookingsService';
 import { displayShipmentStatus, statusIntentOf } from '@/lib/shipmentStatus';
+import { containerStateOf } from '@/lib/containerState';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1314,7 +1315,13 @@ export function PartnerDetailPage() {
                         .slice(0, 2)
                         .toUpperCase()}
                       status={displayShipmentStatus(shp.rawStatus, 'shipment')}
-                      statusIntent={statusIntentOf(shp.rawStatus)}
+                      /* Teal full, brand yellow empty — the app-wide container
+                         rule, so this carrier's jobs read the same here as they
+                         do on the shipments list. */
+                      statusIntent={(() => {
+                        const state = containerStateOf(shp.rawStatus, Boolean(shp.containerNumber));
+                        return state ? (`container-${state}` as const) : statusIntentOf(shp.rawStatus);
+                      })()}
                       verified={true}
                       clickable
                       onClick={() =>

@@ -1,13 +1,11 @@
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
-import { Button, Card, EmptyState, Input, Select, StatisticCard } from '@/design-system';
-import { AlertTriangle, ArrowLeftRight, PackageOpen, Search, Timer, X } from '@/design-system/icons';
-import {
-  EMPTY_RETURN_RISK_FILTER_OPTIONS,
-  EMPTY_RETURN_STAGE_FILTER_OPTIONS,
-  detentionFor,
-  formatDetention,
-} from '@/data/emptyReturnData';
+import { ROUTES } from '@/config/routes';
+
+import { Button, Card, EmptyState, Input } from '@/design-system';
+import { PackageOpen, Search, X } from '@/design-system/icons';
+import { detentionFor, formatDetention } from '@/data/emptyReturnData';
 import { useEmptyContainers } from '@/features/empty-returns';
 import {
   isAccruingDetention,
@@ -16,8 +14,10 @@ import {
   useEmptyReturnStore,
 } from '@/stores/emptyReturn.store';
 import type { EmptyReturnFilters, EmptyReturnRecord, ReturnRiskLevel } from '@/types/emptyReturn';
+import { cn } from '@/utils';
 
-import { ContainerQueueSection } from './components/ContainerQueueSection';
+import { ContainerQueueTable } from './components/ContainerQueueTable';
+import { Mono } from './components/marks';
 
 /**
  * Control Tower — *what needs my attention now?*
@@ -42,7 +42,9 @@ import { ContainerQueueSection } from './components/ContainerQueueSection';
  *
  * **Four bands, each paged.** Grouping by urgency is the editorial stance —
  * "act now" and "fine for a week" are different jobs and should not be sorted
- * into one list.
+ * into one list. The bands carry no explanatory line and the page carries no
+ * legend: the band names and the RISK column already say what they say, and
+ * spelling both out again cost the page a paragraph.
  *
  * Nothing was dropped along the way: every fact the old nine-column table
  * carried is on the card, and the rest is in the container's own dialog, one
@@ -57,12 +59,58 @@ export function ControlTowerPage() {
   const setFilters = useEmptyReturnStore((state) => state.setFilters);
   const applyFilterPreset = useEmptyReturnStore((state) => state.applyFilterPreset);
   const openRecord = useEmptyReturnStore((state) => state.openRecord);
+  const selectEmpty = useEmptyReturnStore((state) => state.selectEmpty);
+
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+
+  /* `?match=…` is a legacy deep link from when matching was a popup. Matching
+     is a page now (2026-08-29), so the parameter selects the container and
+     forwards there rather than opening anything in place. */
+  useEffect(() => {
+    const value = searchParams.get('match');
+    if (!value) return;
+    if (value !== '1') selectEmpty(value);
+    navigate(ROUTES.emptyReturnsMatching, { replace: true });
+  }, [searchParams, navigate, selectEmpty]);
+
+  /**
+   * A row's "Find full load" / "Plan return" goes straight to the matching
+   * popup, focused on the booking that was clicked — the operator asked about
+   * *that* container, not the backlog. Everything else still opens the
+   * container's own dialog.
+   */
+  const handleRowOpen = useCallback(
+    (recordId: string, intent?: 'detail' | 'select' | 'return') => {
+      if (intent === 'select' || intent === 'return') {
+        /* Both branches land on the Matching page with this container
+           selected — one decision surface, per the 2026-08-29 rule. */
+        selectEmpty(recordId);
+        navigate(
+          intent === 'return'
+            ? `${ROUTES.emptyReturnsMatching}?plan=${recordId}`
+            : ROUTES.emptyReturnsMatching,
+        );
+        return;
+      }
+      openRecord(recordId, intent);
+    },
+    [openRecord, selectEmpty, navigate],
+  );
+
+  /* The calendar lives here now rather than in the sidebar. It answers "what
+     happens next" about the same book of containers this page decides on, and
+     splitting the two across the module's navigation made an operator leave
+     the page to check a date and come back to a lost filter. */
 
   const filtered = useMemo(
     () => selectFilteredRecords(records, filters, now),
     [records, filters, now],
   );
 
+  /* Open containers only. The Control Tower answers "what needs my attention
+     now", and a closed cycle needs none — its history lives on the container's
+     own dialog and in Cycles. The Closed band was removed on 2026-08-29. */
   const groups = useMemo(() => {
     const open = filtered.filter((record) => record.stage !== 'closed');
     return {
@@ -75,9 +123,6 @@ export function ControlTowerPage() {
         const risk = riskOf(record, now);
         return risk === 'safe' || risk === 'protected' || risk === null;
       }),
-      closed: filtered
-        .filter((record) => record.stage === 'closed')
-        .sort((a, b) => (b.returnedAt ?? 0) - (a.returnedAt ?? 0)),
     };
   }, [filtered, now]);
 
@@ -129,149 +174,171 @@ export function ControlTowerPage() {
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-5">
-      {/* The four figures the morning is judged on. */}
-      <div className="grid min-w-0 grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
-        <StatisticCard
-          title="Return overdue"
-          value={counts.overdue}
-          subtitle={
-            counts.overdue > 0
-              ? `${formatDetention(counts.detentionExposure)} accruing`
-              : 'No deadline missed'
-          }
-          /* Peach, not a solid red slab: the house tiles are the four pastel
-             tones, and the detention figure underneath already says how bad it is. */
-          variant={counts.overdue > 0 ? 'peach' : 'default'}
-          icon={<AlertTriangle className="h-5 w-5" />}
-          onClick={() => toggle({ risk: 'overdue' })}
-        />
-        <StatisticCard
-          title="Critical"
-          value={counts.critical}
-          subtitle="Under 24h to the deadline"
-          variant={counts.critical > 0 ? 'pink' : 'default'}
-          icon={<Timer className="h-5 w-5" />}
-          onClick={() => toggle({ risk: 'critical' })}
-        />
-        <StatisticCard
-          title="Awaiting a decision"
-          value={counts.awaiting}
-          subtitle={
-            counts.planned > 0
-              ? `${counts.planned} already going back alone`
-              : 'Empty, nothing chosen yet'
-          }
-          variant="blue"
-          icon={<PackageOpen className="h-5 w-5" />}
-          onClick={() => toggle({ stage: 'empty' })}
-        />
-        <StatisticCard
-          title="Paired"
-          value={counts.paired}
-          subtitle="Empty returns avoided"
-          variant="teal"
-          icon={<ArrowLeftRight className="h-5 w-5" />}
-          onClick={() => toggle({ stage: 'paired' })}
-        />
-      </div>
+      {/* v19's summary strip: one compact bar, five figures, search on the
+          right. It replaced four large KPI tiles on 2026-08-29 — the tiles
+          spent a third of the first screen restating what the band headings
+          below already say, and pushed the actual queue under the fold. Each
+          figure is still a filter, so a number and the list it opens cannot
+          disagree. */}
+      <Card className="min-w-0 rounded-card border border-border px-4 py-2.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-2 text-xs">
+          <SummaryFigure
+            label="Action required"
+            value={groups.action.length}
+            tone={groups.action.length ? 'text-destructive' : 'text-muted-foreground'}
+            strong
+            active={filters.risk === 'all' && filters.stage === 'all'}
+            onClick={() => applyFilterPreset({ ...ALL_FILTERS, q: filters.q })}
+          />
+          <SummaryFigure
+            label="Return overdue"
+            value={counts.overdue}
+            tone="text-destructive"
+            hint={counts.overdue > 0 ? `${formatDetention(counts.detentionExposure)} accruing` : undefined}
+            active={filters.risk === 'overdue'}
+            onClick={() => toggle({ risk: 'overdue' })}
+          />
+          <SummaryFigure
+            label="Critical"
+            value={counts.critical}
+            tone="text-destructive"
+            active={filters.risk === 'critical'}
+            onClick={() => toggle({ risk: 'critical' })}
+          />
+          <SummaryFigure
+            label="Watch"
+            value={counts.watch}
+            tone="text-stage-returning-subtle-foreground"
+            active={filters.risk === 'watch'}
+            onClick={() => toggle({ risk: 'watch' })}
+          />
+          <SummaryFigure
+            label="On track"
+            value={groups.onTrack.length}
+            tone="text-stage-closed-subtle-foreground"
+            active={filters.risk === 'safe'}
+            onClick={() => toggle({ risk: 'safe' })}
+          />
+          <SummaryFigure
+            label="Paired"
+            value={counts.paired}
+            tone="text-stage-paired-subtle-foreground"
+            active={filters.stage === 'paired'}
+            onClick={() => toggle({ stage: 'paired' })}
+          />
 
-      {/* One toolbar, and one way back out of it. */}
-      <Card className="min-w-0 rounded-lg border border-border/80 p-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <div className="min-w-0 flex-1 basis-56">
+          <div className="ml-auto flex min-w-0 flex-1 basis-56 items-center gap-2">
             <Input
               inputSize="sm"
               leadingIcon={<Search />}
               value={filters.q}
               onChange={(event) => setFilters({ q: event.target.value })}
-              placeholder="Container, line, shipper, transporter, shipment…"
+              placeholder="Container, line, transporter, load…"
               aria-label="Search containers"
             />
+            {filtersActive && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => applyFilterPreset(ALL_FILTERS)}
+                className="h-8 shrink-0 gap-1 px-2 text-xs text-muted-foreground"
+              >
+                <X className="size-3.5" /> Clear
+              </Button>
+            )}
           </div>
-          <Select
-            selectSize="sm"
-            value={filters.stage}
-            onChange={(event) => setFilters({ stage: event.target.value as typeof filters.stage })}
-            options={[...EMPTY_RETURN_STAGE_FILTER_OPTIONS]}
-            aria-label="Filter by stage"
-            containerClassName="w-full sm:w-40"
-          />
-          <Select
-            selectSize="sm"
-            value={filters.risk}
-            onChange={(event) => setFilters({ risk: event.target.value as typeof filters.risk })}
-            options={[...EMPTY_RETURN_RISK_FILTER_OPTIONS]}
-            aria-label="Filter by urgency"
-            containerClassName="w-full sm:w-44"
-          />
-          {filtersActive && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => applyFilterPreset(ALL_FILTERS)}
-              className="h-8 shrink-0 gap-1 px-2 text-xs text-muted-foreground"
-            >
-              <X className="size-3.5" /> Clear
-            </Button>
-          )}
-          <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
-            {filtered.length} of {records.length}
-          </span>
         </div>
       </Card>
 
-      <ContainerQueueSection
+      <ContainerQueueTable
         title="Action required"
-        hint="Overdue, or under 24 hours left — these cost money today."
         tone="text-destructive"
         rows={groups.action}
         now={now}
-        onOpen={openRecord}
+        onOpen={handleRowOpen}
         resetKey={filters}
         emptyCopy="Nothing is critical or overdue. Good."
       />
 
-      <ContainerQueueSection
+      <ContainerQueueTable
         title="Monitor"
-        hint="One to three days of decision window left."
         tone="text-warning-subtle-foreground"
         rows={groups.monitor}
         now={now}
-        onOpen={openRecord}
+        onOpen={handleRowOpen}
         resetKey={filters}
         emptyCopy="Nothing inside the three-day window."
       />
 
-      <ContainerQueueSection
+      <ContainerQueueTable
         title="On track"
-        hint="Three days or more, or already paired — nothing to do."
         tone="text-primary"
         rows={groups.onTrack}
         now={now}
-        onOpen={openRecord}
+        onOpen={handleRowOpen}
         collapsible
         resetKey={filters}
         emptyCopy="No containers in this band."
       />
-
-      <ContainerQueueSection
-        title="Closed"
-        hint="Paired out, or returned to the depot. History, kept."
-        tone="text-muted-foreground"
-        rows={groups.closed}
-        now={now}
-        onOpen={openRecord}
-        collapsible
-        resetKey={filters}
-        emptyCopy="No cycles have closed yet."
-      />
-
-      <p className="text-xs text-muted-foreground">
-        <b>Status</b> is what has been decided · <b>Urgency</b> is how long is left — Safe 3d+ ·
-        Watch 1–3d · Critical under 24h · Overdue past the deadline. Click any card for that
-        container&rsquo;s full history.
-      </p>
     </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * One figure in the summary strip
+ * ------------------------------------------------------------------------- */
+
+/**
+ * v19's summary bar reads as a sentence of numbers, not a row of tiles — the
+ * label is small and quiet, the figure is the loud part, and the whole thing is
+ * a filter toggle. Clicking the active one clears it, so there is no separate
+ * reset to hunt for.
+ */
+function SummaryFigure({
+  label,
+  value,
+  tone,
+  hint,
+  strong,
+  active,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  tone: string;
+  hint?: string;
+  strong?: boolean;
+  active?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        'flex shrink-0 cursor-pointer items-baseline gap-1.5 rounded-md px-1.5 py-0.5 transition-colors',
+        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+        active ? 'bg-secondary' : 'hover:bg-surface-sunken',
+      )}
+    >
+      <span
+        className={cn(
+          'whitespace-nowrap uppercase tracking-wide',
+          strong ? 'text-[11px] font-extrabold' : 'text-[11px] font-semibold',
+          /* A zero is not news. Every figure here greys out when it is empty so
+             the operator's eye lands only on the bands that actually have work
+             in them. */
+          value === 0 ? 'text-muted-foreground' : tone,
+        )}
+      >
+        {label}
+      </span>
+      <Mono className={cn('text-sm font-bold', value === 0 ? 'text-muted-foreground' : tone)}>
+        {value}
+      </Mono>
+      {hint && <span className="whitespace-nowrap text-[10px] text-muted-foreground">{hint}</span>}
+    </button>
   );
 }
 

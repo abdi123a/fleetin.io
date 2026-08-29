@@ -29,6 +29,14 @@ import { defineConfig } from 'vitest/config';
  * the location gate had to be rewritten in the same pass, because comparing a
  * warehouse name to a port name is a rule that rejects everything.
  *
+ * `src/features/bookings` is included for one thing only: the rule that folds a
+ * status write into the query cache. It has no DOM either — a `QueryClient` is
+ * plain TypeScript — and it earns a test because the bug it fixes is invisible
+ * to inspection. Writing "Empty Returned" walks three rungs, one request each,
+ * and the reads those used to trigger raced the writes; the card settled on
+ * whichever answer came home last and only a reload showed the truth. Ordering
+ * bugs do not stay fixed on their own.
+ *
  * `src/components/reports` is included for its arithmetic, not its components:
  * `missionReport.ts` and `monthlyReport.ts` are the definitions the shipper's
  * mission and monthly reports are made of ("what is pickup waiting time a
@@ -49,6 +57,8 @@ export default defineConfig({
       'src/stores/**/*.test.ts',
       'src/components/reports/**/*.test.ts',
       'src/features/empty-returns/**/*.test.ts',
+      'src/features/transporters/**/*.test.ts',
+      'src/features/bookings/**/*.test.ts',
     ],
     environment: 'node',
   },

@@ -15,6 +15,7 @@ import {
   RotateCcw,
   AlertTriangle,
   Package,
+  ContainerIcon,
 } from '@/design-system/icons';
 import { Avatar, Combobox, IconChip } from '@/design-system';
 import {
@@ -22,6 +23,7 @@ import {
   Button,
   Card,
   CloseButton,
+  ContainerStateTag,
   useConfirm,
   Select,
   Sheet,
@@ -33,7 +35,17 @@ import {
 import { ROUTES } from '@/config/routes';
 import { BOOKING_LADDER } from '@/features/bookings/api/bookingsService';
 import { displayShipmentStatus, shipmentStepsFor, statusIntentOf, stepRungFor } from '@/lib/shipmentStatus';
-import { useUpdateBooking, useUpdateBookingStatus } from '@/features/bookings/api/queries';
+import {
+  CONTAINER_STATE_BADGE_CLASS,
+  CONTAINER_STATE_BADGE_INTENT,
+  CONTAINER_STATE_SENTENCE,
+  containerStateOf,
+} from '@/lib/containerState';
+import {
+  useSettleBookingStatus,
+  useUpdateBooking,
+  useUpdateBookingStatus,
+} from '@/features/bookings/api/queries';
 import { useVehicles } from '@/features/vehicles/api/queries';
 import { useDrivers } from '@/features/drivers/api/queries';
 import { usePartners } from '@/features/partners/api/queries';
@@ -112,6 +124,7 @@ export function BookingPreviewSheet({
   const [isEditingDriver, setIsEditingDriver] = useState(false);
   const [isEditingSchedule, setIsEditingSchedule] = useState(false);
   const updateBookingStatus = useUpdateBookingStatus();
+  const settle = useSettleBookingStatus();
   const updateBooking = useUpdateBooking();
   const confirmStandaloneReturn = useConfirmStandaloneReturn();
   // Every registered partner — who to assign as this booking's transporter.
@@ -334,6 +347,8 @@ export function BookingPreviewSheet({
     let reached = booking.status;
     try {
       for (const status of ladderPathTo(target)) {
+        /* Re-read once when the walk is over, not once per rung — see
+           `useSettleBookingStatus`. */
         await updateBookingStatus.mutateAsync({
           id: booking.id,
           status,
@@ -351,6 +366,7 @@ export function BookingPreviewSheet({
       setStatusErrorMsg(error instanceof Error ? error.message : 'The status could not be updated.');
     } finally {
       if (reached !== booking.status) {
+        settle();
         const startedReturn = ladderPathTo(target).includes('Empty Ready') && reached !== booking.status;
         onUpdateBooking({
           ...booking,
@@ -433,8 +449,32 @@ export function BookingPreviewSheet({
     }
   };
 
+  /**
+   * What is in the box right now — teal full, brand yellow empty, grey once it
+   * is home. `null` on a bulk load, which has no container to be any of them.
+   */
+  const containerState = containerStateOf(booking.status, Boolean(booking.containerNumber));
+
   const getStatusBadge = () => {
     const label = displayShipmentStatus(booking.status);
+    /* A container's own status is coloured by what is inside it, not by how far
+       along the ladder it is — the same scale the card in the grid behind this
+       sheet uses, so opening a booking never recolours it. */
+    if (containerState) {
+      /* A container, not a parcel — see `MissionStatusBadge`. */
+      return (
+        <Badge
+          variant="subtle"
+          intent={CONTAINER_STATE_BADGE_INTENT[containerState]}
+          size="md"
+          className={`gap-1 font-semibold ${CONTAINER_STATE_BADGE_CLASS[containerState]}`}
+          title={CONTAINER_STATE_SENTENCE[containerState]}
+        >
+          <ContainerIcon className="w-3.5 h-3.5" />
+          {label}
+        </Badge>
+      );
+    }
     switch (booking.statusIntent) {
       case 'green':
         return (
@@ -490,13 +530,14 @@ export function BookingPreviewSheet({
             <h2 className="text-xl font-extrabold tracking-tight text-foreground">
               Booking #{booking.bookingNumber}
             </h2>
-            <p className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+            <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs font-semibold text-muted-foreground">
               <Package className="w-3.5 h-3.5 shrink-0" />
               {booking.containerNumber ? (
                 <span className="font-mono tracking-wide text-foreground">{booking.containerNumber}</span>
               ) : (
                 <span className="italic">No container number on file</span>
               )}
+              {containerState && <ContainerStateTag state={containerState} status={booking.status} small />}
             </p>
           </div>
 
@@ -895,7 +936,14 @@ export function BookingPreviewSheet({
                 description: `${booking.containerNumber ?? 'This container'} has no full load matched yet.`,
                 action: {
                   label: 'Find a full load',
-                  onClick: () => navigate(ROUTES.emptyReturnsMatching),
+                  /* Straight into the matching popup, focused on THIS booking —
+                     the record id over there is the booking reference. If the
+                     container is not in the pool yet, the popup opens on the
+                     whole board instead. */
+                  onClick: () =>
+                    navigate(
+                      `${ROUTES.emptyReturns}?match=${encodeURIComponent(booking.bookingNumber)}`,
+                    ),
                 },
               },
               matched: {
@@ -1022,32 +1070,21 @@ export function BookingPreviewSheet({
                     );
                   })}
                 </Select>
-                <p className="text-xs text-muted-foreground">
-                  {updateBookingStatus.isPending
-                    ? 'Saving…'
-                    : 'Pick where this container actually is. Steps in between are recorded at the same time.'}
-                </p>
+                {updateBookingStatus.isPending && (
+                  <p className="text-xs text-muted-foreground">Saving…</p>
+                )}
 
                 {/* Off the ladder, so off to one side: closing a job without
                     delivering it is a decision, not the next rung. */}
-                <div className="flex items-center gap-2 border-t border-border/60 pt-3">
+                <div className="border-t border-border/60 pt-3">
                   <Button
                     type="button"
                     variant="outline"
-                    className="h-10 flex-1 text-xs"
+                    className="h-10 w-full text-xs"
                     disabled={updateBookingStatus.isPending}
                     onClick={() => void handleCloseBooking('Cancelled')}
                   >
                     Cancel booking
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-10 flex-1 text-xs"
-                    disabled={updateBookingStatus.isPending}
-                    onClick={() => void handleCloseBooking('Failed')}
-                  >
-                    Mark failed
                   </Button>
                 </div>
               </Card>

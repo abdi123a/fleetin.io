@@ -288,7 +288,6 @@ export function ShippersPage() {
       {/* Page Header */}
       <PageHeader
         title="Shippers"
-        description="Profiles, contacts and compliance documents."
         actions={
           <Button
             onClick={() => setDrawerState({ mode: 'create' })}
@@ -306,7 +305,6 @@ export function ShippersPage() {
         <StatisticCard
           title="Total Shippers"
           value={totalShippersCount}
-          subtitle="Corporate accounts"
           variant="teal"
           trend="up"
           percentage="100%"
@@ -315,7 +313,6 @@ export function ShippersPage() {
         <StatisticCard
           title="Verified Shippers"
           value={verifiedCount}
-          subtitle="Compliance approved"
           variant="blue"
           trend="up"
           percentage={`${Math.round((verifiedCount / (totalShippersCount || 1)) * 100)}%`}
@@ -324,7 +321,6 @@ export function ShippersPage() {
         <StatisticCard
           title="Active Shipments"
           value={totalActiveShipments}
-          subtitle="In transit now"
           variant="peach"
           trend="up"
           percentage="+14%"
@@ -333,7 +329,6 @@ export function ShippersPage() {
         <StatisticCard
           title="Pending Review"
           value={pendingReviewCount}
-          subtitle="Requires action"
           variant="pink"
           trend={pendingReviewCount > 0 ? 'down' : 'neutral'}
           percentage={pendingReviewCount > 0 ? `${pendingReviewCount} pending` : '0'}

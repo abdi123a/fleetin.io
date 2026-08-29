@@ -77,19 +77,34 @@ export interface DialogContentProps
 /**
  * The panel.
  *
- * The scroll container is the *positioner* around the panel, not the panel
- * itself, which is what lets a tall dialog scroll the whole card into view on a
- * short screen instead of trapping the overflow in a body the footer sits below.
+ * The scroll container is the panel itself, not its positioner — which lets a
+ * tall dialog scroll as one unit (header, body and footer together) into view
+ * on a short screen, instead of trapping the overflow in a body the footer
+ * sits below.
+ *
+ * That scroll has to live on `Content` and not its wrapper. Radix's built-in
+ * scroll lock (`react-remove-scroll`, mounted on `DialogPrimitive.Content`)
+ * only treats wheel/touch targets *inside* Content's own subtree as unlocked;
+ * a scrollable ancestor sitting outside it — Content's positioner, where this
+ * class used to live — is invisible to that allowlist, so every wheel event
+ * over it came back `defaultPrevented`, and a dialog taller than the viewport
+ * simply stopped moving once its content grew past one screen. Capping height
+ * and scrolling here, on the node the lock actually recognises, is what makes
+ * the wheel work again.
  */
 export const DialogContent = forwardRef<ElementRef<typeof DialogPrimitive.Content>, DialogContentProps>(
   function DialogContent({ size, className, children, hideCloseButton = false, ...props }, ref) {
     return (
       <DialogPortal>
         <DialogOverlay />
-        <div className="fixed inset-0 z-drawer flex items-start justify-center overflow-y-auto p-4 sm:p-6 lg:p-10">
+        <div className="fixed inset-0 z-drawer flex items-start justify-center p-4 sm:p-6 lg:p-10">
           <DialogPrimitive.Content
             ref={ref}
-            className={cn(dialogVariants({ size }), 'my-auto', className)}
+            className={cn(
+              dialogVariants({ size }),
+              'my-auto max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-h-[calc(100vh-3rem)] lg:max-h-[calc(100vh-5rem)]',
+              className,
+            )}
             {...props}
           >
             {children}

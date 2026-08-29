@@ -124,6 +124,12 @@ export interface Mission {
   // (transporter), so detail pages and the Empty Return module can follow them.
   customer: CustomerInfo;
   transporter: TransporterInfo;
+  /**
+   * Every carrier on the job, deduped — the honest answer where `transporter`
+   * above is the creation-time snapshot of one of them. A single-carrier
+   * shipment has exactly one entry.
+   */
+  transporters?: { id: string; name: string }[];
   driver?: DriverInfo;
   assignedTruck?: TruckInfo;
 

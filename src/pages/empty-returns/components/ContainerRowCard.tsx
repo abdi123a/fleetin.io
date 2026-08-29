@@ -1,4 +1,4 @@
-import { Button, Card, CornerBadge } from '@/design-system';
+import { Button, Card, CornerBadge, rowCardActionClasses } from '@/design-system';
 import {
   ArrowLeftRight,
   ArrowRight,
@@ -20,7 +20,7 @@ import {
 import type { EmptyReturnRecord } from '@/types/emptyReturn';
 import { cn } from '@/utils';
 
-import { CompanyName, EmptyTag, Mono, RiskBadge, StageChip } from './marks';
+import { CompanyName, Mono, RecordStateTag, RiskBadge, StageChip } from './marks';
 
 /**
  * One container, as a row card.
@@ -86,7 +86,7 @@ export function ContainerRowCard({ record, now, onOpen }: ContainerRowCardProps)
               size="sm"
               className="min-w-0 text-sm font-extrabold leading-tight text-foreground"
             />
-            <EmptyTag small className="shrink-0" />
+            <RecordStateTag record={record} small className="shrink-0" />
             <span className="shrink-0 whitespace-nowrap text-[11px] text-muted-foreground">
               {record.size} · {record.line}
             </span>
@@ -166,7 +166,7 @@ export function ContainerRowCard({ record, now, onOpen }: ContainerRowCardProps)
                 event.stopPropagation();
                 onOpen(record.id);
               }}
-              className="h-7 shrink-0 cursor-pointer gap-1 rounded-lg border-border/80 px-2.5 text-xs transition group-hover:border-primary/40 group-hover:bg-primary group-hover:text-primary-foreground"
+              className={`h-7 gap-1 rounded-lg px-2.5 text-xs ${rowCardActionClasses}`}
             >
               <span>View</span>
               <ChevronRight className="size-3" />

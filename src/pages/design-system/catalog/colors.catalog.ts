@@ -227,6 +227,63 @@ export const COLOR_GROUPS: ColorGroup[] = [
     ],
   },
   {
+    id: 'container-state',
+    title: 'Container State',
+    description:
+      'The one colour axis the whole app reads a container by: teal while the box is still full, brand yellow once it has been stripped. It flips on the "Empty Ready" rung — the moment Operations records the box as emptied, which is also the moment the empty return opens and detention starts running. Not progress and not urgency: the status ladder still says how far along a job is, and the urgency scale still says how close a return is to its deadline. Aliases of the two brand hues, so if a brand role moves the container marks move with it. Colour never carries it alone — `ContainerStateTag` is solid with a closed box when full, dashed with an open box when empty.',
+    colors: [
+      {
+        name: 'Container Full',
+        token: '--container-full',
+        utility: 'bg-container-full',
+        usage: 'The FULL slab — a box still carrying cargo',
+        pairedForeground: '--container-full-foreground',
+      },
+      {
+        name: 'Container Full Subtle',
+        token: '--container-full-subtle',
+        utility: 'bg-container-full-subtle',
+        usage: 'The low-emphasis form, for a row that already carries a saturated mark',
+        pairedForeground: '--container-full-subtle-foreground',
+      },
+      {
+        name: 'Container Empty',
+        token: '--container-empty',
+        utility: 'bg-container-empty',
+        usage: 'The EMPTY slab — a stripped box that owes a return',
+        pairedForeground: '--container-empty-foreground',
+      },
+      {
+        name: 'Container Empty Subtle',
+        token: '--container-empty-subtle',
+        utility: 'bg-container-empty-subtle',
+        usage: 'The low-emphasis form of the same mark',
+        pairedForeground: '--container-empty-subtle-foreground',
+      },
+      {
+        name: 'Container Returned',
+        token: '--container-returned',
+        utility: 'bg-container-returned',
+        usage: 'The RETURNED slab — the box is home and the job is closed. Ink, inverted in dark mode',
+        pairedForeground: '--container-returned-foreground',
+      },
+      {
+        name: 'Container Returned Subtle',
+        token: '--container-returned-subtle',
+        utility: 'bg-container-returned-subtle',
+        usage: 'The low-emphasis form — counts and captions on a finished record',
+        pairedForeground: '--container-returned-subtle-foreground',
+      },
+      {
+        name: 'Tile Done',
+        token: '--tile-done',
+        utility: 'bg-tile-done',
+        usage: 'The record masthead once every container on it is home — the teal slab gone to ink',
+        pairedForeground: '--tile-done-foreground',
+      },
+    ],
+  },
+  {
     id: 'interactive-tints',
     title: 'Interactive Tints',
     description:
