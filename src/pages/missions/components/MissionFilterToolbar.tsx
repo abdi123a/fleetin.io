@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import type { MissionFilterState } from '@/types/mission';
-import { Input, Badge, Select } from '@/design-system';
+import { Avatar, Input, Badge, Select } from '@/design-system';
+import { useTeam } from '@/features/team';
+import { useAuthStore } from '@/stores';
+import { cn } from '@/utils';
 import {
   Search,
   SlidersHorizontal,
@@ -12,6 +15,7 @@ import {
   MapPin,
   FileText,
   DollarSign,
+  UsersRound,
 } from '@/design-system/icons';
 import { List, LayoutGrid, RotateCcw } from 'lucide-react';
 
@@ -93,6 +97,14 @@ export const MissionFilterToolbar: React.FC<MissionFilterToolbarProps> = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
+  /* Whose work. The list is filtered server-side on `assigneeId`, so "Mine" is
+     the same control as the Assigned-to select below — one writes your own id,
+     the other writes anybody's. */
+  const { data: team } = useTeam();
+  const currentUserId = useAuthStore((state) => state.user?.id);
+  const me = (team ?? []).find((member) => member.id === currentUserId);
+  const showingMine = Boolean(currentUserId) && filters.assigneeId === currentUserId;
+
   const activeFilterCount = [
     filters.searchKeyword,
     filters.datePreset !== 'all',
@@ -105,6 +117,7 @@ export const MissionFilterToolbar: React.FC<MissionFilterToolbarProps> = ({
     filters.containerNumber,
     filters.status,
     filters.paymentStatus,
+    filters.assigneeId,
   ].filter(Boolean).length;
 
   const currentStatusTab = (filters.status || 'all').toLowerCase();
@@ -194,6 +207,33 @@ export const MissionFilterToolbar: React.FC<MissionFilterToolbarProps> = ({
 
         {/* Right: Selects & View Switcher */}
         <div className="flex items-center gap-1.5 sm:gap-2 w-full md:w-auto overflow-x-auto py-0.5 shrink-0 justify-between sm:justify-end">
+          {/* "Mine".
+              A toggle rather than one more entry in the Assigned-to select,
+              because it is the only value on that list anybody reaches for
+              daily — you open Shipments to see your own work, and hunting for
+              your own name among your colleagues' to do it is a strange way to
+              spend a click. Your own face is on the button, so it reads as
+              yours before the word does. Only shown to an account that can
+              actually be assigned: a portal login has no work of its own here
+              and the toggle would return nothing forever. */}
+          {me && (
+            <button
+              type="button"
+              onClick={() => onFilterChange({ assigneeId: showingMine ? '' : me.id })}
+              aria-pressed={showingMine}
+              className={cn(
+                'flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-1.5 pr-2.5 text-2xs font-bold transition-colors',
+                showingMine
+                  ? 'border-primary/30 bg-primary/10 text-primary'
+                  : 'border-border bg-background text-muted-foreground hover:text-foreground',
+              )}
+              title={showingMine ? 'Showing your shipments' : 'Show only shipments assigned to you'}
+            >
+              <Avatar size="xs" name={me.fullName} src={me.avatarUrl ?? undefined} className="size-5 text-[8px]" />
+              Mine
+            </button>
+          )}
+
           <Select
             selectSize="sm"
             containerClassName="flex-1 sm:flex-initial sm:w-32 lg:w-36"
@@ -282,6 +322,30 @@ export const MissionFilterToolbar: React.FC<MissionFilterToolbarProps> = ({
       {/* Expanded Multi-Filter Grid */}
       {isExpanded && (
         <div className="p-4 rounded-lg border border-border/80 bg-card shadow-2xs pt-3 border-t border-border/70 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 text-xs">
+          {/* 0. Assigned to — whose work.
+                 `unassigned` is the value that earns this control a place:
+                 "which jobs has nobody picked up" is a question the operation
+                 asks every morning and previously had no way to ask at all. */}
+          <div className="space-y-1">
+            <label className="font-bold text-muted-foreground flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
+              <UsersRound className="w-3.5 h-3.5 text-primary" />
+              Assigned To
+            </label>
+            <select
+              value={filters.assigneeId}
+              onChange={(e) => onFilterChange({ assigneeId: e.target.value })}
+              className="w-full h-9 rounded-lg border border-border bg-background px-3 font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              <option value="">Anyone</option>
+              <option value="unassigned">Unassigned</option>
+              {(team ?? []).map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.id === currentUserId ? `${member.fullName} (me)` : member.fullName}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* 1. Date Filter */}
           <div className="space-y-1">
             <label className="font-bold text-muted-foreground flex items-center gap-1.5 text-[11px] uppercase tracking-wider">

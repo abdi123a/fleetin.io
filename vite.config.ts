@@ -35,6 +35,20 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    /**
+     * Country flags stay files; everything else keeps Vite's default.
+     *
+     * `CountryFlag` globs the whole 4:3 set so any of the 195 countries a
+     * record may name can be drawn. Two hundred of those SVGs are under the
+     * 4KB inline threshold, so by default they were base64'd straight into a
+     * JS chunk — every page paying to parse two hundred flags to render at
+     * most one. As files they are fetched one at a time, only by a screen that
+     * actually shows a flag, and the browser caches each on its own.
+     */
+    assetsInlineLimit(filePath) {
+      if (filePath.includes('flag-icons/flags/')) return false;
+      return undefined;
+    },
     rollupOptions: {
       output: {
         /**

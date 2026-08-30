@@ -25,20 +25,17 @@ export interface ShipmentRecord {
   customerCompany: string;
   customerPhone: string;
   customerEmail: string;
-  customerRating: number;
 
   partnerId: string;
   transporterName: string;
   transporterCompany: string;
   transporterPhone: string;
   transporterFleetCode: string;
-  transporterRating: number;
 
   driverId: string | null;
   driverName: string | null;
   driverPhone: string | null;
   driverLicenseNumber: string | null;
-  driverRating: number | null;
   driverVerified: boolean | null;
 
   vehicleId: string | null;
@@ -121,8 +118,30 @@ export interface ShipmentRecord {
    */
   transporters?: { id: string; name: string }[];
 
+  /**
+   * The Fleetin staff working this shipment — the crew.
+   *
+   * Ordered lead-first by the server, which is the order the avatar stack
+   * draws in: whoever is on point is the face in front. An empty array is a
+   * real answer and means nobody has picked the job up.
+   */
+  crew?: ShipmentCrewMemberRecord[];
+
   /** Only populated on the detail response (`GET /shipments/:id`) — list rows omit it for efficiency. */
   timeline?: ShipmentTimelineStepRecord[];
+}
+
+/** One teammate on a shipment. Enough to draw an avatar and name it on hover — no contact details, since a crew stack is not a phone book. */
+export interface ShipmentCrewMemberRecord {
+  id: string;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  avatarUrl: string | null;
+  roleName: string | null;
+  /** On point — at most one per shipment. */
+  isLead: boolean;
+  assignedAt: string;
 }
 
 export interface ShipmentTimelineStepRecord {
@@ -159,7 +178,6 @@ export function mapShipmentToMission(s: ShipmentRecord): Mission {
       company: s.customerCompany,
       phone: s.customerPhone,
       email: s.customerEmail,
-      rating: s.customerRating,
     },
     transporter: {
       id: s.partnerId,
@@ -167,7 +185,6 @@ export function mapShipmentToMission(s: ShipmentRecord): Mission {
       company: s.transporterCompany,
       phone: s.transporterPhone,
       fleetCode: s.transporterFleetCode,
-      rating: s.transporterRating,
     },
     /* Falls back to the snapshot for a payload that predates the field — a
        cached response, or the create/update reply, which returns the shipment
@@ -175,13 +192,16 @@ export function mapShipmentToMission(s: ShipmentRecord): Mission {
     transporters:
       s.transporters ??
       (s.partnerId ? [{ id: s.partnerId, name: s.transporterCompany }] : []),
+    /* Server order preserved — lead first. `?? []` rather than `undefined`,
+       because "no crew" is a state the UI draws (the dashed +) and not a
+       missing field to be defensive about. */
+    crew: s.crew ?? [],
     driver: s.driverId
       ? {
           id: s.driverId,
           name: s.driverName ?? '',
           phone: s.driverPhone ?? '',
           licenseNumber: s.driverLicenseNumber ?? '',
-          rating: s.driverRating ?? 0,
           isVerified: Boolean(s.driverVerified),
         }
       : undefined,
@@ -272,6 +292,9 @@ function toQueryString(filters: ShipmentFilters): string {
   if (filters.cargoType) params.set('cargoType', filters.cargoType);
   if (filters.containerNumber) params.set('containerNumber', filters.containerNumber);
   if (filters.route) params.set('route', filters.route);
+  /* `'unassigned'` is a real value here, not an empty filter — it asks the
+     server for the shipments nobody is on. */
+  if (filters.assigneeId) params.set('assigneeId', filters.assigneeId);
   if (filters.datePreset && filters.datePreset !== 'all') params.set('datePreset', filters.datePreset);
   if (filters.startDate) params.set('startDate', filters.startDate);
   if (filters.endDate) params.set('endDate', filters.endDate);
@@ -387,6 +410,23 @@ export interface CreateShipmentPayload {
    * leave a shipment standing with no bookings at all.
    */
   bookings?: CreateBookingItemPayload[];
+  /** The Fleetin staff who will work it. First id leads unless `leadAssigneeUserId` says otherwise. */
+  assigneeUserIds?: string[];
+  leadAssigneeUserId?: string;
+}
+
+/**
+ * Set the whole crew on a shipment.
+ *
+ * A PUT of the complete set, matching the picker: the client always knows the
+ * full answer, so there is no add/remove pair to get out of order.
+ */
+export async function setShipmentCrew(
+  id: string,
+  payload: { userIds: string[]; leadUserId?: string },
+): Promise<Mission> {
+  const res = await apiClient.put<ShipmentRecord>(`/shipments/${id}/assignees`, payload, token());
+  return mapShipmentToMission(res.data);
 }
 
 export async function createShipment(payload: CreateShipmentPayload): Promise<Mission> {

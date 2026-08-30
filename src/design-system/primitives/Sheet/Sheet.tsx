@@ -45,8 +45,14 @@ const sheetVariants = cva(
     variants: {
       side: {
         left: 'inset-y-0 left-0 h-full w-3/4 max-w-sm border-r data-[state=open]:animate-slide-in-left data-[state=closed]:animate-slide-out-left',
+        /* `sm:max-w-md` is the house width for a side panel — what Create
+           Shipment opens at, and what the user asked every side popup to match
+           on 2026-08-30. It lives here rather than being retyped at each call
+           site so a new sheet inherits it; a panel that genuinely needs more
+           room (a BI drill-down, the document viewer) still says so in its own
+           className, which twMerge lets win. */
         right:
-          'inset-y-0 right-0 h-full w-3/4 max-w-sm border-l data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
+          'inset-y-0 right-0 h-full w-full sm:max-w-md border-l data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
         top: 'inset-x-0 top-0 border-b data-[state=open]:animate-slide-in-top data-[state=closed]:animate-fade-out',
         bottom: 'inset-x-0 bottom-0 border-t data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
       },

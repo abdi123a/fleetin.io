@@ -42,9 +42,20 @@ export const RECOMMENDATION_WEIGHTS = {
   /** Of the pairable empties, those whose deadline this pickup genuinely beats. */
   urgency: 15,
   /** Trucks. A carrier who cannot field them is not an answer. */
-  fleet: 15,
+  fleet: 12,
   /** Price, relative to the others in the running. */
-  price: 10,
+  price: 8,
+  /**
+   * How they have actually performed — the derived star rating.
+   *
+   * Added 2026-08-30. Without it the panel printed "56% match" against three
+   * different carriers, because on a corridor where everyone runs ten trucks at
+   * the same rate the only two dimensions in play were identical for all of
+   * them. Fleet and price describe what a carrier *offers*; this is the only
+   * dimension that describes what they have actually *done*, and it is the one
+   * an operator would otherwise be applying from memory.
+   */
+  rating: 10,
 } as const;
 
 /**
@@ -110,6 +121,8 @@ export interface TransporterScore {
   /** Of the pairable ones, those whose deadline falls inside the watch window. */
   urgent: number;
   vehicles: number;
+  /** Derived star rating, 1–5, or null when they have no closed bookings yet. */
+  rating: number | null;
   /** False when this carrier cannot field every truck the shipment needs. */
   coversFleet: boolean;
   vehiclesNeeded: number;
@@ -127,6 +140,14 @@ export interface RecommendationInput {
   vehiclesNeeded: number;
   /** Per-vehicle price for this shipment's vehicle type, by partner. */
   rateOf: (partner: PartnerRecord) => number;
+  /**
+   * Their derived star rating, 1–5, or null when they have no record yet.
+   *
+   * Optional: a caller with no booking history to hand simply omits it and the
+   * dimension drops out of the denominator for everyone, the same way the
+   * empty-container dimensions do when nobody is holding a box.
+   */
+  ratingOf?: (partner: PartnerRecord) => number | null;
   /** Container shipments only — bulk and machinery have no box to reuse. */
   considerEmpties: boolean;
   /**
@@ -154,6 +175,7 @@ export function recommendTransporters({
   pickupAt,
   vehiclesNeeded,
   rateOf,
+  ratingOf,
   considerEmpties,
   scheduledByName,
 }: RecommendationInput): RecommendationResult {
@@ -202,9 +224,11 @@ export function recommendTransporters({
           (scheduledByName?.get(partner.companyLegalName.trim().toLowerCase()) ?? 0) > 0,
       )
     : false;
+  const anyRated = partners.some((partner) => (ratingOf?.(partner) ?? null) !== null);
   const achievable =
     RECOMMENDATION_WEIGHTS.fleet +
     RECOMMENDATION_WEIGHTS.price +
+    (anyRated ? RECOMMENDATION_WEIGHTS.rating : 0) +
     (anyEmpties ? RECOMMENDATION_WEIGHTS.empties + RECOMMENDATION_WEIGHTS.urgency : 0) +
     (anyScheduled ? RECOMMENDATION_WEIGHTS.scheduled : 0);
 
@@ -258,6 +282,17 @@ export function recommendTransporters({
           ? RECOMMENDATION_WEIGHTS.price
           : (1 - (rate - cheapest) / spread) * RECOMMENDATION_WEIGHTS.price;
 
+      /* Stars, scored across the 1–5 band rather than from zero: a carrier at
+         3.0 has not earned 60% of this dimension, they have earned half of the
+         range anyone can actually occupy. An unrated carrier scores nothing
+         here and the dimension leaves the denominator for everyone if nobody
+         is rated, exactly as the empty-container dimensions do. */
+      const rating = ratingOf?.(partner) ?? null;
+      const ratingPts =
+        rating === null
+          ? 0
+          : (Math.min(Math.max(rating, 1), 5) - 1) / 4 * RECOMMENDATION_WEIGHTS.rating;
+
       /* Figures, not sentences. Composing the phrases here meant the panel read
          them back positionally — and on a carrier with boxes but none urgent,
          the fleet count landed in the slot reserved for the urgency line and
@@ -272,13 +307,16 @@ export function recommendTransporters({
            beside every carrier — a number that reads as "all of these are
            bad" when it actually meant "this dimension does not apply today". */
         score: Math.round(
-          ((emptiesPts + scheduledPts + urgencyPts + fleetPts + pricePts) / achievable) * 100,
+          ((emptiesPts + scheduledPts + urgencyPts + fleetPts + pricePts + ratingPts) /
+            achievable) *
+            100,
         ),
         emptiesHeld: held.total,
         scheduledReturns,
         pairable,
         urgent,
         vehicles,
+        rating,
         coversFleet: vehicles >= needed,
         vehiclesNeeded: needed,
         ratePerVehicle: rate,
@@ -290,6 +328,7 @@ export function recommendTransporters({
       (a, b) =>
         b.score - a.score ||
         b.emptiesHeld - a.emptiesHeld ||
+        (b.rating ?? 0) - (a.rating ?? 0) ||
         b.scheduledReturns - a.scheduledReturns ||
         a.ratePerVehicle - b.ratePerVehicle,
     );

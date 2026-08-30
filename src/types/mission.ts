@@ -51,7 +51,6 @@ export interface CustomerInfo {
   company: string;
   phone: string;
   email: string;
-  rating: number;
 }
 
 export interface TransporterInfo {
@@ -60,7 +59,6 @@ export interface TransporterInfo {
   company: string;
   phone: string;
   fleetCode: string;
-  rating: number;
 }
 
 export interface DriverInfo {
@@ -68,7 +66,6 @@ export interface DriverInfo {
   name: string;
   phone: string;
   licenseNumber: string;
-  rating: number;
   isVerified: boolean;
 }
 
@@ -130,6 +127,13 @@ export interface Mission {
    * shipment has exactly one entry.
    */
   transporters?: { id: string; name: string }[];
+  /**
+   * The Fleetin people working this shipment — the crew. Distinct from
+   * `transporter`, which is the company hired to carry it: this is *our* side
+   * of the job, and it is what the avatar stack on the row and the masthead
+   * draws. Lead first. Empty means nobody has picked it up.
+   */
+  crew?: ShipmentCrewMember[];
   driver?: DriverInfo;
   assignedTruck?: TruckInfo;
 
@@ -188,6 +192,19 @@ export interface MonthlyTrendData {
   cancelled: number;
 }
 
+/** One teammate on a shipment — see `Mission.crew`. */
+export interface ShipmentCrewMember {
+  id: string;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  avatarUrl: string | null;
+  roleName: string | null;
+  /** On point — at most one per shipment. */
+  isLead: boolean;
+  assignedAt: string;
+}
+
 export interface MissionFilterState {
   searchKeyword: string;
   datePreset: 'all' | 'today' | 'week' | 'month' | 'custom';
@@ -202,5 +219,10 @@ export interface MissionFilterState {
   containerNumber: string;
   status: string;
   paymentStatus: string;
+  /**
+   * Whose work. A user id narrows to that person's crew; the literal
+   * `'unassigned'` asks the opposite — everything nobody is on.
+   */
+  assigneeId: string;
   sortBy?: string;
 }

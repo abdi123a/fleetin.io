@@ -1,26 +1,29 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Printer } from '@/design-system/icons';
+import { ChevronDown, ContainerIcon, Layers, Printer } from '@/design-system/icons';
 import {
   Badge,
   Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuTrigger,
+  IconChip,
   Skeleton,
 } from '@/design-system';
-import { useBooking } from '@/features/bookings/api/queries';
 import type { BookingRecord } from '@/features/bookings/api/bookingsService';
 import type { EmptyReturnCycleRecord } from '@/features/empty-returns/api/emptyReturnsService';
-import { displayShipmentStatus, statusIntentOf } from '@/lib/shipmentStatus';
+import { displayShipmentStatus, statusBadgeIntentOf } from '@/lib/shipmentStatus';
 import {
   CONTAINER_STATE_BADGE_CLASS,
-  CONTAINER_STATE_BADGE_INTENT,
   containerStateOf,
 } from '@/lib/containerState';
 import { cn, formatDate } from '@/utils';
 import { MissionReportView } from './MissionReportView';
-import { computeMissionReport } from './missionReport';
+import { ShipmentReportView } from './ShipmentReportView';
+import { computeShipmentReport } from './shipmentReport';
+import { useShipmentMissionReports } from './useShipperReporting';
+import { formatDuration } from './reportFormat';
 import {
   ReportFootnote,
   ReportLetterhead,
@@ -31,21 +34,34 @@ import {
 /**
  * The Shipment Report — the reporting system, in the shipment it belongs to.
  *
- * A shipment is a consignment; the thing that has a lifecycle, a timeline and a
- * container to give back is the **mission** inside it, one per container. So the
- * block is a picker and a document: choose a container, read its report —
- * overview, timeline, transport KPIs, container return, responsibility,
- * exceptions, in the specification's own section order.
+ * Two documents behind one masthead, and the shipment is the one that opens.
  *
- * A picker, not a chip row or a table: a shipment can carry twenty containers,
- * and twenty of anything pushes the report itself off the screen before it is
- * read.
+ * It used to be only the second of them. A shipment is a consignment and the
+ * thing with a timeline is the **mission** inside it, one per container — so
+ * the block was a picker and a document: choose a container, read its report.
+ * Which meant that opening a four-container shipment showed the reader an
+ * arbitrary one of its four containers and made them work out the consignment
+ * themselves. The question a person has when they open a shipment is about the
+ * shipment.
  *
- * Every figure is computed from recorded event timestamps (the booking's status
- * timeline, the empty-return cycle, the line's return deadline); nothing here is
- * entered by hand, which is what lets the report be generated the moment a
- * mission closes. "Download PDF" prints the sheet with the application shell
- * removed — one artefact, never a second layout to keep in step.
+ * So the default scope is the whole consignment — every container's report,
+ * aggregated — and the picker is still there, one click away, for the moment
+ * the reader wants a single box. The rail in the shipment view doubles as that
+ * picker: clicking a container swaps the sheet to its own mission report.
+ *
+ * The masthead is deliberately a filled band in **`--primary`, the brand
+ * colour itself** — the user's call, and the same flat #60969D with white text
+ * the sidebar wears, rather than the darker `--primary-bold` this first used.
+ * It is a band rather than the plain label row it replaced. Everything above this block on the page *changes*
+ * bookings — status pickers, the preview sheet, the cards — and a quiet grey
+ * control row read as one more of them. This band reads as a document header,
+ * which is what it is.
+ *
+ * Every figure in both documents is computed from recorded event timestamps
+ * (the booking's status timeline, the empty-return cycle, the line's return
+ * deadline); nothing here is entered by hand, which is what lets a report be
+ * generated the moment a mission closes. "Download PDF" prints whichever sheet
+ * is open with the application shell removed.
  */
 
 export interface ShipmentReportPanelProps {
@@ -53,6 +69,9 @@ export interface ShipmentReportPanelProps {
   cyclesByBookingId: Map<string, EmptyReturnCycleRecord>;
   className?: string;
 }
+
+/** Which document the sheet is showing. */
+type Scope = 'shipment' | 'container';
 
 /**
  * Every row here is one container, so it takes the app-wide container pair —
@@ -65,20 +84,9 @@ const badgeClassOf = (booking: { status: string; containerNumber?: string | null
   return state ? CONTAINER_STATE_BADGE_CLASS[state] : '';
 };
 
-const badgeIntentOf = (booking: { status: string; containerNumber?: string | null }) => {
-  const state = containerStateOf(booking.status, Boolean(booking.containerNumber));
-  if (state) return CONTAINER_STATE_BADGE_INTENT[state];
-  switch (statusIntentOf(booking.status)) {
-    case 'green':
-      return 'success' as const;
-    case 'blue':
-      return 'info' as const;
-    case 'orange':
-      return 'warning' as const;
-    default:
-      return 'default' as const;
-  }
-};
+/* The ladder's phase, not the container's state — see `statusBadgeIntentOf`.
+   The report prints a container tag of its own alongside this. */
+const badgeIntentOf = (booking: { status: string }) => statusBadgeIntentOf(booking.status);
 
 export function ShipmentReportPanel({
   bookings,
@@ -86,10 +94,26 @@ export function ShipmentReportPanel({
   className,
 }: ShipmentReportPanelProps) {
   const print = useReportPrint();
+  const [scope, setScope] = useState<Scope>('shipment');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // Follow the list: select the first container once loaded, and never point at
-  // one that is no longer there.
+  // Pinned once per mount: a per-render clock would recompute every report (and
+  // its "overrun so far" figures) on each parent render for no new fact.
+  const now = useMemo(() => Date.now(), []);
+
+  /* Both documents read the same objects. The shipment's analytics ARE the
+     aggregate of the very mission reports the picker opens, which is the only
+     way to guarantee that the consignment's figures and a container's figures
+     never disagree. */
+  const { reports, isLoading, loaded, total } = useShipmentMissionReports(
+    bookings,
+    cyclesByBookingId,
+    now,
+  );
+
+  const shipmentReport = useMemo(() => computeShipmentReport(reports, now), [reports, now]);
+
+  // Follow the list: never point at a container that is no longer there.
   useEffect(() => {
     const first = bookings[0];
     if (!first) {
@@ -101,107 +125,146 @@ export function ShipmentReportPanel({
     }
   }, [bookings, selectedId]);
 
-  // The per-shipment booking list omits timelines; the detail endpoint is the
-  // record of events this report is computed from.
-  const { data: detail, isLoading } = useBooking(selectedId ?? undefined);
-
   if (bookings.length === 0) return null;
 
   const selectedIndex = bookings.findIndex((booking) => booking.id === selectedId);
   const selected = selectedIndex >= 0 ? bookings[selectedIndex] : undefined;
   const context = bookings[0]?.shipment;
+  const selectedReport = reports.find((report) => report.bookingId === selectedId) ?? null;
+
+  const openContainer = (bookingId: string) => {
+    setSelectedId(bookingId);
+    setScope('container');
+  };
+
+  const isShipmentScope = scope === 'shipment';
+  const ret = shipmentReport.containerReturn;
+
+  /* The band's second line, and the rule it follows: it may only carry figures
+     the title cannot. In shipment scope that is the shape of the consignment;
+     in container scope it is where that one box has got to. */
+  const headline = isShipmentScope
+    ? [
+        `${shipmentReport.containers.total} container${shipmentReport.containers.total === 1 ? '' : 's'}`,
+        ret.withBox > 0 ? `${ret.returned} home · ${ret.out} out` : null,
+        shipmentReport.time.spanMs !== null
+          ? formatDuration(shipmentReport.time.spanMs, { compact: true })
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : [
+        selected?.containerNumber,
+        selectedIndex >= 0 ? `container ${selectedIndex + 1} of ${bookings.length}` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
 
   return (
     <section className={cn('space-y-3', className)}>
-      {/* The picker — screen only; the report itself names the mission on paper.
-          Labelled, because on its own the row reads as a summary line rather
-          than as the control that swaps the sheet underneath. */}
-      <div className="report-screen-only space-y-1.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Container shown in the report below
-        </p>
-        <div className="flex flex-wrap items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className={cn(
-                  'report-screen-only flex w-full max-w-lg cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 py-2',
-                  'text-xs font-semibold text-foreground shadow-2xs transition-colors hover:border-border-strong',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
-                )}
-              >
-                {/* Two mono codes side by side — the booking's and the box's —
-                    read as a pair of anonymous ids unless the first is named. */}
-                {selected ? (
-                  <span className="flex shrink-0 items-baseline gap-1">
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">
-                      Booking
-                    </span>
-                    <span className="font-mono">{selected.reference}</span>
-                  </span>
-                ) : (
-                  <span>Select a container</span>
-                )}
-                {selected?.containerNumber && (
-                  <span className="truncate font-mono text-[11px] font-normal text-muted-foreground">
-                    {selected.containerNumber}
-                  </span>
-                )}
-                {selected && (
-                  <Badge variant="subtle" intent={badgeIntentOf(selected)} size="sm" className={badgeClassOf(selected)}>
-                    {displayShipmentStatus(selected.status)}
-                  </Badge>
-                )}
-                <span className="ml-auto shrink-0 text-[11px] font-normal text-muted-foreground">
-                  {selectedIndex >= 0
-                    ? `Container ${selectedIndex + 1} of ${bookings.length}`
-                    : `${bookings.length} container${bookings.length === 1 ? '' : 's'}`}
-                </span>
-                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="max-h-80 w-[var(--radix-dropdown-menu-trigger-width)] overflow-y-auto"
+      {/* ── The masthead ─────────────────────────────────────────────────
+          Screen only. On paper the letterhead is the document's header, and
+          printing a scope switcher would be printing a control. */}
+      <div className="report-screen-only flex flex-wrap items-center gap-x-4 gap-y-3 rounded-lg bg-primary px-4 py-3.5 text-primary-foreground shadow-xs">
+        <IconChip icon={isShipmentScope ? Layers : ContainerIcon} tint="on-teal" size={44} />
+        <div className="min-w-0 flex-1 basis-52">
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] opacity-75">Analytics</p>
+          <h3 className="truncate text-base font-bold leading-tight sm:text-[17px]">
+            {isShipmentScope ? 'Whole Shipment' : `Booking ${selected?.reference ?? ''}`}
+          </h3>
+          {headline && (
+            <p className="mt-0.5 truncate font-mono text-[11.5px] tabular-nums opacity-85">
+              {headline}
+            </p>
+          )}
+        </div>
+
+        {/* The scope switch. Two documents, one control: the left half is the
+            consignment, the right half is whichever container is selected —
+            and it is the dropdown as well, so choosing a box and switching to
+            it are the same gesture rather than two. */}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1 rounded-full bg-white/15 p-1">
+            <button
+              type="button"
+              onClick={() => setScope('shipment')}
+              aria-pressed={isShipmentScope}
+              className={cn(
+                'cursor-pointer rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70',
+                isShipmentScope
+                  ? 'bg-white text-primary shadow-2xs'
+                  : 'text-primary-foreground/85 hover:bg-white/10',
+              )}
             >
-              {bookings.map((booking) => (
-                <DropdownMenuItem
-                  key={booking.id}
-                  onSelect={() => setSelectedId(booking.id)}
-                  className="flex items-center gap-2"
-                >
-                  <span className="flex shrink-0 items-baseline gap-1">
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">
-                      Booking
-                    </span>
-                    <span className="font-mono text-xs">{booking.reference}</span>
-                  </span>
-                  {booking.containerNumber && (
-                    <span className="truncate font-mono text-[11px] text-muted-foreground">
-                      {booking.containerNumber}
-                    </span>
+              Whole shipment
+            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-pressed={!isShipmentScope}
+                  className={cn(
+                    'flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70',
+                    !isShipmentScope
+                      ? 'bg-white text-primary shadow-2xs'
+                      : 'text-primary-foreground/85 hover:bg-white/10',
                   )}
-                  <Badge
-                    variant="subtle"
-                    intent={badgeIntentOf(booking)}
-                    size="sm"
-                    className={`ml-auto shrink-0 ${badgeClassOf(booking)}`}
+                >
+                  <span className="max-w-[13ch] truncate">
+                    {isShipmentScope ? 'One container' : (selected?.reference ?? 'One container')}
+                  </span>
+                  <ChevronDown className="size-3.5 shrink-0" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-80 w-80 overflow-y-auto">
+                <DropdownMenuLabel>Read one container's own report</DropdownMenuLabel>
+                {bookings.map((booking) => (
+                  <DropdownMenuItem
+                    key={booking.id}
+                    onSelect={() => openContainer(booking.id)}
+                    className="flex items-center gap-2"
                   >
-                    {displayShipmentStatus(booking.status)}
-                  </Badge>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button variant="outline" size="sm" leadingIcon={<Printer />} onClick={print}>
+                    <span className="shrink-0 font-mono text-xs">{booking.reference}</span>
+                    {booking.containerNumber && (
+                      <span className="truncate font-mono text-[11px] text-muted-foreground">
+                        {booking.containerNumber}
+                      </span>
+                    )}
+                    <Badge
+                      variant="subtle"
+                      intent={badgeIntentOf(booking)}
+                      size="sm"
+                      className={`ml-auto shrink-0 ${badgeClassOf(booking)}`}
+                    >
+                      {displayShipmentStatus(booking.status)}
+                    </Badge>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            leadingIcon={<Printer />}
+            onClick={print}
+            className="border-white/40 bg-white/10 text-primary-foreground hover:bg-white/20 hover:text-primary-foreground"
+          >
             Download PDF
           </Button>
         </div>
       </div>
 
-      {isLoading || !detail ? (
+      {isLoading || (!isShipmentScope && !selectedReport) ? (
         <div className="space-y-3">
+          {total > 1 && (
+            <p className="text-[11px] text-muted-foreground">
+              Reading {loaded} of {total} container timelines…
+            </p>
+          )}
           <Skeleton className="h-48 w-full rounded-lg" />
           <Skeleton className="h-64 w-full rounded-lg" />
         </div>
@@ -210,34 +273,24 @@ export function ShipmentReportPanel({
           letterhead={
             <ReportLetterhead
               shipperName={context?.customerCompany || context?.customerName || 'Shipper'}
-              title="Shipment Report"
-              period={`${context?.reference ?? ''} · ${detail.reference}${detail.containerNumber ? ` · ${detail.containerNumber}` : ''}`}
-              generatedAt={formatDate(Date.now(), 'dateTime')}
+              title={isShipmentScope ? 'Shipment Analytics' : 'Container Report'}
+              period={
+                isShipmentScope
+                  ? `${context?.reference ?? ''} · ${shipmentReport.containers.total} container${shipmentReport.containers.total === 1 ? '' : 's'}`
+                  : `${context?.reference ?? ''} · ${selectedReport?.overview.missionId ?? ''}${selectedReport?.overview.containerNumber ? ` · ${selectedReport.overview.containerNumber}` : ''}`
+              }
+              generatedAt={formatDate(now, 'dateTime')}
             />
           }
           footnote={<ReportFootnote />}
         >
-          <MissionReport booking={detail} cycle={cyclesByBookingId.get(detail.id)} />
+          {isShipmentScope ? (
+            <ShipmentReportView report={shipmentReport} />
+          ) : (
+            selectedReport && <MissionReportView report={selectedReport} />
+          )}
         </ReportSheet>
       )}
     </section>
   );
-}
-
-function MissionReport({
-  booking,
-  cycle,
-}: {
-  booking: BookingRecord;
-  cycle: EmptyReturnCycleRecord | undefined;
-}) {
-  // Pinned per booking — a per-render clock would recompute the report (and its
-  // "overrun so far" figures) on every parent render for no new fact.
-  const now = useMemo(() => Date.now(), []);
-  const report = useMemo(
-    () => computeMissionReport({ booking, cycle, now }),
-    [booking, cycle, now],
-  );
-
-  return <MissionReportView report={report} />;
 }

@@ -114,7 +114,12 @@
   --success-active: var(--fl-green-700);
   --success-foreground: var(--fl-neutral-0);
   --success-subtle: var(--fl-green-50);
-  --success-subtle-foreground: var(--fl-green-700);
+  /* The same green as `--success` itself, not two steps darker. A verified
+     tick and an "in transit" badge sat next to each other in two different
+     greens — #0d9f4f and #096e36 — which reads as two unrelated marks rather
+     than one meaning. One green means one thing. It costs contrast on the pale
+     fill (3.2:1 rather than 5.9:1); the user's call, made 2026-08-30. */
+  --success-subtle-foreground: var(--fl-green-500);
 
   /* Warning rides the same ramp as `--accent`. The system used to ship two
    * yellows — orange-500 #F9AC17 and amber-500 #FFB502 — that are 3.2° apart in
@@ -295,6 +300,17 @@
    * has to change: `--tile-*-foreground` is white either way. */
   --tile-done: var(--fl-neutral-950);
   --tile-done-foreground: var(--fl-neutral-0);
+  /* A dark neutral band for a strip of figures that carry their own verdict
+     colours — the Cycles chain KPIs.
+     It must be NEUTRAL and it must not flip with the theme, both for the same
+     reason. Neutral, because the band was teal and the green marking a win sat
+     a few degrees from its own ground: mint on teal is one hue family, so the
+     accent read as a dull shade of the background rather than as good news.
+     Fixed across themes, like `--tile-teal`, because the accents printed on it
+     are light by design — on a band that inverted to near-white they would
+     disappear. */
+  --tile-ink: var(--fl-neutral-900);
+  --tile-ink-foreground: var(--fl-neutral-0);
 
   /* ---------------------------------------------------------------------------
    * Container state — is the box FULL or EMPTY?
@@ -360,7 +376,7 @@
    * confused with it:
    *
    *   --container-*   what is INSIDE the box   full · empty · returned
-   *   --stage-*       what is HAPPENING to it  available · paired · returning · closed · overdue
+   *   --stage-*       what is HAPPENING to it  loaded · available · paired · returning · closed · overdue
    *
    * A box can be EMPTY (yellow, `--container-empty`) and simultaneously PAIRED
    * (violet, `--stage-paired`) — those are two true facts about one container,
@@ -377,12 +393,44 @@
    * alias roles the system already had, so a stage chip and a status badge
    * elsewhere on the page cannot drift apart.
    * ------------------------------------------------------------------------ */
-  /* The box is empty and nothing has been decided — the module's open question. */
+  /* The box is loaded and running — the leg that is earning.
+   *
+   * Added 2026-08-30 at the user's direction. The Cycles flow used to draw its
+   * FULL cards in `--container-full` teal, which is the *contents* axis, and on
+   * a page whose whole subject is what is happening to a box the strip came out
+   * one temperature and read, in the user's words, dead. Green is the same
+   * green a shipment's status wears, so a loaded leg here and a moving shipment
+   * elsewhere agree.
+   *
+   * This is a `--stage-*` role and it does NOT restate `--container-full`: the
+   * container scale (teal full · yellow empty · grey returned) is untouched and
+   * still governs every FULL/EMPTY tag outside this module. The Cycles strip
+   * already speaks in stages rather than contents — its EMPTY card is sky, not
+   * the container yellow — so this completes that vocabulary rather than
+   * breaking the other one. */
+  --stage-loaded: var(--fl-green-500);
+  --stage-loaded-foreground: var(--fl-neutral-0);
+  /* -100, matching the sky wash beside it. The pale card is the load that has
+     not been collected yet, so it must stay quieter than the solid one — but
+     at -50 it was quieter than the white card behind it, which is not a
+     distinction, it is a disappearance. */
+  --stage-loaded-subtle: var(--fl-green-100);
+  --stage-loaded-subtle-foreground: var(--fl-green-800);
+  --stage-loaded-border: var(--fl-green-400);
+
+  /* The box is empty and nothing has been decided — the module's open question.
+   *
+   * `subtle` stepped sky-50 → sky-100 on 2026-08-30. At -50 the wash was within
+   * a percent or two of white: on a card it was not a colour, it was an absence
+   * of one, and beside a saturated fill it disappeared entirely. -100 is still
+   * a wash and now actually reads as blue. The border steps with it, so the
+   * dashed outline that carries the "empty" meaning survives the stronger
+   * fill instead of dissolving into it. */
   --stage-available: var(--fl-sky-500);
   --stage-available-foreground: var(--fl-neutral-0);
-  --stage-available-subtle: var(--fl-sky-50);
+  --stage-available-subtle: var(--fl-sky-100);
   --stage-available-subtle-foreground: var(--fl-sky-800);
-  --stage-available-border: var(--fl-sky-400);
+  --stage-available-border: var(--fl-sky-500);
 
   /* Welded to a next full load — one truck runs both legs. The win state. */
   --stage-paired: var(--fl-violet-500);
@@ -394,10 +442,23 @@
   /* Going back on its own, slot chosen. Rides the house warning ramp: it is an
      outstanding ask, and it must match every other "needs doing" amber. */
   --stage-returning: var(--warning);
-  --stage-returning-foreground: var(--warning-foreground);
+  /* White, not the warning ink. Every filled action in the return flow —
+     "Plan return", "Confirm return", the calendar's active chip — reads white
+     on amber, so the return colour behaves like the destructive and primary
+     fills beside it rather than being the one filled control with dark text.
+
+     White on this amber measures 1.9:1, below the 4.5:1 text normally wants.
+     Deepening the fill to fix that was tried and reverted at the user's
+     direction: the amber is the amber. Do not "fix" it again without asking. */
+  --stage-returning-foreground: #ffffff;
   --stage-returning-subtle: var(--warning-subtle);
   --stage-returning-subtle-foreground: var(--warning-subtle-foreground);
   --stage-returning-border: var(--warning);
+  /* This hue as type on a dark filled surface — the chain band's warnings.
+     `-subtle` is a wash meant to be a background and is unreadable as ink;
+     the full-strength amber is a mid tone that goes muddy on a dark ground.
+     -300 stays legible without shouting over the white figures beside it. */
+  --stage-returning-on-fill: var(--fl-orange-300);
 
   /* Home, on time. Emerald rather than `--success` green so a closed cycle
      actually reads as an achievement on a board of live ones. */
@@ -522,7 +583,9 @@
   --success-active: var(--fl-green-200);
   --success-foreground: var(--fl-green-950);
   --success-subtle: color-mix(in srgb, var(--fl-green-400) 14%, transparent);
-  --success-subtle-foreground: var(--fl-green-300);
+  /* Dark's own `--success` is green-400 — see the light note: the tick and the
+     badge have to be the same green in both themes. */
+  --success-subtle-foreground: var(--fl-green-400);
 
   /* Same ramp as `--accent` — see the light-theme note on the yellow dedupe. */
   --warning: var(--fl-orange-400);
@@ -603,9 +666,17 @@
    * would glow on a dark card. */
   --stage-available: var(--fl-sky-400);
   --stage-available-foreground: var(--fl-sky-950);
-  --stage-available-subtle: color-mix(in srgb, var(--fl-sky-400) 16%, transparent);
+  --stage-available-subtle: color-mix(in srgb, var(--fl-sky-400) 22%, transparent);
   --stage-available-subtle-foreground: var(--fl-sky-200);
-  --stage-available-border: var(--fl-sky-500);
+  --stage-available-border: var(--fl-sky-400);
+
+  /* Steps up the ramp like every other stage on dark — a -500 fill on a slate
+     card is a smudge before it is a colour. */
+  --stage-loaded: var(--fl-green-400);
+  --stage-loaded-foreground: var(--fl-green-950);
+  --stage-loaded-subtle: color-mix(in srgb, var(--fl-green-400) 18%, transparent);
+  --stage-loaded-subtle-foreground: var(--fl-green-200);
+  --stage-loaded-border: var(--fl-green-500);
 
   --stage-paired: var(--fl-violet-400);
   --stage-paired-foreground: var(--fl-violet-950);
@@ -655,6 +726,9 @@
      from the other side. */
   --tile-done: var(--fl-neutral-100);
   --tile-done-foreground: var(--fl-neutral-950);
+  /* Unchanged from light, on purpose — see the light block. */
+  --tile-ink: var(--fl-neutral-900);
+  --tile-ink-foreground: var(--fl-neutral-0);
 
   /* Same inversion for the container mark — see the note above. */
   --container-returned: var(--fl-neutral-100);

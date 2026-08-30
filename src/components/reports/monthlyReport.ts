@@ -133,8 +133,14 @@ export interface MonthlyReport {
   recommendations: MonthlyRecommendation[];
 }
 
-/** §11 — where operational time is consumed, in the specification's order. */
-const STAGE_ROWS: ReadonlyArray<{
+/**
+ * §11 — where operational time is consumed, in the specification's order.
+ *
+ * Exported because the shipment report rolls the very same seven intervals up
+ * over one consignment's containers: two aggregates of the same missions that
+ * named their stages differently would be two vocabularies for one fact.
+ */
+export const STAGE_ROWS: ReadonlyArray<{
   key: string;
   label: string;
   of: (report: MissionReport) => number | null;
@@ -148,7 +154,8 @@ const STAGE_ROWS: ReadonlyArray<{
   { key: 'empty_return', label: 'Empty Return', of: (r) => r.kpis.returnLegMs },
 ];
 
-const EXCEPTION_LABELS: Record<MissionException['code'], string> = {
+/** The exception vocabulary, shared by every aggregate that counts them. */
+export const EXCEPTION_LABELS: Record<MissionException['code'], string> = {
   excessive_waiting: 'Excessive waiting time',
   long_loading: 'Long loading time',
   long_unloading: 'Long unloading time',

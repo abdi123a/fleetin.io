@@ -302,7 +302,6 @@ export function deriveTripFacts(dataset: TransporterDataset): TripFact[] {
       backhaulStatus: backhaul.status,
       matchedLoadRef: backhaul.matchedLoadRef,
 
-      rating: trip.driverRating,
       incident: trip.incident,
 
       payment: derivePayment(trip, asOf),

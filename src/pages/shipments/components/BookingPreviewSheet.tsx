@@ -1,5 +1,12 @@
+import type { StatusIntent } from '@/design-system/primitives/Layout/statusIntent';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  BookingDebriefDialog,
+  debriefSubjectFor,
+  emptyDebrief,
+  type DebriefDraft,
+} from '@/components/bookings';
 import {
   User,
   Truck,
@@ -16,6 +23,7 @@ import {
   AlertTriangle,
   Package,
   ContainerIcon,
+  Star,
 } from '@/design-system/icons';
 import { Avatar, Combobox, IconChip } from '@/design-system';
 import {
@@ -51,7 +59,7 @@ import { useDrivers } from '@/features/drivers/api/queries';
 import { usePartners } from '@/features/partners/api/queries';
 import { useEmptyReturnStore } from '@/stores/emptyReturn.store';
 import { useConfirmStandaloneReturn } from '@/features/empty-returns/api/queries';
-import { formatDate } from '@/utils';
+import { cn, formatDate } from '@/utils';
 
 /**
  * Where this booking's own empty container sits, once delivered — a
@@ -79,7 +87,7 @@ export interface BookingPreviewItem {
   vehicleType?: string;
   vehicleVerified: boolean;
   status: string;
-  statusIntent: 'green' | 'orange' | 'blue' | 'slate';
+  statusIntent: StatusIntent;
   step?: string;
   startDate?: string;
   startTime?: string;
@@ -90,6 +98,14 @@ export interface BookingPreviewItem {
   emptyReadyAt?: string;
   /** The matched cycle's own reference (`CYC-2026-#####`) — set whenever `emptyReturnStage` is `matched` or `returned`, so the card can jump straight to it. */
   emptyReturnCycleReference?: string;
+  /** What the operator said when they marked this delivered — see `BookingStatusPicker`. */
+  driverRating?: number | null;
+  driverRatingReliability?: number | null;
+  driverRatingPunctuality?: number | null;
+  driverRatingProfessionalism?: number | null;
+  driverNote?: string | null;
+  driverRatedByName?: string | null;
+  driverRatedAt?: string | null;
 }
 
 interface BookingPreviewSheetProps {
@@ -97,11 +113,21 @@ interface BookingPreviewSheetProps {
   booking: BookingPreviewItem | null;
   onClose: () => void;
   onUpdateBooking: (updatedBooking: BookingPreviewItem) => void;
+  /** The shipper this container belongs to — who the closing debrief asks about. */
+  shipperCompany?: string;
 }
+
+/** The three axes the debrief asks for, in the order `BookingStatusPicker` asks them. */
+const DEBRIEF_READOUT = [
+  { key: 'driverRatingReliability', label: 'Reliability' },
+  { key: 'driverRatingPunctuality', label: 'Punctuality' },
+  { key: 'driverRatingProfessionalism', label: 'Professionalism' },
+] as const;
 
 export function BookingPreviewSheet({
   open,
   booking,
+  shipperCompany,
   onClose,
   onUpdateBooking,
 }: BookingPreviewSheetProps) {
@@ -123,6 +149,7 @@ export function BookingPreviewSheet({
   const [isEditingVehicle, setIsEditingVehicle] = useState(false);
   const [isEditingDriver, setIsEditingDriver] = useState(false);
   const [isEditingSchedule, setIsEditingSchedule] = useState(false);
+  const [debrief, setDebrief] = useState<DebriefDraft | null>(null);
   const updateBookingStatus = useUpdateBookingStatus();
   const settle = useSettleBookingStatus();
   const updateBooking = useUpdateBooking();
@@ -362,6 +389,12 @@ export function BookingPreviewSheet({
       }
       setStatusSuccessMsg(`Status set to "${target}"`);
       setTimeout(() => setStatusSuccessMsg(''), 3000);
+      /* The same debrief the cards' status picker asks, on the same rungs.
+         Moving a booking from this sheet used to skip it entirely, so whether
+         anybody was asked how the job went depended on which of the two status
+         controls the operator happened to reach for. */
+      const subject = debriefSubjectFor(target, reached);
+      if (subject) setDebrief(emptyDebrief(subject));
     } catch (error) {
       setStatusErrorMsg(error instanceof Error ? error.message : 'The status could not be updated.');
     } finally {
@@ -547,11 +580,143 @@ export function BookingPreviewSheet({
         {/* ── SCROLLABLE BODY CONTENT ── */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
 
-          {/* 1. STATUS BADGE DISPLAY */}
-          <div className="bg-card p-3 rounded-lg border border-border/80 flex items-center justify-between shadow-2xs">
-            <span className="text-xs text-muted-foreground font-medium">Current Status</span>
-            {getStatusBadge()}
+          {/* 1. STATUS — where the booking is, and the control that moves it.
+              First thing in the sheet because it is why the sheet gets opened:
+              the dispatcher has news about this box and wants to record it.
+
+              One row, not a titled card: a card, a badge and a select were
+              three ways of saying "Delivered" stacked on top of each other,
+              and the select says it best because it is also the way to change
+              it. The container tag in the masthead already carries the colour. */}
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="shrink-0 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              {updateBookingStatus.isPending ? 'Saving…' : isClosed ? 'Final Status' : 'Status'}
+            </h3>
+            {isClosed ? (
+              /* A closed job states its outcome and offers nothing. */
+              /* The outcome sentence rides along on the same row — a closed
+                 booking is read, not worked, so it needs a line not a card. */
+              <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+                <span className="truncate text-xs text-muted-foreground">
+                  {booking.status === 'Completed'
+                    ? booking.containerNumber
+                      ? 'Delivered, empty back'
+                      : 'Delivered'
+                    : 'Closed without delivering'}
+                </span>
+                {getStatusBadge()}
+              </div>
+            ) : (
+              /* Sized to the rung it is showing, not to the panel: a field
+                 stretched across the sheet reads as the main event, and the
+                 main event is the run, not the dropdown. Capped so the long
+                 "blocked because…" options cannot drag it wide again. */
+              <Select
+                value={currentStep}
+                disabled={updateBookingStatus.isPending}
+                aria-label="Booking status"
+                onChange={(event) => handleSetStatus(event.target.value)}
+                containerClassName="w-auto"
+                className="h-8 w-auto max-w-[190px] rounded-md pl-3 pr-9 text-xs font-semibold"
+              >
+                {/* Off-ladder statuses (`Payment Pending`) would otherwise
+                    leave the field showing a value it has no option for. */}
+                {!steps.some((step) => step.rung === currentStep) && (
+                  <option value={currentStep}>{displayShipmentStatus(booking.status)}</option>
+                )}
+                {steps.map((step, index) => {
+                  const blocker = step.rung === currentStep ? null : blockerFor(step.rung);
+                  return (
+                    <option key={step.rung} value={step.rung} disabled={Boolean(blocker)}>
+                      {index + 1}. {blocker ? `${step.label} — ${blocker.requirement}` : step.label}
+                    </option>
+                  );
+                })}
+              </Select>
+            )}
           </div>
+
+          {/* ── THE DELIVERY DEBRIEF ──
+              What the operator said when they marked this delivered. Read here
+              because this sheet is where one booking is examined; the rating
+              also has to be *findable*, or asking for it was pointless.
+
+              Deliberately labelled as somebody's opinion. The stars elsewhere
+              in the app are computed from timestamps (`@/lib/rating`), and a
+              hand-entered score sitting in the same visual language as a derived
+              one would quietly claim to be the same kind of fact. */}
+          {(booking.driverNote || booking.driverRating) && (
+            <div className="rounded-lg border border-border/80 bg-card p-3 shadow-2xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-foreground">Delivery debrief</span>
+                {/* The person, not "the operator". A debrief is somebody's
+                    opinion, and an opinion with no name on it is worth less —
+                    you cannot go and ask an anonymous one what they meant. */}
+                <span className="text-[10px] text-muted-foreground">
+                  {booking.driverRatedByName
+                    ? `by ${booking.driverRatedByName}`
+                    : 'recorded by the operator'}
+                  {booking.driverRatedAt
+                    ? ` · ${formatDate(booking.driverRatedAt, 'dateTime')}`
+                    : ''}
+                </span>
+              </div>
+
+              {DEBRIEF_READOUT.map((axis) => {
+                const score = booking[axis.key];
+                if (!score) return null;
+                return (
+                  <div key={axis.key} className="mt-2 flex items-center justify-between gap-3">
+                    <span className="text-[11px] text-muted-foreground">{axis.label}</span>
+                    <span className="flex shrink-0 items-center gap-0.5">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Star
+                          key={star}
+                          aria-hidden
+                          className={cn(
+                            'size-3.5',
+                            star <= score ? 'fill-warning text-warning' : 'text-border-strong',
+                          )}
+                        />
+                      ))}
+                      <span className="sr-only">{score} out of 5</span>
+                    </span>
+                  </div>
+                );
+              })}
+
+              {/* A booking scored before the debrief asked per-axis has only the
+                  overall. Showing it as "Overall" is the honest label — the
+                  alternative was a rating that exists in the record and nowhere
+                  on the screen. */}
+              {!DEBRIEF_READOUT.some((axis) => booking[axis.key]) && booking.driverRating ? (
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <span className="text-[11px] text-muted-foreground">Overall</span>
+                  <span className="flex shrink-0 items-center gap-0.5">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <Star
+                        key={star}
+                        aria-hidden
+                        className={cn(
+                          'size-3.5',
+                          star <= (booking.driverRating ?? 0)
+                            ? 'fill-warning text-warning'
+                            : 'text-border-strong',
+                        )}
+                      />
+                    ))}
+                    <span className="sr-only">{booking.driverRating} out of 5</span>
+                  </span>
+                </div>
+              ) : null}
+
+              {booking.driverNote && (
+                <p className="mt-2.5 border-t border-border/60 pt-2.5 text-xs leading-relaxed text-foreground">
+                  “{booking.driverNote}”
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Toast / Feedback Messages */}
           {statusSuccessMsg && (
@@ -1018,78 +1183,24 @@ export function BookingPreviewSheet({
             );
           })()}
 
-          {/* 3. UPDATE STATUS — the ordinary status field.
-              A picker that offered one step forward and a stack of "undo"
-              rungs made the dispatcher work out which direction each entry
-              went, and covered the panel doing it. This is the control the
-              status deserves: the whole ladder, in order, current one
-              selected, pick where the container actually is. */}
-          <div className="space-y-2">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              {isClosed ? 'Final Status' : 'Update Status'}
-            </h3>
-            {isClosed ? (
-              /* A closed job states its outcome and offers nothing. */
-              <Card className="flex-row items-center gap-3 rounded-lg border border-border/80 bg-card p-3">
-                <IconChip
-                  icon={booking.status === 'Completed' ? CheckCircle2 : AlertTriangle}
-                  tint={booking.status === 'Completed' ? undefined : 'red'}
-                  size={36}
-                />
-                <div className="min-w-0">
-                  <p className="text-sm font-bold text-foreground">{booking.status}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {booking.status === 'Completed'
-                      ? booking.containerNumber
-                        ? 'Delivered and the empty container is back — this booking is closed.'
-                        : 'Delivered — this booking is closed.'
-                      : 'This booking was closed without delivering.'}
-                  </p>
-                </div>
-              </Card>
-            ) : (
-              <Card className="space-y-3 rounded-lg border border-border/80 bg-card p-3">
-                <Select
-                  value={currentStep}
-                  disabled={updateBookingStatus.isPending}
-                  aria-label="Booking status"
-                  onChange={(event) => handleSetStatus(event.target.value)}
-                  className="font-semibold"
-                >
-                  {/* Off-ladder statuses (`Payment Pending`) would otherwise
-                      leave the field showing a value it has no option for. */}
-                  {!steps.some((step) => step.rung === currentStep) && (
-                    <option value={currentStep}>{displayShipmentStatus(booking.status)}</option>
-                  )}
-                  {steps.map((step, index) => {
-                    const blocker = step.rung === currentStep ? null : blockerFor(step.rung);
-                    return (
-                      <option key={step.rung} value={step.rung} disabled={Boolean(blocker)}>
-                        {index + 1}. {blocker ? `${step.label} — ${blocker.requirement}` : step.label}
-                      </option>
-                    );
-                  })}
-                </Select>
-                {updateBookingStatus.isPending && (
-                  <p className="text-xs text-muted-foreground">Saving…</p>
-                )}
 
-                {/* Off the ladder, so off to one side: closing a job without
-                    delivering it is a decision, not the next rung. */}
-                <div className="border-t border-border/60 pt-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-10 w-full text-xs"
-                    disabled={updateBookingStatus.isPending}
-                    onClick={() => void handleCloseBooking('Cancelled')}
-                  >
-                    Cancel booking
-                  </Button>
-                </div>
-              </Card>
-            )}
-          </div>
+          {/* Cancelling is off the ladder, so it sits off the end of the panel:
+              it closes a job without delivering it, no rung brings it back, and
+              it has no business being a thumb's width from the status field. */}
+          {!isClosed && (
+            <div className="border-t border-border/60 pt-4">
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-9 w-full text-xs text-destructive hover:bg-destructive-subtle hover:text-destructive-subtle-foreground"
+                disabled={updateBookingStatus.isPending}
+                onClick={() => void handleCloseBooking('Cancelled')}
+              >
+                Cancel booking
+              </Button>
+            </div>
+          )}
+
 
         </div>
 
@@ -1181,6 +1292,15 @@ export function BookingPreviewSheet({
             Close
           </Button>
         </div>
+
+      <BookingDebriefDialog
+        draft={debrief}
+        bookingId={booking.id}
+        driverName={booking.driverName}
+        shipperCompany={shipperCompany}
+        onChange={setDebrief}
+        onClose={() => setDebrief(null)}
+      />
       </SheetContent>
     </Sheet>
     </>

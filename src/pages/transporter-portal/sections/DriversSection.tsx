@@ -1,32 +1,22 @@
 import { useMemo, useState } from 'react';
-import { Star, Users } from '@/design-system/icons';
-import { ChartCard, TrendChart, X_AXIS_HEIGHT } from '@/features/shipper-bi/charts';
-import {
-  buildSeries,
-  formatCompact,
-  formatKm,
-  formatRating,
-  inPeriod,
-  type TripFact,
-} from '@/features/transporter-bi';
+import { Users } from '@/design-system/icons';
+import { ChartCard } from '@/features/shipper-bi/charts';
+import { formatCompact, formatKm, inPeriod, type TripFact } from '@/features/transporter-bi';
 import { cn } from '@/utils';
 import type { TransporterSectionProps } from '../sectionContract';
 import { StatCard } from './cards/StatCard';
 import { TablePager, usePagedRows } from './cards/TablePager';
 
-type SortKey = 'rank' | 'trips' | 'onTimeRate' | 'avgRating' | 'distanceKm' | 'name';
+type SortKey = 'rank' | 'trips' | 'onTimeRate' | 'distanceKm' | 'name';
 
 interface DriverRow {
   driverId: string;
   name: string;
   trips: number;
   onTimeRate: number;
-  avgRating: number;
   distanceKm: number;
   rank: number;
 }
-
-const TREND_PLOT_HEIGHT = 200;
 
 /**
  * Drivers — ranked performance from period-filtered trip facts, joined to
@@ -36,7 +26,6 @@ export function DriversSection({
   dataset,
   facts,
   period,
-  granularity,
   onOpenDetail,
 }: TransporterSectionProps) {
   const [sortKey, setSortKey] = useState<SortKey>('onTimeRate');
@@ -53,34 +42,12 @@ export function DriversSection({
   const paged = usePagedRows(leaderboard, { pageSize, resetKey: `${sortKey}|${sortDir}` });
 
   const headline = useMemo(() => {
-    let ratingSum = 0;
-    let ratingCount = 0;
-    for (const fact of periodFacts) {
-      if (fact.rating === undefined) continue;
-      ratingSum += fact.rating;
-      ratingCount += 1;
-    }
-    const avgRating = ratingCount > 0 ? ratingSum / ratingCount : 0;
+    const trips = periodFacts.length;
     const driversWithTrips = leaderboard.length;
     const onTimeSum = leaderboard.reduce((sum, row) => sum + row.onTimeRate, 0);
-    const fleetOnTime =
-      driversWithTrips > 0 ? onTimeSum / driversWithTrips : 0;
-    return { avgRating, driversWithTrips, fleetOnTime, ratingCount };
+    const fleetOnTime = driversWithTrips > 0 ? onTimeSum / driversWithTrips : 0;
+    return { trips, driversWithTrips, fleetOnTime };
   }, [periodFacts, leaderboard]);
-
-  const ratingTrend = useMemo(
-    () =>
-      buildSeries({
-        facts: periodFacts.filter((fact) => fact.rating !== undefined),
-        period,
-        granularity,
-        valueOf: (fact) => fact.rating,
-        aggregate: 'mean',
-      }),
-    [periodFacts, period, granularity],
-  );
-
-  const hasRatingTrend = ratingTrend.points.some((point) => point.v > 0);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -95,22 +62,9 @@ export function DriversSection({
     <div className="flex flex-col gap-5">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard
-          label="Avg driver rating"
-          value={headline.ratingCount > 0 ? formatRating(headline.avgRating) : '—'}
-          caption={
-            headline.ratingCount > 0
-              ? `${formatCompact(headline.ratingCount)} rated trips`
-              : 'No ratings in period'
-          }
-          intent={
-            headline.ratingCount === 0
-              ? 'neutral'
-              : headline.avgRating >= 4.5
-                ? 'good'
-                : headline.avgRating < 4
-                  ? 'warning'
-                  : 'neutral'
-          }
+          label="Trips run"
+          value={formatCompact(headline.trips)}
+          caption="Completed in this period"
         />
         <StatCard
           label="Drivers with trips"
@@ -133,41 +87,6 @@ export function DriversSection({
         />
       </div>
 
-      {hasRatingTrend ? (
-        <ChartCard
-          title="Rating Trend"
-          subtitle="Shipper ratings on completed trips"
-          icon={<Star className="size-4" />}
-          bodyHeight={TREND_PLOT_HEIGHT + X_AXIS_HEIGHT}
-          tableRows={ratingTrend.points}
-          tableColumns={[
-            {
-              key: 't',
-              header: 'Period',
-              align: 'left',
-              render: (row) => ratingTrend.formatBucket(row.t),
-            },
-            {
-              key: 'v',
-              header: 'Avg rating',
-              render: (row) => (row.v > 0 ? formatRating(row.v) : '—'),
-            },
-          ]}
-        >
-          <TrendChart
-            series={[
-              {
-                key: 'rating',
-                label: 'Avg rating',
-                points: ratingTrend.points,
-              },
-            ]}
-            formatValue={(value) => formatRating(value)}
-            formatBucket={ratingTrend.formatBucket}
-            height={TREND_PLOT_HEIGHT}
-          />
-        </ChartCard>
-      ) : null}
 
       <ChartCard
         title="Driver Leaderboard"
@@ -186,11 +105,6 @@ export function DriversSection({
             render: (row) => `${(row.onTimeRate * 100).toFixed(1)}%`,
           },
           {
-            key: 'avgRating',
-            header: 'Rating',
-            render: (row) => (row.avgRating > 0 ? formatRating(row.avgRating) : '—'),
-          },
-          {
             key: 'distanceKm',
             header: 'Distance',
             render: (row) => formatKm(row.distanceKm),
@@ -205,7 +119,6 @@ export function DriversSection({
                 <SortHeader label="Driver" active={sortKey === 'name'} dir={sortDir} onClick={() => toggleSort('name')} align="left" />
                 <SortHeader label="Trips" active={sortKey === 'trips'} dir={sortDir} onClick={() => toggleSort('trips')} />
                 <SortHeader label="On-time" active={sortKey === 'onTimeRate'} dir={sortDir} onClick={() => toggleSort('onTimeRate')} />
-                <SortHeader label="Rating" active={sortKey === 'avgRating'} dir={sortDir} onClick={() => toggleSort('avgRating')} />
                 <SortHeader label="Distance" active={sortKey === 'distanceKm'} dir={sortDir} onClick={() => toggleSort('distanceKm')} />
               </tr>
             </thead>
@@ -230,9 +143,6 @@ export function DriversSection({
                     )}
                   >
                     {(row.onTimeRate * 100).toFixed(1)}%
-                  </td>
-                  <td className="py-2.5 pr-4 text-right tabular-nums text-muted-foreground">
-                    {row.avgRating > 0 ? formatRating(row.avgRating) : '—'}
                   </td>
                   <td className="py-2.5 text-right tabular-nums text-foreground">
                     {formatKm(row.distanceKm)}
@@ -292,7 +202,7 @@ function buildDriverLeaderboard(
 ): DriverRow[] {
   const byDriver = new Map<
     string,
-    { trips: number; onTime: number; judged: number; ratingSum: number; ratingCount: number; distanceKm: number }
+    { trips: number; onTime: number; judged: number; distanceKm: number }
   >();
 
   for (const fact of facts) {
@@ -300,8 +210,6 @@ function buildDriverLeaderboard(
       trips: 0,
       onTime: 0,
       judged: 0,
-      ratingSum: 0,
-      ratingCount: 0,
       distanceKm: 0,
     };
     entry.trips += 1;
@@ -309,10 +217,6 @@ function buildDriverLeaderboard(
     if (fact.onTime !== undefined) {
       entry.judged += 1;
       if (fact.onTime) entry.onTime += 1;
-    }
-    if (fact.rating !== undefined) {
-      entry.ratingSum += fact.rating;
-      entry.ratingCount += 1;
     }
     byDriver.set(fact.driverId, entry);
   }
@@ -324,16 +228,15 @@ function buildDriverLeaderboard(
     name: nameById.get(driverId) ?? driverId,
     trips: entry.trips,
     onTimeRate: entry.judged > 0 ? entry.onTime / entry.judged : 0,
-    avgRating: entry.ratingCount > 0 ? entry.ratingSum / entry.ratingCount : 0,
     distanceKm: Math.round(entry.distanceKm),
     rank: 0,
   }));
 
-  // Default ranking: on-time, then trips, then rating.
+  // Default ranking: on-time, then trips, then distance.
   rows.sort((a, b) => {
     if (b.onTimeRate !== a.onTimeRate) return b.onTimeRate - a.onTimeRate;
     if (b.trips !== a.trips) return b.trips - a.trips;
-    return b.avgRating - a.avgRating;
+    return b.distanceKm - a.distanceKm;
   });
 
   return rows.map((row, index) => ({ ...row, rank: index + 1 }));

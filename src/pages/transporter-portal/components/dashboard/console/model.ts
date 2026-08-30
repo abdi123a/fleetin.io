@@ -988,7 +988,6 @@ export function buildConsoleModel({
         // carrier — everything else the panel needs maps across unchanged.
         name: driver?.name ?? vehicle.model,
         fleetCode: initialsOf(driver?.name ?? vehicle.plateNumber),
-        rating: driver?.baseRating ?? dataset.network.avgRating,
         totalFleet: 1,
         deliveries: vehicleFacts.length,
         onTimeRate: share(

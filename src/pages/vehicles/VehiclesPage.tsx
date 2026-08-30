@@ -1,13 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  ContainerIcon,
   Truck,
-  Search,
   CheckCircle2,
   ExternalLink,
   Plus,
   X,
-  User,
+  Route,
+  MoreVertical,
+  SlidersHorizontal,
   Pencil,
   FileText,
   Upload,
@@ -17,14 +19,26 @@ import {
 } from '@/design-system/icons';
 import { DocumentViewerModal, type DocumentToView } from '@/components/DocumentViewerModal';
 import { triggerDocumentDownload } from '@/components/documentDownload';
-import { Grid, List, RotateCcw, AlertTriangle, Navigation, Building2, Check } from 'lucide-react';
-import { PageHeader, TablePager, usePagedRows } from '@/components';
-import { IconChip, useConfirm } from '@/design-system';
+import { RotateCcw, AlertTriangle, Building2, Check } from 'lucide-react';
+import { DataTable, FilterBar, PageHeader, TablePager, usePagedRows } from '@/components';
+import {
+  RecordStatusMenuSection,
+  VEHICLE_STATUS_OPTIONS,
+} from '@/components/common';
+import { usePermissions } from '@/hooks';
+import { PanelHeader } from '@/components/panels';
+import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
+import { IconChip, Tooltip, useConfirm } from '@/design-system';
 import {
   Badge,
   Button,
   Card,
   Checkbox,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   Sheet,
   SheetContent,
   SheetDescription,
@@ -38,23 +52,55 @@ import { ROUTES, buildPath } from '@/config/routes';
 import type { EnrichedVehicle } from '@/data/partnerData';
 import type { OperationalStatus, TruckType, PartnerVehicle } from '@/types/partner';
 import { usePartners } from '@/features/partners/api/queries';
-import { useAssignDriver, useCreateVehicle, useUpdateVehicle, useVehicles } from '@/features/vehicles/api/queries';
-import { useDrivers } from '@/features/drivers/api/queries';
+import {
+  useCreateVehicle,
+  useDeleteVehicle,
+  useUpdateVehicle,
+  useVehicles,
+} from '@/features/vehicles/api/queries';
 import { useDocuments, useCreateDocumentType, useDocumentTypes, useUploadDocument, useDeleteDocument } from '@/features/documents/api/queries';
 import { toDisplayDocument, uploadDocument, type DocumentTypeRecord } from '@/features/documents/api/documentsService';
 import { cn, isVehicleVerified } from '@/utils';
 
+type StatusFilter = 'all' | 'available' | 'in-transit' | 'maintenance' | 'out-of-service';
+
+/** The tabs, and the status each one selects. One list so the tab bar and the
+    small-screen select can never offer different bands. */
+const STATUS_TABS: { key: StatusFilter; label: string; tone?: string; status?: OperationalStatus }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'available', label: 'Available', tone: 'text-success', status: 'Available' },
+  { key: 'in-transit', label: 'In Transit', tone: 'text-info', status: 'In Transit' },
+  { key: 'maintenance', label: 'Maintenance', tone: 'text-warning-subtle-foreground', status: 'Under Maintenance' },
+  { key: 'out-of-service', label: 'Out of service', tone: 'text-destructive', status: 'Out of Service' },
+];
+
 function StatusPill({ status }: { status: OperationalStatus }) {
-  switch (status) {
-    case 'Available':
-      return <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-success-subtle text-success-subtle-foreground border border-success/20"><span className="h-1.5 w-1.5 rounded-full bg-success shrink-0" />Available</span>;
-    case 'In Transit':
-      return <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-info-subtle text-info-subtle-foreground border border-info/20"><span className="h-1.5 w-1.5 rounded-full bg-info shrink-0" />In Transit</span>;
-    case 'Under Maintenance':
-      return <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-warning-subtle text-warning-subtle-foreground border border-warning/20"><span className="h-1.5 w-1.5 rounded-full bg-warning shrink-0" />Maintenance</span>;
-    case 'Out of Service':
-      return <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-destructive-subtle text-destructive-subtle-foreground border border-destructive/20"><span className="h-1.5 w-1.5 rounded-full bg-destructive shrink-0" />Out of Service</span>;
-  }
+  /**
+   * A dot and a word — no pill, no border, no tinted plate.
+   *
+   * The old badge stacked four devices on one word (fill, border, dot, colour)
+   * and still came out low-contrast, because the label sat in a pale
+   * `*-subtle-foreground` on a pale `*-subtle` ground. It also sized itself to
+   * its text, so "Out of Service" was half again as wide as "Available" and the
+   * status column had a ragged edge down the page.
+   *
+   * The dot carries the state, the label reads in full foreground, and the row
+   * is fixed-width so the column lines up. This is the pattern every serious
+   * status column uses, for these reasons.
+   */
+  const meta: Record<OperationalStatus, { dot: string; label: string }> = {
+    Available: { dot: 'bg-success', label: 'Available' },
+    'In Transit': { dot: 'bg-info', label: 'In Transit' },
+    'Under Maintenance': { dot: 'bg-warning', label: 'Maintenance' },
+    'Out of Service': { dot: 'bg-destructive', label: 'Out of service' },
+  };
+  const { dot, label } = meta[status];
+  return (
+    <span className="inline-flex items-center gap-2 whitespace-nowrap text-xs font-semibold text-foreground">
+      <span className={`size-2 shrink-0 rounded-full ${dot}`} aria-hidden />
+      {label}
+    </span>
+  );
 }
 
 function isExpiredOrSoon(dateStr?: string): 'expired' | 'soon' | 'ok' {
@@ -245,10 +291,7 @@ export function VehiclesPage() {
   const partners = useMemo(() => partnersResponse?.items ?? [], [partnersResponse]);
   const createVehicle = useCreateVehicle();
   const updateVehicle = useUpdateVehicle();
-  const assignDriver = useAssignDriver();
   const [selectedVehicle, setSelectedVehicle] = useState<EnrichedVehicle | null>(null);
-  const { data: partnerDriversResponse } = useDrivers({ partnerId: selectedVehicle?.partnerId });
-  const partnerDrivers = useMemo(() => partnerDriversResponse?.items ?? [], [partnerDriversResponse]);
 
   // Add Vehicle Modal State
   const [isAddVehicleOpen, setIsAddVehicleOpen] = useState(false);
@@ -336,7 +379,9 @@ export function VehiclesPage() {
   };
 
   // Drawer tabs: 'view' | 'edit' | 'docs'
-  const [drawerTab, setDrawerTab] = useState<'view' | 'edit' | 'docs'>('view');
+  /* Two states, not three: editing is a corner toggle and the document list
+     lives inside it, the same shape the Drivers panel uses. */
+  const [drawerTab, setDrawerTab] = useState<'view' | 'edit'>('view');
 
   // Edit form state
   const [editForm, setEditForm] = useState<Partial<EnrichedVehicle>>({});
@@ -427,36 +472,63 @@ export function VehiclesPage() {
     void triggerDocumentDownload(doc.id, doc.name);
   };
 
-  const handleAssignDriver = (driverId: string) => {
-    if (!selectedVehicle) return;
-    assignDriver.mutate(
-      { vehicleId: selectedVehicle.id, driverId: driverId || null },
-      { onSuccess: (updated) => setSelectedVehicle(updated) },
-    );
+  /*
+   * What this account may actually do here — the same gate the Shippers and
+   * Transporters lists use. A menu that offers what the server will refuse
+   * (403) is worse than a short menu, so an action this role cannot perform is
+   * not offered at all.
+   */
+  const { can } = usePermissions();
+  const canEditVehicles = can('vehicles.update');
+  const canDeleteVehicles = can('vehicles.delete');
+  const canCreateVehicles = can('vehicles.create');
+  const deleteVehicle = useDeleteVehicle();
+
+  /**
+   * Move a truck up or down its operational ladder from the row itself.
+   *
+   * The whole ladder every time, as a radio group — the house rule for a status
+   * picker. `mutateAsync`, because a fire-and-forget notice announces a change
+   * the server may have refused.
+   */
+  const handleStatusChange = async (vehicle: EnrichedVehicle, next: OperationalStatus) => {
+    if (next === vehicle.operationalStatus) return;
+    try {
+      await updateVehicle.mutateAsync({ id: vehicle.id, payload: { operationalStatus: next } });
+      if (selectedVehicle?.id === vehicle.id) {
+        setSelectedVehicle({ ...selectedVehicle, operationalStatus: next });
+      }
+      setAddSuccessNotice(`${vehicle.plateNumber} is now ${next.toLowerCase()}.`);
+      setTimeout(() => setAddSuccessNotice(null), 4500);
+    } catch {
+      setAddSuccessNotice(`Could not change ${vehicle.plateNumber} — your account cannot edit vehicles.`);
+      setTimeout(() => setAddSuccessNotice(null), 4500);
+    }
+  };
+
+  const handleDeleteVehicle = async (vehicle: EnrichedVehicle, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const ok = await confirm({
+      title: 'Remove this vehicle?',
+      description: `${vehicle.plateNumber} will be removed from the fleet. Bookings already assigned to it keep their record.`,
+      confirmLabel: 'Remove',
+    });
+    if (!ok) return;
+    deleteVehicle.mutate(vehicle.id);
+    if (selectedVehicle?.id === vehicle.id) setSelectedVehicle(null);
   };
 
   // Filters & Search State
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
-  const [partnerFilter, setPartnerFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('plate-asc');
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
 
   // Analytics
   const totalVehicles = vehicles.length;
   const availableCount = vehicles.filter((v) => v.operationalStatus === 'Available').length;
   const inTransitCount = vehicles.filter((v) => v.operationalStatus === 'In Transit').length;
   const maintenanceCount = vehicles.filter((v) => v.operationalStatus === 'Under Maintenance').length;
-
-  // Partner options
-  const partnerOptions = useMemo(() => {
-    const unique = Array.from(new Set(vehicles.map((v) => v.partnerName)));
-    return [
-      { value: 'all', label: 'All transporters' },
-      ...unique.map((name) => ({ value: name, label: name })),
-    ];
-  }, [vehicles]);
 
   // Filtering
   const filteredVehicles = useMemo(() => {
@@ -467,14 +539,19 @@ export function VehiclesPage() {
         v.plateNumber.toLowerCase().includes(q) ||
         v.partnerName.toLowerCase().includes(q) ||
         (v.make && v.make.toLowerCase().includes(q)) ||
-        (v.model && v.model.toLowerCase().includes(q)) ||
-        (v.assignedDriverName && v.assignedDriverName.toLowerCase().includes(q));
+        (v.model && v.model.toLowerCase().includes(q));
 
-      const matchesStatus = statusFilter === 'all' || v.operationalStatus.toLowerCase() === statusFilter.toLowerCase();
+      /* Compared against the tab's own `status`, not a lowercased label: the
+         two drifted the moment a band was called "Maintenance" and the status
+         was "Under Maintenance". */
+      const tabStatus = STATUS_TABS.find((tab) => tab.key === statusFilter)?.status;
+      const matchesStatus = !tabStatus || v.operationalStatus === tabStatus;
       const matchesType = typeFilter === 'all' || v.truckType === typeFilter;
-      const matchesPartner = partnerFilter === 'all' || v.partnerName === partnerFilter;
 
-      return matchesSearch && matchesStatus && matchesType && matchesPartner;
+      /* No transporter select: the column shows every carrier's name outright
+         now, and the search field already matches on it — a dropdown of the
+         same ten names was a third control doing the second one's job. */
+      return matchesSearch && matchesStatus && matchesType;
     });
 
     list.sort((a, b) => {
@@ -485,22 +562,21 @@ export function VehiclesPage() {
     });
 
     return list;
-  }, [vehicles, searchTerm, statusFilter, typeFilter, partnerFilter, sortBy]);
+  }, [vehicles, searchTerm, statusFilter, typeFilter, sortBy]);
 
   /** One page at a time — the row list and the card grid share the pager. */
   const [pageSize, setPageSize] = useState(12);
   const pagedVehicles = usePagedRows(filteredVehicles, {
     pageSize,
-    resetKey: `${statusFilter}|${typeFilter}|${partnerFilter}|${searchTerm}|${sortBy}`,
+    resetKey: `${statusFilter}|${typeFilter}|${searchTerm}|${sortBy}`,
   });
 
-  const hasActiveFilters = searchTerm !== '' || statusFilter !== 'all' || typeFilter !== 'all' || partnerFilter !== 'all';
+  const hasActiveFilters = searchTerm !== '' || statusFilter !== 'all' || typeFilter !== 'all';
 
   const clearFilters = () => {
     setSearchTerm('');
     setStatusFilter('all');
     setTypeFilter('all');
-    setPartnerFilter('all');
     setSortBy('plate-asc');
   };
 
@@ -516,14 +592,16 @@ export function VehiclesPage() {
       <PageHeader
         title="Vehicles"
         actions={
-          <Button
-            onClick={() => setIsAddVehicleOpen(true)}
-            shape="pill"
-            leadingIcon={<Plus className="h-4 w-4" />}
-            className="bg-primary hover:bg-primary-hover text-primary-foreground font-semibold px-4 py-2 text-xs shadow-xs cursor-pointer"
-          >
-            Add vehicle
-          </Button>
+          canCreateVehicles ? (
+            <Button
+              onClick={() => setIsAddVehicleOpen(true)}
+              shape="pill"
+              leadingIcon={<Plus className="h-4 w-4" />}
+              className="bg-primary hover:bg-primary-hover text-primary-foreground font-semibold px-4 py-2 text-xs shadow-xs cursor-pointer"
+            >
+              Add vehicle
+            </Button>
+          ) : undefined
         }
       />
 
@@ -690,7 +768,11 @@ export function VehiclesPage() {
       </Sheet>
 
       {/* KPI Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+      {/* Two-up on a phone, not four stacked. One tile per row put four
+          full-width blocks between the page title and the list they summarise,
+          so the first screen was entirely header and the actual work started
+          below the fold. */}
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5 lg:grid-cols-4">
         <StatisticCard
           title="Total Fleet"
           value={totalVehicles}
@@ -725,183 +807,80 @@ export function VehiclesPage() {
         />
       </div>
 
-      {/* Control Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 sm:gap-3 rounded-lg border border-border bg-card p-2.5 sm:px-4 shadow-2xs">
-        {/* Search & Status Tabs */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1 w-full md:w-auto">
-          {/* Search Input */}
-          <div className="relative w-full sm:w-auto sm:min-w-[180px] md:max-w-[240px]">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder="Search vehicles..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-8 pr-7 py-1 text-xs font-medium rounded-md border-border bg-background h-8 w-full"
-            />
-            {searchTerm && (
-              <button
-                type="button"
-                onClick={() => setSearchTerm('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            )}
-          </div>
-
-          {/* Inline Status Filter Tabs */}
-          <div className="flex items-center gap-1 overflow-x-auto py-0.5 scrollbar-none w-full sm:w-auto">
-            {[
-              { id: 'all', label: 'All', count: vehicles.length },
-              { id: 'available', label: 'Available', count: vehicles.filter((v) => v.operationalStatus === 'Available').length },
-              { id: 'in transit', label: 'In Transit', count: vehicles.filter((v) => v.operationalStatus === 'In Transit').length },
-              { id: 'under maintenance', label: 'Maintenance', count: vehicles.filter((v) => v.operationalStatus === 'Under Maintenance').length },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setStatusFilter(tab.id)}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap ${
-                  statusFilter === tab.id
-                    ? 'bg-primary text-primary-foreground shadow-2xs'
-                    : 'bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'
-                }`}
-              >
-                <span>{tab.label}</span>
-                <span
-                  className={`px-1 py-0.2 rounded-sm text-[10px] font-semibold ${
-                    statusFilter === tab.id ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-background/80 text-muted-foreground border border-border/40'
-                  }`}
-                >
-                  {tab.count}
-                </span>
-              </button>
-            ))}
-          </div>
-
-          {hasActiveFilters && (
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="flex items-center gap-1 text-2xs font-medium text-muted-foreground hover:text-primary transition-colors shrink-0"
-            >
-              <RotateCcw className="h-3 w-3" />
-              <span>Reset</span>
-            </button>
-          )}
-        </div>
-
-        {/* Selects & View Switcher */}
-        <div className="flex items-center gap-1.5 sm:gap-2 w-full md:w-auto overflow-x-auto py-0.5 shrink-0 justify-between sm:justify-end">
-          <Select
-            selectSize="sm"
-            containerClassName="flex-1 sm:flex-initial sm:w-32 lg:w-36"
-            value={partnerFilter}
-            onChange={(e) => setPartnerFilter(e.target.value)}
-            options={partnerOptions}
-            className="text-2xs py-1 rounded-md"
-          />
-
-          <Select
-            selectSize="sm"
-            containerClassName="flex-1 sm:flex-initial sm:w-32 lg:w-36"
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-            options={[
-              { value: 'all', label: 'All Vehicle Types' },
-              { value: '40ft Container', label: '40ft Container' },
-              { value: '20ft Container', label: '20ft Container' },
-              { value: 'Flatbed', label: 'Flatbed' },
-              { value: 'Refrigerated', label: 'Refrigerated' },
-              { value: 'Tanker', label: 'Tanker' },
-              { value: 'Box Truck', label: 'Box Truck' },
-            ]}
-            className="text-2xs py-1 rounded-md"
-          />
-
-          <Select
-            selectSize="sm"
-            containerClassName="flex-1 sm:flex-initial sm:w-32 lg:w-36"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            options={[
-              { value: 'plate-asc', label: 'Sort: Plate No' },
-              { value: 'partner-asc', label: 'Sort: Transporter' },
-              { value: 'type-asc', label: 'Sort: Vehicle Type' },
-            ]}
-            className="text-2xs py-1 rounded-md"
-          />
-
-          <div className="flex items-center rounded-md border border-border bg-muted/40 p-0.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => setViewMode('list')}
-              title="List View"
-              className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
-                viewMode === 'list' ? 'bg-background text-primary shadow-2xs font-bold' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <List className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('grid')}
-              title="Grid View"
-              className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
-                viewMode === 'grid' ? 'bg-background text-primary shadow-2xs font-bold' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <Grid className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
-      </div>
-
+      {/* One filter bar, the app's own. This was a hand-rolled "Control Bar":
+          pill tabs in an `overflow-x-auto` strip, a search box with its own
+          magnifier, and four selects — the exact arrangement `FilterBar` was
+          built to replace on the Shippers and Transporters lists, where a
+          filter you had to drag into view was a filter nobody knew they had. */}
+      <FilterBar
+        label="Filter vehicles by status"
+        tabs={STATUS_TABS.map((tab) => ({
+          key: tab.key,
+          label: tab.label,
+          tone: tab.tone,
+          count: tab.status
+            ? vehicles.filter((v) => v.operationalStatus === tab.status).length
+            : vehicles.length,
+        }))}
+        active={statusFilter}
+        onSelect={setStatusFilter}
+        search={{
+          value: searchTerm,
+          onChange: setSearchTerm,
+          placeholder: 'Search vehicles…',
+          matched: filteredVehicles.length,
+          total: vehicles.length,
+        }}
+      >
+        <Select
+          selectSize="sm"
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+          aria-label="Filter by vehicle type"
+          leadingIcon={<ContainerIcon />}
+          containerClassName="w-full @[26rem]/bar:w-auto"
+          className="h-9 w-full min-w-[9rem] text-xs font-medium @[26rem]/bar:w-auto"
+          options={[
+            { value: 'all', label: 'All vehicle types' },
+            { value: '40ft Container', label: '40ft Container' },
+            { value: '20ft Container', label: '20ft Container' },
+            { value: 'Flatbed', label: 'Flatbed' },
+            { value: 'Refrigerated', label: 'Refrigerated' },
+            { value: 'Tanker', label: 'Tanker' },
+            { value: 'Box Truck', label: 'Box Truck' },
+          ]}
+        />
+        <Select
+          selectSize="sm"
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          aria-label="Sort vehicles"
+          leadingIcon={<SlidersHorizontal />}
+          containerClassName="w-full @[26rem]/bar:w-auto"
+          className="h-9 w-full min-w-[9.5rem] text-xs font-medium @[26rem]/bar:w-auto"
+          options={[
+            { value: 'plate-asc', label: 'Plate no.' },
+            { value: 'partner-asc', label: 'Transporter' },
+            { value: 'type-asc', label: 'Vehicle type' },
+          ]}
+        />
+      </FilterBar>
       {/* Vehicle Drawer */}
       <Sheet open={Boolean(selectedVehicle)} onOpenChange={(open) => !open && setSelectedVehicle(null)}>
-        <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto p-6 bg-background border-l border-border space-y-6">
+        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto p-6 bg-background border-l border-border space-y-6">
           <SheetTitle className="sr-only">Vehicle Details & Documents</SheetTitle>
           <SheetDescription className="sr-only">Vehicle specifications and documents.</SheetDescription>
           {selectedVehicle && (
             <div className="space-y-6">
-              {/* Header */}
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-4">
-                  <IconChip icon={Truck} />
-                  <div className="space-y-1">
-                    <h3 className="text-xl font-black font-mono text-foreground tracking-wide flex items-center gap-2">
-                      {selectedVehicle.plateNumber}
-                      <VerificationBadge state={isVehicleVerified(selectedVehicle) ? 'verified' : 'unverified'} size="lg" />
-                    </h3>
-                    <p className="text-xs text-muted-foreground font-medium">{selectedVehicle.truckType} {selectedVehicle.make ? `· ${selectedVehicle.make} ${selectedVehicle.model || ''}` : ''}</p>
-                    <div className="pt-1"><StatusPill status={selectedVehicle.operationalStatus} /></div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Drawer Tabs */}
-              <div className="flex items-center gap-1.5 p-1 rounded-lg bg-muted/40 border border-border">
-                {(
-                  [
-                    { id: 'view', label: 'Overview' },
-                    { id: 'edit', label: 'Edit Specs' },
-                    { id: 'docs', label: `Documents (${vehicleDocRows.length})` },
-                  ] as const
-                ).map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setDrawerTab(tab.id)}
-                    className={`flex-1 py-1.5 px-3 rounded-md text-xs font-bold transition-all text-center ${
-                      drawerTab === tab.id
-                        ? 'bg-primary text-primary-foreground shadow-2xs'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
+              <PanelHeader
+                media={<IconChip icon={Truck} />}
+                title={<span className="font-mono tracking-wide">{selectedVehicle.plateNumber}</span>}
+                subtitle={`${selectedVehicle.truckType}${selectedVehicle.make ? ` · ${selectedVehicle.make} ${selectedVehicle.model || ''}`.trimEnd() : ''}`}
+                verified={isVehicleVerified(selectedVehicle)}
+                status={<StatusPill status={selectedVehicle.operationalStatus} />}
+                onEdit={() => setDrawerTab(drawerTab === 'edit' ? 'view' : 'edit')}
+                editing={drawerTab === 'edit'}
+              />
 
               {/* Toast / Notice */}
               {docNotice && (
@@ -948,20 +927,6 @@ export function VehiclesPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <h4 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Telematics & GPS</h4>
-                    <div className="p-3.5 rounded-lg border border-border bg-card flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <Navigation className={`h-4 w-4 ${selectedVehicle.hasGPS ? 'text-success-subtle-foreground' : 'text-muted-foreground'}`} />
-                        <div>
-                          <span className="font-bold text-foreground block">{selectedVehicle.hasGPS ? 'GPS Tracking Active' : 'No GPS Unit'}</span>
-                          {selectedVehicle.gpsDeviceId && <span className="text-[10px] text-muted-foreground font-mono">Device: {selectedVehicle.gpsDeviceId}</span>}
-                        </div>
-                      </div>
-                      {selectedVehicle.hasGPS && <Badge intent="success" size="sm">Online</Badge>}
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
                     <h4 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Registration & Insurance</h4>
                     <div className="grid grid-cols-2 gap-3 p-3.5 rounded-lg border border-border bg-card text-xs">
                       <div>
@@ -975,17 +940,23 @@ export function VehiclesPage() {
                     </div>
                   </div>
 
-                  {selectedVehicle.assignedDriverName && (
-                    <div className="space-y-2">
-                      <h4 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Assigned Driver</h4>
-                      <div className="p-3.5 rounded-lg border border-border bg-card flex items-center gap-3 text-xs">
-                        <IconChip icon={User} size={36} />
-                        <div>
-                          <p className="font-bold text-foreground">{selectedVehicle.assignedDriverName}</p>
-                        </div>
+                  {/* What this truck has done, where its standing driver used
+                      to sit. A vehicle has no one driver — it has a history of
+                      runs, each with the driver who made it, recorded on the
+                      booking. */}
+                  <div className="space-y-2">
+                    <h4 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Work</h4>
+                    <div className="p-3.5 rounded-lg border border-border bg-card flex items-center gap-3 text-xs">
+                      <IconChip icon={Route} size={36} />
+                      <div>
+                        <p className="font-bold text-foreground">
+                          {(selectedVehicle.trips ?? 0).toLocaleString()}{' '}
+                          {(selectedVehicle.trips ?? 0) === 1 ? 'trip' : 'trips'}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">Container runs completed or under way</p>
                       </div>
                     </div>
-                  )}
+                  </div>
 
                   <div className="pt-2">
                     <Button
@@ -1123,34 +1094,19 @@ export function VehiclesPage() {
                     </div>
                   </div>
 
-                  <div className="space-y-1.5 pt-3 border-t border-border/60">
-                    <label className="text-[11px] font-bold text-foreground block">Assigned Driver</label>
-                    <Select
-                      value={selectedVehicle.assignedDriverId || ''}
-                      options={[
-                        { value: '', label: 'Unassigned' },
-                        ...partnerDrivers.map((d) => ({ value: d.id, label: d.fullName })),
-                      ]}
-                      onChange={(e) => handleAssignDriver(e.target.value)}
-                    />
-                    <p className="text-[10px] text-muted-foreground">
-                      Only drivers from this transporter.
-                    </p>
-                  </div>
-
                   <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
                     <Button variant="outline" size="sm" onClick={() => setDrawerTab('view')}>
                       Cancel
                     </Button>
                     <Button variant="primary" size="sm" onClick={handleSaveEdit}>
-                      Save
+                      Save changes
                     </Button>
                   </div>
                 </div>
               )}
 
               {/* ── TAB 3: VEHICLE DOCUMENTS & UPLOAD ── */}
-              {drawerTab === 'docs' && (
+              {drawerTab === 'edit' && (
                 <div className="space-y-5">
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div>
@@ -1203,129 +1159,221 @@ export function VehiclesPage() {
       </Sheet>
 
       {/* ── Main View ── */}
-      {viewMode === 'list' ? (
-        <div className="space-y-2 pt-1">
-          <div className="hidden lg:grid grid-cols-12 gap-4 px-5 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-            <div className="col-span-3">Plate & Vehicle Type</div>
-            <div className="col-span-3">Transporter</div>
-            <div className="col-span-3">Assigned Driver & GPS</div>
-            <div className="col-span-2">Expiries</div>
-            <div className="col-span-1 text-right">Status</div>
-          </div>
-
-          {pagedVehicles.rows.map((vehicle) => (
-            <div
-              key={vehicle.id}
-              onClick={() => handleSelectVehicle(vehicle)}
-              className="group relative flex flex-col lg:grid lg:grid-cols-12 items-start lg:items-center gap-3 lg:gap-4 rounded-lg border border-border/80 bg-card hover:bg-muted/30 p-3.5 sm:px-5 cursor-pointer transition duration-150 hover:border-primary/40 hover:shadow-2xs"
+      {/* One list surface, no view switcher. A directory is a comparison
+          surface — "which of these is which, and which one do I want" is a
+          question about columns lining up — and the grid answered it by putting
+          every value at a different x. The card layout the switcher used to
+          offer is still here: `DataTable` falls back to it below the width
+          where the columns fit, which is where a grid was the better answer. */}
+      <DataTable
+        rows={pagedVehicles.rows}
+        rowKey={(vehicle) => vehicle.id}
+        onRowClick={(vehicle) => handleSelectVehicle(vehicle)}
+        emptyCopy="No vehicle matches the current filters."
+        emptyAction={
+          hasActiveFilters ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearFilters}
+              leadingIcon={<RotateCcw className="size-3.5" />}
+              className="text-xs"
             >
-              <div className="col-span-3 flex items-center gap-3 min-w-0 w-full">
-                <IconChip icon={Truck} size={36} />
-                <div className="flex flex-col min-w-0">
-                  <span className="text-sm font-black font-mono tracking-wider text-foreground group-hover:text-primary transition-colors flex items-center gap-1">
-                    {vehicle.plateNumber}
-                    <VerificationBadge state={isVehicleVerified(vehicle) ? 'verified' : 'unverified'} size="sm" />
-                  </span>
-                  <span className="text-2xs text-muted-foreground truncate">
-                    {vehicle.truckType} {vehicle.containerCapacity ? `(${vehicle.containerCapacity})` : ''}
-                  </span>
-                </div>
-              </div>
-
-              <div className="w-full lg:contents grid grid-cols-2 gap-2.5 p-2.5 rounded-md bg-muted/20 border border-border/40 text-xs lg:p-0 lg:bg-transparent lg:border-0">
-                <div className="lg:col-span-3 flex flex-col justify-center min-w-0">
-                  <span className="text-[10px] text-muted-foreground font-medium block lg:hidden">Transporter</span>
-                  <button
-                    type="button"
-                    onClick={(e) => handleGoToPartner(vehicle.partnerReference, e)}
-                    className="text-xs font-bold text-foreground hover:text-primary transition-colors text-left truncate flex items-center gap-1.5"
-                  >
-                    <Building2 className="h-3 w-3 text-primary shrink-0" />
-                    <span className="truncate">{vehicle.partnerName}</span>
-                  </button>
-                  <span className="text-2xs text-muted-foreground truncate">{vehicle.partnerCountry}</span>
-                </div>
-
-                <div className="lg:col-span-3 flex flex-col justify-center min-w-0">
-                  <span className="text-[10px] text-muted-foreground font-medium block lg:hidden">Driver & GPS</span>
-                  <span className="text-xs font-semibold text-foreground truncate">
-                    {vehicle.assignedDriverName || <span className="text-muted-foreground font-normal">Unassigned</span>}
-                  </span>
-                  {vehicle.hasGPS && (
-                    <span className="inline-flex items-center gap-1 text-[10px] text-success-subtle-foreground font-medium">
-                      <Navigation className="h-2.5 w-2.5 shrink-0" />GPS Enabled
-                    </span>
-                  )}
-                </div>
-
-                <div className="lg:col-span-2 flex flex-col justify-center gap-0.5">
-                  <span className="text-[10px] text-muted-foreground font-medium block lg:hidden">Expiries</span>
-                  <ExpiryLabel date={vehicle.insuranceExpiry} label="Insurance" />
-                </div>
-              </div>
-
-              <div className="col-span-1 flex items-center justify-end w-full lg:w-auto pt-2 lg:pt-0 border-t lg:border-t-0 border-border/40">
-                <StatusPill status={vehicle.operationalStatus} />
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
-          {pagedVehicles.rows.map((vehicle) => (
-            <Card
-              key={vehicle.id}
-              onClick={() => handleSelectVehicle(vehicle)}
-              className="group relative flex flex-col justify-between h-full p-4 border border-border bg-card hover:bg-muted/20 rounded-lg cursor-pointer transition duration-150 hover:border-primary/40 hover:shadow-2xs space-y-3"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <IconChip icon={Truck} size={36} />
-                  <div className="flex flex-col min-w-0">
-                    <h3 className="text-base font-black font-mono tracking-wider text-foreground group-hover:text-primary transition-colors truncate flex items-center gap-1">
+              Clear filters
+            </Button>
+          ) : undefined
+        }
+        /* 48rem, the same width Shippers and Transporters switch at. It was
+           56rem, so on a normal laptop this list was still drawing stacked
+           cards while the two directories beside it — same six columns, same
+           chrome — had already become a table. The four directories are one
+           idiom; they should not disagree about when they are a table. */
+        breakpoint="48rem"
+        columns={[
+          {
+            key: 'plate',
+            label: 'Plate & type',
+            icon: ContainerIcon,
+            width: 'w-[22%]',
+            card: 'identity',
+            cell: (vehicle) => (
+              <div className="flex min-w-0 items-center gap-2.5">
+                <IconChip icon={ContainerIcon} size={36} />
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate font-mono text-sm font-bold tracking-wider text-foreground">
                       {vehicle.plateNumber}
-                      <VerificationBadge state={isVehicleVerified(vehicle) ? 'verified' : 'unverified'} size="sm" />
-                    </h3>
-                    <span className="text-2xs text-muted-foreground">{vehicle.truckType}</span>
+                    </span>
+                    <VerificationBadge
+                      state={isVehicleVerified(vehicle) ? 'verified' : 'unverified'}
+                      size="sm"
+                    />
                   </div>
-                </div>
-                <StatusPill status={vehicle.operationalStatus} />
-              </div>
-
-              <button
-                type="button"
-                onClick={(e) => handleGoToPartner(vehicle.partnerReference, e)}
-                className="flex items-center gap-2 p-2 rounded-lg bg-primary/5 border border-primary/20 text-xs w-full text-left hover:bg-primary/10 transition-colors"
-              >
-                <Building2 className="h-3.5 w-3.5 text-primary shrink-0" />
-                <span className="font-bold text-foreground truncate flex-1">{vehicle.partnerName}</span>
-                <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
-              </button>
-
-              <div className="grid grid-cols-2 gap-2 p-2.5 rounded-lg bg-muted/30 border border-border/40 text-xs">
-                <div>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Driver</span>
-                  <span className="font-semibold text-foreground truncate block">{vehicle.assignedDriverName || 'Unassigned'}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Capacity</span>
-                  <span className="font-semibold text-foreground truncate block">{vehicle.containerCapacity || '—'}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Insurance Exp.</span>
-                  <ExpiryLabel date={vehicle.insuranceExpiry} label="" />
-                </div>
-                <div>
-                  <span className="text-[10px] text-muted-foreground font-medium block">GPS</span>
-                  <span className={`font-semibold ${vehicle.hasGPS ? 'text-success-subtle-foreground' : 'text-muted-foreground'}`}>
-                    {vehicle.hasGPS ? 'Active' : 'No GPS'}
+                  <span className="block truncate text-[11px] text-muted-foreground">
+                    {vehicle.truckType}
+                    {vehicle.containerCapacity ? ` · ${vehicle.containerCapacity}` : ''}
                   </span>
                 </div>
               </div>
-            </Card>
-          ))}
-        </div>
-      )}
+            ),
+          },
+          {
+            key: 'transporter',
+            label: 'Transporter',
+            icon: Building2,
+            width: 'w-[23%]',
+            /* Mark **and** name. The mark alone, with the name hidden in a
+               tooltip, is the one place the app breaks its own rule that a
+               named company always shows its logo beside the name — and in a
+               column of near-identical circles it made the reader hover every
+               row to find out who anybody was. */
+            cell: (vehicle) => (
+              <Tooltip
+                content={`Transporter · ${vehicle.partnerName}${vehicle.partnerCountry ? ` · ${vehicle.partnerCountry}` : ''}`}
+              >
+                <button
+                  type="button"
+                  onClick={(e) => handleGoToPartner(vehicle.partnerReference, e)}
+                  className="flex w-full min-w-0 items-center gap-2 rounded-full p-0.5 pr-2 text-left transition-colors hover:bg-muted"
+                >
+                  <CompanyMark id={vehicle.partnerId} name={vehicle.partnerName} size="sm" />
+                  <span className="truncate text-xs font-semibold text-foreground">
+                    {vehicle.partnerName}
+                  </span>
+                </button>
+              </Tooltip>
+            ),
+          },
+          {
+            /* What this truck has actually done.
+               It was "Assigned driver", a standing pairing set on this page —
+               one name, for a truck that a dozen different drivers take out
+               over its life. The driver is chosen per booking, on the
+               shipment, so the pairing was a second answer nothing kept true.
+               A trip count is a fact about the *vehicle*, which is what this
+               directory is for: it separates the truck that works from the one
+               parked at the yard, and it is the same unit the rest of the app
+               counts in — one booking, one container run. */
+            key: 'trips',
+            label: 'Trips',
+            icon: Route,
+            width: 'w-[18%]',
+            cardLabel: 'Trips',
+            cell: (vehicle) => {
+              const trips = vehicle.trips ?? 0;
+              return (
+                <span className="flex items-baseline gap-1.5">
+                  {/* Monospaced and tabular so a column of counts lines up on
+                      the digit; greyed at zero because a truck that has never
+                      run is not news, it is a new truck. */}
+                  <span
+                    className={cn(
+                      'font-mono text-sm font-bold tabular-nums',
+                      trips > 0 ? 'text-foreground' : 'text-muted-foreground',
+                    )}
+                  >
+                    {trips}
+                  </span>
+                  {/* The column is headed Trips, so the noun under the figure
+                      is a trip. It said "run"/"runs", which is a second word
+                      for the same thing one line below the first. */}
+                  <span className="text-[11px] text-muted-foreground">
+                    {trips === 1 ? 'trip' : 'trips'}
+                  </span>
+                </span>
+              );
+            },
+          },
+          {
+            key: 'insurance',
+            label: 'Insurance',
+            icon: FileText,
+            width: 'w-[14%]',
+            cell: (vehicle) => <ExpiryLabel date={vehicle.insuranceExpiry} label="" />,
+          },
+          {
+            key: 'status',
+            label: 'Status',
+            icon: Truck,
+            width: 'w-[13%]',
+            card: 'trailing',
+            cell: (vehicle) => <StatusPill status={vehicle.operationalStatus} />,
+          },
+          {
+            key: 'actions',
+            label: 'Actions',
+            /* 10%, matching Shippers. At 8% the ⋮ button fitted and the word
+               above it did not — the heading truncated to "ACTIO…". */
+            width: 'w-[10%]',
+            card: 'trailing',
+            cell: (vehicle) => (
+              /* Centred in its column. The button is a 32px square in a 10%
+                 column, so left-aligned it sat against the rule with a hand's
+                 width of nothing after it — the last column read as empty with
+                 something stuck to its edge. */
+              <div className="flex items-center justify-center">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label="Vehicle actions"
+                      className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                      <MoreVertical className="size-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-52">
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelectVehicle(vehicle);
+                      }}
+                      className="cursor-pointer gap-2 text-xs"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span>Open vehicle</span>
+                    </DropdownMenuItem>
+                    {canEditVehicles && (
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSelectVehicle(vehicle);
+                          setDrawerTab('edit');
+                        }}
+                        className="cursor-pointer gap-2 text-xs"
+                      >
+                        <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span>Edit vehicle</span>
+                      </DropdownMenuItem>
+                    )}
+                    {canEditVehicles && (
+                      <RecordStatusMenuSection
+                        value={vehicle.operationalStatus}
+                        options={VEHICLE_STATUS_OPTIONS}
+                        onSelect={(next) => handleStatusChange(vehicle, next)}
+                        busy={updateVehicle.isPending}
+                      />
+                    )}
+                    {canDeleteVehicles && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={(e) => handleDeleteVehicle(vehicle, e)}
+                          className="cursor-pointer gap-2 text-xs text-destructive focus:text-destructive"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span>Delete vehicle</span>
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            ),
+          },
+        ]}
+      />
 
       {filteredVehicles.length > 0 && (
         <TablePager
@@ -1337,26 +1385,9 @@ export function VehiclesPage() {
         />
       )}
 
-      {/* Empty State */}
-      {filteredVehicles.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-12 text-center rounded-lg border border-dashed border-border bg-card">
-          <IconChip icon={Truck} tint="neutral" className="mb-3" />
-          <h3 className="text-base font-bold text-foreground">No Vehicles Found</h3>
-          <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-            No vehicle matched the current filters.
-          </p>
-          {hasActiveFilters && (
-            <Button
-              variant="outline"
-              onClick={clearFilters}
-              leadingIcon={<RotateCcw className="h-3.5 w-3.5" />}
-              className="mt-4 rounded-full text-xs font-medium"
-            >
-              Clear filters
-            </Button>
-          )}
-        </div>
-      )}
+      {/* No "No Vehicles Found" panel here: `DataTable` prints its own empty
+          row with the same escape, and the two together were the page saying
+          it twice. */}
 
       <DocumentViewerModal open={Boolean(viewingDoc)} onOpenChange={(open) => !open && setViewingDoc(null)} document={viewingDoc} />
     </div>

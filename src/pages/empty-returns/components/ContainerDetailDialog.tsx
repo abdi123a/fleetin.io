@@ -30,6 +30,10 @@ import {
   riskTextClass,
 } from '@/data/emptyReturnData';
 import { suggestLoadsFor, useEmptyContainerActions, useEmptyContainers } from '@/features/empty-returns';
+import { StarRating } from '@/components/performance';
+import { usePartners } from '@/features/partners/api/queries';
+import { useBookings } from '@/features/bookings/api/queries';
+import { summariseFleet } from '@/lib/rating';
 import {
   achievedMarginOf,
   formatSpan,
@@ -43,7 +47,9 @@ import type { EmptyReturnRecord } from '@/types/emptyReturn';
 import { cn } from '@/utils';
 
 import { OperationFlow } from './OperationFlow';
-import { CompanyName, Mono, RecordStateTag, RiskBadge, SectionLabel, StageChip } from './marks';
+import { IdentityFact, IdentityStrip, PartyName } from '@/components/common';
+
+import { Mono, RecordStateTag, SectionLabel, StageChip } from './marks';
 
 /**
  * One container — its history, and one door into the module's one decision
@@ -224,29 +230,141 @@ function DetailStep({
       </DialogHeader>
 
       <DialogBody className="space-y-4">
-        <section>
-          <SectionLabel>Operation flow</SectionLabel>
-          <OperationFlow record={record} now={now} className="mt-2 overflow-x-auto pb-1" />
-          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-2xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5">
-              Shipper <CompanyName name={record.client} />
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              Transporter <CompanyName name={record.transporter} />
-            </span>
-            {record.truck && <span>Truck {record.truck}</span>}
-            {record.shipmentId && (
-              <Link
-                to={buildPath(ROUTES.shipmentOverview, { id: record.shipmentId })}
-                className="inline-flex items-center gap-1 font-semibold text-primary hover:underline"
-              >
-                <ExternalLink className="size-3" aria-hidden />
-                {record.shipmentReference ?? 'Open the shipment'}
-              </Link>
-            )}
-          </div>
-        </section>
+        {/* ── THE DECISION, FIRST ──
+            Reordered on 2026-08-30. The dialog used to open on the operation
+            flow — history — then a loud red deadline panel, and only at the
+            bottom the thing the operator is actually here to do, in an outline
+            button labelled "instead". So the loudest element on screen was
+            *information* and the quietest was the *action*, and the reader had
+            no way to tell where to look.
 
+            The order now answers the questions in the order they get asked:
+            what do I do → why → what happened → the detail. */}
+        {/* A summary, and one door — not the decision itself. Confirming a
+            pairing or choosing a return slot happens once, in the Match
+            Recommendations popup; this reports what that popup would show. */}
+        {record.stage === 'empty' && (
+          <Card variant="filled" padding="sm">
+            <SectionLabel>What should happen next?</SectionLabel>
+
+            {!best ? (
+              <div className="mt-2.5 rounded-card-nested border border-dashed border-border bg-surface px-4 py-3 text-center">
+                <p className="text-sm font-semibold text-foreground">No viable full load</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Nothing currently open can use this container before its return deadline.
+                </p>
+                <p className="mx-auto mt-2 max-w-md text-xs text-muted-foreground">
+                  {/* Graded by urgency: "try again later" is sound advice at
+                      three days out and negligence at three hours. */}
+                  {risk === 'safe' && 'The decision window is still comfortable — check again later.'}
+                  {risk === 'watch' && 'Prioritise pairing today, or plan the return now.'}
+                  {risk === 'critical' &&
+                    'Pair now if anything appears — otherwise plan the empty return immediately.'}
+                  {risk === 'overdue' &&
+                    'Detention is already accruing. Plan and confirm the empty return now.'}
+                  {!risk &&
+                    'This container has no return deadline recorded, so nothing can be timed against it.'}
+                </p>
+              </div>
+            ) : (
+              /* Same colours, same "N% match" phrasing as the popup's own
+                 score pills — the summary should read like a preview of that
+                 screen, not a different product describing it. */
+              <div className="mt-2.5 flex flex-wrap items-center justify-between gap-3 rounded-card-nested border border-container-full-border/40 bg-container-full-subtle/40 px-3.5 py-3">
+                <p className="min-w-0 text-xs text-foreground">
+                  <span className="font-bold">{suggestions.length}</span> open full load
+                  {suggestions.length === 1 ? '' : 's'} could take this container — best{' '}
+                  <span
+                    className={cn(
+                      'font-bold',
+                      best.tight || best.frictions.length > 0
+                        ? 'text-warning-subtle-foreground'
+                        : 'text-success-subtle-foreground',
+                    )}
+                  >
+                    {best.score}% match
+                  </span>
+                  .
+                </p>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => onOpenMatching('match')}
+                  disabled={busy}
+                  className="shrink-0 gap-1.5"
+                >
+                  <ArrowLeftRight className="size-3.5" /> Open in Matching
+                </Button>
+              </div>
+            )}
+
+            {/* The other branch of the same decision — send it back instead.
+                Same popup, same colour, just the plan-return dialog open on
+                arrival — never a second inline form living in this dialog. */}
+            {/* Weighted by whether there is a choice to make. With a viable
+                load this is the second of two doors and stays quiet; with none,
+                it is the only thing the operator can do, so it stops whispering
+                "instead" from behind an outline and becomes the primary. */}
+            <Button
+              variant={best ? 'outline' : 'primary'}
+              size="sm"
+              onClick={() => onOpenMatching('return')}
+              disabled={busy}
+              className={cn(
+                'mt-2.5 w-full',
+                best
+                  ? 'border-warning text-warning-subtle-foreground hover:bg-warning-subtle'
+                  : /* Same reason as Confirm below: the queue's "Plan empty
+                       return" is this button, and it is amber there. */
+                    'bg-stage-returning text-stage-returning-foreground hover:brightness-105',
+              )}
+            >
+              <RotateCcw /> {best ? 'Plan Empty Return instead' : 'Plan Empty Return'}
+            </Button>
+          </Card>
+        )}
+
+        {record.stage === 'paired' && (
+          <div className="space-y-2">
+            <div className="rounded-card-nested border border-primary bg-primary-subtle px-4 py-2.5 text-center">
+              <div className="text-sm font-bold text-primary-subtle-foreground">
+                Paired — no action required
+              </div>
+              <div className="text-2xs text-muted-foreground">
+                Execution is handled by the Shipment module.
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={onCancelPairing}
+              disabled={busy}
+              className="w-full text-muted-foreground hover:text-destructive"
+            >
+              <Undo2 /> Cancel this pairing
+            </Button>
+          </div>
+        )}
+
+        {/* The return colour, not the brand teal. This button and the queue's
+            "Confirm return" fire the same thing, and wearing two different
+            colours for one action is how an operator learns to hesitate over
+            which one they are pressing. `--stage-returning` is the colour the
+            return flow owns everywhere else. */}
+        {record.stage === 'return_planned' && (
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={onConfirmReturn}
+            disabled={busy}
+            fullWidth
+            className="bg-stage-returning text-stage-returning-foreground hover:brightness-105"
+          >
+            <CheckCircle2 /> Confirm the empty is back
+          </Button>
+        )}
+
+        {/* ── WHY ── the clock this decision is being made against. */}
         {/* The deadline block — loud when it matters, one quiet strip when it does not. */}
         {record.stage === 'closed' ? (
           <div
@@ -314,9 +432,9 @@ function DetailStep({
                   </Mono>
                 </Figure>
               )}
-              <Figure label="Urgency">
-                <RiskBadge risk={risk} />
-              </Figure>
+              {/* No "Urgency" figure here. The dialog's own headline already
+                  reads "Return overdue — 25d 18h" in the same red, so a chip
+                  restating it was the third time this panel said one thing. */}
               <Figure label="Estimated detention">
                 {detention > 0 ? (
                   <span className="font-bold text-destructive">{formatDetention(detention)}</span>
@@ -329,6 +447,37 @@ function DetailStep({
             </div>
           </Card>
         )}
+
+        {/* ── WHAT HAPPENED ── the history behind it, below the decision. */}
+        <section>
+          <SectionLabel>Operation flow</SectionLabel>
+          <OperationFlow record={record} now={now} className="mt-2" />
+          {/* The parties, in the app's identity strip rather than a run-on
+              line of 10px grey — every part of that line weighed the same, so
+              the two names anyone actually reads had to be hunted out of it. */}
+          <IdentityStrip className="mt-3">
+            <PartyName label="Shipper" name={record.client} />
+            <PartyName label="Transporter" name={record.transporter}>
+              <TransporterRating name={record.transporter} />
+            </PartyName>
+            {record.truck && <IdentityFact label="Truck" value={record.truck} mono />}
+            {record.shipmentId && (
+              <IdentityFact
+                label="Shipment"
+                value={
+                  <Link
+                    to={buildPath(ROUTES.shipmentOverview, { id: record.shipmentId })}
+                    className="inline-flex items-center gap-1 text-primary hover:underline"
+                  >
+                    {record.shipmentReference ?? 'Open the shipment'}
+                    <ExternalLink className="size-3 shrink-0" aria-hidden />
+                  </Link>
+                }
+                mono={Boolean(record.shipmentReference)}
+              />
+            )}
+          </IdentityStrip>
+        </section>
 
         <Collapsible open={showActivity} onOpenChange={setShowActivity}>
           <CollapsibleTrigger asChild>
@@ -347,106 +496,6 @@ function DetailStep({
           </CollapsibleContent>
         </Collapsible>
 
-        {/* A summary, and one door — not the decision itself. Confirming a
-            pairing or choosing a return slot happens once, in the Match
-            Recommendations popup; this reports what that popup would show. */}
-        {record.stage === 'empty' && (
-          <Card variant="filled" padding="sm">
-            <SectionLabel>What should happen next?</SectionLabel>
-
-            {!best ? (
-              <div className="mt-2.5 rounded-card-nested border border-dashed border-border bg-surface px-4 py-3 text-center">
-                <p className="text-sm font-semibold text-foreground">No viable full load</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Nothing currently open can use this container before its return deadline.
-                </p>
-                <p className="mx-auto mt-2 max-w-md text-xs text-muted-foreground">
-                  {/* Graded by urgency: "try again later" is sound advice at
-                      three days out and negligence at three hours. */}
-                  {risk === 'safe' && 'The decision window is still comfortable — check again later.'}
-                  {risk === 'watch' && 'Prioritise pairing today, or plan the return now.'}
-                  {risk === 'critical' &&
-                    'Pair now if anything appears — otherwise plan the empty return immediately.'}
-                  {risk === 'overdue' &&
-                    'Detention is already accruing. Plan and confirm the empty return now.'}
-                  {!risk &&
-                    'This container has no return deadline recorded, so nothing can be timed against it.'}
-                </p>
-              </div>
-            ) : (
-              /* Same colours, same "N% match" phrasing as the popup's own
-                 score pills — the summary should read like a preview of that
-                 screen, not a different product describing it. */
-              <div className="mt-2.5 flex flex-wrap items-center justify-between gap-3 rounded-card-nested border border-container-full-border/40 bg-container-full-subtle/40 px-3.5 py-3">
-                <p className="min-w-0 text-xs text-foreground">
-                  <span className="font-bold">{suggestions.length}</span> open full load
-                  {suggestions.length === 1 ? '' : 's'} could take this container — best{' '}
-                  <span
-                    className={cn(
-                      'font-bold',
-                      best.tight || best.frictions.length > 0
-                        ? 'text-warning-subtle-foreground'
-                        : 'text-success-subtle-foreground',
-                    )}
-                  >
-                    {best.score}% match
-                  </span>
-                  .
-                </p>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => onOpenMatching('match')}
-                  disabled={busy}
-                  className="shrink-0 gap-1.5"
-                >
-                  <ArrowLeftRight className="size-3.5" /> Open in Matching
-                </Button>
-              </div>
-            )}
-
-            {/* The other branch of the same decision — send it back instead.
-                Same popup, same colour, just the plan-return dialog open on
-                arrival — never a second inline form living in this dialog. */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onOpenMatching('return')}
-              disabled={busy}
-              className="mt-2 w-full border-warning text-warning-subtle-foreground hover:bg-warning-subtle"
-            >
-              <RotateCcw /> Plan Empty Return instead
-            </Button>
-          </Card>
-        )}
-
-        {record.stage === 'paired' && (
-          <div className="space-y-2">
-            <div className="rounded-card-nested border border-primary bg-primary-subtle px-4 py-2.5 text-center">
-              <div className="text-sm font-bold text-primary-subtle-foreground">
-                Paired — no action required
-              </div>
-              <div className="text-2xs text-muted-foreground">
-                Execution is handled by the Shipment module.
-              </div>
-            </div>
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={onCancelPairing}
-              disabled={busy}
-              className="w-full text-muted-foreground hover:text-destructive"
-            >
-              <Undo2 /> Cancel this pairing
-            </Button>
-          </div>
-        )}
-
-        {record.stage === 'return_planned' && (
-          <Button variant="primary" size="sm" onClick={onConfirmReturn} disabled={busy} fullWidth>
-            <CheckCircle2 /> Confirm the empty is back
-          </Button>
-        )}
       </DialogBody>
 
       <DialogFooter>
@@ -463,8 +512,45 @@ function DetailStep({
 function Figure({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="text-2xs uppercase tracking-wide text-muted-foreground">{label}</div>
+      {/* A figure's label is a caption, not a banner — sentence case and quiet,
+          so the number above it is the thing the eye lands on. */}
+      <div className="text-2xs font-medium text-muted-foreground">{label}</div>
       <div className="mt-0.5">{children}</div>
     </div>
   );
+}
+
+/**
+ * The carrier's standing, beside their name on the container that is about to
+ * go back to them.
+ *
+ * The star is the marks this carrier's drivers were given in their delivery
+ * debriefs — nothing about closing this container moves it, and nothing should:
+ * whether the box came home late is a fact the empty-return screens already
+ * carry, and turning that fact into a verdict about the carrier is not the
+ * system's call to make. It is here because an operator deciding what to do
+ * with a container wants to know who they are dealing with.
+ *
+ * The record names its carrier as a company string and carries no partner id
+ * (the load was delivered under that name), so the id is resolved here off the
+ * partner list the app already holds. An unmatched name simply renders nothing
+ * rather than an invented zero.
+ */
+function TransporterRating({ name }: { name: string }) {
+  const { data: partnersResponse } = usePartners();
+  const partnerId = useMemo(() => {
+    const wanted = name.trim().toLowerCase();
+    return (partnersResponse?.items ?? []).find(
+      (partner) => partner.companyLegalName.trim().toLowerCase() === wanted,
+    )?.id;
+  }, [partnersResponse, name]);
+
+  const { data: bookingPage } = useBookings({ partnerId }, { enabled: Boolean(partnerId) });
+  const summary = useMemo(
+    () => summariseFleet(bookingPage?.items ?? []),
+    [bookingPage],
+  );
+
+  if (!partnerId || !summary.rated) return null;
+  return <StarRating value={summary.overall} size="sm" />;
 }

@@ -23,6 +23,7 @@ export const MOCK_SHIPPERS: ShipperRecord[] = [
        uploaded to `/shippers/:id/logo`. */
     logoUrl: '/logo/cma-cgm.svg',
     projectsCount: 5,
+    lastShipmentAt: null,
     activeShipments: 4,
     pastShipments: 28,
     primaryContact: {
@@ -89,6 +90,7 @@ export const MOCK_SHIPPERS: ShipperRecord[] = [
     address: 'Port Qasim Freight Zone, Block 4, Lahore',
     logoUrl: 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=120&auto=format&fit=crop&q=80',
     projectsCount: 5,
+    lastShipmentAt: null,
     activeShipments: 12,
     pastShipments: 84,
     primaryContact: {
@@ -140,6 +142,7 @@ export const MOCK_SHIPPERS: ShipperRecord[] = [
     address: 'Harbor Commercial Complex, Zone B, Djibouti City',
     logoUrl: 'https://images.unsplash.com/photo-1572021335469-31706a17aaef?w=120&auto=format&fit=crop&q=80',
     projectsCount: 3,
+    lastShipmentAt: null,
     activeShipments: 2,
     pastShipments: 19,
     primaryContact: {
@@ -174,6 +177,7 @@ export const MOCK_SHIPPERS: ShipperRecord[] = [
     address: 'Port Gate 2, Maritime Warehouse 5, Mogadishu',
     logoUrl: 'https://images.unsplash.com/photo-1551836022-d5d88e9218df?w=120&auto=format&fit=crop&q=80',
     projectsCount: 4,
+    lastShipmentAt: null,
     activeShipments: 1,
     pastShipments: 14,
     primaryContact: {

@@ -1,13 +1,11 @@
 import React from 'react';
 import type { Mission } from '@/types/mission';
 import { Card, CornerBadge, Button, Tooltip, rowCardActionClasses } from '@/design-system';
-import {
-  CONTAINER_STATE_CORNER_INTENT,
-  carriesContainer,
-  containerStateOf,
-} from '@/lib/containerState';
-import { shipmentProgress } from '@/lib/shipmentStatus';
+import { carriesContainer, containerStateOf } from '@/lib/containerState';
+import { shipmentProgress, statusCornerIntentOf } from '@/lib/shipmentStatus';
+import { formatKm, shipmentDistance } from '@/lib/shipmentDistance';
 import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
+import { CrewStack } from '@/components/crew';
 import { MissionStatusBadge } from './MissionStatusBadge';
 import {
   ChevronRight,
@@ -41,12 +39,19 @@ export const MissionRowCard: React.FC<MissionRowCardProps> = ({
 }) => {
   const navigate = useNavigate();
 
-  /* Teal while this consignment's boxes are still loaded, brand yellow once
-     they have been stripped, grey once they are all back at the depot — the
-     app-wide container scale. A shipment's status is rolled up from its own
-     bookings, so it only moves on when every box under it has. */
+  /* The ribbon and the chip wear the ladder's phase — teal booked, green in
+     transit, amber owing a return, slate closed — which is what the booking
+     cards inside the shipment already wear. `containerState` still rides along
+     for the chip's glyph and tooltip: what is in the box is a second fact, and
+     it stopped being a colour here on 2026-08-30 because it was overruling the
+     phase and painting an in-transit shipment the same teal as a booked one.
+     A shipment's status is rolled up from its own bookings, so it only moves on
+     when every box under it has. */
   /* Falls back to the creation-time snapshot only when the payload has no
      carrier list at all — see `ShipmentRecord.transporters`. */
+  /* One booking per container, out and back — see `@/lib/shipmentDistance`. */
+  const drive = shipmentDistance(mission.estimatedDistanceKm, mission.bookingId);
+
   const transporters =
     mission.transporters?.length
       ? mission.transporters
@@ -76,7 +81,7 @@ export const MissionRowCard: React.FC<MissionRowCardProps> = ({
             booking anywhere — so the number on this card identified nothing. */}
         <CornerBadge
           label={`Shipment# ${mission.id}`}
-          intent={containerState ? CONTAINER_STATE_CORNER_INTENT[containerState] : 'teal'}
+          intent={statusCornerIntentOf(mission.status)}
           position="top"
         />
       </div>
@@ -192,10 +197,30 @@ export const MissionRowCard: React.FC<MissionRowCardProps> = ({
               </>
             )}
             <span>·</span>
-            <span className="font-mono font-bold text-foreground shrink-0">{mission.estimatedDistanceKm} km</span>
+            {/* The whole road, not one leg of it. `estimatedDistanceKm` is a
+                single truck's run out; a five-container shipment sends five and
+                gets five empties back, so the row used to read 25km for a job
+                that drives 250. The breakdown is on the title so the figure can
+                be checked rather than merely believed. */}
+            <span
+              className="shrink-0 font-mono font-bold text-foreground"
+              title={`${drive.containers} container${drive.containers === 1 ? '' : 's'} × ${drive.legKm} km out and back`}
+            >
+              {formatKm(drive.totalKm)}
+            </span>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {/* Whose job it is, at the end of the row where the eye lands.
+                Read-only here, deliberately: the whole card is a link to the
+                shipment, so a popover inside it would be two click targets
+                stacked on one another — you would open the wrong thing about
+                half the time. Assigning happens on the shipment itself and in
+                the create wizard. Unassigned rows draw nothing rather than a
+                dashed circle two hundred times; the Unassigned filter is the
+                honest way to ask that question. */}
+            <CrewStack crew={mission.crew ?? []} size="xs" />
+
             {/* No "Mark <next>" here anymore. A shipment's status is derived
                 server-side from its own bookings, so advancing it from this
                 card moved the label without moving a single container — which

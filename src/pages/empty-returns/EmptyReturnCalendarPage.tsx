@@ -11,14 +11,9 @@ import {
   DialogHeader,
   Select,
 } from '@/design-system';
-import { AlertTriangle } from '@/design-system/icons';
 import {
-  DAY_MS,
   EMPTY_RETURN_EVENT_META,
-  EMPTY_RETURN_EVENT_ORDER,
   EMPTY_RETURN_RISK_FILTER_OPTIONS,
-  detentionFor,
-  formatDetention,
 } from '@/data/emptyReturnData';
 import {
   buildEmptyReturnEvents,
@@ -27,8 +22,7 @@ import {
   useEmptyContainers,
 } from '@/features/empty-returns';
 import { formatSpan, formatStamp, riskOf, useEmptyReturnStore } from '@/stores/emptyReturn.store';
-import type { EmptyReturnEvent } from '@/types/emptyReturn';
-import { cn } from '@/utils';
+import type { EmptyReturnEvent, EmptyReturnRecord } from '@/types/emptyReturn';
 
 import { CompanyName, EmptyTag, FullTag, LocationLine, Mono, RiskBadge } from './components/marks';
 
@@ -65,7 +59,7 @@ import { CompanyName, EmptyTag, FullTag, LocationLine, Mono, RiskBadge } from '.
 const HIDDEN_EVENT_TYPES: readonly EmptyReturnEvent['type'][] = ['paired', 'returned'];
 
 export function EmptyReturnCalendarPage() {
-  const { records, loads, now } = useEmptyContainers();
+  const { records, loads, now, byId } = useEmptyContainers();
   const filters = useEmptyReturnStore((state) => state.calendarFilters);
   const setFilters = useEmptyReturnStore((state) => state.setCalendarFilters);
   const openRecord = useEmptyReturnStore((state) => state.openRecord);
@@ -80,187 +74,88 @@ export function EmptyReturnCalendarPage() {
     [records, loads, now, filters],
   );
 
-  /** Keyed so a click on the grid can find the domain event behind the chip. */
+  /** Keyed so a click on the grid can find the domain event behind the bar. */
   const byKey = useMemo(() => new Map(events.map((event) => [event.key, event])), [events]);
 
   const planningEvents = useMemo<PlanningEvent[]>(
-    () => events.map(toPlanningEvent),
-    [events],
+    () => toPlanningEvents(events, byId, now),
+    [events, byId, now],
   );
-
-  const overdue = useMemo(
-    () =>
-      records.filter(
-        (record) => record.stage !== 'closed' && riskOf(record, now) === 'overdue',
-      ),
-    [records, now],
-  );
-
-  /** The strip above the grid — counted off the same filtered list the grid shows. */
-  const next24 = useMemo(() => {
-    const window = events.filter((event) => event.at >= now && event.at <= now + DAY_MS);
-    return {
-      available: records.filter((record) => record.stage === 'empty').length,
-      pickups: window.filter((event) => event.type === 'full_pickup').length,
-      deadlines: window.filter((event) => event.type === 'deadline').length,
-      returns: records.filter((record) => record.stage === 'return_planned').length,
-    };
-  }, [events, records, now]);
 
   const lines = useMemo(() => linesIn(records, loads), [records, loads]);
   const sizes = useMemo(() => sizesIn(records, loads), [records, loads]);
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-4">
-      {/* One line, and only the worst few spelled out. A chip per overdue
-          container turned a warning into a paragraph the moment there were ten
-          of them, and the Control Tower is where the full list lives anyway. */}
-      {overdue.length > 0 && (
-        <Card className="min-w-0 rounded-lg border border-destructive/40 bg-destructive-subtle p-3">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-destructive-subtle-foreground">
-            <AlertTriangle className="size-4 shrink-0" aria-hidden />
-            <span className="font-bold">
-              {overdue.length} return{overdue.length > 1 ? 's' : ''} overdue
-            </span>
-            <span className="opacity-80">
-              {formatDetention(
-                overdue.reduce(
-                  (total, record) => total + detentionFor(now - (record.deadline ?? now)),
-                  0,
-                ),
-              )}{' '}
-              accruing
-            </span>
-            {overdue.slice(0, 3).map((record) => (
-              <button
-                key={record.id}
-                type="button"
-                onClick={() => openRecord(record.id)}
-                className="shrink-0 rounded-md border border-destructive/40 px-2 py-0.5 font-medium hover:bg-destructive-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <Mono className="font-semibold">{record.container || record.bookingReference}</Mono>{' '}
-                <span className="opacity-80">{formatSpan(now - (record.deadline ?? now))}</span>
-              </button>
-            ))}
-            {overdue.length > 3 && (
-              <span className="opacity-80">+{overdue.length - 3} more in the Control Tower</span>
-            )}
-          </div>
-        </Card>
-      )}
-
-      <Card className="min-w-0 rounded-lg border border-border/80 p-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 text-xs">
-          <span className="shrink-0 text-[10px] font-extrabold uppercase tracking-widest text-muted-foreground">
-            Next 24h
-          </span>
-          <span className="shrink-0">
-            <Mono className="font-bold text-container-empty-subtle-foreground">{next24.available}</Mono> empty
-          </span>
-          <span className="shrink-0">
-            <Mono className="font-bold text-primary">{next24.pickups}</Mono> pickup
-            {next24.pickups === 1 ? '' : 's'}
-          </span>
-          <span className="shrink-0">
-            <Mono className="font-bold text-destructive">{next24.deadlines}</Mono> deadline
-            {next24.deadlines === 1 ? '' : 's'}
-          </span>
-          <span className="shrink-0">
-            <Mono className="font-bold text-warning-subtle-foreground">{next24.returns}</Mono>{' '}
-            planned
-          </span>
-
-          <div className="ml-auto flex min-w-0 flex-wrap items-center gap-1.5">
-            <Select
-              selectSize="sm"
-              value={filters.type}
-              onChange={(event) =>
-                setFilters({ type: event.target.value as typeof filters.type })
-              }
-              options={[
-                { value: 'all', label: 'All events' },
-                ...EMPTY_RETURN_EVENT_ORDER.filter(
-                  (type) => !HIDDEN_EVENT_TYPES.includes(type),
-                ).map((type) => ({
-                  value: type,
-                  label: EMPTY_RETURN_EVENT_META[type].label,
-                })),
-              ]}
-              aria-label="Filter by event type"
-              containerClassName="w-full sm:w-40"
-            />
-            <Select
-              selectSize="sm"
-              value={filters.risk}
-              onChange={(event) => setFilters({ risk: event.target.value as typeof filters.risk })}
-              options={[...EMPTY_RETURN_RISK_FILTER_OPTIONS]}
-              aria-label="Filter by urgency"
-              containerClassName="w-full sm:w-36"
-            />
-            <Select
-              selectSize="sm"
-              value={filters.line}
-              onChange={(event) => setFilters({ line: event.target.value })}
-              options={[
-                { value: 'all', label: 'All lines' },
-                ...lines.map((line) => ({ value: line, label: line })),
-              ]}
-              aria-label="Filter by shipping line"
-              containerClassName="w-full sm:w-36"
-            />
-            <Select
-              selectSize="sm"
-              value={filters.size}
-              onChange={(event) => setFilters({ size: event.target.value })}
-              options={[
-                { value: 'all', label: 'All sizes' },
-                ...sizes.map((size) => ({ value: size, label: size })),
-              ]}
-              aria-label="Filter by container size"
-              containerClassName="w-full sm:w-28"
-            />
-          </div>
-        </div>
-      </Card>
-
       <Card className="min-w-0 rounded-lg border border-border/80 p-4">
+        {/* One toolbar, and it filters. The strip that used to sit above this
+            card — a red bar totalling the detention accruing, then four
+            counters for the next 24 hours — was three summaries of a board
+            that now states the same things itself: an overdue container is a
+            red bar already past today, and how much room is left is the length
+            of every other one. */}
+        <div className="mb-3 flex min-w-0 flex-wrap items-center justify-end gap-1.5">
+          <Select
+            selectSize="sm"
+            value={filters.risk}
+            onChange={(event) => setFilters({ risk: event.target.value as typeof filters.risk })}
+            options={[...EMPTY_RETURN_RISK_FILTER_OPTIONS]}
+            aria-label="Filter by urgency"
+            containerClassName="w-full sm:w-36"
+          />
+          <Select
+            selectSize="sm"
+            value={filters.line}
+            onChange={(event) => setFilters({ line: event.target.value })}
+            options={[
+              { value: 'all', label: 'All lines' },
+              ...lines.map((line) => ({ value: line, label: line })),
+            ]}
+            aria-label="Filter by shipping line"
+            containerClassName="w-full sm:w-36"
+          />
+          <Select
+            selectSize="sm"
+            value={filters.size}
+            onChange={(event) => setFilters({ size: event.target.value })}
+            options={[
+              { value: 'all', label: 'All sizes' },
+              ...sizes.map((size) => ({ value: size, label: size })),
+            ]}
+            aria-label="Filter by container size"
+            containerClassName="w-full sm:w-28"
+          />
+        </div>
+
         <PlanningCalendar
           events={planningEvents}
           now={now}
           defaultView="month"
-          unitLabel={{ one: 'event', many: 'events' }}
-          /* v19's event map, one chip per kind of thing that happens to a box.
-             The board is read by WHAT the event is, not by how urgent it is —
-             urgency stays a small badge, and the Control Tower is where it is
-             actually acted on. */
+          unitLabel={{ one: 'container', many: 'containers' }}
+          /* Four kinds of thing, and the first three are the same box in three
+             states of its one clock — which is why they are one bar each and
+             not three chips scattered across the grid. */
           legend={[
-            { tone: 'empty', label: 'Empty available' },
-            { tone: 'full', label: 'Full load pickup' },
-            { tone: 'returning', label: 'Empty return' },
-            { tone: 'late', label: 'Deadline passed' },
+            {
+              tone: 'empty',
+              label: 'Out, no return booked',
+              icon: EMPTY_RETURN_EVENT_META.empty_ready.icon,
+            },
+            {
+              tone: 'returning',
+              label: 'Return booked',
+              icon: EMPTY_RETURN_EVENT_META.return_planned.icon,
+            },
+            { tone: 'late', label: 'Past deadline', icon: EMPTY_RETURN_EVENT_META.deadline.icon },
+            {
+              tone: 'full',
+              label: 'Full load pickup',
+              icon: EMPTY_RETURN_EVENT_META.full_pickup.icon,
+            },
           ]}
           onSelectEvent={(event) => setSelected(byKey.get(event.id) ?? null)}
         />
       </Card>
-
-      {/* Six chips, not six sentences. The explanation moves to the hover
-          title — a legend that takes four lines competes with the board it is
-          meant to annotate. */}
-      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-muted-foreground">
-        {EMPTY_RETURN_EVENT_ORDER.filter((type) => !HIDDEN_EVENT_TYPES.includes(type)).map((type) => {
-          const meta = EMPTY_RETURN_EVENT_META[type];
-          const Icon = meta.icon;
-          return (
-            <span key={type} className="inline-flex shrink-0 items-center gap-1" title={meta.hint}>
-              <Icon className={cn('size-3', meta.textClassName)} aria-hidden />
-              {meta.label}
-            </span>
-          );
-        })}
-        <span className="shrink-0 opacity-70">
-          · Monitor here; act from the Control Tower or Matching.
-        </span>
-      </div>
 
       {selected && (
         <EventDialog
@@ -278,48 +173,130 @@ export function EmptyReturnCalendarPage() {
 }
 
 /* ---------------------------------------------------------------------------
- * Domain event → the shared calendar's shape
+ * Domain events → the shared calendar's shape
  * ------------------------------------------------------------------------- */
 
 /**
- * Tone is the *event*, the icon is the *thing*.
+ * A container is one bar, not three chips.
  *
- * Three rules have stood here. It began as the clock (passed/ahead/committed/
+ * Four rules have stood here. It began as the clock (passed/ahead/committed/
  * waiting/done) — five tones grading urgency on a page whose own job is only to
  * monitor. It briefly became the container's state (full/empty/returned), which
- * was truer but collapsed five genuinely different happenings into three.
+ * was truer but collapsed five genuinely different happenings into three. v19
+ * made colour say WHAT the event is, with each moment its own chip.
  *
- * v19 settles it: colour says WHAT the event is — a box becoming available, a
- * full load being collected, a pairing, a return going out, a box home, a
- * deadline blown. Urgency stays a small separate badge, because a board where
- * every card is graded by risk reads as one long alarm and stops meaning
- * anything. `deadline` is the one exception that keeps a clock colour, since a
- * deadline that has already passed IS the event.
+ * What that last one missed is that most of these "moments" are the same box.
+ * A container came free on the 4th and its line stops being patient on the
+ * 19th; drawn as two chips a fortnight apart, the operator has to find both and
+ * subtract them to learn the only thing that matters — how much room is left.
+ * Drawn as one bar from the 4th to the 19th, the room left IS the length, and a
+ * box whose bar has run past today is overdue without anyone reading a date.
+ *
+ * So a window per open container, coloured by what the box is doing: sky while
+ * it is out with nothing booked, amber once a return is on the calendar (drawn
+ * as a tick inside the window, on the day it is booked for), red once the
+ * deadline is behind it. Full-load pickups stay chips, because a collection
+ * genuinely is a moment. Closed containers draw nothing at all — this board
+ * answers "what happens next", and a box that is home has no next.
  */
-function toPlanningEvent(event: EmptyReturnEvent): PlanningEvent {
-  const meta = EMPTY_RETURN_EVENT_META[event.type];
-  const tone: PlanningEvent['tone'] =
-    event.type === 'returned'
-      ? 'returned'
-      : event.type === 'full_pickup'
-        ? 'full'
-        : event.type === 'paired'
-          ? 'paired'
-          : event.type === 'return_planned'
-            ? 'returning'
-            : event.type === 'deadline' && event.overdue
-              ? 'late'
-              : 'empty';
+function toPlanningEvents(
+  events: EmptyReturnEvent[],
+  byId: (recordId: string | null | undefined) => EmptyReturnRecord | undefined,
+  now: number,
+): PlanningEvent[] {
+  const out: PlanningEvent[] = [];
 
-  return {
-    id: event.key,
-    at: event.at,
-    title: event.title,
-    subtitle: `${meta.label} · ${event.line} · ${event.size}`,
-    tone,
-    icon: meta.icon,
-    kindLabel: meta.label,
-  };
+  for (const event of events) {
+    const record = byId(event.recordId);
+
+    if (event.type === 'deadline') {
+      if (!record || record.stage === 'closed' || !record.deadline) continue;
+
+      const overdue = event.overdue === true;
+      const meta = overdue
+        ? `${formatSpan(now - record.deadline)} over`
+        : `${formatSpan(record.deadline - now)} left`;
+      const subtitle = `${record.line} · ${record.size} · back to ${record.returnDepot}`;
+
+      /* The clock starts when the box was stripped. Without that stamp there is
+         no window to draw, only the date it is due — so it stays a moment. */
+      const start = record.emptyReadyAt ?? record.fullPickupAt;
+      if (start == null || start >= record.deadline) {
+        out.push({
+          id: event.key,
+          at: record.deadline,
+          title: event.title,
+          subtitle,
+          meta,
+          tone: overdue ? 'late' : 'due',
+          icon: EMPTY_RETURN_EVENT_META.deadline.icon,
+          kindLabel: EMPTY_RETURN_EVENT_META.deadline.label,
+        });
+        continue;
+      }
+
+      const booked = record.stage === 'return_planned';
+      out.push({
+        id: event.key,
+        at: start,
+        /* An overdue window keeps growing: it ends today, not on the date it
+           should have ended, so the overrun is drawn rather than described. */
+        until: overdue ? Math.max(record.deadline, now) : record.deadline,
+        marker: record.plannedReturnAt ?? undefined,
+        markerLabel: record.plannedReturnAt
+          ? `Return booked for ${formatStamp(record.plannedReturnAt)}`
+          : undefined,
+        title: event.title,
+        subtitle,
+        meta,
+        tone: overdue ? 'late' : booked ? 'returning' : 'empty',
+        icon: overdue
+          ? EMPTY_RETURN_EVENT_META.deadline.icon
+          : booked
+            ? EMPTY_RETURN_EVENT_META.return_planned.icon
+            : EMPTY_RETURN_EVENT_META.empty_ready.icon,
+        kindLabel: overdue
+          ? 'Past deadline'
+          : booked
+            ? 'Return booked'
+            : 'Out, no return booked',
+      });
+      continue;
+    }
+
+    if (event.type === 'full_pickup') {
+      const meta = EMPTY_RETURN_EVENT_META.full_pickup;
+      out.push({
+        id: event.key,
+        at: event.at,
+        title: event.title,
+        subtitle: `${meta.label} · ${event.line} · ${event.size}`,
+        tone: 'full',
+        icon: meta.icon,
+        kindLabel: meta.label,
+      });
+      continue;
+    }
+
+    /* Both of these are inside a window whenever the record has a deadline —
+       one is where it starts, the other is the tick in the middle. They only
+       reach the board on their own when there is no deadline to draw against. */
+    if (event.type === 'empty_ready' || event.type === 'return_planned') {
+      if (record?.deadline) continue;
+      const meta = EMPTY_RETURN_EVENT_META[event.type];
+      out.push({
+        id: event.key,
+        at: event.at,
+        title: event.title,
+        subtitle: `${meta.label} · ${event.line} · ${event.size}`,
+        tone: event.type === 'return_planned' ? 'returning' : 'empty',
+        icon: meta.icon,
+        kindLabel: meta.label,
+      });
+    }
+  }
+
+  return out;
 }
 
 /* ---------------------------------------------------------------------------

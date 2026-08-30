@@ -11,6 +11,13 @@ import type { EmptyReturnRecord, FullLoadMission } from '@/types/emptyReturn';
 const NOW = Date.UTC(2026, 7, 27, 9, 0);
 const HOUR = 3_600_000;
 
+/** list[i] under `noUncheckedIndexedAccess` — a missing entry fails the test, loudly. */
+function at<T>(list: readonly T[], index: number): T {
+  const item = list[index];
+  if (item === undefined) throw new Error(`no entry at index ${index} (length ${list.length})`);
+  return item;
+}
+
 /* Only the fields the gates read. The rest of both records is irrelevant to
    compatibility, and spelling it out would date the moment either type grows. */
 const record = (over: Partial<EmptyReturnRecord> = {}) =>
@@ -101,8 +108,8 @@ describe('arrangeable frictions', () => {
 
     const frictions = frictionsFor(empty, load(), NOW);
     expect(frictions.map((f) => f.kind)).toEqual(['reposition']);
-    expect(frictions[0].detail).toContain('Damerjog Depot');
-    expect(frictions[0].detail).toContain('SGTD');
+    expect(at(frictions, 0).detail).toContain('Damerjog Depot');
+    expect(at(frictions, 0).detail).toContain('SGTD');
   });
 
   /* Promoted from friction to GATE on 2026-08-29. v19 will not offer a pairing
@@ -149,10 +156,10 @@ describe('ranking with frictions', () => {
     );
 
     expect(ranked).toHaveLength(2);
-    expect(ranked[0].load).toBe(clean);
-    expect(ranked[0].frictions).toEqual([]);
-    expect(ranked[0].label).toBe('RECOMMENDED');
-    expect(ranked[1].frictions.map((f) => f.kind)).toContain('reposition');
+    expect(at(ranked, 0).load).toBe(clean);
+    expect(at(ranked, 0).frictions).toEqual([]);
+    expect(at(ranked, 0).label).toBe('RECOMMENDED');
+    expect(at(ranked, 1).frictions.map((f) => f.kind)).toContain('reposition');
   });
 
   /* Margin can no longer go negative: a pickup past the deadline is refused by
@@ -161,10 +168,9 @@ describe('ranking with frictions', () => {
      take and so is offered, labelled the last resort. */
   it('marks a small positive margin tight and never recommends it', () => {
     const tight = load({ pickupHub: 'SGTD', locationId: 'SGTD', pickupAt: NOW + 45 * HOUR });
-    const [only] = suggestLoadsFor(
-      record({ stage: 'empty' } as Partial<EmptyReturnRecord>),
-      [tight],
-      NOW,
+    const only = at(
+      suggestLoadsFor(record({ stage: 'empty' } as Partial<EmptyReturnRecord>), [tight], NOW),
+      0,
     );
     expect(only.marginMs).toBeGreaterThan(0);
     expect(only.tight).toBe(true);

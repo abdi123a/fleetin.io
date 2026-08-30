@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { ROUTES } from '@/config/routes';
 
-import { Button, Card, EmptyState, Input } from '@/design-system';
-import { PackageOpen, Search, X } from '@/design-system/icons';
-import { detentionFor, formatDetention } from '@/data/emptyReturnData';
+import { FilterBar } from '@/components/common';
+import { Button, Card, EmptyState, Select } from '@/design-system';
+import { PackageOpen, SlidersHorizontal, X } from '@/design-system/icons';
+import { detentionFor } from '@/data/emptyReturnData';
 import { useEmptyContainers } from '@/features/empty-returns';
 import {
   isAccruingDetention,
@@ -14,10 +15,8 @@ import {
   useEmptyReturnStore,
 } from '@/stores/emptyReturn.store';
 import type { EmptyReturnFilters, EmptyReturnRecord, ReturnRiskLevel } from '@/types/emptyReturn';
-import { cn } from '@/utils';
 
 import { ContainerQueueTable } from './components/ContainerQueueTable';
-import { Mono } from './components/marks';
 
 /**
  * Control Tower — *what needs my attention now?*
@@ -61,7 +60,7 @@ export function ControlTowerPage() {
   const openRecord = useEmptyReturnStore((state) => state.openRecord);
   const selectEmpty = useEmptyReturnStore((state) => state.selectEmpty);
 
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
   /* `?match=…` is a legacy deep link from when matching was a popup. Matching
@@ -108,23 +107,31 @@ export function ControlTowerPage() {
     [records, filters, now],
   );
 
+  /* In the URL beside the filters, so a link to this view reproduces the order
+     it was read in as well as what was in it. */
+  const sortParam = searchParams.get('sort') as SortKey | null;
+  const sort: SortKey = sortParam && sortParam in SORTS ? sortParam : 'urgency';
+
+  const setSort = (next: SortKey) => {
+    const params = new URLSearchParams(searchParams);
+    if (next === 'urgency') params.delete('sort');
+    else params.set('sort', next);
+    setSearchParams(params, { replace: true });
+  };
+
   /* Open containers only. The Control Tower answers "what needs my attention
      now", and a closed cycle needs none — its history lives on the container's
-     own dialog and in Cycles. The Closed band was removed on 2026-08-29. */
-  const groups = useMemo(() => {
+     own dialog and in Cycles. The Closed band was removed on 2026-08-29.
+
+     ONE list, not a stack of bands. The page used to render a table per urgency
+     band, so "All" meant three tables and the calm one behind a fold — you had
+     to open a second control to see containers you had already asked for. The
+     tabs above are the band control now; below them is simply the list they
+     asked for, in the order the sort says. */
+  const visible = useMemo(() => {
     const open = filtered.filter((record) => record.stage !== 'closed');
-    return {
-      action: open.filter((record) => {
-        const risk = riskOf(record, now);
-        return risk === 'overdue' || risk === 'critical';
-      }),
-      monitor: open.filter((record) => riskOf(record, now) === 'watch'),
-      onTrack: open.filter((record) => {
-        const risk = riskOf(record, now);
-        return risk === 'safe' || risk === 'protected' || risk === null;
-      }),
-    };
-  }, [filtered, now]);
+    return [...open].sort(SORTS[sort].compare(now));
+  }, [filtered, now, sort]);
 
   /* Counted off the whole book, never off the filtered view — a tile that
      restated the count of the filter it had just applied would only ever print
@@ -137,6 +144,18 @@ export function ControlTowerPage() {
       overdue: by('overdue'),
       critical: by('critical'),
       watch: by('watch'),
+      /* The two bands, counted off the whole open book like everything else
+         here. Taking them off `groups` (the filtered view) made a segment
+         restate the filter it had just applied: clicking "On track 6" redrew it
+         as "On track 1". */
+      action: open.filter((record) => {
+        const level = riskOf(record, now);
+        return level === 'overdue' || level === 'critical';
+      }).length,
+      onTrack: open.filter((record) => {
+        const level = riskOf(record, now);
+        return level === 'safe' || level === 'protected' || level === null;
+      }).length,
       awaiting: open.filter((record) => record.stage === 'empty').length,
       paired: open.filter((record) => record.stage === 'paired').length,
       planned: open.filter((record) => record.stage === 'return_planned').length,
@@ -150,15 +169,38 @@ export function ControlTowerPage() {
     };
   }, [records, now]);
 
+  /**
+   * `/` puts the cursor in the search box.
+   *
+   * This page is a triage queue: the operator arrives knowing a container
+   * number and wants to type it, and reaching for the mouse to click a field
+   * that is always in the same place is the kind of friction that makes a
+   * console feel slow. Ignored while another field already has focus, so
+   * typing a slash into the search box types a slash.
+   */
+  const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.isContentEditable) return;
+      if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+      event.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  /** What the search actually narrowed, out of the open book. */
+  const matchCount = visible.length;
+  const openTotal = useMemo(
+    () => records.filter((record) => record.stage !== 'closed').length,
+    [records],
+  );
+
   const filtersActive =
     filters.q.trim() !== '' || filters.stage !== 'all' || filters.risk !== 'all';
-
-  /** A tile toggles: clicking the active one clears it, so there is no separate reset to hunt for. */
-  const toggle = (preset: Partial<EmptyReturnFilters>) => {
-    const next = { ...ALL_FILTERS, ...preset, q: filters.q };
-    const isOn = filters.stage === next.stage && filters.risk === next.risk;
-    applyFilterPreset(isOn ? { ...ALL_FILTERS, q: filters.q } : next);
-  };
 
   if (!isLoading && records.length === 0) {
     return (
@@ -172,113 +214,121 @@ export function ControlTowerPage() {
     );
   }
 
+  /* One list, read by both the tab bar and the phone's select — two controls
+     that must always offer exactly the same bands in the same order. "Paired"
+     is a stage rather than an urgency, which is why it used to sit apart as a
+     loose pill; as the last tab it keeps that distinction (it is after the
+     three that are one scale) without needing a second container shape to say
+     so. */
+  const activeBand: BandKey =
+    filters.stage === 'paired'
+      ? 'paired'
+      : filters.risk === 'all'
+        ? 'all'
+        : (filters.risk as BandKey);
+
+  const bandCount = (key: BandKey): number =>
+    key === 'all'
+      ? openTotal
+      : key === 'action'
+        ? counts.action
+        : key === 'watch'
+          ? counts.watch
+          : key === 'on_track'
+            ? counts.onTrack
+            : counts.paired;
+
+  const applyBand = (key: BandKey) => {
+    if (key === 'all') {
+      applyFilterPreset({ ...ALL_FILTERS, q: filters.q });
+      return;
+    }
+    if (key === 'paired') {
+      setFilters({ risk: 'all', stage: 'paired' });
+      return;
+    }
+    setFilters({ risk: key, stage: 'all' });
+  };
+
   return (
     <div className="flex w-full min-w-0 flex-col gap-5">
-      {/* v19's summary strip: one compact bar, five figures, search on the
-          right. It replaced four large KPI tiles on 2026-08-29 — the tiles
-          spent a third of the first screen restating what the band headings
-          below already say, and pushed the actual queue under the fold. Each
-          figure is still a filter, so a number and the list it opens cannot
-          disagree. */}
-      <Card className="min-w-0 rounded-card border border-border px-4 py-2.5">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-2 text-xs">
-          <SummaryFigure
-            label="Action required"
-            value={groups.action.length}
-            tone={groups.action.length ? 'text-destructive' : 'text-muted-foreground'}
-            strong
-            active={filters.risk === 'all' && filters.stage === 'all'}
-            onClick={() => applyFilterPreset({ ...ALL_FILTERS, q: filters.q })}
-          />
-          <SummaryFigure
-            label="Return overdue"
-            value={counts.overdue}
-            tone="text-destructive"
-            hint={counts.overdue > 0 ? `${formatDetention(counts.detentionExposure)} accruing` : undefined}
-            active={filters.risk === 'overdue'}
-            onClick={() => toggle({ risk: 'overdue' })}
-          />
-          <SummaryFigure
-            label="Critical"
-            value={counts.critical}
-            tone="text-destructive"
-            active={filters.risk === 'critical'}
-            onClick={() => toggle({ risk: 'critical' })}
-          />
-          <SummaryFigure
-            label="Watch"
-            value={counts.watch}
-            tone="text-stage-returning-subtle-foreground"
-            active={filters.risk === 'watch'}
-            onClick={() => toggle({ risk: 'watch' })}
-          />
-          <SummaryFigure
-            label="On track"
-            value={groups.onTrack.length}
-            tone="text-stage-closed-subtle-foreground"
-            active={filters.risk === 'safe'}
-            onClick={() => toggle({ risk: 'safe' })}
-          />
-          <SummaryFigure
-            label="Paired"
-            value={counts.paired}
-            tone="text-stage-paired-subtle-foreground"
-            active={filters.stage === 'paired'}
-            onClick={() => toggle({ stage: 'paired' })}
-          />
+      {/* The app's one filter bar — the same component Shippers, Partners,
+          Vehicles and Drivers use. It began here as a hand-built tab row and
+          was lifted into `@/components/common` so the five list pages cannot
+          drift apart again; this page now consumes what it invented.
 
-          <div className="ml-auto flex min-w-0 flex-1 basis-56 items-center gap-2">
-            <Input
-              inputSize="sm"
-              leadingIcon={<Search />}
-              value={filters.q}
-              onChange={(event) => setFilters({ q: event.target.value })}
-              placeholder="Container, line, transporter, load…"
-              aria-label="Search containers"
-            />
-            {filtersActive && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => applyFilterPreset(ALL_FILTERS)}
-                className="h-8 shrink-0 gap-1 px-2 text-xs text-muted-foreground"
-              >
-                <X className="size-3.5" /> Clear
-              </Button>
-            )}
-          </div>
-        </div>
-      </Card>
+          Every figure is still a filter, so a number and the list it opens
+          cannot disagree — and every count is off the whole book, never off the
+          filtered view, or a tab would only ever print the number you are
+          already looking at. */}
+      <FilterBar
+        label="Filter containers by band"
+        tabs={BANDS.map((band) => ({
+          key: band.key,
+          label: band.label,
+          tone: band.tone,
+          count: bandCount(band.key),
+        }))}
+        active={activeBand}
+        onSelect={applyBand}
+        search={{
+          value: filters.q,
+          onChange: (value) => setFilters({ q: value }),
+          placeholder: 'Search containers…',
+          matched: matchCount,
+          total: openTotal,
+          inputRef: searchRef,
+        }}
+      >
+        {/* One list needs a way to say what "first" means. Ordering used to be
+            implicit in the band a container sat in; with the bands gone it
+            becomes a control, and the default reproduces the old arrangement —
+            worst at the top — so nothing moved for anyone who never touches it. */}
+        <Select
+          value={sort}
+          aria-label="Sort containers"
+          onChange={(event) => setSort(event.target.value as SortKey)}
+          leadingIcon={<SlidersHorizontal />}
+          containerClassName="w-full @[26rem]/bar:w-auto"
+          className="h-9 w-full min-w-[9.5rem] text-xs font-medium @[26rem]/bar:w-auto"
+        >
+          {(Object.keys(SORTS) as SortKey[]).map((key) => (
+            <option key={key} value={key}>
+              {SORTS[key].label}
+            </option>
+          ))}
+        </Select>
+        {filtersActive && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => applyFilterPreset(ALL_FILTERS)}
+            aria-label="Clear all filters"
+            className="type-label h-9 w-9 shrink-0 gap-1 px-0 text-muted-foreground sm:w-auto sm:px-2"
+          >
+            <X className="size-3.5" />
+            <span className="hidden sm:inline">Clear</span>
+          </Button>
+        )}
+      </FilterBar>
+
+      {/* No band heading: the tab above already names the band and prints its
+          count, and repeating it here was the same three words twice on one
+          screen. What survives is the composition — a number the tab cannot
+          carry — and only when there is one. */}
+      {activeBand === 'action' && counts.overdue > 0 && (
+        <p className="type-body-xs -mb-2 text-muted-foreground">
+          {counts.overdue} overdue
+          {counts.critical > 0 ? ` · ${counts.critical} critical` : ''}
+        </p>
+      )}
 
       <ContainerQueueTable
-        title="Action required"
-        tone="text-destructive"
-        rows={groups.action}
+        rows={visible}
         now={now}
         onOpen={handleRowOpen}
-        resetKey={filters}
-        emptyCopy="Nothing is critical or overdue. Good."
-      />
-
-      <ContainerQueueTable
-        title="Monitor"
-        tone="text-warning-subtle-foreground"
-        rows={groups.monitor}
-        now={now}
-        onOpen={handleRowOpen}
-        resetKey={filters}
-        emptyCopy="Nothing inside the three-day window."
-      />
-
-      <ContainerQueueTable
-        title="On track"
-        tone="text-primary"
-        rows={groups.onTrack}
-        now={now}
-        onOpen={handleRowOpen}
-        collapsible
-        resetKey={filters}
-        emptyCopy="No containers in this band."
+        resetKey={`${activeBand}:${sort}:${filters.q}`}
+        emptyCopy={BANDS.find((band) => band.key === activeBand)?.emptyCopy ?? 'Nothing here.'}
       />
     </div>
   );
@@ -294,52 +344,106 @@ export function ControlTowerPage() {
  * a filter toggle. Clicking the active one clears it, so there is no separate
  * reset to hunt for.
  */
-function SummaryFigure({
-  label,
-  value,
-  tone,
-  hint,
-  strong,
-  active,
-  onClick,
-}: {
-  label: string;
-  value: number;
-  tone: string;
-  hint?: string;
-  strong?: boolean;
-  active?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        'flex shrink-0 cursor-pointer items-baseline gap-1.5 rounded-md px-1.5 py-0.5 transition-colors',
-        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
-        active ? 'bg-secondary' : 'hover:bg-surface-sunken',
-      )}
-    >
-      <span
-        className={cn(
-          'whitespace-nowrap uppercase tracking-wide',
-          strong ? 'text-[11px] font-extrabold' : 'text-[11px] font-semibold',
-          /* A zero is not news. Every figure here greys out when it is empty so
-             the operator's eye lands only on the bands that actually have work
-             in them. */
-          value === 0 ? 'text-muted-foreground' : tone,
-        )}
-      >
-        {label}
-      </span>
-      <Mono className={cn('text-sm font-bold', value === 0 ? 'text-muted-foreground' : tone)}>
-        {value}
-      </Mono>
-      {hint && <span className="whitespace-nowrap text-[10px] text-muted-foreground">{hint}</span>}
-    </button>
-  );
+/**
+ * One band of the queue, as a segment of a single control.
+ *
+ * A segmented control rather than loose chips, because these four are one
+ * choice on one axis — the loose row let a stage filter sit among them looking
+ * like a fifth band. `hint` carries a band's composition (what "action
+ * required" is actually made of) and shows only when the band has something in
+ * it: two permanently-zero chips were what made the old strip read as noise.
+ */
+type BandKey = 'all' | 'action' | 'watch' | 'on_track' | 'paired';
+
+const BANDS: { key: BandKey; label: string; tone?: string; emptyCopy: string }[] = [
+  { key: 'all', label: 'All', emptyCopy: 'No open containers.' },
+  {
+    key: 'action',
+    label: 'Action required',
+    tone: 'text-destructive',
+    emptyCopy: 'Nothing is critical or overdue. Good.',
+  },
+  {
+    key: 'watch',
+    label: 'Monitor',
+    tone: 'text-stage-returning-subtle-foreground',
+    emptyCopy: 'Nothing inside the three-day window.',
+  },
+  {
+    key: 'on_track',
+    label: 'On track',
+    tone: 'text-primary',
+    emptyCopy: 'Nothing waiting — every open container needs action.',
+  },
+  {
+    key: 'paired',
+    label: 'Paired',
+    tone: 'text-stage-paired-subtle-foreground',
+    emptyCopy: 'Nothing is paired to an upcoming load.',
+  },
+];
+
+/* ---------------------------------------------------------------------------
+ * Sorting
+ * -------------------------------------------------------------------------
+ *
+ * `urgency` is the default and is what makes a single list work: with every
+ * band in one table, the worst container has to arrive at the top by itself
+ * rather than by living in a separate table above the others. It ranks by risk
+ * first and settles ties on the deadline, so two overdue boxes are ordered by
+ * which has been overdue longer.
+ *
+ * The rest exist because a queue is not always read the same way. Chasing one
+ * line's boxes is a different job from working the clock, and both are
+ * different from checking what a transporter is holding.
+ */
+type SortKey = 'urgency' | 'deadline' | 'longest' | 'container' | 'line' | 'transporter';
+
+/** Worst first. `null` is a container with no deadline, which cannot be late. */
+const RISK_RANK: Record<string, number> = {
+  overdue: 0,
+  critical: 1,
+  watch: 2,
+  safe: 3,
+  protected: 4,
+};
+
+function rankOf(record: EmptyReturnRecord, now: number): number {
+  const level = riskOf(record, now);
+  return level === null ? 5 : (RISK_RANK[level] ?? 5);
 }
+
+/** Ascending, with "no deadline" always last rather than at epoch zero. */
+function byDeadline(a: EmptyReturnRecord, b: EmptyReturnRecord): number {
+  return (a.deadline ?? Number.POSITIVE_INFINITY) - (b.deadline ?? Number.POSITIVE_INFINITY);
+}
+
+const SORTS: Record<
+  SortKey,
+  { label: string; compare: (now: number) => (a: EmptyReturnRecord, b: EmptyReturnRecord) => number }
+> = {
+  urgency: {
+    label: 'Most urgent',
+    compare: (now) => (a, b) => rankOf(a, now) - rankOf(b, now) || byDeadline(a, b),
+  },
+  deadline: { label: 'Deadline soonest', compare: () => byDeadline },
+  longest: {
+    /* Oldest stripped date first — the box that has been sitting in the free
+       zone the longest, which is not always the one closest to its deadline. */
+    label: 'Longest standing',
+    compare: () => (a, b) =>
+      (a.emptyReadyAt ?? Number.POSITIVE_INFINITY) - (b.emptyReadyAt ?? Number.POSITIVE_INFINITY),
+  },
+  container: {
+    label: 'Container number',
+    compare: () => (a, b) =>
+      (a.container || a.bookingReference).localeCompare(b.container || b.bookingReference),
+  },
+  line: { label: 'Shipping line', compare: () => (a, b) => a.line.localeCompare(b.line) },
+  transporter: {
+    label: 'Transporter',
+    compare: () => (a, b) => a.transporter.localeCompare(b.transporter),
+  },
+};
 
 export default ControlTowerPage;

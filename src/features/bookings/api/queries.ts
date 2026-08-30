@@ -12,6 +12,7 @@ import {
   type BookingListFilters,
   type BookingRecord,
   type CreateBookingItemPayload,
+  type PaginatedBookings,
   type UpdateBookingPayload,
 } from './bookingsService';
 
@@ -120,6 +121,24 @@ export async function absorbBookingRecord(queryClient: QueryClient, data: Bookin
         ? previous.map((booking) => (booking.id === data.id ? { ...booking, ...data } : booking))
         : previous,
   );
+  /* The filtered book is a different shape — `{ items, meta }`, not an array —
+     and a different prefix, so the sweep above never reaches it. It is what the
+     transporter dossier and both performance panels read, which is why a saved
+     debrief left every star showing its old value until a reload. */
+  await queryClient.cancelQueries({ queryKey: ['bookings', 'list'] });
+  queryClient.setQueriesData<PaginatedBookings>(
+    { queryKey: ['bookings', 'list'] },
+    (previous) =>
+      previous?.items.some((booking) => booking.id === data.id)
+        ? {
+            ...previous,
+            items: previous.items.map((booking) =>
+              booking.id === data.id ? { ...booking, ...data } : booking,
+            ),
+          }
+        : previous,
+  );
+
   queryClient.setQueryData<BookingRecord>(bookingQueryKeys.detail(data.id), (previous) =>
     previous ? { ...previous, ...data } : data,
   );
@@ -153,13 +172,33 @@ export function useSettleBookingStatus() {
   }, [queryClient]);
 }
 
-/** Non-status fields — assigning the vehicle/driver that will actually run this booking. */
+/**
+ * Non-status fields — the assigned vehicle/driver, and the debrief ratings.
+ *
+ * ## Why this stopped needing a reload
+ *
+ * It used to invalidate `forShipment(data.shipmentId)` and nothing else, which
+ * is the same mistake `absorbBookingRecord` documents above: the Shipment
+ * Overview page caches its bookings under the shipment **reference** from the
+ * URL, while the record coming back carries the **UUID**. So the key addressed
+ * a bucket nothing was reading, no refetch was triggered anywhere, and a saved
+ * debrief only appeared after the reader pressed refresh.
+ *
+ * The response to this PATCH *is* the updated booking, so there is nothing to
+ * go and ask for. Merge it into every cache that holds that row — by prefix, so
+ * it lands whichever key the caller used — and the note and its stars are on
+ * screen before the invalidation below has even left.
+ */
 export function useUpdateBooking() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: UpdateBookingPayload }) => updateBooking(id, payload),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: bookingQueryKeys.forShipment(data.shipmentId) });
+    onSuccess: async (data) => {
+      await absorbBookingRecord(queryClient, data);
+      /* A confirmation pass, not the mechanism. Safe to fire here — unlike a
+         multi-rung status walk there is only one write, so the refetch it
+         starts has nothing to race. */
+      queryClient.invalidateQueries({ queryKey: ['bookings'] });
     },
   });
 }

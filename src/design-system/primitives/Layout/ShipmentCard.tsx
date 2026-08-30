@@ -1,3 +1,4 @@
+import type { StatusIntent } from './statusIntent';
 import { forwardRef, type HTMLAttributes } from 'react';
 import {
   ChevronRight,
@@ -70,10 +71,7 @@ export interface ShipmentCardProps extends HTMLAttributes<HTMLDivElement> {
    * it does on the booking cards inside the shipment.
    */
   statusIntent?:
-    | 'orange'
-    | 'green'
-    | 'blue'
-    | 'slate'
+    | StatusIntent
     | 'red'
     | 'container-full'
     | 'container-empty'
@@ -148,6 +146,7 @@ export const ShipmentCard = forwardRef<HTMLDivElement, ShipmentCardProps>(
     ref,
   ) {
     const statusBgClasses = {
+      teal: 'bg-primary text-primary-foreground',
       orange: 'bg-warning text-white',
       green: 'bg-success text-white',
       blue: 'bg-info text-white',

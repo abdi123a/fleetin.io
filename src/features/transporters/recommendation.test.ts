@@ -27,7 +27,11 @@ const empty = (partnerId: string, over: Partial<EmptyReturnBookingRecord> = {}) 
     ...over,
   }) as unknown as EmptyReturnBookingRecord;
 
-const run = (partners: PartnerRecord[], available: EmptyReturnBookingRecord[], rate = () => 65_000) =>
+const run = (
+  partners: PartnerRecord[],
+  available: EmptyReturnBookingRecord[],
+  rate: (partner: PartnerRecord) => number = () => 65_000,
+) =>
   recommendTransporters({
     partners,
     available,
@@ -38,6 +42,13 @@ const run = (partners: PartnerRecord[], available: EmptyReturnBookingRecord[], r
     rateOf: rate,
     considerEmpties: true,
   });
+
+/** ranked[i] under `noUncheckedIndexedAccess` — a missing row fails the test, loudly. */
+function at<T>(list: readonly T[], index: number): T {
+  const item = list[index];
+  if (item === undefined) throw new Error(`no entry at index ${index} (length ${list.length})`);
+  return item;
+}
 
 describe('transporter recommendation — the score has to mean something', () => {
   /* The bug the user reported on 2026-08-29: every carrier printed 25%.
@@ -52,13 +63,13 @@ describe('transporter recommendation — the score has to mean something', () =>
     expect(noEmptiesAnywhere).toBe(true);
     expect(ranked.every((r) => r.score === 25)).toBe(false);
     // The best available carrier should read as a good answer, not a poor one.
-    expect(ranked[0].score).toBeGreaterThan(80);
+    expect(at(ranked, 0).score).toBeGreaterThan(80);
   });
 
   it('breaks the fleet tie on headroom — 10 trucks outranks 8 for a 1-truck job', () => {
     const { ranked } = run([partner('B', 8), partner('A', 10)], []);
-    expect(ranked[0].name).toBe('A');
-    expect(ranked[0].score).toBeGreaterThan(ranked[1].score);
+    expect(at(ranked, 0).name).toBe('A');
+    expect(at(ranked, 0).score).toBeGreaterThan(at(ranked, 1).score);
   });
 
   it('still puts a carrier holding a compatible empty on top', () => {
@@ -67,10 +78,10 @@ describe('transporter recommendation — the score has to mean something', () =>
       [empty('HASBOX')],
     );
     expect(noEmptiesAnywhere).toBe(false);
-    expect(ranked[0].name).toBe('HASBOX');
-    expect(ranked[0].emptiesHeld).toBe(1);
+    expect(at(ranked, 0).name).toBe('HASBOX');
+    expect(at(ranked, 0).emptiesHeld).toBe(1);
     // And the carrier holding nothing is visibly worse, not merely second.
-    expect(ranked[0].score - ranked[1].score).toBeGreaterThan(20);
+    expect(at(ranked, 0).score - at(ranked, 1).score).toBeGreaterThan(20);
   });
 
   it('counts the empties it is holding, so the panel can print the number', () => {
@@ -78,18 +89,18 @@ describe('transporter recommendation — the score has to mean something', () =>
       [partner('HASBOX', 4)],
       [empty('HASBOX', { id: 'b1' }), empty('HASBOX', { id: 'b2' })],
     );
-    expect(ranked[0].emptiesHeld).toBe(2);
+    expect(at(ranked, 0).emptiesHeld).toBe(2);
   });
 
   it('ignores a box of the wrong line or size — same gates as Matching', () => {
     const wrongLine = run([partner('X', 2)], [empty('X', { shippingLine: 'CMA CGM' })]);
-    expect(wrongLine.ranked[0].emptiesHeld).toBe(0);
+    expect(at(wrongLine.ranked, 0).emptiesHeld).toBe(0);
 
     const wrongSize = run(
       [partner('X', 2)],
       [empty('X', { shipmentCategory: 'container_20', cargoType: 'Container (20ft)' })],
     );
-    expect(wrongSize.ranked[0].emptiesHeld).toBe(0);
+    expect(at(wrongSize.ranked, 0).emptiesHeld).toBe(0);
   });
 
   it('ignores a box already committed to its own return', () => {
@@ -97,7 +108,7 @@ describe('transporter recommendation — the score has to mean something', () =>
       [partner('X', 2)],
       [empty('X', { emptyReturnException: 'Standalone empty return required' })],
     );
-    expect(ranked[0].emptiesHeld).toBe(0);
+    expect(at(ranked, 0).emptiesHeld).toBe(0);
   });
 
   it('prefers the cheaper carrier when everything else is equal', () => {
@@ -106,6 +117,6 @@ describe('transporter recommendation — the score has to mean something', () =>
       [],
       (p) => (p.companyLegalName === 'CHEAP' ? 50_000 : 90_000),
     );
-    expect(ranked[0].name).toBe('CHEAP');
+    expect(at(ranked, 0).name).toBe('CHEAP');
   });
 });

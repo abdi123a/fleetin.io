@@ -83,8 +83,3 @@ export async function updateVehicle(id: string, payload: Partial<CreateVehiclePa
 export async function deleteVehicle(id: string): Promise<void> {
   await apiClient.delete(`/vehicles/${id}`, token());
 }
-
-export async function assignDriver(vehicleId: string, driverId: string | null): Promise<EnrichedVehicle> {
-  const res = await apiClient.patch<EnrichedVehicle>(`/vehicles/${vehicleId}/assign-driver`, { driverId }, token());
-  return normaliseDates(res.data);
-}

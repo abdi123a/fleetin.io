@@ -9,7 +9,24 @@ import { cn } from '@/utils';
 
 export type StatisticTrend = 'up' | 'down' | 'neutral';
 export type StatisticStatus = 'default' | 'success' | 'warning' | 'danger' | 'info';
-export type StatisticVariant = 'default' | 'teal' | 'pink' | 'peach' | 'blue' | 'amber';
+/**
+ * `green`, `orange` and `slate` joined on 2026-08-30. With `teal` they are the
+ * four phases of the shipment ladder — booked · in transit · owes a return ·
+ * closed — and they hold the same colours `statusIntentClasses` gives the pill
+ * on a shipment card (`./statusIntent`). A tile counting shipments in a phase
+ * and a card wearing that phase are then the same colour, which is the whole
+ * point: the pastels below say nothing about the job.
+ */
+export type StatisticVariant =
+  | 'default'
+  | 'teal'
+  | 'green'
+  | 'orange'
+  | 'slate'
+  | 'pink'
+  | 'peach'
+  | 'blue'
+  | 'amber';
 
 export interface StatisticCardProps extends HTMLAttributes<HTMLDivElement> {
   /** Card title / metric name shown below the value. */
@@ -52,6 +69,30 @@ const variantClasses: Record<
     title: 'text-tile-teal-foreground/95 font-medium',
     value: 'text-tile-teal-foreground font-semibold',
     icon: 'on-teal',
+  },
+  /* The shipment ladder's three remaining phases. Deliberately the same fills
+     as `statusIntentClasses` rather than new pastels, so the tile counting
+     "started" shipments is the green those shipments' own pills wear. */
+  green: {
+    container: 'bg-success text-success-foreground border-transparent',
+    title: 'text-success-foreground/95 font-medium',
+    value: 'text-success-foreground font-semibold',
+    icon: 'on-green',
+  },
+  orange: {
+    container: 'bg-accent text-accent-foreground border-transparent',
+    title: 'text-accent-foreground/90 font-medium',
+    value: 'text-accent-foreground font-semibold',
+    icon: 'on-light',
+  },
+  /* Closed. `--tile-done` is the same dark slab a fully-returned shipment's
+     masthead goes to, so "finished" is one colour across the app — and it is
+     the neutral ramp on purpose: a done tile must stop asking for attention. */
+  slate: {
+    container: 'bg-tile-done text-tile-done-foreground border-transparent',
+    title: 'text-tile-done-foreground/90 font-medium',
+    value: 'text-tile-done-foreground font-semibold',
+    icon: 'on-done',
   },
   pink: {
     container: 'bg-tile-pink text-tile-foreground border-transparent',
@@ -139,30 +180,60 @@ export const StatisticCard = forwardRef<HTMLDivElement, StatisticCardProps>(
             : undefined
         }
         className={cn(
-          'relative flex flex-col justify-between gap-4 rounded-card border p-5 transition-all min-h-[116px] select-none',
+          /* `gap-2`, not `justify-between` on a 116px floor. The old card pinned
+             the number to the top and the label to the bottom and let dead
+             space grow between them, so four tiles side by side each had a
+             different-sized hole in the middle. The content now sits in one
+             block and the card is as tall as what it holds. */
+          '@container/tile relative flex min-h-[104px] flex-col gap-2 rounded-card border p-3.5 transition-all select-none @[9rem]/tile:p-4',
           theme.container,
           isClickable && 'cursor-pointer hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           className,
         )}
         {...props}
       >
-        {/* Top Row: Metric Value (left) + Icon (right) */}
+        {/* Row 1: what this is — the label leads, the icon closes.
+            The label used to sit UNDER the number at `text-xl`, nearly the size
+            of the number itself, so a reader met a bare figure and had to look
+            below it to learn what the figure counted. Label first at reading
+            size is how every serious metric card is built: it reads as a
+            sentence — "Total shipments: 12" — and it leaves the number as the
+            only large thing on the card. */}
         <div className="flex items-start justify-between gap-3">
-          <span className={cn('text-3xl sm:text-4xl tracking-tight leading-none', theme.value)}>
-            {isEmpty ? '—' : (value ?? '—')}
-          </span>
-          {/* The system's solid disc — white on a filled tile, teal on the
-              outlined default, so every card in the app opens the same way. */}
-          {icon && <IconChip tint={theme.icon}>{icon}</IconChip>}
-        </div>
-
-        {/* Bottom Row: Title / Subtitle / Trend */}
-        <div className="flex flex-col gap-0.5">
-          <span className={cn('text-lg sm:text-xl tracking-tight', theme.title)}>
+          <span className={cn('min-w-0 text-xs font-semibold leading-tight', theme.title)}>
             {title}
           </span>
+          {/* The system's solid disc — white on a filled tile, teal on the
+              outlined default, so every card in the app opens the same way.
+              36, not 44: it is a marker for the card, not a second headline.
+
+              Gone below 9rem of card. Two of these side by side on a small
+              phone leave ~120px, and a 36px disc plus a gap took a third of it
+              — the title wrapped underneath and collided with the disc. The
+              icon is a marker; the words are the card. */}
+          {icon && (
+            <IconChip tint={theme.icon} size={36} className="hidden @[9rem]/tile:inline-flex">
+              {icon}
+            </IconChip>
+          )}
+        </div>
+
+        {/* Row 2: the figure, and nothing else at its size.
+            `mt-auto` so the numbers sit on one line across a row of cards
+            whatever their labels do — "Waiting empty return" wraps to two lines
+            and "Total shipments" does not, which was dropping one card's figure
+            half a line below its neighbours. */}
+        <div className="mt-auto flex flex-col gap-0.5">
+          <span
+            className={cn(
+              'text-3xl sm:text-4xl font-semibold leading-none tracking-tight tabular-nums',
+              theme.value,
+            )}
+          >
+            {isEmpty ? '—' : (value ?? '—')}
+          </span>
           {(subtitle || (trend && percentage !== undefined)) && (
-            <div className="flex items-center gap-1.5 mt-0.5 text-xs">
+            <div className="flex items-center gap-1.5 mt-1 text-xs">
               {trend && percentage !== undefined && (
                 <span className={cn('font-semibold', variant === 'default' ? trendConfig[trend].classes : 'opacity-90')}>
                   {trendConfig[trend].arrow} {(() => {

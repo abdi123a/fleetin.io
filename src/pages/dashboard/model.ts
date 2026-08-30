@@ -508,8 +508,14 @@ function buildNetwork(
     transporters: rank(byTransporter),
     shipperCount: shippers.length,
     transporterCount: partners.length,
-    shippersPending: shippers.filter((shipper) => shipper.approvalStatus !== 'Verified').length,
-    transportersPending: partners.filter((partner) => partner.partnerStatus !== 'Active').length,
+    /* `=== 'Pending'`, not "everything that is not cleared". The card reads
+       "N of M not yet approved", and a suspended or closed account was approved
+       — it was then paused or ended, which is a different fact and not one this
+       sentence can carry. The looser test was harmless while `Pending` was the
+       only other state a shipper could reach; `Suspended` (2026-08-30) made it
+       wrong. */
+    shippersPending: shippers.filter((shipper) => shipper.approvalStatus === 'Pending').length,
+    transportersPending: partners.filter((partner) => partner.partnerStatus === 'Pending').length,
   };
 }
 

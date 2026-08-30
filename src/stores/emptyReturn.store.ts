@@ -285,7 +285,19 @@ export function selectFilteredRecords(
   return records
     .filter((record) => {
       if (filters.stage !== 'all' && record.stage !== filters.stage) return false;
-      if (filters.risk !== 'all' && riskOf(record, now) !== filters.risk) return false;
+      if (filters.risk === 'action' || filters.risk === 'on_track') {
+        /* Roll-ups, not levels — see `EmptyReturnRiskFilter`. These have to
+           agree exactly with the bands the Control Tower renders, or a segment
+           opens a different set from the one it counted. */
+        const level = riskOf(record, now);
+        const inBand =
+          filters.risk === 'action'
+            ? level === 'overdue' || level === 'critical'
+            : level === 'safe' || level === 'protected' || level === null;
+        if (!inBand) return false;
+      } else if (filters.risk !== 'all' && riskOf(record, now) !== filters.risk) {
+        return false;
+      }
       if (query && !haystackOf(record).includes(query)) return false;
       return true;
     })

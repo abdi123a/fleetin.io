@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Mission } from '@/types/mission';
 import { Card, Badge, CornerBadge } from '@/design-system';
+import { formatKm, shipmentDistance } from '@/lib/shipmentDistance';
 import {
   Building2,
   Truck,
@@ -24,6 +25,8 @@ export const MissionDetailsView: React.FC<MissionDetailsViewProps> = ({
   mission,
 }) => {
   const navigate = useNavigate();
+  /* One booking per container, out and back — see `@/lib/shipmentDistance`. */
+  const drive = shipmentDistance(mission.estimatedDistanceKm, mission.bookingId);
 
   return (
     <div className="space-y-6">
@@ -158,12 +161,6 @@ export const MissionDetailsView: React.FC<MissionDetailsViewProps> = ({
               <span className="font-mono text-foreground flex items-center gap-1">
                 <Phone className="w-3 h-3 text-muted-foreground" />
                 {mission.transporter.phone}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground font-semibold">Rating:</span>
-              <span className="font-bold text-success-subtle-foreground">
-                ★ {mission.transporter.rating} / 5.0
               </span>
             </div>
           </div>
@@ -314,8 +311,13 @@ export const MissionDetailsView: React.FC<MissionDetailsViewProps> = ({
             <span className="text-muted-foreground font-semibold block text-[10px] uppercase">
               Estimated Distance
             </span>
-            <span className="font-mono font-black text-foreground text-sm">
-              {mission.estimatedDistanceKm} km
+            {/* The shipment's whole road — every container out and back — not
+                the single leg it was quoted at. See `@/lib/shipmentDistance`. */}
+            <span
+              className="font-mono font-black text-foreground text-sm"
+              title={`${drive.containers} container${drive.containers === 1 ? '' : 's'} × ${drive.legKm} km out and back`}
+            >
+              {formatKm(drive.totalKm)}
             </span>
           </div>
 

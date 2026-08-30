@@ -1,3 +1,4 @@
+import type { StatusIntent } from '@/design-system/primitives/Layout/statusIntent';
 import { AlertTriangle, ChevronRight, Timer } from 'lucide-react';
 import { pipelineStages as defaultPipelineStages } from '@/data/dashboardData';
 import { Skeleton } from './DashboardSkeleton';
@@ -21,7 +22,7 @@ export interface PipelineBookingItem {
   vehicleType?: string;
   vehicleVerified?: boolean;
   status: string;
-  statusIntent?: 'green' | 'orange' | 'blue' | 'slate';
+  statusIntent?: StatusIntent;
   step?: string;
   startDate?: string;
   endDate?: string;

@@ -28,6 +28,7 @@ import {
   ReportEyebrow,
   ReportStat,
   ReportStatusBadge,
+  STAGE_VISUAL,
   TimeRibbon,
   type RibbonSegment,
 } from './reportKit';
@@ -41,18 +42,6 @@ import {
  * same idiom the mission report is typeset in — composition over counting —
  * scaled up to a month.
  */
-
-/** Mirrors missionReport.ts's BREAKDOWN_ROWS so this ribbon and the per-mission
- * "Where the Time Went" ribbon read as the same shape — same keys, same tone. */
-const STAGE_VISUAL: Record<string, { tone: 'active' | 'waiting'; step: 1 | 2 | 3 | 4 | 5 }> = {
-  wait_pickup: { tone: 'waiting', step: 1 },
-  loading: { tone: 'active', step: 1 },
-  transit: { tone: 'active', step: 2 },
-  wait_dropoff: { tone: 'waiting', step: 1 },
-  unloading: { tone: 'active', step: 3 },
-  depotage: { tone: 'active', step: 4 },
-  empty_return: { tone: 'active', step: 5 },
-};
 
 export interface MonthlyReportViewProps {
   report: MonthlyReport;

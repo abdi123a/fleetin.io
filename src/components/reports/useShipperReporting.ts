@@ -177,6 +177,51 @@ export function useMissionReports(
   return { reports, loaded, total, isLoading: total > 0 && loaded < total };
 }
 
+/**
+ * Mission reports for every container of ONE shipment.
+ *
+ * The operations side of the same data layer. The caller already holds the
+ * shipment's booking rows and its empty-return cycles; what it does not hold is
+ * the status timelines, and those come from the very per-booking detail cache a
+ * single mission report reads — so switching from the shipment's analytics to
+ * one container's report costs no request, in either direction.
+ *
+ * No `plannedDeliveryAt` here: the promise lives on the BI dataset, which is
+ * shipper-scoped and not fetched on the operations side. The reports therefore
+ * carry every measured figure and no delivery-outcome verdict, which is honest
+ * — inventing a promise to score against would be worse than omitting it.
+ */
+export function useShipmentMissionReports(
+  bookings: BookingRecord[],
+  cyclesByBookingId: Map<string, EmptyReturnCycleRecord>,
+  now: number,
+): MissionReportsResult {
+  /* Keyed on the ids themselves: the query list must not be rebuilt because a
+     parent re-rendered with an equal-but-new array. */
+  const key = bookings.map((booking) => booking.id).join('|');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const ids = useMemo(() => (key ? key.split('|') : []), [key]);
+  const { byId, loaded, total } = useBookingDetails(ids);
+
+  const reports = useMemo(
+    () =>
+      ids
+        .map((id) => {
+          const booking = byId.get(id);
+          if (!booking) return null;
+          return computeMissionReport({
+            booking,
+            cycle: cyclesByBookingId.get(booking.id),
+            now,
+          });
+        })
+        .filter((report): report is MissionReport => report !== null),
+    [ids, byId, cyclesByBookingId, now],
+  );
+
+  return { reports, loaded, total, isLoading: total > 0 && loaded < total };
+}
+
 /** One mission's report — the panel a shipper opens from the list. */
 export function useMissionReport(
   row: MissionIndexRow | undefined,

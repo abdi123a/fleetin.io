@@ -1,13 +1,8 @@
 import React from 'react';
 import type { MissionStatus } from '@/types/mission';
 import { Badge } from '@/design-system';
-import { displayShipmentStatus } from '@/lib/shipmentStatus';
-import {
-  CONTAINER_STATE_BADGE_CLASS,
-  CONTAINER_STATE_BADGE_INTENT,
-  CONTAINER_STATE_SENTENCE,
-  type ContainerState,
-} from '@/lib/containerState';
+import { displayShipmentStatus, statusBadgeIntentOf } from '@/lib/shipmentStatus';
+import { CONTAINER_STATE_SENTENCE, type ContainerState } from '@/lib/containerState';
 import {
   Clock,
   DollarSign,
@@ -29,13 +24,13 @@ interface MissionStatusBadgeProps {
   className?: string;
   size?: 'sm' | 'md' | 'lg';
   /**
-   * What is in the box — teal while full, brand yellow once empty.
+   * What is in the box — full, empty, or back at the depot.
    *
-   * When the caller knows a shipment carries containers it passes this, and the
-   * badge takes the app-wide container pair instead of the ladder's own hues:
-   * the same shipment then reads identically on the list, in the grid and on
-   * its own page. Left out (a bulk load, or a caller with no container context)
-   * the badge keeps the per-rung colours it always had.
+   * It sets the container glyph and the chip's tooltip sentence, **not** the
+   * colour. The colour is the ladder's phase, the same one the booking cards
+   * under this shipment wear: teal booked, green in transit, amber owing a
+   * return, slate closed. Left out (a bulk load, or a caller with no container
+   * context) the chip keeps the rung's own icon.
    */
   containerState?: ContainerState | null;
 }
@@ -97,7 +92,14 @@ export const MissionStatusBadge: React.FC<MissionStatusBadgeProps> = ({
      `ContainerStateTag` keeps the three distinct box icons where the two states
      sit side by side and must never be mistaken for each other. */
   const Icon = containerState ? ContainerIcon : config.icon;
-  const intent = containerState ? CONTAINER_STATE_BADGE_INTENT[containerState] : config.intent;
+  /* The phase, not the box. A shipment in transit used to print the teal of a
+     loaded container while every booking under it printed the green of work in
+     progress — the same job in two colours, and "Created" and "Picked Up" then
+     read identically at shipment level. The booking cards were moved onto the
+     phase on 2026-08-30; this is the shipment-level half of that change.
+     What is *inside* the box is still carried here, by the container glyph and
+     the tooltip sentence, which is where it does not collide with the phase. */
+  const intent = containerState ? statusBadgeIntentOf(status) : config.intent;
   // The icon and colour still track the precise rung of the ladder; only the
   // word is the shared plain-language one, so this badge and the booking
   // cards under a shipment can never disagree about what to call the same
@@ -109,7 +111,7 @@ export const MissionStatusBadge: React.FC<MissionStatusBadgeProps> = ({
       intent={intent}
       size={size}
       title={containerState ? CONTAINER_STATE_SENTENCE[containerState] : undefined}
-      className={`inline-flex items-center gap-1.5 font-semibold ${containerState ? CONTAINER_STATE_BADGE_CLASS[containerState] : ''} ${className}`}
+      className={`inline-flex items-center gap-1.5 font-semibold ${className}`}
     >
       <Icon className="w-3.5 h-3.5" />
       <span>{label}</span>

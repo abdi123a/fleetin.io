@@ -46,7 +46,6 @@ export interface Driver {
   licenseNumber: string;
   joinedAt: string;
   /** Long-run quality of this driver; per-trip ratings vary around it. */
-  baseRating: number;
 }
 
 export interface TransporterRoute {
@@ -137,7 +136,6 @@ export interface Trip {
   waiting: WaitingSegment[];
 
   /** Customer rating for the trip, completed trips only. */
-  driverRating?: number;
   /** Operational incident recorded against the trip, when one occurred. */
   incident?: string;
 
@@ -211,7 +209,6 @@ export interface NetworkPeer {
   onTimeRate: number;
   acceptanceRate: number;
   delayRate: number;
-  avgRating: number;
   /** Cost vs network average: 1.0 is the market, above is premium. */
   costIndex: number;
   /** Composite 0–100 used by the reliability leaderboard. */
@@ -231,7 +228,6 @@ export interface NetworkBenchmark {
   onTimeRate: number;
   acceptanceRate: number;
   avgDelayMinutes: number;
-  avgRating: number;
   /** Share of completed trips the network drives home empty. */
   emptyReturnRate: number;
   /** Gate-in to gate-out at the delivery end, hours. */

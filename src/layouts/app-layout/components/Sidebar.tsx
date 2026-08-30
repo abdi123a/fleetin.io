@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom';
 import { PanelLeftClose, PanelLeftOpen } from '@/design-system/icons';
 
-import { Logo, ThemeToggle } from '@/components';
+import { Logo } from '@/components';
+import { UserMenu } from './UserMenu';
 import { IconButton, Tooltip } from '@/design-system';
 import { ROUTES } from '@/config/routes';
 import { useUiStore } from '@/stores';
@@ -103,14 +104,16 @@ export function Sidebar({ isCollapsed, onNavigate, className }: SidebarProps) {
 
       <SidebarNav isCollapsed={isCollapsed} onNavigate={onNavigate} />
 
-      {/* Footer: theme control only */}
+      {/* Footer: the account. The theme control used to hold this whole strip
+          on its own; it is inside this menu now, next to the other settings
+          that belong to the person rather than to the app. */}
       <div
         className={cn(
-          'shrink-0 border-t border-sidebar-border p-3',
-          isCollapsed ? 'flex justify-center px-2 py-3' : 'flex items-center',
+          'shrink-0 border-t border-sidebar-border',
+          isCollapsed ? 'px-2 py-3' : 'p-3',
         )}
       >
-        <ThemeToggle variant={isCollapsed ? 'compact' : 'full'} tone="sidebar" />
+        <UserMenu variant="sidebar" isCollapsed={isCollapsed} />
       </div>
     </div>
   );

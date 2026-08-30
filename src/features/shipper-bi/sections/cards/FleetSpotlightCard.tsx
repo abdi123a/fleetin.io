@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mail, MapPin, Phone, Star, Truck } from '@/design-system/icons';
+import { Mail, MapPin, Phone, Truck } from '@/design-system/icons';
 import { Card, CompanyAvatar } from '@/design-system';
 import { ROUTES } from '@/config/routes';
 import { cn, formatNumber } from '@/utils';
 import type { SpotlightTransporter } from '../../contracts';
 import { formatMetric } from '../../format';
 import { CardHeading } from '../../charts';
-import { getTransporterLogoUrl, getTransporterProfile } from '../../mocks/transporterProfiles';
+import { getTransporterLogoUrl } from '../../mocks/transporterProfiles';
 
 const TRUCK_IMAGES = [
   '/images/fleet-truck-1.webp',
@@ -21,7 +21,6 @@ const DEFAULT_TRANSPORTERS: [SpotlightTransporter, ...SpotlightTransporter[]] = 
     name: 'Tadjoura Haulage',
     fleetCode: 'TDJ',
     logoUrl: getTransporterLogoUrl('TRP-04'),
-    rating: getTransporterProfile('TRP-04')?.rating ?? 3.8,
     totalFleet: 6,
     deliveries: 19,
     onTimeRate: 0.789,
@@ -36,7 +35,6 @@ const DEFAULT_TRANSPORTERS: [SpotlightTransporter, ...SpotlightTransporter[]] = 
     name: 'Red Sea Movers',
     fleetCode: 'RSM',
     logoUrl: getTransporterLogoUrl('TRP-05'),
-    rating: getTransporterProfile('TRP-05')?.rating ?? 4.4,
     totalFleet: 8,
     deliveries: 42,
     onTimeRate: 0.925,
@@ -51,7 +49,6 @@ const DEFAULT_TRANSPORTERS: [SpotlightTransporter, ...SpotlightTransporter[]] = 
     name: 'Gulf Freight Partners',
     fleetCode: 'GFP',
     logoUrl: getTransporterLogoUrl('TRP-07'),
-    rating: getTransporterProfile('TRP-07')?.rating ?? 3.9,
     totalFleet: 4,
     deliveries: 28,
     onTimeRate: 0.857,
@@ -219,13 +216,10 @@ export function FleetSpotlightCard({
 
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-foreground">{transporter.name}</p>
-          <div className="mt-0.5 flex items-center gap-2">
-            <StarRating rating={transporter.rating} />
-            <span className="truncate text-xs text-muted-foreground">
-              · {formatNumber(transporter.totalFleet, { maximumFractionDigits: 0 })} vehicle
-              {transporter.totalFleet === 1 ? '' : 's'}
-            </span>
-          </div>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            {formatNumber(transporter.totalFleet, { maximumFractionDigits: 0 })} vehicle
+            {transporter.totalFleet === 1 ? '' : 's'}
+          </p>
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
@@ -247,45 +241,6 @@ export function FleetSpotlightCard({
         </div>
       </div>
     </Card>
-  );
-}
-
-/** Five-star row; partial fill for fractional ratings (e.g. 4.2 → four full + 20%). */
-function StarRating({ rating }: { rating: number }) {
-  const clamped = Math.min(5, Math.max(0, rating));
-
-  return (
-    <div
-      className="flex shrink-0 items-center gap-0.5"
-      role="img"
-      aria-label={`${clamped.toFixed(1)} out of 5 stars`}
-    >
-      {Array.from({ length: 5 }, (_, i) => {
-        const fill = Math.min(1, Math.max(0, clamped - i));
-        return (
-          <span key={i} className="relative size-3.5">
-            <Star
-              className="absolute inset-0 size-3.5 text-muted-foreground/35"
-              aria-hidden
-            />
-            {fill > 0 ? (
-              <span
-                className="absolute inset-0 overflow-hidden"
-                style={{ width: `${fill * 100}%` }}
-              >
-                <Star
-                  className="size-3.5 fill-accent text-accent"
-                  aria-hidden
-                />
-              </span>
-            ) : null}
-          </span>
-        );
-      })}
-      <span className="ml-1 text-xs font-medium tabular-nums text-foreground">
-        {clamped.toFixed(1)}
-      </span>
-    </div>
   );
 }
 

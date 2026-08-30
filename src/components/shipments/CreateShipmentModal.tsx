@@ -1,6 +1,15 @@
 import { useState, useEffect, useMemo, useRef, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { format, parse, isValid } from 'date-fns';
+import { addDays, format, parse, isValid } from 'date-fns';
+
+import { HelpHint } from '@/components/common';
+
+/**
+ * Free days on an empty before detention starts, and therefore how far out the
+ * return deadline is proposed. Ten is the working default on this corridor; the
+ * operator overrides it per shipment when a line's terms differ.
+ */
+const RETURN_WINDOW_DAYS = 10;
 import {
   Container,
   Truck,
@@ -51,6 +60,9 @@ import { EmptyContainerOpportunities } from './EmptyContainerOpportunities';
 import { useCreateProject, useProjects } from '@/features/finance';
 import { usdToDjf } from '@/features/transporter-bi/config';
 import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
+import { CrewPicker, CrewStack } from '@/components/crew';
+import { useTeam } from '@/features/team';
+import { useAuthStore } from '@/stores';
 import type { PartnerRecord } from '@/types/partner';
 import { cn } from '@/utils';
 import { IconChip } from '@/design-system';
@@ -468,6 +480,51 @@ export function CreateShipmentModal() {
 
   const createShipmentMutation = useCreateShipment();
 
+  /**
+   * The crew — who at Fleetin will run this shipment.
+   *
+   * In the header rather than as a fifth field in the form, and visible on
+   * every step, because "whose job is this" is not a detail of the cargo or
+   * the route: it is true of the whole thing you are filling in. Buried at the
+   * bottom of step 4 it would be skipped, which is how a shipment ends up with
+   * nobody on it.
+   *
+   * Defaults to whoever is creating it — the overwhelmingly common answer —
+   * so the header opens reading "mine" and handing it over is a deliberate
+   * act rather than a field you had to remember to fill.
+   */
+  const { data: team } = useTeam();
+  const currentUserId = useAuthStore((state) => state.user?.id);
+  const [crewIds, setCrewIds] = useState<string[]>([]);
+  const [crewLeadId, setCrewLeadId] = useState<string | undefined>(undefined);
+  const [crewTouched, setCrewTouched] = useState(false);
+
+  /* Seeded once the team has loaded, and only while the operator has not
+     touched it — re-seeding after they deliberately took themselves off would
+     put them straight back on. */
+  useEffect(() => {
+    if (crewTouched || crewIds.length > 0 || !currentUserId || !team) return;
+    if (!team.some((member) => member.id === currentUserId)) return;
+    setCrewIds([currentUserId]);
+    setCrewLeadId(currentUserId);
+  }, [team, currentUserId, crewTouched, crewIds.length]);
+
+  /** The selection as faces, in crew order — what the header stack draws. */
+  const crewFaces = useMemo(
+    () =>
+      crewIds
+        .map((id) => (team ?? []).find((member) => member.id === id))
+        .filter((member): member is NonNullable<typeof member> => Boolean(member))
+        .map((member) => ({
+          id: member.id,
+          fullName: member.fullName,
+          avatarUrl: member.avatarUrl,
+          roleName: member.roleName,
+          isLead: member.id === (crewLeadId ?? crewIds[0]),
+        })),
+    [crewIds, crewLeadId, team],
+  );
+
   const [shipmentSource, setShipmentSource] = useState<'dpcs' | 'custom' | null>(null);
   const isDpcsSource = shipmentSource === 'dpcs';
 
@@ -508,7 +565,19 @@ export function CreateShipmentModal() {
   const [managingShippingLines, setManagingShippingLines] = useState(false);
 
   // Container Return (Date & Time section)
-  const [returnDeadline, setReturnDeadline] = useState<string>('2026-08-04');
+  /**
+   * The empty's return deadline: ten days out from the pickup.
+   *
+   * This was the literal string `'2026-08-04'` — a date that was in the future
+   * when it was typed and has been in the past ever since, so every new
+   * container shipment opened already overdue. It is derived now, and it keeps
+   * following the pickup date until the operator sets one themselves.
+   */
+  const [returnDeadline, setReturnDeadline] = useState<string>(() =>
+    format(addDays(new Date(), RETURN_WINDOW_DAYS), 'yyyy-MM-dd'),
+  );
+  /** True once the operator has typed a deadline of their own; the derived one stops moving. */
+  const [returnDeadlineTouched, setReturnDeadlineTouched] = useState(false);
   const [returnDeadlineTime, setReturnDeadlineTime] = useState<string>('17:00');
   const [freeDays] = useState<number>(7);
 
@@ -812,6 +881,11 @@ export function CreateShipmentModal() {
     // would pair a container against a job nobody chose it for.
     setPairedEmptyIds([]);
     setPairingWarning(null);
+    /* Back to "mine" for the next shipment. Clearing `crewTouched` too, or the
+       seeding effect stays disabled and the next one opens unassigned. */
+    setCrewIds([]);
+    setCrewLeadId(undefined);
+    setCrewTouched(false);
   };
 
   const isContainer = shipmentCategory === 'containerized';
@@ -1171,7 +1245,11 @@ export function CreateShipmentModal() {
         bulkCommodity: shipmentCategory === 'bulk' ? bulkCommodity : undefined,
         containerNumber: resolvedContainerNumber,
         shippingLine: isContainer ? shippingLine : undefined,
-        containerReturnDepot: isContainer ? deliveryLocation : undefined,
+        /* The empty goes back where the full load was collected, not where it
+           was dropped: the box is standing in the free zone and owes itself to
+           the port. This was `deliveryLocation`, which made the empty leg read
+           free zone → free zone. */
+        containerReturnDepot: isContainer ? pickupLocation : undefined,
         containerReturnDeadline: containerReturnDeadlineIso,
         containerReturnFreeDays: isContainer ? freeDays : undefined,
         goodsDescription:
@@ -1185,6 +1263,11 @@ export function CreateShipmentModal() {
         scheduledPickupTime: scheduledPickupTimeIso,
         clientRateMinorUnits: clientRateInput.trim() ? Number(clientRateInput) : undefined,
         projectId: resolvedProjectId || undefined,
+        /* The crew, in the same request as the shipment — a job created "for
+           Nasra" that loses her because a follow-up call failed is worse than
+           one created with nobody on it. */
+        assigneeUserIds: crewIds.length > 0 ? crewIds : undefined,
+        leadAssigneeUserId: crewLeadId ?? crewIds[0],
         // One real booking per container (or one, for bulk/machinery) — the
         // shipment above is the shipper's request; these are what Empty Return
         // and per-container tracking actually key off. Sent in the same request
@@ -1197,7 +1280,7 @@ export function CreateShipmentModal() {
           cargoType: getResolvedCargoLabel(),
           shipmentCategory: shipmentCategory === 'machinery' ? 'bulky_goods' : shipmentCategory,
           shippingLine: isContainer ? shippingLine : undefined,
-          containerReturnDepot: isContainer ? deliveryLocation : undefined,
+          containerReturnDepot: isContainer ? pickupLocation : undefined,
           containerReturnDeadline: containerReturnDeadlineIso,
           containerReturnFreeDays: isContainer ? freeDays : undefined,
           scheduledPickupTime: scheduledPickupTimeIso,
@@ -1323,7 +1406,13 @@ export function CreateShipmentModal() {
             {/* ── STICKY HEADER ── */}
             <div className="shrink-0 space-y-4 border-b border-border/40 px-6 pb-4 pt-6 sm:px-8 sm:pt-8">
               <div className="space-y-1 pr-8">
-                <h2 className="text-xl font-extrabold tracking-tight text-foreground">
+                {/* Only the heading shares its row with the crew. The step
+                    description had been sharing it too, and at the sheet's
+                    448px it wrapped to three lines and shoved the step rail
+                    down the screen — so the description keeps the full width
+                    underneath. */}
+                <div className="flex items-start justify-between gap-3">
+                <h2 className="min-w-0 text-xl font-extrabold tracking-tight text-foreground">
                   {prefillData?.bookingId ? (
                     <span className="flex flex-wrap items-center gap-2">
                       Create Shipment
@@ -1346,6 +1435,29 @@ export function CreateShipmentModal() {
                     </span>
                   )}
                 </h2>
+                {/* Whose job this will be — beside the title, not inside a
+                    step, because it is true of the whole shipment rather than
+                    of any one screen of it. It opens showing you. `xs` and a
+                    low `max`: this sheet is 448px wide and a four-person crew
+                    at `sm` eats a quarter of the heading's line. */}
+                <CrewPicker
+                  value={crewIds}
+                  leadUserId={crewLeadId}
+                  onChange={(userIds, leadUserId) => {
+                    setCrewTouched(true);
+                    setCrewIds(userIds);
+                    setCrewLeadId(leadUserId);
+                  }}
+                >
+                  <CrewStack
+                    crew={crewFaces}
+                    size="xs"
+                    max={3}
+                    interactive
+                    className="mt-1.5 shrink-0"
+                  />
+                </CrewPicker>
+                </div>
                 <p className="text-xs text-muted-foreground">{currentStepDef.description}</p>
               </div>
 
@@ -1406,19 +1518,19 @@ export function CreateShipmentModal() {
                 <div className="space-y-5">
                   {/* Shipment Number — typed, never minted. See `handleCreateShipment`. */}
                   <div className="space-y-2">
-                    <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block">
+                    <label className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                       {isDpcsSource ? 'DPCS Shipment ID *' : 'Shipment Number *'}
+                      <HelpHint label="Where this number comes from">
+                        {isDpcsSource
+                          ? 'The Shipment ID DPCS already generated for this booking — Fleetin will not create a new one.'
+                          : 'You choose this number — Fleetin will not generate one. It is refused only if another shipment already uses it.'}
+                      </HelpHint>
                     </label>
                     <Input
                       value={shipmentReference}
                       onChange={(e) => setShipmentReference(e.target.value)}
                       placeholder={isDpcsSource ? 'DPCS-DJ-2026-9901' : 'Type this shipment’s number'}
                     />
-                    <p className="text-[10px] text-muted-foreground">
-                      {isDpcsSource
-                        ? 'The Shipment ID DPCS already generated for this booking — Fleetin will not create a new one.'
-                        : 'You choose this number — Fleetin will not generate one. It is refused only if another shipment already uses it.'}
-                    </p>
                   </div>
 
                   {/* Shipper / Exporting Entity */}
@@ -1489,8 +1601,11 @@ export function CreateShipmentModal() {
                           </div>
                         </div>
                         <div className="space-y-1">
-                          <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                          <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                             Monthly estimate <span className="normal-case">(optional)</span>
+                            <HelpHint label="What the monthly estimate is for">
+                              A planning figure only — it never caps or delays a shipment.
+                            </HelpHint>
                           </label>
                           <Input
                             type="number"
@@ -1500,9 +1615,6 @@ export function CreateShipmentModal() {
                             placeholder="0"
                             suffixText="FDJ"
                           />
-                          <p className="text-[10px] text-muted-foreground">
-                            A planning figure only — it never caps or delays a shipment.
-                          </p>
                         </div>
                         {projectError ? (
                           <div className="flex items-start gap-2 rounded-md bg-danger-subtle p-2.5 text-[11px] text-danger-subtle-foreground">
@@ -1532,9 +1644,6 @@ export function CreateShipmentModal() {
                             Cancel
                           </Button>
                         </div>
-                        <p className="text-[10px] text-muted-foreground">
-                          It appears in Finance under this shipper straight away, with this shipment billed to it.
-                        </p>
                       </div>
                     ) : selectedShipperId && clientProjects.length === 0 ? (
                       <p className="text-[11px] font-medium text-muted-foreground">
@@ -1626,8 +1735,12 @@ export function CreateShipmentModal() {
                       {/* Container Sizes — more than one may be selected, because a
                           single shipment routinely carries a mixed 40ft/20ft load. */}
                       <div className="space-y-2">
-                        <label className="text-[11px] font-bold text-foreground block">
+                        <label className="flex items-center gap-1.5 text-[11px] font-bold text-foreground">
                           Container Sizes *
+                          <HelpHint label="Shipping both sizes together">
+                            Select both to ship a mixed load of 40ft and 20ft containers together.
+                            Each size then keeps its own count and its own container numbers.
+                          </HelpHint>
                         </label>
                         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                           {CONTAINER_SIZES.map((size) => {
@@ -1662,11 +1775,15 @@ export function CreateShipmentModal() {
                             );
                           })}
                         </div>
-                        <p className="text-[10px] text-muted-foreground">
-                          {isMixedContainerSizes
-                            ? `Mixed load — ${describeContainerMix(containerGroups)}. Each size keeps its own count and numbers.`
-                            : 'Select both to ship a mixed load of 40ft and 20ft containers together.'}
-                        </p>
+                        {/* The state of the form stays on the page; the
+                            instruction folds behind the mark on the label. A
+                            sentence that describes what you have chosen is not
+                            help text, it is a readout. */}
+                        {isMixedContainerSizes && (
+                          <p className="text-[10px] text-muted-foreground">
+                            {`Mixed load — ${describeContainerMix(containerGroups)}. Each size keeps its own count and numbers.`}
+                          </p>
+                        )}
                       </div>
 
                       {/* One panel per size: its own count, its own numbers. */}
@@ -1745,8 +1862,13 @@ export function CreateShipmentModal() {
                             {/* Container Number(s) */}
                             <div className="space-y-2">
                               <div className="flex items-center justify-between gap-2">
-                                <label className="text-[11px] font-bold text-foreground block">
+                                <label className="flex items-center gap-1.5 text-[11px] font-bold text-foreground">
                                   {sized}Container Number(s) *
+                                  <HelpHint label="Entering container numbers">
+                                    Press Enter or comma to add one, or paste a whole list at once.
+                                    Anything past the declared count, or repeated across either
+                                    size, is marked on the chip itself.
+                                  </HelpHint>
                                 </label>
                                 <button
                                   type="button"
@@ -1771,9 +1893,6 @@ export function CreateShipmentModal() {
                                 duplicates={duplicateContainerNumbers}
                                 placeholder={`Type or paste ${group.size} container numbers, e.g. MSKU-998210-4`}
                               />
-                              <p className="text-[10px] text-muted-foreground">
-                                Press Enter or comma to add one, or paste a whole list at once.
-                              </p>
 
                               {repeated.length > 0 && (
                                 <div className="flex items-start gap-2 rounded-md bg-destructive-subtle p-2.5 text-[11px] text-destructive-subtle-foreground">
@@ -1786,19 +1905,17 @@ export function CreateShipmentModal() {
                                 </div>
                               )}
 
-                              {/* Nothing declared yet is not a success — with the
-                                  count at zero and no numbers the two agree, and
-                                  the old branch congratulated the reader on
-                                  "all 0 container numbers confirmed". */}
-                              {group.quantity === 0 ? (
-                                <div className="flex items-start gap-2 rounded-md bg-secondary/60 p-2.5 text-[11px] text-muted-foreground">
-                                  <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                                  <span>
-                                    Set how many {sized}containers this shipment carries, then enter
-                                    a number for each.
-                                  </span>
-                                </div>
-                              ) : diff !== 0 ? (
+              {/* Nothing declared yet says nothing. An untouched field being
+                  empty is not news — the reader has just arrived at it — and a
+                  grey banner telling them to fill in the control directly above
+                  it was an instruction where the form already had a label. The
+                  count going wrong IS news, and still says so below.
+
+                  The "all confirmed" tick is likewise only earned once there is
+                  something to confirm: with the count at zero and no numbers
+                  the two agree, and the old branch congratulated the reader on
+                  "all 0 container numbers confirmed". */}
+                              {group.quantity === 0 ? null : diff !== 0 ? (
                                 <div className="flex items-start gap-2 rounded-md bg-warning-subtle p-2.5 text-[11px] text-warning-subtle-foreground">
                                   <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                                   <span>
@@ -2072,7 +2189,21 @@ export function CreateShipmentModal() {
                         <div className="flex items-stretch overflow-hidden rounded-md border border-input bg-surface transition-all focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
                           <DatePicker
                             value={pickupDate}
-                            onChange={setPickupDate}
+                            onChange={(next) => {
+                              setPickupDate(next);
+                              /* The return window is measured from the pickup,
+                                 so moving the pickup moves it — unless the
+                                 operator has already chosen a deadline, in
+                                 which case theirs stands. */
+                              if (!returnDeadlineTouched) {
+                                const from = parse(next, 'yyyy-MM-dd', new Date());
+                                if (isValid(from)) {
+                                  setReturnDeadline(
+                                    format(addDays(from, RETURN_WINDOW_DAYS), 'yyyy-MM-dd'),
+                                  );
+                                }
+                              }
+                            }}
                             className="min-w-0 flex-1 border-0 rounded-none hover:bg-transparent focus:border-0 focus:ring-0"
                           />
                           <div className="w-px shrink-0 bg-border" />
@@ -2137,7 +2268,10 @@ export function CreateShipmentModal() {
                           <div className="flex items-stretch overflow-hidden rounded-md border border-input bg-surface transition-all focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
                             <DatePicker
                               value={returnDeadline}
-                              onChange={setReturnDeadline}
+                              onChange={(next) => {
+                                setReturnDeadline(next);
+                                setReturnDeadlineTouched(true);
+                              }}
                               className="min-w-0 flex-1 border-0 rounded-none hover:bg-transparent focus:border-0 focus:ring-0"
                             />
                             <div className="w-px shrink-0 bg-border" />
@@ -2282,10 +2416,10 @@ export function CreateShipmentModal() {
                                         : 'Type one booking number per vehicle, in load order'
                                     }
                                   />
-                                  <p className="text-[10px] text-muted-foreground">
-                                    One per vehicle — each is a booking, and they are matched to the container
-                                    numbers in the order entered.
-                                  </p>
+                                  <HelpHint label="Entering booking numbers">
+                                    One per vehicle — each is a booking, and they are matched to the
+                                    container numbers in the order entered.
+                                  </HelpHint>
                                 </div>
                               );
                             })()}

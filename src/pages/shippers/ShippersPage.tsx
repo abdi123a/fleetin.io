@@ -4,45 +4,88 @@ import {
   Building2,
   CheckCircle2,
   ExternalLink,
-  MapPin,
+  FileText,
   MoreVertical,
   Pencil,
   Plus,
+  SlidersHorizontal,
   Trash2,
   User,
   Clock,
-  Search,
+  Calendar,
   Truck,
   X,
   XCircle,
 } from '@/design-system/icons';
-import { Grid, List, RotateCcw, BadgeCheck } from 'lucide-react';
-import { PageHeader, TablePager, usePagedRows } from '@/components';
-import { IconChip, VerificationBadge, useConfirm } from '@/design-system';
+import { BadgeCheck, RotateCcw } from 'lucide-react';
+import { CountryFlag, DataTable, FilterBar, PageHeader, TablePager, usePagedRows } from '@/components';
 import {
-  Badge,
+  RecordStatusBadge,
+  RecordStatusMark,
+  RecordStatusMenuSection,
+  SHIPPER_STATUS_OPTIONS,
+  type DataColumn,
+  type RecordStatusOption,
+} from '@/components/common';
+import { cn } from '@/utils';
+import { PanelHeader } from '@/components/panels';
+import { useConfirm } from '@/design-system';
+import {
   Button,
   Card,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   Sheet,
   SheetContent,
   SheetDescription,
   SheetTitle,
-  Input,
   Select,
   StatisticCard,
 } from '@/design-system';
 
+import { usePermissions } from '@/hooks';
 import { ROUTES, buildPath } from '@/config/routes';
 import { AddShipperForm, type ShipperFormData } from './AddShipperForm';
 import { useShippers, useCreateShipper, useUpdateShipper, useDeleteShipper, useUploadShipperLogo } from '@/features/shippers/api/queries';
+import { useAllInvoices } from '@/features/finance';
+import { compactDjf } from '@/lib/finance/format';
+import { countryCode } from '@/lib/countryFlag';
 import { uploadDocument } from '@/features/documents/api/documentsService';
 import type { ShipperRecord, ApprovalStatus } from '@/types/shipper';
 
 export type { ShipperRecord };
+
+/**
+ * "today", "3d", "5w", "7mo" — the shortest true thing at that distance.
+ *
+ * A directory column is read down, not across: exact dates in a stack all look
+ * the same and the reader has to subtract to find the stale one. A magnitude
+ * sorts by eye. The exact date is one hover away.
+ */
+function relativeDays(days: number): string {
+  if (days <= 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 14) return `${days}d ago`;
+  if (days < 60) return `${Math.floor(days / 7)}w ago`;
+  if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+  return `${Math.floor(days / 365)}y ago`;
+}
+
+type StatusFilter = 'all' | 'verified' | 'pending' | 'suspended' | 'canceled';
+
+/** The tabs, and the status each one selects. One list so the tab bar and the
+    small-screen select can never offer different bands. */
+const STATUS_TABS: { key: StatusFilter; label: string; tone?: string; status?: ApprovalStatus }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'verified', label: 'Verified', tone: 'text-primary', status: 'Verified' },
+  { key: 'pending', label: 'Pending', tone: 'text-warning-subtle-foreground', status: 'Pending' },
+  { key: 'suspended', label: 'Suspended', tone: 'text-destructive', status: 'Suspended' },
+  /* No tone: a closed account is settled, so its count stays ink like `All`. */
+  { key: 'canceled', label: 'Canceled', status: 'Canceled' },
+];
 
 type DrawerState =
   | { mode: 'closed' }
@@ -100,21 +143,86 @@ export function ShippersPage() {
   // stored, joined against real Shipment rows per request) — no local
   // recomputation against a Shipments store needed here anymore.
   const shippersWithLiveCounts = shippers;
+  const { can } = usePermissions();
+
+  /*
+   * A shipper's own numbers.
+   *
+   * Containers-out and returned-on-time were here first and were the wrong
+   * half of the trip: driving an empty back to the depot is the carrier's job,
+   * so a column of it rates the carrier on the shipper's row. What a shipper
+   * alone answers for is the account — what they still owe — so that is what
+   * this map is for.
+   *
+   * It used to carry `lastBilledAt` too, for a "Last billed" column that
+   * answered "is this client still trading?" through their invoices. That
+   * question is worth a column and the money was only ever a proxy for it, so
+   * it is now `lastShipmentAt` — the same question asked of the traffic
+   * itself, computed server-side beside the shipment counts and visible to
+   * every role rather than only to finance.
+   *
+   * Open and overdue follow the dashboard's receivables rule exactly (unpaid
+   * with a balance left; past the contract deadline by any part of a day), so
+   * the column and the Receivables card cannot drift apart.
+   */
+  const canSeeMoney = can('finance.view');
+  const { data: invoices = [] } = useAllInvoices({}, { enabled: canSeeMoney });
+  const moneyByShipper = useMemo(() => {
+    const now = Date.now();
+    const DAY_MS = 86_400_000;
+    const byShipper = new Map<string, { outstanding: number; overdue: number }>();
+    for (const invoice of invoices) {
+      if (!invoice.shipperId) continue;
+      const bucket = byShipper.get(invoice.shipperId) ?? { outstanding: 0, overdue: 0 };
+      const remaining = Number(invoice.remainingMinorUnits);
+      if (invoice.status !== 'Paid' && remaining > 0) {
+        bucket.outstanding += remaining;
+        /* Ceil, not floor: past the deadline at all is day one late. */
+        const daysPast = Math.ceil(
+          (now - new Date(invoice.contractDeadline).getTime()) / DAY_MS,
+        );
+        if (daysPast > 0) bucket.overdue += 1;
+      }
+      byShipper.set(invoice.shipperId, bucket);
+    }
+    return byShipper;
+  }, [invoices]);
+
   const createShipper = useCreateShipper();
   const updateShipper = useUpdateShipper();
   const deleteShipper = useDeleteShipper();
   const { confirm, confirmDialog } = useConfirm();
+  /*
+   * What this account may actually do here.
+   *
+   * Presentation gates only — the server checks every request — but a menu that
+   * offers what the server will refuse is worse than a short menu. The
+   * read-only `EMTYMANAGER` role holds `shippers.view` and nothing else, and it
+   * was being shown Edit, Delete and a status ladder, all of which came back
+   * 403. An action this account cannot perform is not offered; the same rule
+   * the dashboard follows for the panels a role cannot open.
+   */
+  const canEditShippers = can('shippers.update');
+  const canDeleteShippers = can('shippers.delete');
+  const canCreateShippers = can('shippers.create');
   const uploadLogo = useUploadShipperLogo();
 
   const [drawerState, setDrawerState] = useState<DrawerState>({ mode: 'closed' });
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
+  /** A refused write has to read as refused — the banner was success-green whatever happened. */
+  const [noticeTone, setNoticeTone] = useState<'success' | 'error'>('success');
+
+  const showNotice = (message: string, tone: 'success' | 'error' = 'success') => {
+    setNoticeTone(tone);
+    setSuccessNotice(message);
+    setTimeout(() => setSuccessNotice(null), 5000);
+  };
 
   // Filters & Search State
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [industryFilter, setIndustryFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('name-asc');
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
 
   const handleFormSuccess = async (formData: ShipperFormData) => {
     const payload = {
@@ -158,6 +266,33 @@ export function ShippersPage() {
     setTimeout(() => setSuccessNotice(null), 5000);
   };
 
+  /**
+   * Move an account up or down the ladder from the row itself.
+   *
+   * The list used to offer View / Edit / Delete and nothing else, so the only
+   * way to change a status was the edit sheet — which had no status control
+   * either. A `Pending` shipper was therefore stuck: nothing on the page could
+   * clear it, and taking a company out of circulation meant deleting it.
+   */
+  const handleStatusChange = async (shipper: ShipperRecord, next: ApprovalStatus) => {
+    if (next === shipper.approvalStatus) return;
+    try {
+      /* `mutateAsync`, not `mutate`. Fire-and-forget announced "now suspended"
+         the instant it was clicked — including for an account whose role holds
+         only `shippers.view`, where the PATCH comes back 403 and nothing at all
+         changed. The notice has to wait for the server. */
+      await updateShipper.mutateAsync({ id: shipper.id, payload: { approvalStatus: next } });
+      /* The open drawer is fed from `drawerState`, not the query, so it would go
+         on printing the old badge behind the menu until it was reopened. */
+      if (drawerState.mode !== 'closed' && 'shipper' in drawerState && drawerState.shipper.id === shipper.id) {
+        setDrawerState({ ...drawerState, shipper: { ...drawerState.shipper, approvalStatus: next } });
+      }
+      showNotice(`"${shipper.companyLegalName}" is now ${next.toLowerCase()}.`);
+    } catch {
+      showNotice(`Could not change "${shipper.companyLegalName}" — your account cannot edit shippers.`, 'error');
+    }
+  };
+
   const handleDelete = async (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     const ok = await confirm({
@@ -178,31 +313,26 @@ export function ShippersPage() {
     navigate(buildPath(ROUTES.shipperDetail, { id: shipperId }));
   };
 
-  const renderApprovalBadge = (status: ApprovalStatus) => {
-    switch (status) {
-      // The same bare tick every other verified record gets — see
-      // `VerificationBadge`. This used to be its own pill reading "Verified,"
-      // a different visual style from every other verified mark in the app.
-      case 'Verified':
-        return <VerificationBadge state="verified" size="sm" />;
-      case 'Pending':
-        return (
-          <Badge intent="warning" variant="subtle" size="sm" className="font-medium gap-1 text-[11px] py-0.5 px-2 shrink-0">
-            <Clock className="h-3 w-3 text-warning-subtle-foreground" />
-            <span>Pending</span>
-          </Badge>
-        );
-      case 'Canceled':
-        return (
-          <Badge intent="destructive" variant="subtle" size="sm" className="font-medium gap-1 text-[11px] py-0.5 px-2 shrink-0">
-            <XCircle className="h-3 w-3" />
-            <span>Canceled</span>
-          </Badge>
-        );
-      default:
-        return null;
-    }
+  /**
+   * The glyph and the pill both come from `@/components/common` now — the
+   * transporter list carried a line-for-line copy of each, and a state added to
+   * one party (`Suspended`, 2026-08-30) went undrawn on the other. See
+   * `RecordStatus.tsx` for why the mark is a tone rather than a status word.
+   */
+  const optionFor = (status: ApprovalStatus): RecordStatusOption<ApprovalStatus> =>
+    SHIPPER_STATUS_OPTIONS.find((entry) => entry.value === status) ??
+    /* A word the backend has but this build does not — drawn as an unfinished
+       state rather than dropped, so it can still be seen and changed. */
+    { value: status, label: status, tone: 'waiting' };
+
+  const ApprovalMark = ({ status }: { status: ApprovalStatus }) => {
+    const option = optionFor(status);
+    return <RecordStatusMark tone={option.tone} label={option.label} />;
   };
+
+  const renderApprovalBadge = (status: ApprovalStatus) => (
+    <RecordStatusBadge option={optionFor(status)} />
+  );
 
   // Filter & Search Calculations
   const filteredShippers = useMemo(() => {
@@ -270,15 +400,26 @@ export function ShippersPage() {
       {confirmDialog}
       {/* Toast Notification Banner */}
       {successNotice && (
-        <div className="flex items-center justify-between rounded-lg border border-success/30 bg-success-subtle p-3.5 text-success-subtle-foreground shadow-2xs animate-in fade-in">
+        <div
+          className={cn(
+            'flex items-center justify-between rounded-lg p-3.5 shadow-2xs animate-in fade-in',
+            noticeTone === 'error'
+              ? 'border border-destructive/30 bg-destructive-subtle text-destructive-subtle-foreground'
+              : 'border border-success/30 bg-success-subtle text-success-subtle-foreground',
+          )}
+        >
           <div className="flex items-center gap-2.5">
-            <CheckCircle2 className="h-4 w-4 shrink-0 text-success-subtle-foreground" />
+            {noticeTone === 'error' ? (
+              <XCircle className="h-4 w-4 shrink-0" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+            )}
             <span className="text-xs font-medium">{successNotice}</span>
           </div>
           <button
             type="button"
             onClick={() => setSuccessNotice(null)}
-            className="p-1 rounded-md hover:bg-success-subtle transition-colors"
+            className="rounded-md p-1 transition-colors hover:bg-background/40"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -289,19 +430,25 @@ export function ShippersPage() {
       <PageHeader
         title="Shippers"
         actions={
-          <Button
-            onClick={() => setDrawerState({ mode: 'create' })}
-            shape="pill"
-            leadingIcon={<Plus className="h-4 w-4" />}
-            className="bg-primary hover:bg-primary-hover text-primary-foreground font-semibold px-4 py-2 text-xs shadow-xs"
-          >
-            Add shipper
-          </Button>
+          canCreateShippers ? (
+            <Button
+              onClick={() => setDrawerState({ mode: 'create' })}
+              shape="pill"
+              leadingIcon={<Plus className="h-4 w-4" />}
+              className="bg-primary hover:bg-primary-hover text-primary-foreground font-semibold px-4 py-2 text-xs shadow-xs"
+            >
+              Add shipper
+            </Button>
+          ) : undefined
         }
       />
 
       {/* KPI Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+      {/* Two-up on a phone, not four stacked. One tile per row put four
+          full-width blocks between the page title and the list they summarise,
+          so the first screen was entirely header and the actual work started
+          below the fold. */}
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5 lg:grid-cols-4">
         <StatisticCard
           title="Total Shippers"
           value={totalShippersCount}
@@ -336,124 +483,75 @@ export function ShippersPage() {
         />
       </div>
 
-      {/* Control Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 sm:gap-3 rounded-lg border border-border bg-card p-2.5 sm:px-4 shadow-2xs">
-        {/* Search & Status Tabs */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1 w-full md:w-auto">
-          {/* Search Input */}
-          <div className="relative w-full sm:w-auto sm:min-w-[180px] md:max-w-[240px]">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder="Search shippers..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-8 pr-7 py-1 text-xs font-medium rounded-md border-border bg-background h-8 w-full"
-            />
-            {searchTerm && (
-              <button
-                type="button"
-                onClick={() => setSearchTerm('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            )}
-          </div>
-
-          {/* Inline Status Filter Tabs */}
-          <div className="flex items-center gap-1 overflow-x-auto py-0.5 scrollbar-none w-full sm:w-auto">
-            {[
-              { id: 'all', label: 'All', count: shippers.length },
-              { id: 'verified', label: 'Verified', count: shippers.filter((s) => s.approvalStatus === 'Verified').length },
-              { id: 'pending', label: 'Pending', count: shippers.filter((s) => s.approvalStatus === 'Pending').length },
-              { id: 'canceled', label: 'Canceled', count: shippers.filter((s) => s.approvalStatus === 'Canceled').length },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setStatusFilter(tab.id)}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap ${
-                  statusFilter === tab.id
-                    ? 'bg-primary text-primary-foreground shadow-2xs'
-                    : 'bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'
-                }`}
-              >
-                <span>{tab.label}</span>
-                <span
-                  className={`px-1 py-0.2 rounded-sm text-[10px] font-semibold ${
-                    statusFilter === tab.id ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-background/80 text-muted-foreground border border-border/40'
-                  }`}
-                >
-                  {tab.count}
-                </span>
-              </button>
-            ))}
-          </div>
-
-          {hasActiveFilters && (
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="flex items-center gap-1 text-2xs font-medium text-muted-foreground hover:text-primary transition-colors shrink-0"
-            >
-              <RotateCcw className="h-3 w-3" />
-              <span>Reset</span>
-            </button>
-          )}
-        </div>
-
-        {/* Selects & View Switcher */}
-        <div className="flex items-center gap-1.5 sm:gap-2 w-full md:w-auto overflow-x-auto py-0.5 shrink-0 justify-between sm:justify-end">
-          <Select
-            selectSize="sm"
-            containerClassName="flex-1 sm:flex-initial sm:w-32 lg:w-36"
-            value={industryFilter}
-            onChange={(e) => setIndustryFilter(e.target.value)}
-            options={[
-              { value: 'all', label: 'All Industries' },
-              ...uniqueIndustries.map((ind) => ({ value: ind, label: ind })),
-            ]}
-            className="text-2xs py-1 rounded-md"
-          />
-
-          <Select
-            selectSize="sm"
-            containerClassName="flex-1 sm:flex-initial sm:w-32 lg:w-36"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            options={[
-              { value: 'name-asc', label: 'Sort: Name (A-Z)' },
-              { value: 'name-desc', label: 'Sort: Name (Z-A)' },
-              { value: 'shipments-desc', label: 'Sort: Active Shipments' },
-              { value: 'date-desc', label: 'Sort: Reg Date' },
-            ]}
-            className="text-2xs py-1 rounded-md"
-          />
-
-          <div className="flex items-center rounded-md border border-border bg-muted/40 p-0.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => setViewMode('list')}
-              title="List View"
-              className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
-                viewMode === 'list' ? 'bg-background text-primary shadow-2xs font-bold' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <List className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('grid')}
-              title="Grid View"
-              className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
-                viewMode === 'grid' ? 'bg-background text-primary shadow-2xs font-bold' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <Grid className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
-      </div>
+      {/* The app's one filter bar — the same tabs, search and sort the Empty
+          Container Control Tower uses. This was a bordered card holding filled
+          primary pills in one horizontal scroller and three selects in another,
+          so on a phone half the filters were off the right edge and had to be
+          dragged into view. Nothing here scrolls: the tabs become a select
+          below `sm`, and the tab labels sit on the page's own left margin so
+          they line up with the table headings underneath. */}
+      <FilterBar
+        label="Filter shippers by status"
+        tabs={STATUS_TABS.map((tab) => ({
+          key: tab.key,
+          label: tab.label,
+          tone: tab.tone,
+          count:
+            tab.key === 'all'
+              ? shippers.length
+              : shippers.filter((s) => s.approvalStatus === tab.status).length,
+        }))}
+        active={statusFilter}
+        onSelect={setStatusFilter}
+        search={{
+          value: searchTerm,
+          onChange: setSearchTerm,
+          placeholder: 'Search shippers…',
+          matched: filteredShippers.length,
+          total: shippers.length,
+        }}
+      >
+        <Select
+          selectSize="sm"
+          value={industryFilter}
+          onChange={(e) => setIndustryFilter(e.target.value)}
+          aria-label="Filter by industry"
+          leadingIcon={<Building2 />}
+          containerClassName="w-full @[26rem]/bar:w-auto"
+          className="h-9 w-full min-w-[8.5rem] text-xs font-medium @[26rem]/bar:w-auto"
+          options={[
+            { value: 'all', label: 'All industries' },
+            ...uniqueIndustries.map((ind) => ({ value: ind, label: ind })),
+          ]}
+        />
+        <Select
+          selectSize="sm"
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          aria-label="Sort shippers"
+          leadingIcon={<SlidersHorizontal />}
+          containerClassName="w-full @[26rem]/bar:w-auto"
+          className="h-9 w-full min-w-[9.5rem] text-xs font-medium @[26rem]/bar:w-auto"
+          options={[
+            { value: 'name-asc', label: 'Name (A–Z)' },
+            { value: 'name-desc', label: 'Name (Z–A)' },
+            { value: 'shipments-desc', label: 'Most active' },
+            { value: 'date-desc', label: 'Newest first' },
+          ]}
+        />
+        {hasActiveFilters && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={clearFilters}
+            aria-label="Clear all filters"
+            className="type-label h-9 w-9 shrink-0 gap-1 px-0 text-muted-foreground sm:w-auto sm:px-2"
+          >
+            <X className="size-3.5" />
+            <span className="hidden sm:inline">Clear</span>
+          </Button>
+        )}
+      </FilterBar>
 
       {/* Slide-over Drawer for Create / Edit / Profile Quick View */}
       <Sheet open={drawerState.mode !== 'closed'} onOpenChange={(open) => !open && setDrawerState({ mode: 'closed' })}>
@@ -510,39 +608,33 @@ export function ShippersPage() {
             <div className="flex h-full min-h-0 flex-col">
               {/* Sticky Drawer Profile Header */}
               <div className="shrink-0 border-b border-border/40 bg-background px-6 pt-6 pb-4 sm:px-8 sm:pt-8">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="flex items-center gap-3.5">
+                <PanelHeader
+                  media={
                     <ShipperLogo
                       logoUrl={drawerState.shipper.logoUrl}
                       companyName={drawerState.shipper.companyLegalName}
                       className="h-14 w-14"
                     />
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-2">
-                        <h2 className="text-lg font-bold tracking-tight text-foreground">
-                          {drawerState.shipper.companyLegalName}
-                        </h2>
-                        {renderApprovalBadge(drawerState.shipper.approvalStatus)}
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <span className="font-mono font-medium">{drawerState.shipper.reference ?? drawerState.shipper.id}</span>
-                        <span>•</span>
-                        <span>{drawerState.shipper.industry}</span>
-                        <span>•</span>
-                        <span>{drawerState.shipper.country}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <Button
-                    shape="pill"
-                    onClick={() => setDrawerState({ mode: 'edit', shipper: drawerState.shipper })}
-                    leadingIcon={<Pencil className="h-3.5 w-3.5" />}
-                    className="bg-primary hover:bg-primary-hover text-primary-foreground px-4 py-2 text-xs font-semibold rounded-full shrink-0"
-                  >
-                    Edit profile
-                  </Button>
-                </div>
+                  }
+                  title={drawerState.shipper.companyLegalName}
+                  subtitle={
+                    <>
+                      <span className="font-mono font-medium">
+                        {drawerState.shipper.reference ?? drawerState.shipper.id}
+                      </span>
+                      {' · '}
+                      {drawerState.shipper.industry}
+                      {' · '}
+                      {drawerState.shipper.country}
+                    </>
+                  }
+                  badge={renderApprovalBadge(drawerState.shipper.approvalStatus)}
+                  onEdit={
+                    canEditShippers
+                      ? () => setDrawerState({ mode: 'edit', shipper: drawerState.shipper })
+                      : undefined
+                  }
+                />
               </div>
 
               {/* Scrollable Profile Body */}
@@ -619,204 +711,269 @@ export function ShippersPage() {
         </SheetContent>
       </Sheet>
 
-      {/* Main Content Area */}
-      {viewMode === 'list' ? (
-        <div className="space-y-2 pt-1">
-          {/* No contact column. The list answers "which shipper", and a name and
-              a phone number for a person nobody is calling from a directory made
-              every row two lines taller for information that belongs on the
-              profile — which is one click away on the same row. */}
-          <div className="hidden lg:grid grid-cols-12 gap-4 px-5 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-            <div className="col-span-6">Shipper & Status</div>
-            <div className="col-span-4">Commercial Reg No</div>
-            <div className="col-span-2 text-right">Actions</div>
-          </div>
-
-          {pagedShippers.rows.map((shipper) => (
-            <div
-              key={shipper.id}
-              onClick={() => setDrawerState({ mode: 'profile', shipper })}
-              className="group relative flex flex-col lg:grid lg:grid-cols-12 items-start lg:items-center gap-3 lg:gap-4 rounded-lg border border-border/80 bg-card hover:bg-muted/30 p-3.5 sm:px-5 cursor-pointer transition duration-150 hover:border-primary/40 hover:shadow-2xs"
+      {/* One list surface, no view switcher. A directory is a comparison
+          surface — "which of these is which, and which one do I want" is a
+          question about columns lining up — and the grid answered it by putting
+          every value at a different x. The card layout it used to offer is
+          still here: `DataTable` falls back to it below the width where the
+          columns fit, which is where a grid was actually the better answer. */}
+      <DataTable
+        rows={pagedShippers.rows}
+        rowKey={(shipper) => shipper.id}
+        onRowClick={(shipper) => setDrawerState({ mode: 'profile', shipper })}
+        emptyCopy="No shipper matches the current filters."
+        emptyAction={
+          hasActiveFilters ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearFilters}
+              leadingIcon={<RotateCcw className="size-3.5" />}
+              className="text-xs"
             >
-              <div className="col-span-6 flex items-center gap-3 min-w-0 w-full">
+              Clear filters
+            </Button>
+          ) : undefined
+        }
+        breakpoint="48rem"
+        columns={[
+          {
+            key: 'shipper',
+            label: 'Shipper',
+            icon: Building2,
+            width: canSeeMoney ? 'w-[30%]' : 'w-[38%]',
+            card: 'identity',
+            cell: (shipper) => (
+              <div className="flex min-w-0 items-center gap-2.5">
                 <ShipperLogo
                   logoUrl={shipper.logoUrl}
                   companyName={shipper.companyLegalName}
-                  className="h-10 w-10 shrink-0"
+                  className="h-8 w-8 shrink-0"
                 />
-                <div className="flex flex-col min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-bold text-foreground truncate group-hover:text-primary transition-colors">
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate text-sm font-bold text-foreground">
                       {shipper.companyLegalName}
                     </span>
-                    {renderApprovalBadge(shipper.approvalStatus)}
+                    <ApprovalMark status={shipper.approvalStatus} />
                   </div>
-                  <div className="flex items-center gap-1.5 text-2xs text-muted-foreground truncate">
-                    <span className="font-mono font-medium text-foreground/70">{shipper.reference ?? shipper.id}</span>
-                    <span>•</span>
-                    <span>{shipper.industry}</span>
-                    <span>•</span>
-                    <span>{shipper.country}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="w-full lg:contents">
-                <div className="lg:col-span-4 flex flex-col justify-center min-w-0">
-                  <span className="text-[10px] text-muted-foreground font-medium block lg:hidden">Registration No</span>
-                  <span className="text-xs font-mono font-semibold text-foreground truncate">
-                    {shipper.registrationNumber || '—'}
+                  {/* Reference and country on one meta line. Country had a
+                      13% column of its own for a value that is "Djibouti" on
+                      almost every row — it identifies the company, it does not
+                      compare them, so it belongs beside the name. As a flag:
+                      it is read at a glance and costs two characters instead
+                      of a word. The name survives as the tooltip, and as the
+                      rendering itself wherever the country has no flag. */}
+                  <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <span className="truncate font-mono">{shipper.reference ?? shipper.id}</span>
+                    {shipper.country && (
+                      <>
+                        <span aria-hidden>·</span>
+                        {/* Artwork, not a flag emoji — see `CountryFlag`.
+                            `?? country` keeps the old contract: a name that is
+                            not a country prints as itself rather than
+                            vanishing. */}
+                        <CountryFlag country={shipper.country} />
+                        {!countryCode(shipper.country) && (
+                          <span className="truncate">{shipper.country}</span>
+                        )}
+                      </>
+                    )}
                   </span>
                 </div>
               </div>
-
-              <div className="col-span-2 flex items-center justify-end gap-2 w-full lg:w-auto pt-2 lg:pt-0 border-t lg:border-t-0 border-border/40">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  shape="pill"
-                  onClick={(e) => handleViewDetail(shipper.reference, e)}
-                  leadingIcon={<ExternalLink className="h-3 w-3" />}
-                  className="text-xs font-medium h-7 px-3 flex-1 lg:flex-initial justify-center"
-                >
-                  Profile
-                </Button>
-
+            ),
+          },
+          {
+            key: 'registration',
+            label: 'Reg no',
+            icon: FileText,
+            width: canSeeMoney ? 'w-[17%]' : 'w-[20%]',
+            cell: (shipper) => (
+              <span className="block truncate font-mono text-xs font-semibold text-foreground">
+                {shipper.registrationNumber || '—'}
+              </span>
+            ),
+          },
+          /* When this client last actually moved something.
+             Not gated: this is traffic, not money, so it is one of the two
+             data columns a role without `finance.view` can still read — and
+             it is the one that answers what that role opens this page for.
+             It replaced "Last billed", which asked the same question through
+             the invoices and so could only be shown to finance. */
+          {
+            key: 'lastShipment',
+            label: 'Last shipment',
+            icon: Calendar,
+            width: 'w-[18%]',
+            cardLabel: 'Last shipment',
+            cell: (shipper) => {
+              const raw = shipper.lastShipmentAt;
+              const at = raw ? new Date(raw).getTime() : NaN;
+              /* Never shipped is not the same as gone quiet, and must not be
+                 dressed as a stale date. */
+              if (!Number.isFinite(at)) {
+                return <span className="text-xs text-muted-foreground">Never</span>;
+              }
+              const days = Math.floor((Date.now() - at) / 86_400_000);
+              /* Quiet for four months is the thing worth seeing, so it is the
+                 only state that takes a colour. Same threshold the billing
+                 version used — a client silent for a third of a year is a
+                 conversation to have, whichever way you measure the silence. */
+              const stale = days > 120;
+              return (
+                <span className="block min-w-0" title={new Date(at).toLocaleDateString()}>
+                  <span
+                    className={cn(
+                      'block truncate text-sm font-bold',
+                      stale ? 'text-warning-subtle-foreground' : 'text-foreground',
+                    )}
+                  >
+                    {relativeDays(days)}
+                  </span>
+                </span>
+              );
+            },
+          },
+          /* Gated on the permission the API itself enforces. A role
+             without `finance.view` is refused `/invoices` outright, and a
+             column of dashes it can never fill is worse than no column:
+             it reads as "this client owes nothing". The page already
+             follows this rule for the row menu — a thing this account
+             cannot have is not offered — so the columns follow it too. */
+          ...(canSeeMoney
+            ? ([
+            {
+              key: 'outstanding',
+              label: 'Outstanding',
+              icon: Clock,
+              width: 'w-[15%]',
+              cardLabel: 'Outstanding',
+              cell: (shipper) => {
+                const money = moneyByShipper.get(shipper.id);
+                const outstanding = money?.outstanding ?? 0;
+                const overdue = money?.overdue ?? 0;
+                /* Settled up is a dash, not "0 DJF". Nothing owed is the absence
+                   of a debt, and printing a zero puts every paid-up client in
+                   the same visual weight as one that owes. */
+                if (outstanding <= 0) {
+                  return <span className="text-xs text-muted-foreground">—</span>;
+                }
+                return (
+                  <span className="block min-w-0">
+                    <span
+                      className={cn(
+                        'block truncate font-mono text-sm font-bold tabular-nums',
+                        overdue > 0 ? 'text-destructive' : 'text-foreground',
+                      )}
+                    >
+                      {compactDjf(outstanding)}
+                    </span>
+                    {/* Only when there is something to say. A row reading
+                        "0 overdue" spends a line on nothing happening. */}
+                    {overdue > 0 && (
+                      <span className="block truncate text-[11px] font-bold text-destructive">
+                        {overdue} overdue
+                      </span>
+                    )}
+                  </span>
+                );
+              },
+            },
+              ] satisfies DataColumn<ShipperRecord>[])
+            : []),
+          {
+            key: 'shipments',
+            label: 'Active',
+            icon: Truck,
+            width: canSeeMoney ? 'w-[10%]' : 'w-[12%]',
+            cardLabel: 'Active shipments',
+            /* A count reads as a count: monospaced and tabular so a column of
+               them lines up on the digit, and greyed at zero because a shipper
+               with nothing running is not news. */
+            cell: (shipper) => (
+              <span
+                className={cn(
+                  'font-mono text-sm font-bold tabular-nums',
+                  shipper.activeShipments > 0 ? 'text-foreground' : 'text-muted-foreground',
+                )}
+              >
+                {shipper.activeShipments}
+              </span>
+            ),
+          },
+          {
+            key: 'actions',
+            label: 'Actions',
+            width: canSeeMoney ? 'w-[10%]' : 'w-[12%]',
+            card: 'trailing',
+            /* The menu only. A "Profile" button beside it opened the same drawer
+               the row itself opens and the menu's own first item opens — three
+               ways to do one thing, two of them spending a column of width. */
+            cell: (shipper) => (
+              /* Centred in its column. The button is a 32px square in a 10%
+                 column, so left-aligned it sat against the rule with a hand's
+                 width of nothing after it — the last column read as empty with
+                 something stuck to its edge. */
+              <div className="flex items-center justify-center">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
                       onClick={(e) => e.stopPropagation()}
                       aria-label="Shipper actions"
-                      className="flex h-7 w-7 items-center justify-center rounded-md border border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors shrink-0"
+                      className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                     >
-                      <MoreVertical className="h-3.5 w-3.5" />
+                      <MoreVertical className="size-3.5" />
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuItem onClick={(e) => handleViewDetail(shipper.reference, e)} className="cursor-pointer gap-2 text-xs">
+                    <DropdownMenuItem
+                      onClick={(e) => handleViewDetail(shipper.reference, e)}
+                      className="cursor-pointer gap-2 text-xs"
+                    >
                       <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
                       <span>View profile</span>
                     </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDrawerState({ mode: 'edit', shipper });
-                      }}
-                      className="cursor-pointer gap-2 text-xs"
-                    >
-                      <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span>Edit profile</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={(e) => handleDelete(shipper.id, e)}
-                      className="cursor-pointer gap-2 text-xs text-destructive focus:text-destructive"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      <span>Delete shipper</span>
-                    </DropdownMenuItem>
+                    {canEditShippers && (
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDrawerState({ mode: 'edit', shipper });
+                        }}
+                        className="cursor-pointer gap-2 text-xs"
+                      >
+                        <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span>Edit profile</span>
+                      </DropdownMenuItem>
+                    )}
+                    {canEditShippers && (
+                      <RecordStatusMenuSection
+                        value={shipper.approvalStatus}
+                        options={SHIPPER_STATUS_OPTIONS}
+                        onSelect={(next) => handleStatusChange(shipper, next)}
+                        busy={updateShipper.isPending}
+                      />
+                    )}
+                    {canDeleteShippers && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={(e) => handleDelete(shipper.id, e)}
+                          className="cursor-pointer gap-2 text-xs text-destructive focus:text-destructive"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span>Delete shipper</span>
+                        </DropdownMenuItem>
+                      </>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
-          {pagedShippers.rows.map((shipper) => (
-            <Card
-              key={shipper.id}
-              onClick={() => setDrawerState({ mode: 'profile', shipper })}
-              className="group relative flex flex-col justify-between h-full p-4 border border-border bg-card hover:bg-muted/20 rounded-lg cursor-pointer transition duration-150 hover:border-primary/40 hover:shadow-2xs space-y-3"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <ShipperLogo
-                    logoUrl={shipper.logoUrl}
-                    companyName={shipper.companyLegalName}
-                    className="h-10 w-10 shrink-0"
-                  />
-                  <div className="flex flex-col min-w-0">
-                    <h3 className="text-sm font-bold text-foreground group-hover:text-primary transition-colors truncate">
-                      {shipper.companyLegalName}
-                    </h3>
-                    <div className="flex items-center gap-1.5 text-2xs text-muted-foreground">
-                      <span className="font-mono font-medium text-foreground/70">{shipper.reference ?? shipper.id}</span>
-                      <span>•</span>
-                      <span className="truncate">{shipper.industry}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={(e) => e.stopPropagation()}
-                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
-                    >
-                      <MoreVertical className="h-3.5 w-3.5" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuItem onClick={(e) => handleViewDetail(shipper.reference, e)} className="cursor-pointer gap-2 text-xs">
-                      <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span>View profile</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDrawerState({ mode: 'edit', shipper });
-                      }}
-                      className="cursor-pointer gap-2 text-xs"
-                    >
-                      <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span>Edit profile</span>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-
-              <div>{renderApprovalBadge(shipper.approvalStatus)}</div>
-
-              <div className="grid grid-cols-2 gap-2 p-2.5 rounded-lg bg-muted/30 border border-border/40 text-xs">
-                <div>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Reg Number</span>
-                  <span className="font-mono font-semibold text-foreground truncate block">{shipper.registrationNumber || '—'}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Country</span>
-                  <span className="font-semibold text-foreground">{shipper.country}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Contact</span>
-                  <span className="font-medium text-foreground truncate block">{shipper.primaryContact.name}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Active Shipments</span>
-                  <span className="font-semibold text-foreground">{shipper.activeShipments} active</span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between pt-2 border-t border-border/40 text-xs">
-                <span className="flex items-center gap-1 text-muted-foreground text-2xs font-medium truncate">
-                  <MapPin className="h-3 w-3 text-muted-foreground shrink-0" />
-                  {shipper.address || shipper.country}
-                </span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={(e) => handleViewDetail(shipper.reference, e)}
-                  leadingIcon={<ExternalLink className="h-3 w-3" />}
-                  className="text-xs font-medium text-primary hover:text-primary-hover p-0 h-auto"
-                >
-                  Profile
-                </Button>
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
+            ),
+          },
+        ]}
+      />
 
       {filteredShippers.length > 0 && (
         <TablePager
@@ -828,29 +985,12 @@ export function ShippersPage() {
         />
       )}
 
-      {/* Empty / Loading State */}
+      {/* Loading only. The "No Shippers Found" panel that used to sit here
+          printed the table's own empty row a second time, one above the other,
+          in two different sizes — the list owns its emptiness now. */}
       {isLoading && filteredShippers.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-12 text-center rounded-lg border border-dashed border-border bg-card">
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-card py-12 text-center">
           <p className="text-xs text-muted-foreground">Loading shippers…</p>
-        </div>
-      )}
-      {!isLoading && filteredShippers.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-12 text-center rounded-lg border border-dashed border-border bg-card">
-          <IconChip icon={Building2} tint="neutral" className="mb-3" />
-          <h3 className="text-base font-bold text-foreground">No Shippers Found</h3>
-          <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-            No shipper matches the current filters.
-          </p>
-          {hasActiveFilters && (
-            <Button
-              variant="outline"
-              onClick={clearFilters}
-              leadingIcon={<RotateCcw className="h-3.5 w-3.5" />}
-              className="mt-4 rounded-full text-xs font-medium"
-            >
-              Clear filters
-            </Button>
-          )}
         </div>
       )}
     </div>

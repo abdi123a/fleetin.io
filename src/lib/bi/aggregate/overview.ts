@@ -371,7 +371,6 @@ function buildSpotlightTransporters(
       name: transporter?.name ?? transporterId,
       fleetCode: transporter?.fleetCode ?? '—',
       logoUrl: profile?.logoUrl,
-      rating: profile?.rating ?? 4.0,
       totalFleet: context.dataset.vehicles.filter((v) => v.transporterId === transporterId).length,
       deliveries: delivered.length,
       onTimeRate: ratio(onTime.length, delivered.length),

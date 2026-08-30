@@ -25,11 +25,21 @@ export function useInvoices(filters: InvoiceFilters = {}, options: { enabled?: b
   });
 }
 
-/** Every page of the list, concatenated — for the admin console's whole-book totals. */
-export function useAllInvoices(filters: InvoiceFilters = {}) {
+/**
+ * Every page of the list, concatenated — for the admin console's whole-book totals.
+ *
+ * `enabled` matches `useInvoices` above: the whole book is gated on
+ * `finance.view`, so a caller that already knows the account lacks it should
+ * not spend a round trip discovering that from a 403.
+ */
+export function useAllInvoices(
+  filters: InvoiceFilters = {},
+  options: { enabled?: boolean } = {},
+) {
   return useQuery({
     queryKey: [...invoiceQueryKeys.list(filters), 'all'] as const,
     queryFn: () => fetchAllInvoices(filters),
+    enabled: options.enabled,
   });
 }
 

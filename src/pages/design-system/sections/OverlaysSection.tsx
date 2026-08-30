@@ -109,7 +109,7 @@ const SHEET_CONTENT_PROPS: PropDefinition[] = [
     name: 'className',
     type: 'string',
     description:
-      'Width and padding are always supplied here — the variant sets position and animation only. The app has settled on w-full sm:max-w-2xl for detail panels, sm:max-w-lg for record forms and w-72 for the navigation drawer.',
+      'A right-side sheet is w-full sm:max-w-md by default — the house width, set on the variant so every side popup matches without retyping it. Override only for a panel that genuinely needs the room: w-full sm:max-w-2xl for analytics drill-downs and the document viewer, w-72 for the navigation drawer.',
   },
 ];
 
@@ -231,7 +231,7 @@ function SheetSubsection() {
             dont: 'Hand-roll a fixed-position panel because a Sheet felt heavy. The weight is the accessibility contract.',
           },
           {
-            do: 'Set width and padding through className on SheetContent, and stay on the widths already in use: sm:max-w-2xl, sm:max-w-lg, sm:max-w-sm.',
+            do: 'Take the default width on a right-side sheet and set only padding. Widen with className only where the content needs it, and stay on the widths already in use: sm:max-w-2xl for drill-downs, w-72 for the nav drawer.',
             dont: 'Invent a new width per screen. Four different detail-panel widths make the product feel like four products.',
           },
           {

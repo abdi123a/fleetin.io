@@ -1,14 +1,18 @@
 import { useMemo } from 'react';
 
 import { Badge, Button } from '@/design-system';
-import { Check, PackageOpen, Zap } from '@/design-system/icons';
+import { Check, PackageOpen, Star, Zap } from '@/design-system/icons';
+import { useBookings } from '@/features/bookings/api/queries';
+import type { BookingRecord } from '@/features/bookings/api/bookingsService';
 import { useAvailableEmpties, useEmptyContainers } from '@/features/empty-returns';
+import { summariseFleet } from '@/lib/rating';
 import type { PartnerRecord } from '@/types/partner';
 import {
   SCHEDULED_WINDOW_MS,
   recommendTransporters,
   type TransporterScore,
 } from '@/features/transporters/recommendation';
+import { HelpHint } from '@/components/common';
 import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
 import { cn } from '@/utils';
 
@@ -56,6 +60,12 @@ export function TransporterRecommendations({
      without a second source of truth to keep in step. */
   const { records } = useEmptyContainers();
 
+  /* The whole book, once. Ratings are an average over a carrier's closed
+     bookings, so there is no per-carrier query that would answer this without
+     five round trips — and this list is at most a few hundred rows. */
+  const { data: bookingPage } = useBookings({ limit: 500 });
+  const allBookings = useMemo(() => bookingPage?.items ?? [], [bookingPage]);
+
   /**
    * Returns already booked around this pickup, per carrier.
    *
@@ -77,6 +87,30 @@ export function TransporterRecommendations({
     return counts;
   }, [records, pickupAt, considerEmpties]);
 
+  /**
+   * Each carrier's derived star rating, from the bookings they have closed.
+   *
+   * The same arithmetic the transporter dossier prints, so the number in this
+   * panel and the number on their profile can never disagree — see
+   * `summarisePerformance`. Carriers with nothing closed come back `null` and
+   * the dimension simply does not apply to them.
+   */
+  const ratingByPartner = useMemo(() => {
+    const byPartner = new Map<string, BookingRecord[]>();
+    for (const booking of allBookings) {
+      if (!booking.partnerId) continue;
+      const bucket = byPartner.get(booking.partnerId);
+      if (bucket) bucket.push(booking);
+      else byPartner.set(booking.partnerId, [booking]);
+    }
+    return new Map(
+      [...byPartner].map(([partnerId, bookings]) => {
+        const summary = summariseFleet(bookings);
+        return [partnerId, summary.missions > 0 ? summary.overall : null] as const;
+      }),
+    );
+  }, [allBookings]);
+
   const { ranked, noEmptiesAnywhere } = useMemo(
     () =>
       recommendTransporters({
@@ -89,6 +123,7 @@ export function TransporterRecommendations({
         rateOf,
         considerEmpties,
         scheduledByName,
+        ratingOf: (partner) => ratingByPartner.get(partner.id) ?? null,
       }),
     [
       partners,
@@ -100,6 +135,7 @@ export function TransporterRecommendations({
       rateOf,
       considerEmpties,
       scheduledByName,
+      ratingByPartner,
     ],
   );
 
@@ -111,17 +147,30 @@ export function TransporterRecommendations({
         <h4 className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
           <Zap className="h-3.5 w-3.5 text-primary" />
           Recommended transporters
+          {/* The five lines that used to sit under this heading. True and
+              useful the first time, noise on the four hundredth — the operator
+              filling their tenth shipment of the day was reading past a
+              paragraph to reach the list. */}
+          <HelpHint label="How these are scored">
+            {considerEmpties ? (
+              <>
+                Scored on the empty containers each carrier is already holding for this line and
+                size, and on the empty returns already booked in their calendar around this pickup —
+                either way the trip is one they are largely making anyway. Their star rating, fleet
+                size and price make up the rest.
+              </>
+            ) : (
+              <>
+                This shipment carries no container to reuse, so carriers are scored on their star
+                rating, fleet size and price alone.
+              </>
+            )}
+          </HelpHint>
         </h4>
         <Badge variant="subtle" intent="default" size="sm">
           Top {top.length}
         </Badge>
       </div>
-
-      <p className="text-[11px] leading-snug text-muted-foreground">
-        {considerEmpties
-          ? 'Scored on the empty containers each carrier is already holding for this line and size, and on the empty returns already booked in their calendar around this pickup — either way the trip is one they are largely making anyway. Fleet size and price make up the rest.'
-          : 'This shipment carries no container to reuse, so carriers are scored on fleet size and price alone.'}
-      </p>
 
       {isLoading && considerEmpties ? (
         <p className="rounded-card-nested border border-dashed border-border bg-card px-4 py-3 text-[11px] text-muted-foreground">
@@ -235,6 +284,26 @@ function RecommendationRow({
             <p className="flex items-center gap-1.5 truncate text-[13px] font-bold leading-tight text-foreground">
               <span className="truncate">{entry.name}</span>
               {assigned && <Check className="size-3.5 shrink-0 text-primary-bold" aria-label="Assigned" />}
+              {/* One star and the figure, not five glyphs. The reader is
+                  comparing five carriers down a narrow column: "4.2" is read at
+                  a glance and sorts in the head, where five part-filled stars
+                  have to be counted. Unrated carriers say so rather than
+                  showing an empty star, which reads as a bad score. */}
+              {entry.rating !== null ? (
+                <span
+                  className="ml-auto inline-flex shrink-0 items-center gap-0.5"
+                  title={`Rated ${entry.rating.toFixed(1)} out of 5 on delivered bookings`}
+                >
+                  <Star aria-hidden className="size-3 fill-warning text-warning" />
+                  <span className="font-mono text-[11px] font-bold tabular-nums text-foreground">
+                    {entry.rating.toFixed(1)}
+                  </span>
+                </span>
+              ) : (
+                <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                  Not yet rated
+                </span>
+              )}
             </p>
 
             {/* The empty count is the whole reason this panel exists, so it is

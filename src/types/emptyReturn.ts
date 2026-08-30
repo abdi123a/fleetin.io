@@ -363,7 +363,20 @@ export interface EmptyReturnEvent {
  * ------------------------------------------------------------------------- */
 
 export type EmptyReturnStageFilter = 'all' | ContainerStage;
-export type EmptyReturnRiskFilter = 'all' | ReturnRiskLevel;
+/**
+ * `'action'` and `'on_track'` are the roll-ups the Control Tower's bands are
+ * made of — overdue *or* critical for the first, and safe / protected / no
+ * deadline for the last. Neither is a single `ReturnRiskLevel`, which is the
+ * point: a band and the filter that opens it have to select the same records,
+ * and `risk: 'safe'` selected one of the six the "On track" band was showing.
+ *
+ * It exists because the page renders three bands (action / monitor / on track)
+ * and the filter strip above them could only address single risk levels, so the
+ * strip advertised six states for a page that has three, and three of the six
+ * ("Action required", "Return overdue", "Critical") were the same fact counted
+ * two different ways.
+ */
+export type EmptyReturnRiskFilter = 'all' | 'action' | 'on_track' | ReturnRiskLevel;
 
 export interface EmptyReturnFilters {
   q: string;

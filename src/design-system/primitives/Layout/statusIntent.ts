@@ -9,9 +9,16 @@
  * 12px of horizontal padding and 13px medium text.
  * ------------------------------------------------------------------------- */
 
-export type StatusIntent = 'orange' | 'green' | 'blue' | 'slate';
+/**
+ * `teal` joined on 2026-08-30, when the booking ladder was recoloured by phase
+ * — teal booked, green in transit, amber owing a return, slate closed. `blue`
+ * stays for the surfaces that still ask for it by name; nothing on the ladder
+ * uses it any more.
+ */
+export type StatusIntent = 'teal' | 'orange' | 'green' | 'blue' | 'slate';
 
 export const statusIntentClasses: Record<StatusIntent, string> = {
+  teal: 'bg-primary text-primary-foreground',
   orange: 'bg-accent text-accent-foreground',
   green: 'bg-success text-success-foreground',
   blue: 'bg-info text-info-foreground',

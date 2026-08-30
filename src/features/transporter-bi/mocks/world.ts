@@ -119,7 +119,6 @@ export const MOCK_DRIVERS: Driver[] = DRIVER_NAMES.map((name, index) => ({
   phone: `+253 77 ${String(210000 + index * 3517).slice(0, 2)} ${String(30 + index)} ${String(11 + ((index * 7) % 80)).padStart(2, '0')}`,
   licenseNumber: `DJ-CDL-${7200 + index * 31}`,
   joinedAt: `20${18 + (index % 7)}-${String(1 + (index % 12)).padStart(2, '0')}-15`,
-  baseRating: Math.round((3.7 + ((index * 37) % 12) / 10) * 10) / 10,
 }));
 
 export const MOCK_ROUTES: TransporterRoute[] = [
@@ -306,17 +305,17 @@ export const BACKHAUL_CUSTOMERS = [
 export const NETWORK_PEER_SEEDS: ReadonlyArray<
   Omit<NetworkPeer, 'isYou' | 'reliabilityScore'>
 > = [
-  { id: 'NET-A', label: 'Carrier A', onTimeRate: 0.96, acceptanceRate: 0.93, delayRate: 0.09, avgRating: 4.8, costIndex: 1.18, trips: 410 },
-  { id: 'NET-B', label: 'Carrier B', onTimeRate: 0.94, acceptanceRate: 0.88, delayRate: 0.12, avgRating: 4.6, costIndex: 1.09, trips: 350 },
-  { id: 'NET-C', label: 'Carrier C', onTimeRate: 0.91, acceptanceRate: 0.95, delayRate: 0.16, avgRating: 4.5, costIndex: 1.02, trips: 505 },
-  { id: 'NET-D', label: 'Carrier D', onTimeRate: 0.9, acceptanceRate: 0.8, delayRate: 0.18, avgRating: 4.4, costIndex: 0.97, trips: 260 },
-  { id: 'NET-E', label: 'Carrier E', onTimeRate: 0.88, acceptanceRate: 0.9, delayRate: 0.21, avgRating: 4.2, costIndex: 0.94, trips: 385 },
-  { id: 'NET-F', label: 'Carrier F', onTimeRate: 0.86, acceptanceRate: 0.76, delayRate: 0.24, avgRating: 4.1, costIndex: 0.9, trips: 220 },
-  { id: 'NET-G', label: 'Carrier G', onTimeRate: 0.84, acceptanceRate: 0.85, delayRate: 0.27, avgRating: 3.9, costIndex: 0.88, trips: 300 },
-  { id: 'NET-H', label: 'Carrier H', onTimeRate: 0.82, acceptanceRate: 0.7, delayRate: 0.3, avgRating: 3.8, costIndex: 0.85, trips: 175 },
-  { id: 'NET-I', label: 'Carrier I', onTimeRate: 0.79, acceptanceRate: 0.82, delayRate: 0.34, avgRating: 3.6, costIndex: 0.82, trips: 240 },
-  { id: 'NET-J', label: 'Carrier J', onTimeRate: 0.93, acceptanceRate: 0.68, delayRate: 0.13, avgRating: 4.7, costIndex: 1.22, trips: 150 },
-  { id: 'NET-K', label: 'Carrier K', onTimeRate: 0.76, acceptanceRate: 0.9, delayRate: 0.38, avgRating: 3.4, costIndex: 0.78, trips: 290 },
+  { id: 'NET-A', label: 'Carrier A', onTimeRate: 0.96, acceptanceRate: 0.93, delayRate: 0.09, costIndex: 1.18, trips: 410 },
+  { id: 'NET-B', label: 'Carrier B', onTimeRate: 0.94, acceptanceRate: 0.88, delayRate: 0.12, costIndex: 1.09, trips: 350 },
+  { id: 'NET-C', label: 'Carrier C', onTimeRate: 0.91, acceptanceRate: 0.95, delayRate: 0.16, costIndex: 1.02, trips: 505 },
+  { id: 'NET-D', label: 'Carrier D', onTimeRate: 0.9, acceptanceRate: 0.8, delayRate: 0.18, costIndex: 0.97, trips: 260 },
+  { id: 'NET-E', label: 'Carrier E', onTimeRate: 0.88, acceptanceRate: 0.9, delayRate: 0.21, costIndex: 0.94, trips: 385 },
+  { id: 'NET-F', label: 'Carrier F', onTimeRate: 0.86, acceptanceRate: 0.76, delayRate: 0.24, costIndex: 0.9, trips: 220 },
+  { id: 'NET-G', label: 'Carrier G', onTimeRate: 0.84, acceptanceRate: 0.85, delayRate: 0.27, costIndex: 0.88, trips: 300 },
+  { id: 'NET-H', label: 'Carrier H', onTimeRate: 0.82, acceptanceRate: 0.7, delayRate: 0.3, costIndex: 0.85, trips: 175 },
+  { id: 'NET-I', label: 'Carrier I', onTimeRate: 0.79, acceptanceRate: 0.82, delayRate: 0.34, costIndex: 0.82, trips: 240 },
+  { id: 'NET-J', label: 'Carrier J', onTimeRate: 0.93, acceptanceRate: 0.68, delayRate: 0.13, costIndex: 1.22, trips: 150 },
+  { id: 'NET-K', label: 'Carrier K', onTimeRate: 0.76, acceptanceRate: 0.9, delayRate: 0.38, costIndex: 0.78, trips: 290 },
 ];
 
 /**

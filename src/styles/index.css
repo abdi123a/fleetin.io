@@ -185,6 +185,8 @@
   --color-tile-foreground: var(--tile-foreground);
   --color-tile-done: var(--tile-done);
   --color-tile-done-foreground: var(--tile-done-foreground);
+  --color-tile-ink: var(--tile-ink);
+  --color-tile-ink-foreground: var(--tile-ink-foreground);
 
   /* Container state — teal full, yellow empty, grey returned (see tokens.semantic.css) */
   --color-container-full: var(--container-full);
@@ -205,6 +207,11 @@
   /* Empty-container lifecycle stage — see tokens.semantic.css. Two axes:
      --container-* is what is inside the box, --stage-* is what is happening
      to it. A box can be EMPTY and PAIRED at once, hence both scales. */
+  --color-stage-loaded: var(--stage-loaded);
+  --color-stage-loaded-foreground: var(--stage-loaded-foreground);
+  --color-stage-loaded-subtle: var(--stage-loaded-subtle);
+  --color-stage-loaded-subtle-foreground: var(--stage-loaded-subtle-foreground);
+  --color-stage-loaded-border: var(--stage-loaded-border);
   --color-stage-available: var(--stage-available);
   --color-stage-available-foreground: var(--stage-available-foreground);
   --color-stage-available-subtle: var(--stage-available-subtle);
@@ -220,6 +227,7 @@
   --color-stage-returning-subtle: var(--stage-returning-subtle);
   --color-stage-returning-subtle-foreground: var(--stage-returning-subtle-foreground);
   --color-stage-returning-border: var(--stage-returning-border);
+  --color-stage-returning-on-fill: var(--stage-returning-on-fill);
   --color-stage-closed: var(--stage-closed);
   --color-stage-closed-foreground: var(--stage-closed-foreground);
   --color-stage-closed-subtle: var(--stage-closed-subtle);

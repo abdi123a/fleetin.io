@@ -318,6 +318,14 @@ export interface MissionOverview {
   closedAt: number | null;
   /** The lifecycle's own word for where the mission stands, in plain language. */
   lifecycleStatus: string;
+  /**
+   * The booking's raw ladder word, unmapped.
+   *
+   * `lifecycleStatus` groups rungs for reading ("Empty Picked Up" and "Empty
+   * Ready" both print as one phrase), and the container-state rule keys on the
+   * rung itself — so an aggregate over these reports needs the original.
+   */
+  status: string;
   /** Cancelled or Failed — a mission with no performance to report. */
   isTerminated: boolean;
 }
@@ -466,6 +474,7 @@ export function computeMissionReport({
       emptyReturnedAt: events.empty_returned ?? null,
       closedAt: events.mission_closed ?? null,
       lifecycleStatus: displayShipmentStatus(booking.status),
+      status: booking.status,
       isTerminated,
     },
     events,

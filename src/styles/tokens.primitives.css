@@ -43,18 +43,26 @@
   --fl-orange-950: #452b02;
 
 
-  /* COLOR — Status: Green (verified, delivered, fulfilled) */
-  --fl-green-50: #edf7ee;
-  --fl-green-100: #d3ebd5;
-  --fl-green-200: #a9d7ad;
-  --fl-green-300: #7bbf80;
-  --fl-green-400: #52a458;
-  --fl-green-500: #2e7d32;
-  --fl-green-600: #29702c;
-  --fl-green-700: #215b24;
-  --fl-green-800: #1b491d;
-  --fl-green-900: #163c18;
-  --fl-green-950: #0a200c;
+  /* COLOR — Status: Green (verified, delivered, fulfilled)
+   *
+   * Re-saturated on 2026-08-30. The ramp was a desaturated forest green
+   * (#2e7d32 at 500) — grey enough at a 14px verified tick that it read as a
+   * dark mark rather than a green one, and beside the amber and red status
+   * glyphs it was the only one of the three that did not look like a colour.
+   * Same lightness steps, far more chroma, so nothing that sat on this ramp
+   * changes contrast: 500 still clears 3:1 on white for a glyph and carries a
+   * white check inside it. */
+  --fl-green-50: #e9fbf0;
+  --fl-green-100: #c6f2d8;
+  --fl-green-200: #90e5b4;
+  --fl-green-300: #52d38c;
+  --fl-green-400: #1fbc67;
+  --fl-green-500: #0d9f4f;
+  --fl-green-600: #0b8743;
+  --fl-green-700: #096e36;
+  --fl-green-800: #07562a;
+  --fl-green-900: #054220;
+  --fl-green-950: #02240f;
 
   /* COLOR — Status: Red (destructive, failed, rejected) */
   --fl-red-50: #fdeeee;

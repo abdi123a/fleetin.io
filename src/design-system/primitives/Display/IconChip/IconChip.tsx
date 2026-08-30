@@ -35,6 +35,8 @@ export type IconChipTint =
   | 'blue'
   | 'neutral'
   | 'on-teal'
+  | 'on-green'
+  | 'on-done'
   | 'on-light';
 
 export type IconChipSize = 44 | 36;
@@ -48,6 +50,13 @@ const CHIP_TINT: Record<IconChipTint, string> = {
   neutral: 'bg-muted-foreground text-background',
   /* On a filled tile the card carries the hue, so the disc inverts. */
   'on-teal': 'bg-white text-tile-teal',
+  /* The same inversion for the shipment ladder's other two filled tiles.
+     Written as a token *pair* rather than a literal white, because both of
+     these grounds flip between themes — `--tile-done` is a near-black slab on
+     light and a near-white one on dark, so a hard-coded white disc would
+     vanish into it the moment the theme changed. */
+  'on-green': 'bg-success-foreground text-success',
+  'on-done': 'bg-tile-done-foreground text-tile-done',
   'on-light': 'bg-white text-tile-foreground',
 };
 

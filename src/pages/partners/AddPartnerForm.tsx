@@ -9,9 +9,11 @@ import {
   Plus,
   User,
   MapPin,
+  Paperclip,
 } from '@/design-system/icons';
 import { Check } from 'lucide-react';
 import { Badge, Button, Checkbox, Input, Select } from '@/design-system';
+import { PARTNER_STATUS_OPTIONS } from '@/components/common';
 import { getCountryOptions } from '@/data/geoData';
 import { useCreateDocumentType, useDocumentTypes } from '@/features/documents/api/queries';
 import type { DocumentTypeRecord } from '@/features/documents/api/documentsService';
@@ -45,6 +47,8 @@ export interface PartnerFormData {
   uploadedDocuments: PartnerDocument[];
   /** Real file bytes for any not-yet-persisted upload, keyed by document category — uploaded to the backend after the partner record exists. */
   stagedFiles: Record<string, File>;
+  /** The picked file, for the page to upload once the partner has an id. */
+  logo?: File | null;
   logoUrl?: string;
 
   // Optional legacy fields maintained for backwards compat
@@ -75,6 +79,13 @@ interface StepDef {
   description: string;
   icon: React.ComponentType<{ className?: string }>;
 }
+
+/** The account ladder, in the order the list's tabs show it — see
+    `@/components/common/AccountStatus`, which owns the same four states. */
+const STATUS_OPTIONS = PARTNER_STATUS_OPTIONS.map((option) => ({
+  value: option.value,
+  label: option.label,
+}));
 
 const STEPS: [StepDef, ...StepDef[]] = [
   {
@@ -115,6 +126,27 @@ const DEFAULT_FORM: PartnerFormData = {
 export function AddPartnerForm({ initialData, isEdit = false, onSuccess, onCancel }: AddPartnerFormProps) {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [completedSteps, setCompletedSteps] = useState<number[]>([]);
+
+  const [logoPreview, setLogoPreview] = useState<string | null>(initialData?.logoUrl ?? null);
+  const [logoName, setLogoName] = useState<string | null>(null);
+
+  /**
+   * Pick a brand mark for this transporter.
+   *
+   * The upload route and its mutation both existed — `/partners/:id/logo` and
+   * `useUploadPartnerLogo` — and nothing in the UI ever called them, so a
+   * transporter could not be given a logo at all while every shipper could.
+   * The file is held on the form and uploaded by the page once the record has
+   * an id, exactly as `AddShipperForm` does it.
+   */
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const objectUrl = URL.createObjectURL(file);
+    setFormData((prev) => ({ ...prev, logo: file, logoUrl: objectUrl }));
+    setLogoName(file.name);
+    setLogoPreview(objectUrl);
+  };
 
   const [formData, setFormData] = useState<PartnerFormData>({
     ...DEFAULT_FORM,
@@ -376,6 +408,24 @@ export function AddPartnerForm({ initialData, isEdit = false, onSuccess, onCance
                     <p className="type-caption text-destructive">{errors.companyLegalName}</p>
                   )}
                 </div>
+
+                {/* The account's standing. It was in this form's state all
+                    along but had no control, so a transporter could only be
+                    created at one status and never moved off it — the reason
+                    the list's own Suspended tab could never be reached. The
+                    whole ladder in a plain select, the house idiom for a
+                    status picker. */}
+                <div className="space-y-1.5">
+                  <label htmlFor="partner-status-select" className="block type-caption font-medium text-foreground">
+                    Account Status
+                  </label>
+                  <Select
+                    id="partner-status-select"
+                    value={formData.partnerStatus}
+                    options={STATUS_OPTIONS}
+                    onChange={(e) => handleInputChange('partnerStatus', e.target.value as PartnerStatus)}
+                  />
+                </div>
               </div>
             </div>
 
@@ -410,6 +460,37 @@ export function AddPartnerForm({ initialData, isEdit = false, onSuccess, onCance
                     onChange={(e) => handleInputChange('address', e.target.value)}
                   />
                 </div>
+              </div>
+
+              {/* Brand mark. Every named transporter in the app is drawn with
+                  its logo — the queue, the recommendation panel, the dossier —
+                  so this is where that artwork comes from. */}
+              <div className="space-y-1.5">
+                <label className="block type-caption font-medium text-foreground">
+                  Company Brand Logo
+                </label>
+                <label className="relative flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg border border-border/90 bg-surface px-4 py-3 transition-colors hover:border-primary">
+                  <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/80 bg-muted/30">
+                      {logoPreview ? (
+                        <img src={logoPreview} alt="Logo preview" className="h-full w-full object-cover" />
+                      ) : (
+                        <Upload className="h-4 w-4 text-muted-foreground/60" />
+                      )}
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="type-body-sm font-medium text-foreground">
+                        {logoName || (logoPreview ? 'Logo uploaded' : 'Upload company logo')}
+                      </span>
+                      <span className="type-caption text-muted-foreground">PNG, JPG up to 5MB</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 type-body-sm font-medium text-primary hover:text-primary-hover">
+                    <span>{logoName || (logoPreview ? 'Change' : 'Upload')}</span>
+                    <Paperclip className="h-4 w-4" />
+                  </div>
+                </label>
               </div>
             </div>
 

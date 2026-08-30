@@ -22,16 +22,20 @@ import {
 } from '@/design-system';
 import { ROUTES } from '@/config/routes';
 import { BookingPreviewSheet, type BookingPreviewItem, type EmptyReturnStage } from './components';
-import { useShipment, useShipmentRaw } from '@/features/shipments/api/queries';
+import { CrewPicker, CrewStack } from '@/components/crew';
+import { useSetShipmentCrew, useShipment, useShipmentRaw } from '@/features/shipments/api/queries';
 import { useBookingsForShipment } from '@/features/bookings/api/queries';
 import { ShipmentReportPanel } from '@/components/reports';
 import { type BookingRecord } from '@/features/bookings/api/bookingsService';
-import { displayShipmentStatus, shipmentProgress, statusIntentOf } from '@/lib/shipmentStatus';
+import {
+  displayShipmentStatus,
+  shipmentProgress,
+  statusBadgeIntentOf,
+  statusCornerIntentOf,
+  statusIntentOf,
+} from '@/lib/shipmentStatus';
 import { BookingStatusPicker } from './components/BookingStatusPicker';
 import {
-  CONTAINER_STATE_BADGE_CLASS,
-  CONTAINER_STATE_BADGE_INTENT,
-  CONTAINER_STATE_CORNER_INTENT,
   carriesContainer,
   allContainersReturned,
   containerStateOf,
@@ -115,6 +119,13 @@ function bookingToPreviewItem(booking: BookingRecord, cycle: EmptyReturnCycleRec
     emptyReturnStage: emptyReturnStageOf(booking, cycle),
     emptyReadyAt: booking.emptyReadyAt ?? undefined,
     emptyReturnCycleReference: cycle?.reference,
+    driverRating: booking.driverRating,
+    driverRatingReliability: booking.driverRatingReliability,
+    driverRatingPunctuality: booking.driverRatingPunctuality,
+    driverRatingProfessionalism: booking.driverRatingProfessionalism,
+    driverNote: booking.driverNote,
+    driverRatedByName: booking.driverRatedByName,
+    driverRatedAt: booking.driverRatedAt,
   };
 }
 
@@ -184,11 +195,35 @@ export function ShipmentOverviewPage() {
   // The real Finance project this shipment was tagged to at creation (see CreateShipmentModal).
   const { data: linkedProject } = useProject(shipmentRaw?.projectId ?? undefined);
 
+  /**
+   * Who at Fleetin is on this job.
+   *
+   * Read straight off the query — no local draft. The mutation replaces the
+   * whole set and returns the shipment, so the invalidated query is the single
+   * source of truth for the stack and the picker alike; a local copy would
+   * only be a second answer to drift from it.
+   */
+  const setCrew = useSetShipmentCrew();
+  const crew = mission?.crew ?? [];
+  const crewIds = crew.map((member) => member.id);
+  const crewLeadId = crew.find((member) => member.isLead)?.id;
+
   useEffect(() => {
     if (bookingRecords) {
       setBookings(bookingRecords.map((b) => bookingToPreviewItem(b, cyclesByBookingId.get(b.id))));
     }
   }, [bookingRecords, cyclesByBookingId]);
+
+  /* The open sheet holds its own copy of the row so it can keep rendering while
+     the list refetches. That copy has to follow the list, or a debrief saved on
+     the card behind it leaves the sheet showing the version from before the
+     note — which reads as "the rating did not save" and sends the reader to the
+     refresh button. Matched by id; an unmatched row keeps what it had. */
+  useEffect(() => {
+    setSelectedBooking((current) =>
+      current ? (bookings.find((row) => row.id === current.id) ?? current) : current,
+    );
+  }, [bookings]);
 
   // Deep link from Empty Return's cycle detail ("open this container's own
   // booking") — `?openBooking=<id>` opens the matching card's preview sheet
@@ -299,13 +334,18 @@ export function ShipmentOverviewPage() {
   }
 
   /**
-   * The masthead speaks the same container scale as the cards below it — teal
-   * while boxes are still full, brand yellow while one is out empty, grey once
-   * they are all home.
+   * The masthead speaks the same ladder phase as the booking cards below it and
+   * the shipment cards in the directory — teal booked, **green in transit**,
+   * grey once every box is home.
    *
-   * The slab itself carries it, not just the chip: a shipment is either live or
-   * history, and that is the first thing worth knowing on opening the page.
-   * White ink either way, so nothing inside the header changes with it.
+   * The slab itself carries it, not just the chip: a shipment is either not
+   * started, running or history, and that is the first thing worth knowing on
+   * opening the page. White ink throughout, so nothing inside the header
+   * changes with it.
+   *
+   * The done arm is checked first and reads the boxes rather than the rung,
+   * because "finished" here means every container is back — a fact about the
+   * bookings, which is what `containerSplit` counts.
    */
   const slab = containerSplit.done
     ? {
@@ -315,15 +355,34 @@ export function ShipmentOverviewPage() {
         fgSoft: 'text-tile-done-foreground/85',
         rule: 'bg-tile-done-foreground/30',
         ink: 'text-tile-done',
+        /* The crew stack derives every one of its colours from the tile, and
+           cannot see which one it is sitting on — so the tile says. */
+        crewTone: 'tile-done' as const,
       }
-    : {
-        bg: 'bg-tile-teal',
-        fg: 'text-tile-teal-foreground',
-        fgMuted: 'text-tile-teal-foreground/80',
-        fgSoft: 'text-tile-teal-foreground/85',
-        rule: 'bg-tile-teal-foreground/30',
-        ink: 'text-tile-teal',
-      };
+    : /* In transit — every box still loaded and the job under way. The slab
+         goes green, the same green the booking cards below it and the shipment
+         cards in the directory already wear for these rungs. It used to stay
+         teal, so a shipment that had not left yet and one halfway through
+         opened on the identical masthead. */
+      statusIntentOf(mission.status) === 'green'
+      ? {
+          bg: 'bg-success',
+          fg: 'text-success-foreground',
+          fgMuted: 'text-success-foreground/80',
+          fgSoft: 'text-success-foreground/85',
+          rule: 'bg-success-foreground/30',
+          ink: 'text-success',
+          crewTone: 'tile-success' as const,
+        }
+      : {
+          bg: 'bg-tile-teal',
+          fg: 'text-tile-teal-foreground',
+          fgMuted: 'text-tile-teal-foreground/80',
+          fgSoft: 'text-tile-teal-foreground/85',
+          rule: 'bg-tile-teal-foreground/30',
+          ink: 'text-tile-teal',
+          crewTone: 'tile-teal' as const,
+        };
 
   /**
    * The status chip, coloured on the slab rather than on a card.
@@ -469,6 +528,27 @@ export function ShipmentOverviewPage() {
 
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             {/*
+             * Who at Fleetin is on it.
+             *
+             * On the masthead rather than in a panel below, because "whose job
+             * is this" belongs with the reference and the status — it is one of
+             * the three things you open a shipment to find out, and the answer
+             * used to live only in somebody's head. Clicking the stack opens
+             * the team; the dashed placeholder is the empty state, and it is a
+             * hole worth filling rather than a control that hides when unused.
+             */}
+            <CrewPicker
+              value={crewIds}
+              leadUserId={crewLeadId}
+              busy={setCrew.isPending}
+              onChange={(userIds, leadUserId) =>
+                setCrew.mutate({ id: mission.id, userIds, leadUserId })
+              }
+            >
+              <CrewStack crew={crew} tone={slab.crewTone} size="md" interactive className="mr-1" />
+            </CrewPicker>
+
+            {/*
              * On a filled tile the action inverts: white plate, teal ink — the
              * same pair `IconChip`'s `on-teal` uses. Literal white, not
              * `bg-card`, because the tile holds its colour in both themes and a
@@ -534,38 +614,55 @@ export function ShipmentOverviewPage() {
 
             /* No box on this booking (a bulk or machinery load) — it has no
                full/empty state at all, so it keeps the ladder's own colours. */
-            const getBadgeIntent = () => {
-              if (containerState) return CONTAINER_STATE_BADGE_INTENT[containerState];
-              switch (item.statusIntent) {
-                case 'green': return 'success';
-                case 'blue': return 'info';
-                case 'orange': return 'warning';
-                default: return 'default';
-              }
-            };
+            /* The ladder's phase, not the container's state. The card already
+               wears a FULL/EMPTY tag saying what is inside the box; this badge
+               answers the other question — how far along the job is — and it
+               used to be overruled by the container state, so every booking in
+               transit printed the teal of a loaded box instead of the green of
+               work in progress. */
+            const getBadgeIntent = () => statusBadgeIntentOf(item.status);
 
             return (
               <div
                 key={item.id}
                 onClick={() => handleBookingClick(item)}
-                className="relative overflow-hidden rounded-lg border border-border/80 bg-card hover:border-primary/50 transition cursor-pointer p-3 pt-9 group shadow-2xs"
+                className="group relative overflow-hidden rounded-lg border border-border/80 bg-card p-3 shadow-2xs transition cursor-pointer hover:border-primary/50"
               >
-                {/* Corner Badge */}
-                <div className="absolute top-0 left-0">
+                {/*
+                  * The card's header, and it is a ROW.
+                  *
+                  * The reference tab and the status control used to be two
+                  * absolutely-positioned children — `top-0 left-0` and
+                  * `top-2 right-2` — with `pt-9` reserving a band for them.
+                  * Neither knew the other existed, so on a narrow card (the
+                  * grid goes two-up on a phone, and the drawer is 448px) the
+                  * tab grew under the status pill and the booking number was
+                  * read through it. In flow they share a line and cannot
+                  * collide at any width; the negative margins keep the tab
+                  * bled into the card's corner, which is the whole point of a
+                  * corner badge.
+                  */}
+                <div className="-ml-3 -mt-3 mb-2.5 flex items-start gap-2">
                   <CornerBadge
                     label={`Booking No. ${item.bookingNumber}`}
-                    intent={containerState ? CONTAINER_STATE_CORNER_INTENT[containerState] : 'teal'}
+                    /* The phase, like the status badge opposite it — see
+                       `statusCornerIntentOf`. Reading the container state here
+                       left the tab teal through all three transit rungs while
+                       the badge went green. */
+                    intent={statusCornerIntentOf(item.status)}
                     position="top"
+                    className="min-w-0 [&>span]:truncate"
                   />
-                </div>
 
-                {/* Status badge, and the control. Changing a rung is the most
-                    frequent action in the app and it used to cost three clicks
-                    and a side panel over the rest of the shipment; the badge
-                    already says the status, so it is what you click. */}
-                <div className="absolute top-2 right-2 flex items-center gap-1.5">
+                  {/* Status badge, and the control. Changing a rung is the most
+                      frequent action in the app and it used to cost three clicks
+                      and a side panel over the rest of the shipment; the badge
+                      already says the status, so it is what you click. */}
+                  <div className="ml-auto mt-2 flex shrink-0 items-center gap-1.5">
                   <BookingStatusPicker
-                    booking={item}
+                    /* The shipper's name rides along so the closing debrief can
+                       say who it is asking about. */
+                    booking={{ ...item, shipperCompany: shipmentRaw?.customerCompany }}
                     onChanged={(status) =>
                       setBookings((prev) =>
                         prev.map((row) =>
@@ -576,16 +673,22 @@ export function ShipmentOverviewPage() {
                       )
                     }
                   >
+                    {/* Solid, not subtle. The phase colour on a pale wash was
+                        the same hue as the verified tick beside it and still
+                        looked like a different mark — a tinted pill and a solid
+                        disc do not read as one colour however exactly their
+                        hexes agree. Filled, the badge *is* the green. */}
                     <Badge
-                      variant="subtle"
+                      variant="solid"
                       intent={getBadgeIntent()}
                       size="sm"
-                      className={`cursor-pointer gap-1 pr-1.5 ${containerState ? CONTAINER_STATE_BADGE_CLASS[containerState] : ''}`}
+                      className="cursor-pointer gap-1 pr-1.5"
                     >
                       {displayShipmentStatus(item.status)}
                       <ChevronDown className="size-3 opacity-60" aria-hidden />
                     </Badge>
                   </BookingStatusPicker>
+                  </div>
                 </div>
 
                 {/* Fields */}
@@ -639,9 +742,16 @@ export function ShipmentOverviewPage() {
                   </BookingField>
 
                   <BookingField label="Vehicle No.">
-                    <div className="flex items-center gap-1">
-                      <span className="font-semibold text-foreground">{item.vehicleNumber}</span>
-                      {item.vehicleVerified && <VerificationBadge state="verified" size="sm" />}
+                    {/* `min-w-0` + `truncate`: a plate is one token, so a
+                        narrow card broke "DT-2238-DJ" across two lines at the
+                        hyphen and pushed the verified tick onto a third. */}
+                    <div className="flex min-w-0 items-center gap-1">
+                      <span className="truncate font-semibold text-foreground" title={item.vehicleNumber}>
+                        {item.vehicleNumber}
+                      </span>
+                      {item.vehicleVerified && (
+                        <VerificationBadge state="verified" size="sm" />
+                      )}
                     </div>
                   </BookingField>
 
@@ -711,6 +821,7 @@ export function ShipmentOverviewPage() {
 
       {/* BOOKING PREVIEW SIDE SHEET */}
       <BookingPreviewSheet
+        shipperCompany={shipmentRaw?.customerCompany}
         open={isBookingSheetOpen}
         booking={selectedBooking}
         onClose={() => setIsBookingSheetOpen(false)}

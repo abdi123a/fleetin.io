@@ -133,11 +133,6 @@ export function formatDelta(deltaPct: number | undefined): string | undefined {
   return `${sign}${pct.toFixed(1)}%`;
 }
 
-/** "4.6★" — ratings carry their star so they never read as a count. */
-export function formatRating(value: number): string {
-  return `${value.toFixed(1)}★`;
-}
-
 /** Whether a change is good news, given what the metric measures. */
 export function deltaIntent(
   deltaPct: number | undefined,

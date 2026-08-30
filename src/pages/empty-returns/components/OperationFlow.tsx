@@ -60,7 +60,10 @@ const TONE: Record<FlowCardProps['tone'], string> = {
 function FlowCard({ label, tone, children }: FlowCardProps) {
   return (
     <div className={cn('min-w-40 flex-1 rounded-card-nested px-3.5 py-3', TONE[tone])}>
-      <div className="text-2xs font-extrabold uppercase tracking-widest opacity-70">{label}</div>
+      {/* "Delivered full load", not "DELIVERED FULL LOAD". Three tracked
+          all-caps card titles beside four more in the dialog around them left
+          nothing quiet enough to read first. */}
+      <div className="text-2xs font-bold opacity-70">{label}</div>
       <div className="mt-1">{children}</div>
     </div>
   );
@@ -69,9 +72,12 @@ function FlowCard({ label, tone, children }: FlowCardProps) {
 /** Same container, new state. Deliberately quiet — nothing changed hands here. */
 function UnloadArrow() {
   return (
-    <div className="flex shrink-0 flex-col items-center justify-center self-center px-1.5">
-      <ArrowRight className="size-4 text-border-strong" aria-hidden />
-      <span className="text-[7px] font-bold uppercase tracking-wider text-muted-foreground">
+    <div className="flex shrink-0 flex-row items-center justify-center gap-1.5 self-center px-1.5 @[36rem]/flow:flex-col @[36rem]/flow:gap-0">
+      <ArrowRight
+        className="size-4 rotate-90 text-border-strong @[36rem]/flow:rotate-0"
+        aria-hidden
+      />
+      <span className="text-[8px] font-semibold uppercase tracking-wide text-muted-foreground">
         Unloaded
       </span>
     </div>
@@ -81,9 +87,12 @@ function UnloadArrow() {
 /** Two different containers, linked. The label is the whole point of the mark. */
 function PairArrow() {
   return (
-    <div className="flex shrink-0 flex-col items-center justify-center self-center px-1.5">
-      <ArrowLeftRight className="size-4 text-primary" aria-hidden />
-      <span className="text-[7px] font-extrabold uppercase tracking-wider text-primary">Paired</span>
+    <div className="flex shrink-0 flex-row flex-wrap items-center justify-center gap-x-1.5 self-center px-1.5 @[36rem]/flow:flex-col @[36rem]/flow:gap-x-0">
+      <ArrowLeftRight
+        className="size-4 rotate-90 text-primary @[36rem]/flow:rotate-0"
+        aria-hidden
+      />
+      <span className="text-[8px] font-bold uppercase tracking-wide text-primary">Paired</span>
       <span className="whitespace-nowrap text-[7px] text-muted-foreground">different container</span>
     </div>
   );
@@ -101,7 +110,15 @@ export function OperationFlow({ record, now, className }: OperationFlowProps) {
   const dwell = emptyDwellOf(record, now);
 
   return (
-    <div className={cn('flex items-stretch gap-1', className)}>
+    /* Stacks below 36rem instead of scrolling sideways. Three cards at their
+       160px minimum plus two arrows need ~560px, and inside a dialog on a phone
+       there are 340. Sideways was the old answer and it hid the third card —
+       the one that says what happens next — behind a drag nobody performs. The
+       query is on the flow itself, not the viewport: this strip is dropped into
+       a dialog, a row card and a page, each of which hands it a different
+       width at the same screen size. */
+    <div className={cn('@container/flow', className)}>
+      <div className="flex flex-col items-stretch gap-1 @[36rem]/flow:flex-row">
       {/* PAST — the full load that produced this empty */}
       <FlowCard label="Delivered full load" tone="full">
         <div className="flex items-center gap-1.5">
@@ -176,6 +193,7 @@ export function OperationFlow({ record, now, className }: OperationFlowProps) {
           <div className="mt-0.5 text-2xs">Find a full load, or plan the empty return.</div>
         </FlowCard>
       )}
+      </div>
     </div>
   );
 }

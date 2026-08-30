@@ -15,6 +15,7 @@ import { DocumentViewerModal, type DocumentToView } from '@/components/DocumentV
 import { triggerDocumentDownload } from '@/components/documentDownload';
 import { Check } from 'lucide-react';
 import { Badge, Button, Checkbox, Input, Select } from '@/design-system';
+import { SHIPPER_STATUS_OPTIONS } from '@/components/common';
 import { useCreateDocumentType, useDocumentTypes } from '@/features/documents/api/queries';
 
 import { getCountryOptions } from '@/data/geoData';
@@ -56,6 +57,13 @@ export interface AddShipperFormProps {
   onSuccess?: (data: ShipperFormData) => void;
   onCancel?: () => void;
 }
+
+/** The account ladder, in the order the list's tabs show it — see
+    `@/components/common/AccountStatus`, which owns the same four states. */
+const STATUS_OPTIONS = SHIPPER_STATUS_OPTIONS.map((option) => ({
+  value: option.value,
+  label: option.label,
+}));
 
 const SIZE_OPTIONS = [
   { value: 'Micro (1-10)', label: 'Micro (1-10 employees)' },
@@ -401,6 +409,24 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
                     placeholder="Select Size"
                     options={SIZE_OPTIONS}
                     onChange={(e) => handleInputChange('companySize', e.target.value as CompanySize)}
+                  />
+                </div>
+
+                {/* The account's standing. It was in this form's state all
+                    along but had no control, so an account could only be
+                    created at one status and never moved off it — the reason
+                    taking a shipper out of circulation meant deleting it.
+                    The whole ladder in a plain select, the house idiom for a
+                    status picker. */}
+                <div className="space-y-1.5">
+                  <label htmlFor="approval-status-select" className="block type-caption font-medium text-foreground">
+                    Account Status
+                  </label>
+                  <Select
+                    id="approval-status-select"
+                    value={formData.approvalStatus}
+                    options={STATUS_OPTIONS}
+                    onChange={(e) => handleInputChange('approvalStatus', e.target.value as ApprovalStatus)}
                   />
                 </div>
               </div>

@@ -5,6 +5,7 @@ import {
   Building2,
   CheckCircle2,
   Download,
+  ExternalLink,
   Eye,
   FileText,
   MapPin,
@@ -26,6 +27,7 @@ import { DocumentViewerModal, type DocumentToView } from '@/components/DocumentV
 import {
   AlertTriangle,
   BadgeCheck,
+  Star,
   Users,
 } from 'lucide-react';
 import { PageHeader, TablePager, usePagedRows } from '@/components';
@@ -61,6 +63,7 @@ import {
   usePartner,
   useRemovePricingTier,
   useUpdatePartner,
+  useUploadPartnerLogo,
 } from '@/features/partners/api/queries';
 import { useCreateDriver, useDeleteDriver } from '@/features/drivers/api/queries';
 import { useCreateVehicle, useDeleteVehicle } from '@/features/vehicles/api/queries';
@@ -73,6 +76,9 @@ import { downloadDocument, toDisplayDocument } from '@/features/documents/api/do
 import { useBreadcrumbLabel } from '@/hooks/useBreadcrumbLabel';
 import { useBookings } from '@/features/bookings/api/queries';
 import type { BookingRecord } from '@/features/bookings/api/bookingsService';
+import { DriverRatingRow, PerformancePanel, RatingTrendChart } from '@/components/performance';
+import { DriverProfileSheet } from '@/components/drivers';
+import { UNRATED, fleetRatingTrend, summariseFleet, summarisePerformance } from '@/lib/rating';
 import { displayShipmentStatus, statusIntentOf } from '@/lib/shipmentStatus';
 import { containerStateOf } from '@/lib/containerState';
 
@@ -152,6 +158,7 @@ export function PartnerDetailPage() {
   const { data: partner, isLoading: isPartnerLoading } = usePartner(partnerId);
   useBreadcrumbLabel(partner?.companyLegalName);
   const updatePartnerMutation = useUpdatePartner();
+  const uploadLogo = useUploadPartnerLogo();
   const createDriverMutation = useCreateDriver();
   const deleteDriverMutation = useDeleteDriver();
   const createVehicleMutation = useCreateVehicle();
@@ -166,6 +173,11 @@ export function PartnerDetailPage() {
 
   const drivers = useMemo<PartnerDriver[]>(() => partner?.drivers ?? [], [partner]);
   const vehicles = useMemo<PartnerVehicle[]>(() => partner?.vehicles ?? [], [partner]);
+
+  /* Clicking a driver used to navigate to the Drivers page. Being thrown out
+     of a transporter's dossier to read one of its own drivers is the wrong
+     answer — the profile opens here instead, over the dossier. */
+  const [openDriverId, setOpenDriverId] = useState<string | null>(null);
 
   // ── Driver form ──
   const [showAddDriver, setShowAddDriver] = useState(false);
@@ -237,6 +249,13 @@ export function PartnerDetailPage() {
   // ── Handlers ──
   const handleEditSuccess = (formData: PartnerFormData) => {
     if (!partner) return;
+    /* Its own request: the logo goes to `/partners/:id/logo` as multipart, not
+       as a field on the profile PATCH. Fired alongside rather than awaited —
+       the profile save is what the operator is waiting on, and a failed logo
+       upload should not lose the rest of the edit. */
+    if (formData.logo) {
+      uploadLogo.mutate({ id: partner.id, file: formData.logo });
+    }
     updatePartnerMutation.mutate(
       {
         id: partner.id,
@@ -397,6 +416,33 @@ export function PartnerDetailPage() {
     [bookingPage],
   );
 
+  /**
+   * This carrier's record, and each of its drivers'.
+   *
+   * Both read the same booking rows the tab below already loaded — one request,
+   * and the carrier's star and its drivers' stars can never disagree because
+   * they are the same arithmetic over the same set. Cancelled and failed
+   * bookings are deliberately *kept* here, unlike `partnerShipments`: they are
+   * the whole of the reliability axis.
+   */
+  const partnerBookings = useMemo(() => bookingPage?.items ?? [], [bookingPage]);
+  /* The carrier's own star is its drivers' marks — see `summariseFleet`.
+     Its mission figures still count every booking, driver or not. */
+  const partnerPerformance = useMemo(() => summariseFleet(partnerBookings), [partnerBookings]);
+  const partnerTrend = useMemo(() => fleetRatingTrend(partnerBookings), [partnerBookings]);
+  const driverPerformance = useMemo(() => {
+    const byDriver = new Map<string, BookingRecord[]>();
+    for (const booking of partnerBookings) {
+      if (!booking.driverId) continue;
+      const bucket = byDriver.get(booking.driverId);
+      if (bucket) bucket.push(booking);
+      else byDriver.set(booking.driverId, [booking]);
+    }
+    return new Map(
+      [...byDriver].map(([driverId, bookings]) => [driverId, summarisePerformance(bookings)]),
+    );
+  }, [partnerBookings]);
+
   const shipmentStats = useMemo(() => {
     const inTransit = partnerShipments.filter((s) => s.bucket === 'IN_TRANSIT').length;
     const delivered = partnerShipments.filter((s) => s.bucket === 'DELIVERED' || s.bucket === 'PAID').length;
@@ -423,7 +469,31 @@ export function PartnerDetailPage() {
     return matchesSearch && matchesFilter;
   });
 
-  const pagedDrivers = usePagedRows(drivers, { pageSize: driversPageSize });
+  /* Best record first. A roster in insertion order is a list; in rating order
+     it answers the question the transporter profile is open for. */
+  const rankedDrivers = useMemo(
+    () =>
+      [...drivers].sort((a, b) => {
+        const left = driverPerformance.get(a.id)?.overall ?? -1;
+        const right = driverPerformance.get(b.id)?.overall ?? -1;
+        return right - left || a.fullName.localeCompare(b.fullName);
+      }),
+    [drivers, driverPerformance],
+  );
+  const pagedDrivers = usePagedRows(rankedDrivers, { pageSize: driversPageSize });
+  /**
+   * The driver whose profile is open.
+   *
+   * This used to stitch a truck onto them: `/partners/:id` returns drivers and
+   * vehicles as two flat lists, and the standing pairing lived on the vehicle
+   * side, so the profile had to reach across to find it. There is no standing
+   * pairing any more — a driver and a truck meet on a booking — so the driver
+   * is simply the driver.
+   */
+  const openDriver = useMemo(
+    () => drivers.find((d) => d.id === openDriverId) ?? null,
+    [drivers, openDriverId],
+  );
   const pagedVehicles = usePagedRows(vehicles, { pageSize: vehiclesPageSize });
   const pagedDocuments = usePagedRows(documents, { pageSize: documentsPageSize });
   const pagedShipments = usePagedRows(filteredShipments, {
@@ -475,7 +545,16 @@ export function PartnerDetailPage() {
 
       {/* Edit Drawer */}
       <Sheet open={isEditOpen} onOpenChange={setIsEditOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto p-6 sm:p-8 bg-background border-l border-border">
+        {/* The house width and the house padding — the same `AddPartnerForm` in
+            the same sheet on the Partners list is `sm:max-w-md` with `p-0`, and
+            this one was `sm:max-w-2xl` with `p-6 sm:p-8` on top of the form's
+            own padding. Two sizes for one form, and the wide one doubled its
+            gutters. `sm:max-w-2xl` is for analytics drill-downs and the
+            document viewer, not for a two-step profile form. */}
+        <SheetContent
+          side="right"
+          className="flex h-full w-full flex-col gap-0 overflow-hidden border-l border-border bg-background p-0 sm:max-w-md"
+        >
           <SheetTitle className="sr-only">Edit Transporter Profile</SheetTitle>
           <SheetDescription className="sr-only">Transporter details and compliance.</SheetDescription>
           <AddPartnerForm
@@ -504,30 +583,44 @@ export function PartnerDetailPage() {
       {/* ========================================================================= */}
       {/* SIDEBAR NAVIGATION LAYOUT: LEFT NAVIGATION SIDEBAR & RIGHT CONTENT        */}
       {/* ========================================================================= */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      {/* A named column, not `col-span-3` of twelve.
+          A twelfth-based sidebar is a *percentage*, so at 1180px it collapsed to
+          about 200px and everything inside it broke at once: the carrier's name
+          truncated to "Ad…", the nav labels each wrapped to two ragged lines and
+          "26 / 28" split across a line break. None of those were three bugs —
+          they were one column that had no floor. It is 260px now and gives that
+          width back to the content when there is room, and the whole thing
+          stacks below `lg` as before. */}
+      <div className="grid grid-cols-1 items-start gap-6 lg:[grid-template-columns:minmax(260px,300px)_minmax(0,1fr)]">
 
         {/* ----------------------------------------------------------------- */}
         {/* LEFT SIDEBAR: BRAND CARD & SECTION NAVIGATION TABS                */}
         {/* ----------------------------------------------------------------- */}
-        <div className="lg:col-span-3 space-y-4 lg:sticky lg:top-6">
+        <div className="min-w-0 space-y-4 lg:sticky lg:top-6">
           {/* Identity Summary Card */}
           <Card className="p-5 border border-border bg-card rounded-lg shadow-2xs space-y-4">
-            <div className="flex items-center gap-3.5">
-              <div className="h-14 w-14 rounded-lg overflow-hidden border border-border/80 bg-surface-sunken flex items-center justify-center shrink-0 shadow-2xs">
+            {/* Logo above the name, not beside it. Side by side, a 56px mark
+                and its gap ate a third of the card and left the name about
+                85px — enough for "Ad…". Stacked, the name gets the whole
+                width and wraps instead of being cut. */}
+            <div className="space-y-3">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/80 bg-surface-sunken shadow-2xs">
                 {partner.logoUrl ? (
-                  <img src={partner.logoUrl} alt={partner.companyLegalName} className="h-full w-full object-cover" />
+                  <img src={partner.logoUrl} alt="" className="h-full w-full object-cover" />
                 ) : (
                   <Truck className="h-7 w-7 text-primary" />
                 )}
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <h3 className="font-extrabold text-foreground text-lg truncate" title={partner.companyLegalName}>
+              <div className="min-w-0">
+                <div className="flex items-start gap-1.5">
+                  <h3 className="min-w-0 text-lg font-extrabold leading-tight text-foreground [overflow-wrap:anywhere]">
                     {partner.companyLegalName}
                   </h3>
-                  <VerificationBadge state={partner.partnerStatus === 'Active' ? 'verified' : 'unverified'} size="lg" />
+                  <span className="mt-0.5 shrink-0">
+                    <VerificationBadge state={partner.partnerStatus === 'Active' ? 'verified' : 'unverified'} size="lg" />
+                  </span>
                 </div>
-                <div className="mt-0.5">
+                <div className="mt-1.5">
                   <Badge intent={partner.partnerStatus === 'Active' ? 'success' : 'warning'} size="sm">
                     {partner.partnerStatus} Transporter
                   </Badge>
@@ -536,9 +629,9 @@ export function PartnerDetailPage() {
             </div>
 
             <div className="pt-3 border-t border-border/60 space-y-2 text-xs">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <MapPin className="h-3.5 w-3.5 text-primary shrink-0" />
-                <span className="truncate">{partner.address}, {partner.country}</span>
+              <div className="flex items-start gap-2 text-muted-foreground">
+                <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                <span className="min-w-0 leading-snug">{partner.address}, {partner.country}</span>
               </div>
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Truck className="h-3.5 w-3.5 text-primary shrink-0" />
@@ -578,7 +671,7 @@ export function PartnerDetailPage() {
               }`}
             >
               <Truck className="h-4 w-4 shrink-0" />
-              <span>Fleet & Compliance</span>
+              <span className="min-w-0 text-left leading-snug">Fleet &amp; Compliance</span>
             </button>
 
             {/* Shipments & Cargo Tab Button */}
@@ -592,39 +685,45 @@ export function PartnerDetailPage() {
               }`}
             >
               <Package className="h-4 w-4 shrink-0" />
-              <span>Shipments & Cargo</span>
+              <span className="min-w-0 text-left leading-snug">Shipments &amp; Cargo</span>
             </button>
           </Card>
 
-          {/* POD Documents Compliance Progress Widget */}
-          <Card className="p-4 border border-border/80 bg-card rounded-lg shadow-2xs space-y-2.5">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-bold text-muted-foreground uppercase text-[10px] tracking-wider flex items-center gap-1.5">
-                <FileText className="h-3.5 w-3.5 text-primary" />
-                POD Compliance
-              </span>
-              <span className="font-black text-success-subtle-foreground">
-                26 / 28
-              </span>
-            </div>
-            <div className="w-full bg-muted/80 h-2 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-success rounded-full transition-all duration-500"
-                style={{ width: '93%' }}
-              />
-            </div>
-            <span className="text-[11px] font-medium text-muted-foreground block">
-              <strong className="text-warning-subtle-foreground font-bold">2 POD missing</strong> out of 28 total bookings
-            </span>
-          </Card>
         </div>
 
         {/* RIGHT MAIN PANEL */}
-        <div className="lg:col-span-9 space-y-6">
+        <div className="min-w-0 space-y-6">
           {activeTab === 'overview' && (
             <div className="space-y-6 animate-in fade-in">
+              {/* Performance — the carrier's own record, before its capabilities. */}
+              <Card className="p-4 sm:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
+                <div className="border-b border-border/60 pb-3">
+                  <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
+                    <Star className="h-4.5 w-4.5 text-warning fill-warning" />
+                    Performance
+                  </h4>
+                </div>
+
+                {/* auto-fit, not a viewport breakpoint: this card sits in a
+                    column the sidebar narrows, so "is there room for two" is a
+                    question about the container, not the window. When there is
+                    not, the trend drops below — and keeps its own heading, so
+                    a stacked chart never reads as a tail of the bars above it. */}
+                <div className="grid gap-x-8 gap-y-7 [grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr))]">
+                  <PerformancePanel summary={partnerPerformance} />
+                  {partnerPerformance.rated && (
+                    <section className="flex min-w-0 flex-col justify-center gap-3">
+                      <h5 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                        Rating Trend
+                      </h5>
+                      <RatingTrendChart points={partnerTrend} />
+                    </section>
+                  )}
+                </div>
+              </Card>
+
               {/* Card 1: Fleet Capabilities */}
-              <Card className="p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-4">
+              <Card className="p-4 sm:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-4">
                 <div className="border-b border-border/60 pb-3">
                   <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
                     <Compass className="h-4.5 w-4.5 text-primary" />
@@ -669,7 +768,7 @@ export function PartnerDetailPage() {
               </Card>
 
               {/* Card 2 (Top 2): Contracted Freight Rates & Pricing */}
-              <Card className="p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-4">
+              <Card className="p-4 sm:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-4">
                 <div className="flex items-center justify-between border-b border-border/60 pb-3">
                   <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
                     <DollarSign className="h-4.5 w-4.5 text-primary" />
@@ -717,37 +816,47 @@ export function PartnerDetailPage() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {/* `md:grid-cols-3` asked the *window* whether three tiles fit,
+                    when the question was about this card — which the sidebar
+                    leaves around 590px, so each tile got ~180px and every route
+                    name broke across four lines. auto-fit asks the container,
+                    and the tile stacks its price under the route instead of
+                    fighting it for the same row. */}
+                <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr))]">
                   {partner.pricingGrid && partner.pricingGrid.length > 0 ? (
                     partner.pricingGrid.map((tier) => (
-                      <div key={tier.id} className="p-3.5 rounded-lg border border-border/60 bg-muted/20 hover:border-primary/40 transition-colors flex items-center justify-between text-xs">
-                        <div>
-                          <span className="font-bold text-foreground block">{tier.route}</span>
-                          <span className="text-[11px] text-muted-foreground">{tier.vehicleType}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-black text-foreground text-sm font-mono">
-                            ${tier.basePrice.toLocaleString()} {tier.currency}
-                          </span>
+                      <div
+                        key={tier.id}
+                        className="flex flex-col gap-2 rounded-lg border border-border/60 bg-muted/20 p-3.5 text-xs transition-colors hover:border-primary/40"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <span className="block font-bold leading-snug text-foreground">{tier.route}</span>
+                            <span className="text-[11px] text-muted-foreground">{tier.vehicleType}</span>
+                          </div>
                           <button
                             type="button"
                             onClick={() => handleDeletePriceRate(tier.id)}
-                            className="p-1 rounded-sm text-muted-foreground hover:text-destructive transition-colors"
+                            className="-m-1 shrink-0 rounded-sm p-1 text-muted-foreground transition-colors hover:text-destructive"
+                            aria-label={`Delete the ${tier.vehicleType} rate for ${tier.route}`}
                             title="Delete rate"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
+                        <span className="whitespace-nowrap border-t border-border/50 pt-2 font-mono text-sm font-black text-foreground">
+                          ${tier.basePrice.toLocaleString()} {tier.currency}
+                        </span>
                       </div>
                     ))
                   ) : (
-                    <p className="text-xs text-muted-foreground col-span-full">No rate tiers yet.</p>
+                    <p className="col-span-full text-xs text-muted-foreground">No rate tiers yet.</p>
                   )}
                 </div>
               </Card>
 
               {/* Drivers Roster Card */}
-              <Card className="p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
+              <Card className="p-4 sm:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
                 <div className="flex items-center justify-between flex-wrap gap-3 border-b border-border/60 pb-3">
                   <div>
                     <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
@@ -805,53 +914,41 @@ export function PartnerDetailPage() {
                   </div>
                 )}
 
-                {/* Drivers Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                {/* Drivers Roster — best record first, each row opening that
+                    driver's own profile. License, documents and vehicle live
+                    there; here the row answers only "how do they run". */}
+                <div className="space-y-2">
                   {pagedDrivers.rows.map((drv) => (
-                    <div key={drv.id} className="p-4 rounded-lg border border-border/80 bg-muted/20 space-y-3 text-xs">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          {drv.profilePictureUrl ? (
-                            <img src={drv.profilePictureUrl} alt={drv.fullName} className="h-9 w-9 rounded-lg object-cover shrink-0" />
-                          ) : (
-                            <div className="h-9 w-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
-                              {drv.fullName.slice(0, 2).toUpperCase()}
-                            </div>
-                          )}
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-1">
-                              <span className="font-bold text-foreground block truncate">{drv.fullName}</span>
-                              <VerificationBadge state={isDriverVerified(drv) ? 'verified' : 'unverified'} size="sm" />
-                            </div>
-                            <span className="text-[10px] text-muted-foreground font-mono">{drv.phone}</span>
-                          </div>
-                        </div>
-                        <StatusPill status={drv.status} />
-                      </div>
-
-                      <div className="pt-2 border-t border-border/40 space-y-1 text-[11px]">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">License:</span>
-                          <span className="font-mono text-foreground font-medium">{drv.drivingLicenseNumber}</span>
-                        </div>
-                        {drv.assignedVehiclePlate && (
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Assigned Vehicle:</span>
-                            <span className="font-bold text-primary">{drv.assignedVehiclePlate}</span>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex justify-end pt-1">
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteDriver(drv.id)}
-                          className="p-1 rounded-sm text-muted-foreground hover:text-destructive transition-colors"
-                          title="Remove driver"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
+                    <div key={drv.id} className="flex items-center gap-2">
+                      <DriverRatingRow
+                        className="min-w-0 flex-1"
+                        name={drv.fullName}
+                        meta={[
+                          drv.reference,
+                          drv.trips ? `${drv.trips} ${drv.trips === 1 ? 'trip' : 'trips'}` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                        photoUrl={drv.profilePictureUrl}
+                        badge={<VerificationBadge state={isDriverVerified(drv) ? 'verified' : 'unverified'} size="sm" />}
+                        status={<StatusPill status={drv.status} />}
+                        summary={driverPerformance.get(drv.id) ?? UNRATED}
+                        onOpen={() => setOpenDriverId(drv.id)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteDriver(drv.id)}
+                        className="p-1.5 rounded-sm text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                        /* `title` alone is the weakest accessible name there is —
+                           it never reaches touch, and screen readers treat it as
+                           a last resort. The name says *which* driver, because
+                           seven identical "Remove driver" buttons in a list is
+                           the same as none. */
+                        aria-label={`Remove ${drv.fullName} from this transporter`}
+                        title={`Remove ${drv.fullName}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -958,7 +1055,7 @@ export function PartnerDetailPage() {
               </div>
 
               {/* Vehicles Registry Card */}
-              <Card className="p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
+              <Card className="p-4 sm:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
                 <div className="flex items-center justify-between flex-wrap gap-3 border-b border-border/60 pb-3">
                   <div>
                     <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
@@ -966,7 +1063,7 @@ export function PartnerDetailPage() {
                       Vehicles ({vehicles.length})
                     </h4>
                     <p className="type-caption text-muted-foreground mt-0.5">
-                      Plates, capacities and assigned drivers.
+                      Plates, capacities and trips run.
                     </p>
                   </div>
                   <Button
@@ -1030,9 +1127,14 @@ export function PartnerDetailPage() {
                             <span className="font-semibold text-foreground">{veh.containerCapacity}</span>
                           </div>
                         )}
+                        {/* Trips, not a standing driver. A truck is driven by
+                            whoever the booking names; what the fleet card can
+                            honestly say is how much work this one has done. */}
                         <div className="flex justify-between">
-                          <span className="text-muted-foreground">Driver Assigned:</span>
-                          <span className="font-bold text-primary truncate max-w-[120px]">{veh.assignedDriverName || 'Unassigned'}</span>
+                          <span className="text-muted-foreground">Trips:</span>
+                          <span className="font-bold text-primary">
+                            {(veh.trips ?? 0).toLocaleString()}
+                          </span>
                         </div>
                       </div>
 
@@ -1062,7 +1164,7 @@ export function PartnerDetailPage() {
               </Card>
 
               {/* Compliance Documents & Grey Card Vault Card */}
-              <Card className="p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
+              <Card className="p-4 sm:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
                 <div className="flex items-center justify-between flex-wrap gap-3 border-b border-border/60 pb-3">
                   <div>
                     <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
@@ -1236,7 +1338,7 @@ export function PartnerDetailPage() {
               </div>
 
               {/* Shipments List Controls & Cards */}
-              <Card className="p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
+              <Card className="p-4 sm:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/60 pb-4">
                   <div>
                     <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
@@ -1352,6 +1454,30 @@ export function PartnerDetailPage() {
 
         </div>
       </div>
+
+      {/* No `transporter` block: the reader is already standing in that
+          transporter's dossier, and a card pointing back at this page would be
+          a link to nowhere. The full record — documents, editing — is still one
+          click away in the footer. */}
+      <DriverProfileSheet
+        driver={openDriver}
+        summary={(openDriver && driverPerformance.get(openDriver.id)) ?? UNRATED}
+        onClose={() => setOpenDriverId(null)}
+        footer={
+          openDriver ? (
+            <div className="pt-2">
+              <Button
+                variant="outline"
+                onClick={() => navigate(`${ROUTES.drivers}?driver=${openDriver.id}`)}
+                leadingIcon={<ExternalLink className="h-4 w-4" />}
+                className="w-full rounded-lg py-2.5 text-xs font-semibold"
+              >
+                Open full record
+              </Button>
+            </div>
+          ) : null
+        }
+      />
 
       <DocumentViewerModal open={Boolean(viewingDoc)} onOpenChange={(open) => !open && setViewingDoc(null)} document={viewingDoc} />
     </div>

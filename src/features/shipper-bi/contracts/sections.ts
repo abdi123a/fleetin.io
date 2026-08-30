@@ -120,8 +120,6 @@ export const spotlightTransporterSchema = z.object({
   fleetCode: z.string(),
   /** Company logo; initials fall back when absent. */
   logoUrl: z.string().optional(),
-  /** Shipper-facing quality score, 0–5. */
-  rating: z.number().min(0).max(5),
   totalFleet: z.number().int().nonnegative(),
   deliveries: z.number().int().nonnegative(),
   onTimeRate: z.number().min(0).max(1),

@@ -14,7 +14,7 @@ import {
   EmptyState,
   TimePicker,
 } from '@/design-system';
-import { AlertTriangle, ArrowLeftRight, CheckCircle2, RotateCcw, X } from '@/design-system/icons';
+import { AlertTriangle, ArrowLeft, ArrowLeftRight, CheckCircle2, RotateCcw, X } from '@/design-system/icons';
 import { detentionFor, formatDetention, riskTextClass } from '@/data/emptyReturnData';
 import {
   defaultPlannedReturn,
@@ -27,6 +27,7 @@ import { formatSpan, formatStamp, rejectedLoadsFor, riskOf, useEmptyReturnStore 
 import type { EmptyReturnRecord, PairingSuggestion, SuggestionLabel } from '@/types/emptyReturn';
 import { cn } from '@/utils';
 
+import { TablePager, usePagedRows } from '@/components';
 import { CompanyName, EmptyTag, FullTag, Mono, RiskBadge } from './components/marks';
 
 /**
@@ -77,10 +78,26 @@ export function MatchingPage() {
   /* The selection follows the queue: an id that no longer exists (its container
      was just paired) falls back to the top of the list rather than emptying the
      right-hand column and looking broken. */
+  /* Eight fits a phone screen without becoming a scroll of its own; the reader
+     can widen it from the pager. */
+  const [emptiesPageSize, setEmptiesPageSize] = useState(8);
+  const pagedAwaiting = usePagedRows(awaiting, { pageSize: emptiesPageSize });
+
   const selected = useMemo(
     () => awaiting.find((record) => record.id === selectedId) ?? awaiting[0] ?? null,
     [awaiting, selectedId],
   );
+
+  /**
+   * Whether the reader has actually *picked* one — not merely what is showing.
+   *
+   * `selected` falls back to the first empty in the pile so the wide layout is
+   * never a blank right-hand panel. That fallback is exactly wrong for the
+   * narrow two-step flow: keyed off it, step one would be skipped on arrival
+   * and the pile would never be reachable at all. The step is a question about
+   * what the reader chose, so it asks the choice.
+   */
+  const hasPicked = Boolean(selectedId && awaiting.some((record) => record.id === selectedId));
 
   const rejectedIds = useMemo(
     () => (selected ? rejectedLoadsFor(rejected, selected.id) : []),
@@ -169,13 +186,30 @@ export function MatchingPage() {
         </div>
       )}
 
+      {/* ── One workbench, two ways to stand at it ────────────────────────────
+          Wide, it is the pile beside the opportunities and both are in view.
+          Narrow, that same markup stacked the matches *underneath* every empty
+          in the yard — seventy-nine cards deep on the live book — so choosing a
+          container appeared to do nothing and the panel that answers the whole
+          question was unreachable without scrolling to the end of the page.
+
+          So below `lg` it becomes two steps: the pile, then the matches for
+          what you picked, with a way back. Not a second layout — the same two
+          panels, one of them hidden. The desktop arrangement is untouched, and
+          because the switch is pure CSS there is no width state to disagree
+          with what is actually on screen. */}
       <div className="grid min-w-0 grid-cols-1 items-start gap-5 lg:grid-cols-5">
         {/* ── The pile ─────────────────────────────────────────────────────── */}
-        <div className="min-w-0 space-y-2 lg:col-span-2">
-          <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-            Select an empty container
-          </h3>
-          {awaiting.map((record) => {
+        <div className={cn('min-w-0 space-y-2 lg:col-span-2', hasPicked && 'hidden lg:block')}>
+          <div className="flex items-baseline justify-between gap-2">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+              Select an empty container
+            </h3>
+            <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
+              {awaiting.length}
+            </span>
+          </div>
+          {pagedAwaiting.rows.map((record) => {
             const risk = riskOf(record, now);
             const active = selected?.id === record.id;
             return (
@@ -206,10 +240,14 @@ export function MatchingPage() {
                     ✓ SELECTED
                   </div>
                 )}
-                <div className="flex min-w-0 items-center justify-between gap-2">
+                {/* Wraps rather than competes. The badge and the number were
+                    sharing one line, so on a phone the badge won and the
+                    container read "MAEU-58565…" — the identity cut to make room
+                    for its status. The badge drops to its own line instead. */}
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
                   <span className="flex min-w-0 items-center gap-1.5">
                     <EmptyTag small />
-                    <Mono className="truncate text-sm font-bold text-foreground">
+                    <Mono className="min-w-0 text-sm font-bold text-foreground [overflow-wrap:anywhere]">
                       {record.container || record.bookingReference}
                     </Mono>
                   </span>
@@ -228,36 +266,73 @@ export function MatchingPage() {
               </button>
             );
           })}
+
+          {/* The yard is not a scroll. Paged like every other long list in the
+              app, so the column has an end and the pager says how far in you
+              are. */}
+          {awaiting.length > 0 && (
+            <TablePager
+              paged={pagedAwaiting}
+              noun="empties"
+              pageSize={emptiesPageSize}
+              onPageSizeChange={setEmptiesPageSize}
+              pageSizeOptions={[8, 16, 32, 64]}
+            />
+          )}
         </div>
 
         {/* ── The opportunities ────────────────────────────────────────────── */}
-        <div className="min-w-0 space-y-2 lg:col-span-3">
+        <div className={cn('min-w-0 space-y-2 lg:col-span-3', !hasPicked && 'hidden lg:block')}>
+          {/* Step two's way back. Only where there are steps — on a wide screen
+              the pile never left, so a "back" would point at nothing. */}
           {selected && (
-            <div className="pb-1 text-center">
+            <Button
+              variant="outline"
+              size="sm"
+              shape="pill"
+              onClick={() => selectEmpty(null)}
+              leadingIcon={<ArrowLeft className="size-3.5" />}
+              className="text-xs lg:hidden"
+            >
+              Choose another container
+            </Button>
+          )}
+          {/* ── What we are matching, as a header rather than a centrepiece ──
+              This block used to be centred, which read as a title on the wide
+              layout and as a stray centred paragraph on a phone — a left-aligned
+              back button above it, left-aligned links below it, and this in the
+              middle. Centring also fought the container number: the identity
+              moved horizontally as the deadline text beside it changed length.
+
+              It is a header strip now: identity on the left, deadline under it,
+              one alignment shared by every element in the column at every
+              width. The little vertical rule that used to tie it to the section
+              label went with it — it only made sense pointing down the centre. */}
+          {selected && (
+            <div className="rounded-card border border-border/70 bg-surface-sunken/40 px-3 py-2.5">
               <div className="text-[9px] font-extrabold uppercase tracking-widest text-muted-foreground">
                 Matching for
               </div>
-              <div className="mt-0.5 flex flex-wrap items-center justify-center gap-2">
+              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                 <EmptyTag small />
-                <Mono className="font-bold text-foreground">
+                <Mono className="min-w-0 font-bold text-foreground [overflow-wrap:anywhere]">
                   {selected.container || selected.bookingReference}
                 </Mono>
-                <Mono className={cn('text-xs font-bold', riskTextClass(riskOf(selected, now)))}>
-                  {selected.deadline === null
-                    ? 'no deadline'
-                    : selected.deadline < now
-                      ? `${formatSpan(now - selected.deadline)} past return deadline`
-                      : `${formatSpan(selected.deadline - now)} before return deadline`}
-                </Mono>
               </div>
-              <div className="mt-1 flex flex-col items-center">
-                <span className="h-2.5 w-px bg-border-strong" aria-hidden />
-                <span className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground">
-                  shipment opportunities
-                </span>
-                <span className="h-2.5 w-px bg-border-strong" aria-hidden />
-              </div>
+              <Mono className={cn('mt-0.5 block text-xs font-bold', riskTextClass(riskOf(selected, now)))}>
+                {selected.deadline === null
+                  ? 'no deadline'
+                  : selected.deadline < now
+                    ? `${formatSpan(now - selected.deadline)} past return deadline`
+                    : `${formatSpan(selected.deadline - now)} before return deadline`}
+              </Mono>
             </div>
+          )}
+
+          {selected && (
+            <h4 className="pt-1 text-[9px] font-extrabold uppercase tracking-widest text-muted-foreground">
+              Shipment opportunities
+            </h4>
           )}
 
           {selected &&

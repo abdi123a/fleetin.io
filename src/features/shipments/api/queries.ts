@@ -11,6 +11,7 @@ import {
   fetchShipments,
   fetchShipmentsRaw,
   releaseShipment,
+  setShipmentCrew,
   updateShipment,
   updateShipmentRaw,
   updateShipmentStatus,
@@ -71,6 +72,23 @@ export function useShipmentRaw(id: string | undefined) {
 function invalidateShipments(queryClient: ReturnType<typeof useQueryClient>, id?: string) {
   queryClient.invalidateQueries({ queryKey: shipmentQueryKeys.all });
   if (id) queryClient.invalidateQueries({ queryKey: shipmentQueryKeys.detail(id) });
+}
+
+/**
+ * Set the crew on a shipment.
+ *
+ * Invalidates the whole shipment cache rather than just this detail, because
+ * the crew shows on the list rows too and the "Mine" filter is a server query
+ * keyed on it — leaving the list alone meant unassigning yourself and still
+ * seeing the shipment under "Mine" until a reload.
+ */
+export function useSetShipmentCrew() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, userIds, leadUserId }: { id: string; userIds: string[]; leadUserId?: string }) =>
+      setShipmentCrew(id, { userIds, leadUserId }),
+    onSuccess: (_mission, variables) => invalidateShipments(queryClient, variables.id),
+  });
 }
 
 export function useCreateShipment() {

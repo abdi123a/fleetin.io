@@ -1,3 +1,5 @@
+import type { StatusIntent } from '@/design-system/primitives/Layout/statusIntent';
+
 /**
  * How a shipment-ladder status is spoken to a user — one vocabulary, shared by
  * everything that renders one.
@@ -194,29 +196,98 @@ export const PICKUP_LEG_STATUSES: readonly string[] = [
 ];
 
 /**
- * A display-only colour intent — resolved through the six-step grouping, not
+ * A display-only colour intent — resolved through the seven-step grouping, not
  * off the raw rung.
  *
  * It used to read the rungs directly, which meant one label could take two
  * colours: `Driver Assigned` was orange while the rest of "Picked Up" was
  * blue, and `POD Submitted` was green while the rest of "Depotage" was blue.
- * A step that changes colour without changing its name reads as a state
- * change that did not happen.
+ * A step that changes colour without changing its name reads as a state change
+ * that did not happen.
+ *
+ * ## The four colours are four phases of one job
+ *
+ * The ladder is not seven unrelated states; it is a job in four phases, and the
+ * colour is the phase rather than the rung:
+ *
+ * - **Created** — teal. Booked, nothing has moved yet.
+ * - **Picked Up · Delivered · Depotage** — green. *In transit*: the driver has
+ *   the box, has delivered it, and the consignee is stripping it. All three are
+ *   the same answer to "is work happening" — yes — which is why they used to be
+ *   one blue and are now one green. Set on 2026-08-30 at the user's direction.
+ * - **Empty Ready · Empty Picked Up** — amber. Work is done and the box now
+ *   *owes a return*, which is the same amber the container-state scale uses for
+ *   an empty box; the two systems agree here on purpose.
+ * - **Empty Returned** — slate. Home, closed, nothing owed.
  */
-const STEP_INTENT: Record<string, 'green' | 'orange' | 'blue' | 'slate'> = {
-  Created: 'orange',
-  'Picked Up': 'blue',
-  Delivered: 'blue',
-  Depotage: 'blue',
-  'Empty Ready': 'green',
-  'Empty Picked Up': 'green',
-  'Empty Returned': 'green',
+const STEP_INTENT: Record<string, StatusIntent> = {
+  Created: 'teal',
+  'Picked Up': 'green',
+  Delivered: 'green',
+  Depotage: 'green',
+  'Empty Ready': 'orange',
+  'Empty Picked Up': 'orange',
+  'Empty Returned': 'slate',
 };
 
-export function statusIntentOf(status: string): 'green' | 'orange' | 'blue' | 'slate' {
+export function statusIntentOf(status: string): StatusIntent {
   const step = STEP_INTENT[displayShipmentStatus(status)];
   if (step) return step;
   // Off the ladder entirely — `Payment Pending` still reads as money waiting.
   if (status === 'Payment Pending') return 'orange';
   return 'slate';
+}
+
+/**
+ * The phase colour as a `Badge` intent.
+ *
+ * Surfaces were each writing their own switch over `statusIntentOf`, and one of
+ * them let the container state win: a booking in transit wore the teal FULL
+ * colour because the box happened to be loaded, so the ladder's own phase never
+ * showed. The two facts are both true and both worth printing — which is why
+ * the card carries a FULL/EMPTY tag *and* a status badge — but the status badge
+ * has to be about the status.
+ */
+export function statusBadgeIntentOf(
+  status: string,
+): 'primary' | 'success' | 'warning' | 'info' | 'default' {
+  switch (statusIntentOf(status)) {
+    case 'teal':
+      return 'primary';
+    case 'green':
+      return 'success';
+    case 'orange':
+      return 'warning';
+    case 'blue':
+      return 'info';
+    default:
+      return 'default';
+  }
+}
+
+/**
+ * The phase colour as a `CornerBadge` intent.
+ *
+ * The card's corner tab wears the same phase as its status badge. It used to
+ * read the container state instead, so an "Empty Ready" booking got an amber
+ * tab — the state and the phase happen to agree at that rung — while the three
+ * transit rungs got the teal of a loaded box and the tab looked stuck. Two
+ * marks on one card saying different things about the same booking is worse
+ * than either mark alone.
+ */
+export function statusCornerIntentOf(
+  status: string,
+): 'teal' | 'green' | 'orange' | 'blue' | 'ink' {
+  switch (statusIntentOf(status)) {
+    case 'green':
+      return 'green';
+    case 'orange':
+      return 'orange';
+    case 'blue':
+      return 'blue';
+    case 'slate':
+      return 'ink';
+    default:
+      return 'teal';
+  }
 }

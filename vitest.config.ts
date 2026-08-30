@@ -37,6 +37,13 @@ import { defineConfig } from 'vitest/config';
  * whichever answer came home last and only a reload showed the truth. Ordering
  * bugs do not stay fixed on their own.
  *
+ * `src/lib/rating` falls under the same `src/lib/**` glob and belongs there for
+ * the same reason: it is the arithmetic behind a star printed next to a real
+ * person's name, it is pure TypeScript over booking records, and every one of
+ * its rules ("an open mission is not a failure", "a box already past its
+ * deadline counts against professionalism") is the kind that is easy to get
+ * subtly wrong and impossible to spot by reading the screen.
+ *
  * `src/components/reports` is included for its arithmetic, not its components:
  * `missionReport.ts` and `monthlyReport.ts` are the definitions the shipper's
  * mission and monthly reports are made of ("what is pickup waiting time a

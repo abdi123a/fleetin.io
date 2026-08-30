@@ -1,10 +1,9 @@
 import { Bell, Menu } from '@/design-system/icons';
 
-import { IconButton, Separator, Tooltip } from '@/design-system';
+import { IconButton, Tooltip } from '@/design-system';
 import { cn } from '@/utils';
 
 import { Breadcrumbs } from './Breadcrumbs';
-import { HeaderUserMenu } from './HeaderUserMenu';
 
 /**
  * Header — the sticky top bar of the application shell.
@@ -46,9 +45,6 @@ export function Header({ onOpenMobileNav, className }: HeaderProps) {
           </IconButton>
         </Tooltip>
 
-        <Separator orientation="vertical" className="h-6" />
-
-        <HeaderUserMenu />
       </div>
     </header>
   );

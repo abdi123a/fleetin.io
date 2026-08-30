@@ -12,10 +12,12 @@ import {
   Package,
   PackageOpen,
   RotateCcw,
+  ShieldAlert,
+  ShieldCheck,
   Truck,
 } from '@/design-system/icons';
 import { AVOIDED_TRIP_DETENTION_DAYS, useEmptyContainers } from '@/features/empty-returns';
-import { detentionRatePerDay, formatDetention } from '@/data/emptyReturnData';
+import { CRITICAL_THRESHOLD_MS, detentionRatePerDay, formatDetention } from '@/data/emptyReturnData';
 import {
   chainStateOf,
   emptyDwellOf,
@@ -179,12 +181,14 @@ function Legend() {
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground">
       <span className="inline-flex items-center gap-1.5">
-        <span className="inline-block h-3 w-4 rounded-sm bg-container-full" aria-hidden />
+        {/* Follows `FullCard`. A key that shows a colour the cards no longer
+            wear is worse than no key at all. */}
+        <span className="inline-block h-3 w-4 rounded-sm bg-stage-loaded" aria-hidden />
         Full container
       </span>
       <span className="inline-flex items-center gap-1.5">
         <span
-          className="inline-block h-3 w-4 rounded-sm border-2 border-dashed border-stage-available-border bg-card"
+          className="inline-block h-3 w-4 rounded-sm border-2 border-dashed border-stage-available-border bg-stage-available-subtle"
           aria-hidden
         />
         Empty container
@@ -296,7 +300,13 @@ function ChainCard({
   return (
     <Card className="relative min-w-0 overflow-hidden rounded-lg border border-border/80 bg-card shadow-2xs">
       <div className="absolute left-0 top-0 z-10 select-none">
-        <CornerBadge label={`Chain ${chain.id}`} intent="teal" position="top" />
+        {/* Accent orange. The tab is the one mark that has to be found from
+            across a page of six stacked chains, and every other colour on the
+            card is now spoken for by the flow itself — green loaded, sky empty,
+            violet paired, amber returning. Orange is the brand's own second
+            colour and the only loud one the strip does not already use, so the
+            tab can shout without saying anything about a container. */}
+        <CornerBadge label={`Chain ${chain.id}`} intent="orange" position="top" />
       </div>
 
       {/* Header — who, what state, and the four figures that matter.
@@ -326,18 +336,47 @@ function ChainCard({
           <ChainStateBadge state={state} />
         </div>
 
-        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border/50 bg-secondary/40 px-3 py-1.5 text-[11px] text-muted-foreground">
+        {/* The chain's own figures, on a dark neutral band.
+            It was a grey pill on a white card — the quietest strip on the page
+            carrying the only numbers that say the product worked. Filled, it
+            becomes the card's spine and the flow below it reads as evidence.
+            The fill was the brand teal first, and that was wrong for a strip
+            whose whole job is to colour-code its figures: mint green on teal
+            is one hue family, so the mark meaning "this went well" came out a
+            dull shade of its own background. `--tile-ink` is neutral, so green
+            reads green and amber reads amber. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg bg-tile-ink px-3.5 py-2.5 text-tile-ink-foreground/70 shadow-2xs">
+          {/* Plain counts. What happened, in white — they carry no verdict, and
+              tinting them was what turned the row into one green wall with
+              nothing standing out of it. */}
           <Figure label="links" value={String(chain.cycles.length)} />
-          <Figure label="pairings" value={String(chain.pairings)} accent />
-          <Figure label="returns avoided" value={String(chain.pairings)} accent />
-          <Figure label="avoidance" value={`${avoidance}%`} />
+          <Figure label="pairings" value={String(chain.pairings)} />
+          <Figure label="returns avoided" value={String(chain.pairings)} />
+          {/* Not an invented threshold: avoidance below 100% means some empty
+              on this chain went back on a trip of its own, which is exactly
+              the cost the module exists to remove. */}
+          <Figure label="avoidance" value={`${avoidance}%`} tone={avoidance < 100 ? 'warn' : 'neutral'} />
+          {/* The headline, by size and not by hue — money saved is the figure
+              the business acts on, and the one thing here worth finding
+              without reading the row. */}
           <Figure
+            lead
             label="est. detention avoided"
             value={formatDetention(
               chain.pairings * AVOIDED_TRIP_DETENTION_DAYS * detentionRatePerDay(),
             )}
           />
-          <Figure label="avg empty" value={formatSpan(chain.averageEmptyMs)} />
+          {/* Dwell is the one figure where longer is worse. The threshold is
+              the module's own `CRITICAL_THRESHOLD_MS` (24h) rather than a new
+              number: a day is what this module already calls the point where a
+              container stops having comfortable margin, and a box that sat
+              empty that long has spent it. Move it here if operations wants a
+              tighter bar. */}
+          <Figure
+            label="avg empty"
+            value={formatSpan(chain.averageEmptyMs)}
+            tone={chain.averageEmptyMs >= CRITICAL_THRESHOLD_MS ? 'warn' : 'neutral'}
+          />
         </div>
       </div>
 
@@ -400,10 +439,15 @@ function ChainStateBadge({ state }: { state: ReturnType<typeof chainStateOf> }) 
   if (state === 'running') {
     return (
       <Badge
-        variant="subtle"
-        intent="success"
+        variant="solid"
+        intent="primary"
         size="sm"
-        className="border-stage-closed-border bg-stage-closed-subtle text-stage-closed-subtle-foreground"
+        /* Teal, and filled. It was emerald-subtle, which is a hair off the
+           green the loaded cards now wear — the badge read as a remark about a
+           container instead of the state of the chain. Teal is the chain's own
+           colour on this card (the band under it), and solid so it holds its
+           corner against the orange tab opposite. */
+        className="font-bold"
         title="A link in this chain is still waiting on a decision."
       >
         Active
@@ -435,20 +479,62 @@ function ChainStateBadge({ state }: { state: ReturnType<typeof chainStateOf> }) 
   );
 }
 
+/** A figure is a plain fact until something is wrong with it. */
+type FigureTone = 'neutral' | 'warn';
+
 /**
- * One chain KPI. v19 typesets these as a value over a small-caps label and
- * tints only the pairing figures violet — the two numbers that say the product
- * worked. Everything else stays neutral so the eye lands on those.
+ * One chain KPI, set on the band.
+ *
+ * The row started as six identical figures — same size, same colour — so six
+ * numbers arrived at once with nothing to read first and nothing saying which
+ * of them mattered.
+ *
+ * **Size carries the hierarchy, colour carries the alarm.** They are separate
+ * jobs, and the row got worse when one thing did both: tinting every good
+ * number green turned a healthy chain into a wall of one colour, which is the
+ * same problem as a wall of white with extra steps.
+ *
+ * So: the value is a step above its noun (figures first, what they are
+ * second), the money saved is a step above that — the one thing worth finding
+ * without reading — and everything is white. Amber appears **only** where a
+ * figure is saying something is wrong. A good chain is a clean white row; a
+ * bad one carries one or two amber figures that are impossible to miss.
+ *
+ * Colour is never the only carrier: the label already names the fact
+ * ("avoidance", "avg empty"), so a reader who cannot separate the hues loses
+ * the emphasis, not the meaning.
  */
-function Figure({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function Figure({
+  label,
+  value,
+  tone = 'neutral',
+  lead = false,
+}: {
+  label: string;
+  value: string;
+  tone?: FigureTone;
+  /**
+   * The band's headline figure. At most one per band.
+   *
+   * `text-lg` against the row's `text-sm` — 16px against 13px. One step up
+   * the scale (14px) was tried and is not a hierarchy: a 1px difference is
+   * something you can measure and not something you can see, so the figure
+   * that is supposed to be findable without reading was not.
+   */
+  lead?: boolean;
+}) {
   return (
-    <span className="shrink-0 whitespace-nowrap">
+    <span className="flex shrink-0 items-baseline gap-1 whitespace-nowrap">
       <Mono
-        className={cn('font-bold', accent ? 'text-stage-paired-subtle-foreground' : 'text-foreground')}
+        className={cn(
+          'font-bold leading-none',
+          lead ? 'text-lg' : 'text-sm',
+          tone === 'warn' ? 'text-stage-returning-on-fill' : 'text-tile-ink-foreground',
+        )}
       >
         {value}
-      </Mono>{' '}
-      {label}
+      </Mono>
+      <span className="text-[10px] leading-none">{label}</span>
     </span>
   );
 }
@@ -478,26 +564,7 @@ function ChainLink({
   return (
     <div className="flex items-stretch">
       <div className="flex flex-col">
-        <div className="mx-1 mb-2 flex items-baseline gap-2 whitespace-nowrap border-t-2 border-border pt-1">
-          <span className="text-[10px] font-extrabold uppercase tracking-widest text-muted-foreground">
-            Link {index + 1}
-          </span>
-          <span className="text-[10px] text-muted-foreground">
-            {formatSpan(emptyDwellOf(cycle, now))} empty
-          </span>
-          {cycle.stage === 'closed' ? (
-            <span
-              className={cn(
-                'text-[10px] font-semibold',
-                risk === 'protected' ? 'text-primary' : 'text-destructive',
-              )}
-            >
-              {risk === 'protected' ? 'Deadline protected' : 'Deadline missed'}
-            </span>
-          ) : (
-            <span className="text-[10px] font-semibold text-primary">Current</span>
-          )}
-        </div>
+        <LinkHeader index={index} dwellMs={emptyDwellOf(cycle, now)} closed={cycle.stage === 'closed'} risk={risk} />
 
         <div className="flex items-stretch">
           {/* One physical container, two states — bracketed into a single
@@ -578,20 +645,28 @@ function ChainLink({
           it handed forward, so the reader sees where the chain goes next. */}
       {paired && cycle.nextFull && (
         <div className="flex flex-col">
-          {/* An invisible twin of the "Link N" header row on the left, not a
-              guessed pixel height — a fixed `h-5` spacer drifted out of sync
-              the moment the bracket around Full/Unload/Empty added its own
-              border and padding, which is exactly the misalignment this was
-              flagged for. Same markup, `invisible` instead of real content,
-              so this column's top row is always exactly as tall as the real
-              one, however that header changes in the future. */}
-          <div
-            className="invisible mx-1 mb-2 flex items-baseline gap-2 whitespace-nowrap border-t-2 border-border pt-1"
-            aria-hidden
-          >
-            <span className="text-[10px] font-extrabold uppercase tracking-widest">Link</span>
-          </div>
-          <div className="flex items-stretch">
+          {/* An invisible twin of the header on the left, not a guessed pixel
+              height — a fixed `h-5` spacer drifted out of sync the moment the
+              bracket around Full/Unload/Empty added its own border and padding,
+              which is exactly the misalignment this was flagged for. It is now
+              literally the same component, so the two can no longer disagree
+              however the header changes. */}
+          <LinkHeader index={index} dwellMs={emptyDwellOf(cycle, now)} closed={cycle.stage === 'closed'} risk={risk} ghost />
+          {/* `flex-1 items-center`, and both halves matter.
+              `flex-1` makes this row fill the column, which the outer
+              `items-stretch` has already grown to the left column's height —
+              so the row is exactly the card band. `items-center` then parks
+              both children on that band's centre line.
+              Without it the row was only as tall as its own content, so the
+              PAIRED mark centred inside *itself*: on a link that also draws
+              the onward load the row was 82px and the mark sat low, on one
+              that does not it was 37px and the mark sat high — the same
+              connector at two different heights down one chain. The onward
+              card was 5px high for a related reason: the cards opposite are
+              inset by the bracket's border and padding and this one is not,
+              so aligning their boxes aligned nothing. Centring both against
+              the band ignores the inset and lines up what the eye reads. */}
+          <div className="flex flex-1 items-center">
             <PairMark />
             {isLastInWindow && (
               <FullCard
@@ -608,6 +683,115 @@ function ChainLink({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The head of one link — what step this is, how long the box sat, how it ended.
+ *
+ * It used to be three bare spans under a hairline: a small-caps "LINK 1", a
+ * grey duration and a coloured word, none of them anchored to anything. The
+ * user could not tell what the row *was*, which is fair — a rule with words
+ * loose above it reads as a divider that happened to catch some text, not as a
+ * header, and the verdict floated wherever the duration's width left it.
+ *
+ * Three things fix that, and they are all about giving the row a shape:
+ *
+ * - **It is a band, not a line.** A bordered strip on the sunken surface, the
+ *   same one the flow sits on, so it reads as this link's own header and the
+ *   cards below belong to it.
+ * - **The step index is a tag.** A chain is a sequence and the first thing to
+ *   know is which step you are looking at, so the number gets a filled chip
+ *   instead of being the same grey as the duration beside it.
+ * - **The verdict is right-aligned and toned.** `ml-auto` parks it on the
+ *   band's right edge — the same edge the bracket below ends on — so it lands
+ *   in one place on every link rather than drifting with the duration's width.
+ *   It carries an icon and its stage colour, so "this one cost nothing" and
+ *   "this one was late" are separable without reading.
+ *
+ * ## Why `ghost`
+ *
+ * The pairing column beside the cards needs a spacer exactly as tall as this
+ * header or the two columns' cards stop lining up. That spacer is this
+ * component rendered `invisible`, so it cannot drift from the real one however
+ * this changes. A hard-coded height was tried and broke the first time the
+ * header's padding moved.
+ *
+ * `w-0 overflow-hidden` is the other half of that, and it is load-bearing:
+ * `invisible` hides a box, it does not remove it, so the ghost still claimed
+ * its natural width. Once this header grew from a bare "LINK 1" into a band
+ * with a duration and a verdict pill, that width went from ~30px to ~270px and
+ * *stretched the pairing column to match* — blowing a 200px hole into the strip
+ * between the empty box and the next link's load. Zero-width with the content
+ * clipped keeps the height (the spans are `whitespace-nowrap`, so the line box
+ * is unchanged) and lets the column size to the connector it actually draws.
+ */
+function LinkHeader({
+  index,
+  dwellMs,
+  closed,
+  risk,
+  ghost = false,
+}: {
+  index: number;
+  dwellMs: number;
+  closed: boolean;
+  risk: ReturnType<typeof riskOf>;
+  ghost?: boolean;
+}) {
+  const protectedDeadline = risk === 'protected';
+
+  /* Three verdicts, in the page's own stage vocabulary: emerald is the
+     `closed, on time` role, red the `overdue` one, and a live link keeps the
+     brand teal — it has not earned either verdict yet. */
+  const verdict = !closed
+    ? {
+        label: 'Current',
+        className: 'border-primary/30 bg-primary-subtle text-primary-subtle-foreground',
+        icon: null,
+      }
+    : protectedDeadline
+      ? {
+          label: 'Deadline protected',
+          className:
+            'border-stage-closed-border bg-stage-closed-subtle text-stage-closed-subtle-foreground',
+          icon: <ShieldCheck className="size-3" aria-hidden />,
+        }
+      : {
+          label: 'Deadline missed',
+          className:
+            'border-stage-overdue-border/40 bg-stage-overdue-subtle text-stage-overdue-subtle-foreground',
+          icon: <ShieldAlert className="size-3" aria-hidden />,
+        };
+
+  return (
+    <div
+      className={cn(
+        'mx-1 mb-2 flex items-center gap-2 whitespace-nowrap rounded-md border border-border/70 bg-surface-sunken px-2 py-1',
+        ghost && 'w-0 overflow-hidden invisible',
+      )}
+      aria-hidden={ghost || undefined}
+    >
+      <span className="shrink-0 rounded bg-foreground/85 px-1.5 py-px text-[9px] font-extrabold uppercase tracking-widest text-background">
+        Link {index + 1}
+      </span>
+
+      <span className="text-[10px] text-muted-foreground">
+        <Mono className="font-bold text-foreground">{formatSpan(dwellMs)}</Mono> empty
+      </span>
+
+      <span
+        className={cn(
+          'ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-px text-[10px] font-semibold',
+          verdict.className,
+        )}
+      >
+        {/* A live link gets a dot rather than an icon — nothing has happened to
+            report, it is simply the one still running. */}
+        {verdict.icon ?? <span className="size-1.5 rounded-full bg-primary" aria-hidden />}
+        {verdict.label}
+      </span>
     </div>
   );
 }
@@ -642,9 +826,14 @@ function FullCard({
       className={cn(
         'min-w-36 shrink-0 rounded-lg px-3 py-2 text-left transition-shadow duration-200 hover:shadow-md',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        /* Green, not the container scale's teal — see `--stage-loaded`. On this
+           page a card states what is *happening* to the box, which is why the
+           empty half is sky rather than the container yellow; the loaded half
+           now answers on the same axis. The teal is not lost, it moves up to
+           the chain's own frame. */
         dashed
-          ? 'border-2 border-dashed border-container-full-border bg-container-full-subtle text-container-full-subtle-foreground'
-          : 'bg-container-full text-container-full-foreground',
+          ? 'border-2 border-dashed border-stage-loaded-border bg-stage-loaded-subtle text-stage-loaded-subtle-foreground'
+          : 'bg-stage-loaded text-stage-loaded-foreground',
       )}
     >
       <div className="flex items-center gap-1.5 text-[9px] font-extrabold uppercase tracking-widest opacity-80">
@@ -680,7 +869,7 @@ function EmptyCard({
          `--stage-available` owns, and it is already what the calendar paints
          "empty available" with. The yellow `--container-empty` mark still means
          "this box is empty" wherever the question is what is inside it. */
-      className="min-w-36 shrink-0 rounded-lg border-2 border-dashed border-stage-available-border bg-stage-available-subtle/60 px-3 py-2 text-left transition-colors duration-200 hover:bg-stage-available-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="min-w-36 shrink-0 rounded-lg border-2 border-dashed border-stage-available-border bg-stage-available-subtle px-3 py-2 text-left transition-colors duration-200 hover:border-stage-available hover:brightness-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex items-center gap-1.5 text-[9px] font-extrabold uppercase tracking-widest text-stage-available-subtle-foreground">
         <PackageOpen className="size-3" aria-hidden /> Empty
@@ -688,10 +877,13 @@ function EmptyCard({
       <Mono className="mt-0.5 block truncate text-sm font-bold text-foreground">
         {cycle.container || '—'}
       </Mono>
-      <div className="truncate text-[9px] text-muted-foreground">
+      {/* Tinted, not `muted-foreground`. Grey type on a blue wash reads as text
+          that landed on the card by accident; the sky ink at 80% is quiet
+          enough to stay secondary and still belongs to the card it sits on. */}
+      <div className="truncate text-[9px] text-stage-available-subtle-foreground/80">
         Since <Mono>{formatStamp(cycle.emptyReadyAt)}</Mono>
       </div>
-      <div className="truncate text-[9px] text-muted-foreground">
+      <div className="truncate text-[9px] text-stage-available-subtle-foreground/80">
         Empty <Mono className="font-semibold">{formatSpan(emptyDwellOf(cycle, now))}</Mono>
       </div>
     </button>

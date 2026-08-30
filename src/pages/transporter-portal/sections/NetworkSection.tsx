@@ -14,7 +14,6 @@ import {
   onTimeTarget,
   formatCompact,
   formatDuration,
-  formatRating,
 } from '@/features/transporter-bi';
 import { cn } from '@/utils';
 import type { TransporterSectionProps } from '../sectionContract';
@@ -84,13 +83,6 @@ export function NetworkSection({ dataset }: TransporterSectionProps) {
         ahead: you.acceptanceRate >= network.acceptanceRate,
       },
       {
-        key: 'rating',
-        label: 'Average rating',
-        yoursDisplay: formatRating(you.avgRating),
-        networkDisplay: formatRating(network.avgRating),
-        ahead: you.avgRating >= network.avgRating,
-      },
-      {
         key: 'delay',
         label: 'Delay rate vs network avg delay',
         yoursDisplay: `${(you.delayRate * 100).toFixed(1)}%`,
@@ -125,7 +117,6 @@ export function NetworkSection({ dataset }: TransporterSectionProps) {
               />
               <div className="grid w-full max-w-xs grid-cols-2 gap-3">
                 <MetricChip label="Acceptance" value={`${(you.acceptanceRate * 100).toFixed(1)}%`} />
-                <MetricChip label="Rating" value={formatRating(you.avgRating)} />
                 <MetricChip label="Delay rate" value={`${(you.delayRate * 100).toFixed(1)}%`} />
                 <MetricChip label="Cost index" value={you.costIndex.toFixed(2)} />
               </div>
@@ -268,11 +259,6 @@ export function NetworkSection({ dataset }: TransporterSectionProps) {
             header: 'On-time',
             render: (row) => `${(row.onTimeRate * 100).toFixed(1)}%`,
           },
-          {
-            key: 'rating',
-            header: 'Rating',
-            render: (row) => formatRating(row.avgRating),
-          },
           { key: 'trips', header: 'Trips', render: (row) => formatCompact(row.trips) },
         ]}
       >
@@ -285,7 +271,6 @@ export function NetworkSection({ dataset }: TransporterSectionProps) {
                 <th className="py-2 pr-4 text-right">Reliability</th>
                 <th className="py-2 pr-4 text-right">On-time</th>
                 <th className="py-2 pr-4 text-right">Acceptance</th>
-                <th className="py-2 pr-4 text-right">Rating</th>
                 <th className="py-2 text-right">Trips</th>
               </tr>
             </thead>
@@ -317,9 +302,6 @@ export function NetworkSection({ dataset }: TransporterSectionProps) {
                   </td>
                   <td className="py-2.5 pr-4 text-right tabular-nums text-muted-foreground">
                     {(peer.acceptanceRate * 100).toFixed(1)}%
-                  </td>
-                  <td className="py-2.5 pr-4 text-right tabular-nums text-muted-foreground">
-                    {formatRating(peer.avgRating)}
                   </td>
                   <td className="py-2.5 text-right tabular-nums text-foreground">
                     {formatCompact(peer.trips)}

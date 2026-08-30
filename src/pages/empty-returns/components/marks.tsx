@@ -440,7 +440,14 @@ export function SectionLabel({ children, className }: SectionLabelProps) {
   return (
     <h3
       className={cn(
-        'text-2xs font-extrabold uppercase tracking-widest text-muted-foreground',
+        /* Sentence case, at reading size and weight.
+           This was `text-2xs uppercase tracking-widest` — 10px, letter-spaced,
+           SHOUTED. A dialog carrying four of those headings plus four
+           uppercase field labels is eight competing all-caps runs, and all-caps
+           at 10px is the hardest thing on the page to read *and* the loudest,
+           which is exactly backwards: a heading should be findable, not
+           shouty. Bold small text is findable without raising its voice. */
+        'text-xs font-bold text-foreground',
         className,
       )}
     >

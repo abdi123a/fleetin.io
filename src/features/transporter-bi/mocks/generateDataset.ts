@@ -319,7 +319,6 @@ export function generateDataset({
         revenue,
         delays,
         waiting,
-        driverRating: isCompleted ? tripRating(rng, driver.baseRating, delays, deliveredAt, plannedDeliveryAt) : undefined,
         incident: isCompleted && rng.bool(0.045) ? rng.pick(INCIDENT_TYPES) : undefined,
         backhaul: backhaulFor(status, matched, {
           deadheadKm,
@@ -417,20 +416,6 @@ function liveStatus(
   // Scheduled only when it starts within the visible lookahead.
   if (phases.startedAt.getTime() - asOf.getTime() <= 2 * DAY) return 'scheduled';
   return undefined;
-}
-
-function tripRating(
-  rng: Rng,
-  baseRating: number,
-  delays: DelaySegment[],
-  deliveredAt: Date,
-  plannedDeliveryAt: Date,
-): number {
-  const transporterFault = delays.some((segment) => segment.cause === 'mechanical');
-  const late = deliveredAt.getTime() > plannedDeliveryAt.getTime() + 2 * HOUR;
-  const raw =
-    baseRating + rng.float(-0.45, 0.35) - (transporterFault ? 0.7 : 0) - (late ? 0.3 : 0);
-  return clamp(Math.round(raw * 10) / 10, 2.5, 5);
 }
 
 function backhaulFor(
@@ -622,7 +607,6 @@ function buildOpportunities(
  */
 function buildNetwork(rng: Rng, trips: Trip[], offers: LoadOffer[]): NetworkBenchmark {
   const completed = trips.filter((trip) => trip.status === 'completed');
-  const rated = completed.filter((trip) => trip.driverRating !== undefined);
 
   const late = completed.filter(
     (trip) =>
@@ -636,12 +620,13 @@ function buildNetwork(rng: Rng, trips: Trip[], offers: LoadOffer[]): NetworkBenc
   const delayRate = completed.length ? delayed / completed.length : 0.2;
   const accepted = offers.filter((offer) => offer.outcome === 'accepted').length;
   const acceptanceRate = offers.length ? accepted / offers.length : 0.85;
-  const avgRating = rated.length
-    ? rated.reduce((sum, trip) => sum + (trip.driverRating ?? 0), 0) / rated.length
-    : 4.3;
-
-  const score = (peer: Pick<NetworkPeer, 'onTimeRate' | 'delayRate' | 'avgRating'>) =>
-    Math.round(100 * (0.5 * peer.onTimeRate + 0.3 * (1 - peer.delayRate) + 0.2 * (peer.avgRating / 5)));
+  /* Two measured rates and nothing else. This used to fold in an average star
+     worth a fifth of the score — a star this file had invented a few lines
+     earlier, which made the ranking partly a judgement the system had awarded
+     itself. The remaining weights are the old 0.5 : 0.3 renormalised, so the
+     order the leaderboard produces is unchanged apart from losing that fifth. */
+  const score = (peer: Pick<NetworkPeer, 'onTimeRate' | 'delayRate'>) =>
+    Math.round(100 * (0.625 * peer.onTimeRate + 0.375 * (1 - peer.delayRate)));
 
   const you: NetworkPeer = {
     id: 'NET-YOU',
@@ -650,7 +635,6 @@ function buildNetwork(rng: Rng, trips: Trip[], offers: LoadOffer[]): NetworkBenc
     onTimeRate: round3(onTimeRate),
     acceptanceRate: round3(acceptanceRate),
     delayRate: round3(delayRate),
-    avgRating: Math.round(avgRating * 10) / 10,
     costIndex: 0.97,
     reliabilityScore: 0,
     trips: completed.length,
@@ -672,7 +656,6 @@ function buildNetwork(rng: Rng, trips: Trip[], offers: LoadOffer[]): NetworkBenc
     onTimeRate: 0.887,
     acceptanceRate: 0.84,
     avgDelayMinutes: 262,
-    avgRating: 4.2,
     emptyReturnRate: 0.27,
     avgTurnaroundHours: 5.1,
     // Corridor norms: the port is the network's worst point, the consignee its

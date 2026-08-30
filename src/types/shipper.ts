@@ -1,4 +1,12 @@
-export type ApprovalStatus = 'Verified' | 'Pending' | 'Canceled';
+/**
+ * Where a shipper account stands.
+ *
+ * `Suspended` was added 2026-08-30. Without it the only way to take a company
+ * out of circulation was to delete the record — which throws away an account
+ * that is meant to come back. It sits between `Pending` and `Canceled`
+ * deliberately: paused, not refused and not ended.
+ */
+export type ApprovalStatus = 'Verified' | 'Pending' | 'Suspended' | 'Canceled';
 
 export type CompanySize =
   | 'Micro (1-10)'
@@ -55,6 +63,13 @@ export interface ShipperRecord {
   projectsCount: number;
   activeShipments: number;
   pastShipments: number;
+  /**
+   * When a truck last collected for this shipper — the newest
+   * `scheduledPickupTime` across their shipments, computed server-side beside
+   * the counts above. `null` means they have never shipped with us, which is a
+   * different thing from having gone quiet and is drawn differently.
+   */
+  lastShipmentAt: string | null;
 
   // Compliance Documents Vault
   uploadedDocuments: ShipperDocument[];

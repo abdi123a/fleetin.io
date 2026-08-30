@@ -1,3 +1,4 @@
+import type { StatusIntent } from './statusIntent';
 import { forwardRef, type HTMLAttributes } from 'react';
 import { MoreVertical } from '@/design-system/icons';
 
@@ -25,7 +26,7 @@ export interface DriverBookingCardProps extends HTMLAttributes<HTMLDivElement> {
   vehicleNumber: string;
   vehicleVerified?: boolean;
   status?: string;
-  statusIntent?: 'green' | 'orange' | 'blue' | 'slate';
+  statusIntent?: StatusIntent;
   clickable?: boolean;
 }
 
@@ -51,7 +52,8 @@ export const BookingCard = forwardRef<HTMLDivElement, BookingCardProps>(
         ...rest
       } = props;
 
-      const statusBgClasses = {
+      const statusBgClasses: Record<StatusIntent, string> = {
+        teal: 'bg-primary text-primary-foreground',
         green: 'bg-success text-white dark:bg-success',
         orange: 'bg-warning text-white dark:bg-warning',
         blue: 'bg-info text-white dark:bg-info',

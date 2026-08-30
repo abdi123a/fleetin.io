@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  assignDriver,
   createVehicle,
   deleteVehicle,
   fetchVehicle,
@@ -60,16 +59,5 @@ export function useDeleteVehicle() {
   return useMutation({
     mutationFn: (id: string) => deleteVehicle(id),
     onSuccess: () => invalidateVehicles(queryClient),
-  });
-}
-
-export function useAssignDriver() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ vehicleId, driverId }: { vehicleId: string; driverId: string | null }) => assignDriver(vehicleId, driverId),
-    onSuccess: (_data, variables) => {
-      invalidateVehicles(queryClient, variables.vehicleId);
-      queryClient.invalidateQueries({ queryKey: ['drivers'] });
-    },
   });
 }

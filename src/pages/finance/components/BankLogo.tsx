@@ -64,7 +64,7 @@ export function BankLogoPicker({
   };
 
   return (
-    <div className="flex items-center gap-4 rounded-xl border border-border bg-surface-sunken/50 p-3.5">
+    <div className="flex items-center gap-4 rounded-card-nested border border-border bg-surface-sunken/50 p-3.5">
       <button
         type="button"
         onClick={() => inputRef.current?.click()}

@@ -1,10 +1,11 @@
-import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useState, useMemo } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   User,
-  Search,
+  MoreVertical,
+  SlidersHorizontal,
   ExternalLink,
-  Phone,
+  Star,
   Truck,
   Plus,
   X,
@@ -18,14 +19,24 @@ import {
 } from '@/design-system/icons';
 import { DocumentViewerModal, type DocumentToView } from '@/components/DocumentViewerModal';
 import { triggerDocumentDownload } from '@/components/documentDownload';
-import { Grid, List, RotateCcw, AlertTriangle, Building2, IdCard, UserCheck, Check } from 'lucide-react';
-import { PageHeader, TablePager, usePagedRows } from '@/components';
-import { IconChip, useConfirm } from '@/design-system';
+import { RotateCcw, AlertTriangle, Building2, UserCheck, Check } from 'lucide-react';
+import { DataTable, FilterBar, PageHeader, TablePager, usePagedRows } from '@/components';
+import {
+  RecordStatusMenuSection,
+  DRIVER_STATUS_OPTIONS,
+} from '@/components/common';
+import { usePermissions } from '@/hooks';
+import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
+import { Tooltip, useConfirm } from '@/design-system';
 import {
   Badge,
   Button,
-  Card,
   Checkbox,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   Sheet,
   SheetContent,
   SheetDescription,
@@ -38,23 +49,66 @@ import {
 import { ROUTES, buildPath } from '@/config/routes';
 import type { EnrichedDriver } from '@/data/partnerData';
 import type { OperationalStatus } from '@/types/partner';
+import { DriverProfileHeader, DriverProfileOverview } from '@/components/drivers';
+import { useBookings } from '@/features/bookings/api/queries';
+import { UNRATED, summarisePerformance } from '@/lib/rating';
+import { StarRating } from '@/components/performance';
+import type { BookingRecord } from '@/features/bookings/api/bookingsService';
 import { usePartners } from '@/features/partners/api/queries';
-import { useCreateDriver, useDrivers, useUpdateDriver } from '@/features/drivers/api/queries';
+import {
+  useCreateDriver,
+  useDeleteDriver,
+  useDrivers,
+  useUpdateDriver,
+} from '@/features/drivers/api/queries';
 import { useDocuments, useCreateDocumentType, useDocumentTypes, useUploadDocument, useDeleteDocument } from '@/features/documents/api/queries';
 import { toDisplayDocument, uploadDocument, type DocumentTypeRecord } from '@/features/documents/api/documentsService';
 import { cn, isDriverVerified } from '@/utils';
 
+type StatusFilter = 'all' | 'available' | 'on-the-road' | 'on-leave' | 'unavailable';
+
+/**
+ * The tabs, and the status each one selects.
+ *
+ * A driver shares the fleet's `OperationalStatus` column, so the values are a
+ * truck's — but "Under Maintenance" is nonsense about a person. The words
+ * change here and in `DRIVER_STATUS_OPTIONS`; the stored value does not.
+ */
+const STATUS_TABS: { key: StatusFilter; label: string; tone?: string; status?: OperationalStatus }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'available', label: 'Available', tone: 'text-success', status: 'Available' },
+  { key: 'on-the-road', label: 'On the road', tone: 'text-info', status: 'In Transit' },
+  { key: 'on-leave', label: 'On leave', tone: 'text-warning-subtle-foreground', status: 'Under Maintenance' },
+  { key: 'unavailable', label: 'Unavailable', tone: 'text-destructive', status: 'Out of Service' },
+];
+
 function StatusPill({ status }: { status: OperationalStatus }) {
-  switch (status) {
-    case 'Available':
-      return <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-success-subtle text-success-subtle-foreground border border-success/20"><span className="h-1.5 w-1.5 rounded-full bg-success shrink-0" />Available</span>;
-    case 'In Transit':
-      return <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-info-subtle text-info-subtle-foreground border border-info/20"><span className="h-1.5 w-1.5 rounded-full bg-info shrink-0" />In Transit</span>;
-    case 'Under Maintenance':
-      return <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-warning-subtle text-warning-subtle-foreground border border-warning/20"><span className="h-1.5 w-1.5 rounded-full bg-warning shrink-0" />Maintenance</span>;
-    case 'Out of Service':
-      return <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-destructive-subtle text-destructive-subtle-foreground border border-destructive/20"><span className="h-1.5 w-1.5 rounded-full bg-destructive shrink-0" />Out of Service</span>;
-  }
+  /**
+   * A dot and a word — no pill, no border, no tinted plate.
+   *
+   * The old badge stacked four devices on one word (fill, border, dot, colour)
+   * and still came out low-contrast, because the label sat in a pale
+   * `*-subtle-foreground` on a pale `*-subtle` ground. It also sized itself to
+   * its text, so "Out of Service" was half again as wide as "Available" and the
+   * status column had a ragged edge down the page.
+   *
+   * The dot carries the state, the label reads in full foreground, and the row
+   * is fixed-width so the column lines up. This is the pattern every serious
+   * status column uses, for these reasons.
+   */
+  const meta: Record<OperationalStatus, { dot: string; label: string }> = {
+    Available: { dot: 'bg-success', label: 'Available' },
+    'In Transit': { dot: 'bg-info', label: 'In Transit' },
+    'Under Maintenance': { dot: 'bg-warning', label: 'Maintenance' },
+    'Out of Service': { dot: 'bg-destructive', label: 'Out of service' },
+  };
+  const { dot, label } = meta[status];
+  return (
+    <span className="inline-flex items-center gap-2 whitespace-nowrap text-xs font-semibold text-foreground">
+      <span className={`size-2 shrink-0 rounded-full ${dot}`} aria-hidden />
+      {label}
+    </span>
+  );
 }
 
 function isExpiredOrSoon(dateStr?: string): 'expired' | 'soon' | 'ok' {
@@ -239,10 +293,40 @@ function AddDocumentTypeBox({
 
 export function DriversPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: driversResponse } = useDrivers();
   const drivers = useMemo(() => driversResponse?.items ?? [], [driversResponse]);
   const { data: partnersResponse } = usePartners();
   const partners = useMemo(() => partnersResponse?.items ?? [], [partnersResponse]);
+
+  /**
+   * Every driver's record, for the Rating column.
+   *
+   * The whole booking book in one read, bucketed by driver — the same trade
+   * the Transporters list makes for its own rating column, and deliberately
+   * the same request shape (`{ limit: 2000 }`), so the two pages share one
+   * cached response instead of each fetching the book.
+   *
+   * Unawaited on purpose: the list paints as soon as the drivers arrive and
+   * the stars fill in behind them. A roster that waited on 700 booking rows
+   * before showing a single name would be a bad trade for one column.
+   *
+   * The limit sits above the book's size rather than paging, because paging
+   * would silently under-count: a driver whose earlier missions fell off the
+   * page would wear a star built from half their record, which is worse than
+   * wearing none.
+   */
+  const { data: bookingBook } = useBookings({ limit: 2000 });
+  const performanceByDriver = useMemo(() => {
+    const byDriver = new Map<string, BookingRecord[]>();
+    for (const booking of bookingBook?.items ?? []) {
+      if (!booking.driverId) continue;
+      const bucket = byDriver.get(booking.driverId);
+      if (bucket) bucket.push(booking);
+      else byDriver.set(booking.driverId, [booking]);
+    }
+    return new Map([...byDriver].map(([id, rows]) => [id, summarisePerformance(rows)]));
+  }, [bookingBook]);
   const createDriver = useCreateDriver();
   const updateDriver = useUpdateDriver();
   const [selectedDriver, setSelectedDriver] = useState<EnrichedDriver | null>(null);
@@ -328,8 +412,15 @@ export function DriversPage() {
     setTimeout(() => setAddSuccessNotice(null), 5000);
   };
 
-  // Drawer tabs: 'view' | 'edit' | 'docs'
-  const [drawerTab, setDrawerTab] = useState<'view' | 'edit' | 'docs'>('view');
+  /**
+   * The drawer has two modes, not three tabs.
+   *
+   * Reading a driver and editing one are different jobs; documents are part of
+   * *maintaining* the record, not of reading it, so they live inside edit
+   * rather than behind a third tab of their own. A tab bar advertising three
+   * equal destinations made "Edit Details" look like something to browse.
+   */
+  const [drawerTab, setDrawerTab] = useState<'view' | 'edit'>('view');
 
   // Edit form state
   const [editForm, setEditForm] = useState<Partial<EnrichedDriver>>({});
@@ -342,8 +433,43 @@ export function DriversPage() {
   const [newDocTypeLabel, setNewDocTypeLabel] = useState('');
   const [newDocTypeRequired, setNewDocTypeRequired] = useState(true);
 
-  const [docNotice, setDocNotice] = useState<string | null>(null);
+  /**
+   * The document panel's one line of feedback.
+   *
+   * It used to be success-only, so a rejected write said nothing at all: the
+   * "Save document type" button and the upload both 403'd on a role missing
+   * `documents.upload` and the panel simply sat there, which reads as a dead
+   * control rather than a refused one. A failure is the message the operator
+   * most needs — it is the one they cannot work out for themselves.
+   */
+  const [docNotice, setDocNotice] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+  const say = (tone: 'ok' | 'error', text: string) => {
+    setDocNotice({ tone, text });
+    /* Errors stay until the next action; a success can fade. */
+    if (tone === 'ok') setTimeout(() => setDocNotice(null), 4000);
+  };
+  const explain = (error: unknown) =>
+    error instanceof Error && /permission|forbidden|403/i.test(error.message)
+      ? 'Your role cannot add or upload documents. Ask an administrator for the "documents.upload" permission.'
+      : error instanceof Error
+        ? error.message
+        : 'Something went wrong.';
   const [viewingDoc, setViewingDoc] = useState<DocumentToView | null>(null);
+
+  /* This driver's own record, from the bookings actually assigned to them.
+     Scoped to their transporter rather than the whole book — a driver only
+     ever runs their own carrier's work, and that keeps the request bounded. */
+  const { data: driverBookingPage } = useBookings(
+    { partnerId: selectedDriver?.partnerId },
+    { enabled: Boolean(selectedDriver?.partnerId) },
+  );
+  const driverPerformance = useMemo(
+    () =>
+      summarisePerformance(
+        (driverBookingPage?.items ?? []).filter((b) => b.driverId === selectedDriver?.id),
+      ),
+    [driverBookingPage, selectedDriver],
+  );
 
   const { data: selectedDriverDocs = [] } = useDocuments('DRIVER', selectedDriver?.id);
   const uploadDoc = useUploadDocument('DRIVER', selectedDriver?.id);
@@ -365,11 +491,22 @@ export function DriversPage() {
   /** Defines a new document type — saved to the catalog, so it shows up as
    *  an upload slot for every driver after this one. */
   const handleAddDocumentType = () => {
-    if (!newDocTypeLabel.trim()) return;
-    createDocType.mutate({ label: newDocTypeLabel, required: newDocTypeRequired });
-    setNewDocTypeLabel('');
-    setNewDocTypeRequired(true);
-    setShowAddDocType(false);
+    const label = newDocTypeLabel.trim();
+    if (!label) return;
+    createDocType.mutate(
+      { label, required: newDocTypeRequired },
+      {
+        onSuccess: () => {
+          say('ok', `"${label}" added — it is now an upload slot on every driver.`);
+          setNewDocTypeLabel('');
+          setNewDocTypeRequired(true);
+          setShowAddDocType(false);
+        },
+        /* The form stays open and keeps what was typed, so a refused save is
+           recoverable rather than a retype. */
+        onError: (error) => say('error', explain(error)),
+      },
+    );
   };
 
   const handleSaveEdit = async () => {
@@ -394,10 +531,8 @@ export function DriversPage() {
     uploadDoc.mutate(
       { category: type.label, file },
       {
-        onSuccess: (doc) => {
-          setDocNotice(`Document "${doc.name}" uploaded.`);
-          setTimeout(() => setDocNotice(null), 4000);
-        },
+        onSuccess: (doc) => say('ok', `Document "${doc.name}" uploaded.`),
+        onError: (error) => say('error', explain(error)),
       },
     );
   };
@@ -416,27 +551,56 @@ export function DriversPage() {
     void triggerDocumentDownload(doc.id, doc.name);
   };
 
+  /*
+   * What this account may actually do here — the same gate the Shippers,
+   * Transporters and Vehicles lists use. An action this role cannot perform is
+   * not offered; the server refuses it anyway with a 403.
+   */
+  const { can } = usePermissions();
+  const canEditDrivers = can('drivers.update');
+  const canDeleteDrivers = can('drivers.delete');
+  const canCreateDrivers = can('drivers.create');
+  const deleteDriver = useDeleteDriver();
+
+  /** Move a driver along the ladder from the row itself — whole ladder, awaited. */
+  const handleStatusChange = async (driver: EnrichedDriver, next: OperationalStatus) => {
+    if (next === driver.status) return;
+    const label = DRIVER_STATUS_OPTIONS.find((option) => option.value === next)?.label ?? next;
+    try {
+      await updateDriver.mutateAsync({ id: driver.id, payload: { status: next } });
+      if (selectedDriver?.id === driver.id) {
+        setSelectedDriver({ ...selectedDriver, status: next });
+      }
+      setAddSuccessNotice(`${driver.fullName} is now ${label.toLowerCase()}.`);
+      setTimeout(() => setAddSuccessNotice(null), 4500);
+    } catch {
+      setAddSuccessNotice(`Could not change ${driver.fullName} — your account cannot edit drivers.`);
+      setTimeout(() => setAddSuccessNotice(null), 4500);
+    }
+  };
+
+  const handleDeleteDriver = async (driver: EnrichedDriver, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const ok = await confirm({
+      title: 'Remove this driver?',
+      description: `${driver.fullName} will be removed from the roster. Bookings already assigned to them keep their record.`,
+      confirmLabel: 'Remove',
+    });
+    if (!ok) return;
+    deleteDriver.mutate(driver.id);
+    if (selectedDriver?.id === driver.id) setSelectedDriver(null);
+  };
+
   // Filters & Search State
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [partnerFilter, setPartnerFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [sortBy, setSortBy] = useState<string>('name-asc');
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
 
   // Analytics
   const totalDrivers = drivers.length;
   const availableCount = drivers.filter((d) => d.status === 'Available').length;
   const inTransitCount = drivers.filter((d) => d.status === 'In Transit').length;
   const licenseAlerts = drivers.filter((d) => isExpiredOrSoon(d.licenseExpiry) !== 'ok').length;
-
-  // Partner options
-  const partnerOptions = useMemo(() => {
-    const unique = Array.from(new Set(drivers.map((d) => d.partnerName)));
-    return [
-      { value: 'all', label: 'All transporters' },
-      ...unique.map((name) => ({ value: name, label: name })),
-    ];
-  }, [drivers]);
 
   // Filtering & Sorting
   const filteredDrivers = useMemo(() => {
@@ -447,13 +611,18 @@ export function DriversPage() {
         d.fullName.toLowerCase().includes(q) ||
         d.partnerName.toLowerCase().includes(q) ||
         d.drivingLicenseNumber.toLowerCase().includes(q) ||
-        d.nationalId.toLowerCase().includes(q) ||
-        (d.assignedVehiclePlate && d.assignedVehiclePlate.toLowerCase().includes(q));
+        d.nationalId.toLowerCase().includes(q);
 
-      const matchesStatus = statusFilter === 'all' || d.status.toLowerCase() === statusFilter.toLowerCase();
-      const matchesPartner = partnerFilter === 'all' || d.partnerName === partnerFilter;
+      /* Compared against the tab's own `status`, not a lowercased label — a
+         driver's bands are re-worded ("On leave" for `Under Maintenance`) and
+         the two would never have matched. */
+      const tabStatus = STATUS_TABS.find((tab) => tab.key === statusFilter)?.status;
+      const matchesStatus = !tabStatus || d.status === tabStatus;
 
-      return matchesSearch && matchesStatus && matchesPartner;
+      /* No transporter select: the column shows every carrier's name outright
+         now, and the search field already matches on it — a dropdown of the
+         same ten names was a third control doing the second one's job. */
+      return matchesSearch && matchesStatus;
     });
 
     list.sort((a, b) => {
@@ -464,22 +633,46 @@ export function DriversPage() {
     });
 
     return list;
-  }, [drivers, searchTerm, statusFilter, partnerFilter, sortBy]);
+  }, [drivers, searchTerm, statusFilter, sortBy]);
 
   /** One page at a time — the row list and the card grid share the pager. */
   const [pageSize, setPageSize] = useState(12);
   const pagedDrivers = usePagedRows(filteredDrivers, {
     pageSize,
-    resetKey: `${statusFilter}|${partnerFilter}|${searchTerm}|${sortBy}`,
+    resetKey: `${statusFilter}|${searchTerm}|${sortBy}`,
   });
 
-  const hasActiveFilters = searchTerm !== '' || statusFilter !== 'all' || partnerFilter !== 'all';
+  const hasActiveFilters = searchTerm !== '' || statusFilter !== 'all';
 
   const clearFilters = () => {
     setSearchTerm('');
     setStatusFilter('all');
-    setPartnerFilter('all');
     setSortBy('name-asc');
+  };
+
+  /* `?driver=<id>` opens straight into that driver's profile — what a row on
+     the transporter's roster links to. The parameter stays in the URL while
+     the drawer is up (so the address describes what is open, and the link is
+     shareable) and is cleared on close by `closeDriverDrawer`. */
+  const wantedDriver = searchParams.get('driver');
+  useEffect(() => {
+    if (!wantedDriver || drivers.length === 0) return;
+    const match = drivers.find((d) => d.id === wantedDriver || d.reference === wantedDriver);
+    if (match) handleSelectDriver(match);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantedDriver, drivers]);
+
+  const closeDriverDrawer = () => {
+    setSelectedDriver(null);
+    if (wantedDriver) {
+      setSearchParams(
+        (params) => {
+          params.delete('driver');
+          return params;
+        },
+        { replace: true },
+      );
+    }
   };
 
   const handleGoToPartner = (partnerId: string, e?: React.MouseEvent) => {
@@ -494,14 +687,16 @@ export function DriversPage() {
       <PageHeader
         title="Drivers"
         actions={
-          <Button
-            onClick={() => setIsAddDriverOpen(true)}
-            shape="pill"
-            leadingIcon={<Plus className="h-4 w-4" />}
-            className="bg-primary hover:bg-primary-hover text-primary-foreground font-semibold px-4 py-2 text-xs shadow-xs cursor-pointer"
-          >
-            Add driver
-          </Button>
+          canCreateDrivers ? (
+            <Button
+              onClick={() => setIsAddDriverOpen(true)}
+              shape="pill"
+              leadingIcon={<Plus className="h-4 w-4" />}
+              className="bg-primary hover:bg-primary-hover text-primary-foreground font-semibold px-4 py-2 text-xs shadow-xs cursor-pointer"
+            >
+              Add driver
+            </Button>
+          ) : undefined
         }
       />
 
@@ -649,7 +844,11 @@ export function DriversPage() {
       </Sheet>
 
       {/* KPI Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+      {/* Two-up on a phone, not four stacked. One tile per row put four
+          full-width blocks between the page title and the list they summarise,
+          so the first screen was entirely header and the actual work started
+          below the fold. */}
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5 lg:grid-cols-4">
         <StatisticCard
           title="Total Drivers"
           value={totalDrivers}
@@ -684,267 +883,99 @@ export function DriversPage() {
         />
       </div>
 
-      {/* Control Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 sm:gap-3 rounded-lg border border-border bg-card p-2.5 sm:px-4 shadow-2xs">
-        {/* Search & Status Tabs */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1 w-full md:w-auto">
-          {/* Search Input */}
-          <div className="relative w-full sm:w-auto sm:min-w-[180px] md:max-w-[240px]">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder="Search drivers..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-8 pr-7 py-1 text-xs font-medium rounded-md border-border bg-background h-8 w-full"
-            />
-            {searchTerm && (
-              <button
-                type="button"
-                onClick={() => setSearchTerm('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            )}
-          </div>
-
-          {/* Inline Status Filter Tabs */}
-          <div className="flex items-center gap-1 overflow-x-auto py-0.5 scrollbar-none w-full sm:w-auto">
-            {[
-              { id: 'all', label: 'All', count: drivers.length },
-              { id: 'available', label: 'Available', count: drivers.filter((d) => d.status === 'Available').length },
-              { id: 'in transit', label: 'In Transit', count: drivers.filter((d) => d.status === 'In Transit').length },
-              { id: 'under maintenance', label: 'Maintenance', count: drivers.filter((d) => d.status === 'Under Maintenance').length },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setStatusFilter(tab.id)}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap ${
-                  statusFilter === tab.id
-                    ? 'bg-primary text-primary-foreground shadow-2xs'
-                    : 'bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'
-                }`}
-              >
-                <span>{tab.label}</span>
-                <span
-                  className={`px-1 py-0.2 rounded-sm text-[10px] font-semibold ${
-                    statusFilter === tab.id ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-background/80 text-muted-foreground border border-border/40'
-                  }`}
-                >
-                  {tab.count}
-                </span>
-              </button>
-            ))}
-          </div>
-
-          {hasActiveFilters && (
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="flex items-center gap-1 text-2xs font-medium text-muted-foreground hover:text-primary transition-colors shrink-0"
-            >
-              <RotateCcw className="h-3 w-3" />
-              <span>Reset</span>
-            </button>
-          )}
-        </div>
-
-        {/* Selects & View Switcher */}
-        <div className="flex items-center gap-1.5 sm:gap-2 w-full md:w-auto overflow-x-auto py-0.5 shrink-0 justify-between sm:justify-end">
-          <Select
-            selectSize="sm"
-            containerClassName="flex-1 sm:flex-initial sm:w-32 lg:w-36"
-            value={partnerFilter}
-            onChange={(e) => setPartnerFilter(e.target.value)}
-            options={partnerOptions}
-            className="text-2xs py-1 rounded-md"
-          />
-
-          <Select
-            selectSize="sm"
-            containerClassName="flex-1 sm:flex-initial sm:w-32 lg:w-36"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            options={[
-              { value: 'name-asc', label: 'Sort: Driver Name' },
-              { value: 'partner-asc', label: 'Sort: Transporter' },
-              { value: 'license-asc', label: 'Sort: License No' },
-            ]}
-            className="text-2xs py-1 rounded-md"
-          />
-
-          <div className="flex items-center rounded-md border border-border bg-muted/40 p-0.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => setViewMode('list')}
-              title="List View"
-              className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
-                viewMode === 'list' ? 'bg-background text-primary shadow-2xs font-bold' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <List className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('grid')}
-              title="Grid View"
-              className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
-                viewMode === 'grid' ? 'bg-background text-primary shadow-2xs font-bold' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <Grid className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
-      </div>
-
+      {/* One filter bar, the app's own — see the Vehicles list for why the
+          hand-rolled "Control Bar" (scrolling pill tabs, its own search box,
+          a view switcher) went. */}
+      <FilterBar
+        label="Filter drivers by status"
+        tabs={STATUS_TABS.map((tab) => ({
+          key: tab.key,
+          label: tab.label,
+          tone: tab.tone,
+          count: tab.status
+            ? drivers.filter((d) => d.status === tab.status).length
+            : drivers.length,
+        }))}
+        active={statusFilter}
+        onSelect={setStatusFilter}
+        search={{
+          value: searchTerm,
+          onChange: setSearchTerm,
+          placeholder: 'Search drivers…',
+          matched: filteredDrivers.length,
+          total: drivers.length,
+        }}
+      >
+        <Select
+          selectSize="sm"
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          aria-label="Sort drivers"
+          leadingIcon={<SlidersHorizontal />}
+          containerClassName="w-full @[26rem]/bar:w-auto"
+          className="h-9 w-full min-w-[9.5rem] text-xs font-medium @[26rem]/bar:w-auto"
+          options={[
+            { value: 'name-asc', label: 'Driver name' },
+            { value: 'partner-asc', label: 'Transporter' },
+            { value: 'license-asc', label: 'License no.' },
+          ]}
+        />
+      </FilterBar>
       {/* Driver Drawer */}
-      <Sheet open={Boolean(selectedDriver)} onOpenChange={(open) => !open && setSelectedDriver(null)}>
-        <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto p-6 bg-background border-l border-border space-y-6">
+      <Sheet open={Boolean(selectedDriver)} onOpenChange={(open) => !open && closeDriverDrawer()}>
+        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto p-6 bg-background border-l border-border space-y-6">
           <SheetTitle className="sr-only">Driver Profile Details & Documents</SheetTitle>
           <SheetDescription className="sr-only">Driver details and documents.</SheetDescription>
           {selectedDriver && (
             <div className="space-y-6">
-              {/* Profile Header */}
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-4">
-                  <div className="h-16 w-16 rounded-lg border border-border/80 bg-muted overflow-hidden flex items-center justify-center shrink-0">
-                    {selectedDriver.profilePictureUrl ? (
-                      <img src={selectedDriver.profilePictureUrl} alt={selectedDriver.fullName} className="h-full w-full object-cover" />
-                    ) : (
-                      <User className="h-8 w-8 text-muted-foreground" />
-                    )}
-                  </div>
-                  <div className="space-y-1">
-                    <h3 className="text-xl font-extrabold text-foreground tracking-tight flex items-center gap-2">
-                      {selectedDriver.fullName}
-                      <VerificationBadge state={isDriverVerified(selectedDriver) ? 'verified' : 'unverified'} size="lg" />
-                    </h3>
-                    <p className="text-xs text-muted-foreground font-mono">{selectedDriver.reference}</p>
-                    <div className="pt-1"><StatusPill status={selectedDriver.status} /></div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Drawer Tabs Bar */}
-              <div className="flex items-center gap-1.5 p-1 rounded-lg bg-muted/40 border border-border">
-                {(
-                  [
-                    { id: 'view', label: 'Overview' },
-                    { id: 'edit', label: 'Edit Details' },
-                    { id: 'docs', label: `Documents (${driverDocRows.length})` },
-                  ] as const
-                ).map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setDrawerTab(tab.id)}
-                    className={`flex-1 py-1.5 px-3 rounded-md text-xs font-bold transition-all text-center ${
-                      drawerTab === tab.id
-                        ? 'bg-primary text-primary-foreground shadow-2xs'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
+              <DriverProfileHeader
+                driver={selectedDriver}
+                onEdit={() => setDrawerTab(drawerTab === 'edit' ? 'view' : 'edit')}
+                editing={drawerTab === 'edit'}
+              />
 
               {/* Toast / Notice */}
               {docNotice && (
-                <div className="p-3 rounded-lg border border-success/30 bg-success-subtle text-success-subtle-foreground text-xs font-medium flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-success-subtle-foreground shrink-0" />
-                  <span>{docNotice}</span>
+                <div
+                  className={`p-3 rounded-lg border text-xs font-medium flex items-center gap-2 ${
+                    docNotice.tone === 'ok'
+                      ? 'border-success/30 bg-success-subtle text-success-subtle-foreground'
+                      : 'border-destructive/30 bg-destructive-subtle text-destructive-subtle-foreground'
+                  }`}
+                  role={docNotice.tone === 'error' ? 'alert' : 'status'}
+                >
+                  {docNotice.tone === 'ok' ? (
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                  )}
+                  <span>{docNotice.text}</span>
                 </div>
               )}
 
               {/* ── TAB 1: OVERVIEW ── */}
               {drawerTab === 'view' && (
-                <div className="space-y-5">
-                  <Card className="p-4 border border-primary/20 bg-primary/5 rounded-lg space-y-2">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Transporter</span>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <Building2 className="h-4 w-4 text-primary shrink-0" />
-                        <div>
-                          <p className="font-bold text-foreground text-xs">{selectedDriver.partnerName}</p>
-                          <p className="text-[10px] text-muted-foreground">{selectedDriver.partnerCountry} · {selectedDriver.partnerReference}</p>
-                        </div>
-                      </div>
+                <DriverProfileOverview
+                  driver={selectedDriver}
+                  summary={driverPerformance}
+                  transporter={{
+                    name: selectedDriver.partnerName,
+                    country: selectedDriver.partnerCountry,
+                    reference: selectedDriver.partnerReference,
+                    onOpen: () => handleGoToPartner(selectedDriver.partnerReference),
+                  }}
+                  footer={
+                    <div className="pt-2">
                       <Button
-                        size="sm"
-                        variant="outline"
-                        shape="pill"
-                        onClick={(e) => handleGoToPartner(selectedDriver.partnerReference, e)}
-                        leadingIcon={<ExternalLink className="h-3 w-3" />}
-                        className="text-xs font-semibold h-7 px-3 shrink-0"
+                        onClick={() => setDrawerTab('edit')}
+                        leadingIcon={<Pencil className="h-4 w-4" />}
+                        className="w-full rounded-lg bg-primary py-2.5 text-xs font-semibold text-primary-foreground"
                       >
-                        Dossier
+                        Edit driver &amp; documents
                       </Button>
                     </div>
-                  </Card>
-
-                  <div className="space-y-2">
-                    <h4 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Contact & Identification</h4>
-                    <div className="grid grid-cols-2 gap-3 p-3.5 rounded-lg border border-border bg-card text-xs">
-                      <div>
-                        <span className="text-muted-foreground block text-[10px]">Phone</span>
-                        <span className="font-semibold text-foreground flex items-center gap-1">
-                          <Phone className="h-3 w-3 text-primary shrink-0" />
-                          {selectedDriver.phone || '—'}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground block text-[10px]">National ID</span>
-                        <span className="font-mono font-semibold text-foreground">{selectedDriver.nationalId || '—'}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground block text-[10px]">License Number</span>
-                        <span className="font-mono font-semibold text-foreground">{selectedDriver.drivingLicenseNumber}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground block text-[10px]">License Expiry</span>
-                        <ExpiryLabel date={selectedDriver.licenseExpiry} label="" />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <h4 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Assigned Vehicle</h4>
-                    <div className="p-3.5 rounded-lg border border-border bg-card flex items-center gap-3 text-xs">
-                      <IconChip icon={Truck} size={36} />
-                      <div>
-                        <p className="font-mono font-black text-foreground text-sm tracking-wide">
-                          {selectedDriver.assignedVehiclePlate || 'No vehicle assigned'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {selectedDriver.accessCards && selectedDriver.accessCards.length > 0 && (
-                    <div className="space-y-2">
-                      <h4 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Port & Zone Access Cards</h4>
-                      <div className="flex flex-wrap gap-1.5">
-                        {selectedDriver.accessCards.map((card) => (
-                          <span key={card} className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-primary/10 text-primary font-bold border border-primary/20">
-                            <IdCard className="h-3 w-3 shrink-0" />{card}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="pt-2">
-                    <Button
-                      onClick={() => setDrawerTab('edit')}
-                      leadingIcon={<Pencil className="h-4 w-4" />}
-                      className="w-full bg-primary text-primary-foreground font-semibold text-xs rounded-lg py-2.5"
-                    >
-                      Edit driver details
-                    </Button>
-                  </div>
-                </div>
+                  }
+                />
               )}
 
               {/* ── TAB 2: EDIT DETAILS ── */}
@@ -1025,9 +1056,9 @@ export function DriversPage() {
                 </div>
               )}
 
-              {/* ── TAB 3: DRIVER DOCUMENTS & UPLOAD ── */}
-              {drawerTab === 'docs' && (
-                <div className="space-y-5">
+              {/* ── DOCUMENTS — part of editing, not a third destination ── */}
+              {drawerTab === 'edit' && (
+                <div className="space-y-5 border-t border-border pt-5">
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div>
                       <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
@@ -1079,138 +1110,237 @@ export function DriversPage() {
       </Sheet>
 
       {/* ── Main View ── */}
-      {viewMode === 'list' ? (
-        <div className="space-y-2 pt-1">
-          <div className="hidden lg:grid grid-cols-12 gap-4 px-5 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-            <div className="col-span-3">Driver Name & ID</div>
-            <div className="col-span-3">Transporter</div>
-            <div className="col-span-3">License & Phone</div>
-            <div className="col-span-2">Assigned Vehicle</div>
-            <div className="col-span-1 text-right">Status</div>
-          </div>
-
-          {pagedDrivers.rows.map((driver) => (
-            <div
-              key={driver.id}
-              onClick={() => handleSelectDriver(driver)}
-              className="group relative flex flex-col lg:grid lg:grid-cols-12 items-start lg:items-center gap-3 lg:gap-4 rounded-lg border border-border/80 bg-card hover:bg-muted/30 p-3.5 sm:px-5 cursor-pointer transition duration-150 hover:border-primary/40 hover:shadow-2xs"
+      {/* One list surface, no view switcher — see the Vehicles list. The card
+          layout the switcher used to offer is still here: `DataTable` falls
+          back to it below the width where the columns fit. */}
+      <DataTable
+        rows={pagedDrivers.rows}
+        rowKey={(driver) => driver.id}
+        onRowClick={(driver) => handleSelectDriver(driver)}
+        emptyCopy="No driver matches the current filters."
+        emptyAction={
+          hasActiveFilters ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearFilters}
+              leadingIcon={<RotateCcw className="size-3.5" />}
+              className="text-xs"
             >
-              <div className="col-span-3 flex items-center gap-3 min-w-0 w-full">
-                <div className="h-10 w-10 rounded-lg border border-border/60 bg-muted overflow-hidden flex items-center justify-center shrink-0">
+              Clear filters
+            </Button>
+          ) : undefined
+        }
+        /* 48rem, the same width Shippers and Transporters switch at. It was
+           56rem, so on a normal laptop this list was still drawing stacked
+           cards while the two directories beside it — same six columns, same
+           chrome — had already become a table. The four directories are one
+           idiom; they should not disagree about when they are a table. */
+        breakpoint="48rem"
+        columns={[
+          {
+            key: 'driver',
+            label: 'Driver',
+            icon: User,
+            width: 'w-[23%]',
+            card: 'identity',
+            cell: (driver) => (
+              <div className="flex min-w-0 items-center gap-2.5">
+                <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/60 bg-muted">
                   {driver.profilePictureUrl ? (
-                    <img src={driver.profilePictureUrl} alt={driver.fullName} className="h-full w-full object-cover" />
+                    <img
+                      src={driver.profilePictureUrl}
+                      alt={driver.fullName}
+                      className="h-full w-full object-cover"
+                    />
                   ) : (
-                    <User className="h-5 w-5 text-muted-foreground" />
+                    <User className="size-4 text-muted-foreground" />
                   )}
                 </div>
-                <div className="flex flex-col min-w-0">
-                  <span className="text-sm font-bold text-foreground group-hover:text-primary transition-colors truncate flex items-center gap-1">
-                    {driver.fullName}
-                    <VerificationBadge state={isDriverVerified(driver) ? 'verified' : 'unverified'} size="sm" />
-                  </span>
-                  <span className="text-2xs font-mono text-muted-foreground">{driver.reference}</span>
-                </div>
-              </div>
-
-              <div className="w-full lg:contents grid grid-cols-2 gap-2.5 p-2.5 rounded-md bg-muted/20 border border-border/40 text-xs lg:p-0 lg:bg-transparent lg:border-0">
-                <div className="lg:col-span-3 flex flex-col justify-center min-w-0">
-                  <span className="text-[10px] text-muted-foreground font-medium block lg:hidden">Transporter</span>
-                  <button
-                    type="button"
-                    onClick={(e) => handleGoToPartner(driver.partnerReference, e)}
-                    className="text-xs font-bold text-foreground hover:text-primary transition-colors text-left truncate flex items-center gap-1.5"
-                  >
-                    <Building2 className="h-3 w-3 text-primary shrink-0" />
-                    <span className="truncate">{driver.partnerName}</span>
-                  </button>
-                  <span className="text-2xs text-muted-foreground truncate">{driver.partnerCountry}</span>
-                </div>
-
-                <div className="lg:col-span-3 flex flex-col justify-center min-w-0">
-                  <span className="text-[10px] text-muted-foreground font-medium block lg:hidden">License</span>
-                  <span className="text-xs font-mono font-semibold text-foreground truncate">{driver.drivingLicenseNumber}</span>
-                  <ExpiryLabel date={driver.licenseExpiry} label="" />
-                </div>
-
-                <div className="lg:col-span-2 flex flex-col justify-center min-w-0">
-                  <span className="text-[10px] text-muted-foreground font-medium block lg:hidden">Vehicle</span>
-                  {driver.assignedVehiclePlate ? (
-                    <span className="text-xs font-mono font-bold text-foreground flex items-center gap-1">
-                      <Truck className="h-3 w-3 text-primary shrink-0" />
-                      {driver.assignedVehiclePlate}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-muted-foreground italic">Unassigned</span>
-                  )}
-                </div>
-              </div>
-
-              <div className="col-span-1 flex items-center justify-end w-full lg:w-auto pt-2 lg:pt-0 border-t lg:border-t-0 border-border/40">
-                <StatusPill status={driver.status} />
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
-          {pagedDrivers.rows.map((driver) => (
-            <Card
-              key={driver.id}
-              onClick={() => handleSelectDriver(driver)}
-              className="group relative flex flex-col justify-between h-full p-4 border border-border bg-card hover:bg-muted/20 rounded-lg cursor-pointer transition duration-150 hover:border-primary/40 hover:shadow-2xs space-y-3"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="h-10 w-10 rounded-lg border border-border/60 bg-muted overflow-hidden flex items-center justify-center shrink-0">
-                    {driver.profilePictureUrl ? (
-                      <img src={driver.profilePictureUrl} alt={driver.fullName} className="h-full w-full object-cover" />
-                    ) : (
-                      <User className="h-5 w-5 text-muted-foreground" />
-                    )}
-                  </div>
-                  <div className="flex flex-col min-w-0">
-                    <h3 className="text-sm font-bold text-foreground group-hover:text-primary transition-colors truncate flex items-center gap-1">
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate text-sm font-bold text-foreground">
                       {driver.fullName}
-                      <VerificationBadge state={isDriverVerified(driver) ? 'verified' : 'unverified'} size="sm" />
-                    </h3>
-                    <span className="text-2xs font-mono text-muted-foreground">{driver.reference}</span>
+                    </span>
+                    <VerificationBadge
+                      state={isDriverVerified(driver) ? 'verified' : 'unverified'}
+                      size="sm"
+                    />
                   </div>
+                  <span className="block truncate font-mono text-[11px] text-muted-foreground">
+                    {driver.reference}
+                  </span>
                 </div>
-                <StatusPill status={driver.status} />
               </div>
-
-              <button
-                type="button"
-                onClick={(e) => handleGoToPartner(driver.partnerReference, e)}
-                className="flex items-center gap-2 p-2 rounded-lg bg-primary/5 border border-primary/20 text-xs w-full text-left hover:bg-primary/10 transition-colors"
+            ),
+          },
+          {
+            key: 'transporter',
+            label: 'Transporter',
+            icon: Building2,
+            width: 'w-[20%]',
+            /* Mark **and** name. The mark alone, with the name hidden in a
+               tooltip, is the one place the app breaks its own rule that a
+               named company always shows its logo beside the name — and in a
+               column of near-identical circles it made the reader hover every
+               row to find out who anybody was. */
+            cell: (driver) => (
+              <Tooltip
+                content={`Transporter · ${driver.partnerName}${driver.partnerCountry ? ` · ${driver.partnerCountry}` : ''}`}
               >
-                <Building2 className="h-3.5 w-3.5 text-primary shrink-0" />
-                <span className="font-bold text-foreground truncate flex-1">{driver.partnerName}</span>
-                <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
-              </button>
-
-              <div className="grid grid-cols-2 gap-2 p-2.5 rounded-lg bg-muted/30 border border-border/40 text-xs">
-                <div>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Phone</span>
-                  <span className="font-semibold text-foreground truncate block">{driver.phone || '—'}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Assigned Vehicle</span>
-                  <span className="font-mono font-bold text-foreground truncate block">{driver.assignedVehiclePlate || 'Unassigned'}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-muted-foreground font-medium block">License No.</span>
-                  <span className="font-mono font-semibold text-foreground truncate block">{driver.drivingLicenseNumber}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-muted-foreground font-medium block">License Exp.</span>
-                  <ExpiryLabel date={driver.licenseExpiry} label="" />
-                </div>
+                <button
+                  type="button"
+                  onClick={(e) => handleGoToPartner(driver.partnerReference, e)}
+                  className="flex w-full min-w-0 items-center gap-2 rounded-full p-0.5 pr-2 text-left transition-colors hover:bg-muted"
+                >
+                  <CompanyMark id={driver.partnerId} name={driver.partnerName} size="sm" />
+                  <span className="truncate text-xs font-semibold text-foreground">
+                    {driver.partnerName}
+                  </span>
+                </button>
+              </Tooltip>
+            ),
+          },
+          {
+            key: 'license',
+            label: 'License',
+            icon: FileText,
+            width: 'w-[16%]',
+            cell: (driver) => (
+              <div className="min-w-0">
+                <span className="block truncate font-mono text-xs font-semibold text-foreground">
+                  {driver.drivingLicenseNumber}
+                </span>
+                <ExpiryLabel date={driver.licenseExpiry} label="" />
               </div>
-            </Card>
-          ))}
-        </div>
-      )}
+            ),
+          },
+          {
+            /* The driver's mark, where the assigned truck used to be.
+               The plate was a static fact that repeated the Vehicles page and
+               told a reader nothing about the person whose row it was on. This
+               is the one column on the roster that says how somebody actually
+               works — and it is the same column, drawn the same way, as the
+               Transporters list already carries, so a star means one thing
+               across the app. Every star here is one an operator gave in a
+               delivery debrief; nothing in this app scores anybody. */
+            key: 'rating',
+            label: 'Rating',
+            icon: Star,
+            width: 'w-[17%]',
+            cardLabel: 'Rating',
+            cell: (driver) => {
+              const summary = performanceByDriver.get(driver.id) ?? UNRATED;
+              /* No closed mission, no star. "Not yet rated" is the truthful
+                 answer, and an empty 0.0 beside somebody's name is not. Their
+                 mission figures still show in the columns beside this one — an
+                 unrated driver with thirty missions run is not an unknown
+                 quantity, only an unrated one. */
+              if (!summary.rated) {
+                return <span className="text-xs text-muted-foreground">Not yet rated</span>;
+              }
+              return (
+                <div className="min-w-0">
+                  <StarRating value={summary.overall} size="sm" />
+                  {/* The weight behind the star: 4.4 over three debriefs and
+                      4.4 over forty are not the same claim. */}
+                  <span className="mt-1 flex flex-wrap items-center gap-x-2">
+                    <span className="flex items-baseline gap-1">
+                      <span className="font-mono text-sm font-bold tabular-nums text-foreground">
+                        {summary.ratedMissions}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground">
+                        rated of {summary.missions}
+                      </span>
+                    </span>
+                  </span>
+                </div>
+              );
+            },
+          },
+          {
+            key: 'status',
+            label: 'Status',
+            icon: UserCheck,
+            width: 'w-[14%]',
+            card: 'trailing',
+            cell: (driver) => <StatusPill status={driver.status} />,
+          },
+          {
+            key: 'actions',
+            label: 'Actions',
+            /* 10%, matching Shippers. At 8% the ⋮ button fitted and the word
+               above it did not — the heading truncated to "ACTIO…". */
+            width: 'w-[10%]',
+            card: 'trailing',
+            cell: (driver) => (
+              /* Centred in its column. The button is a 32px square in a 10%
+                 column, so left-aligned it sat against the rule with a hand's
+                 width of nothing after it — the last column read as empty with
+                 something stuck to its edge. */
+              <div className="flex items-center justify-center">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label="Driver actions"
+                      className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                      <MoreVertical className="size-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-52">
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelectDriver(driver);
+                      }}
+                      className="cursor-pointer gap-2 text-xs"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span>Open driver</span>
+                    </DropdownMenuItem>
+                    {canEditDrivers && (
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSelectDriver(driver);
+                          setDrawerTab('edit');
+                        }}
+                        className="cursor-pointer gap-2 text-xs"
+                      >
+                        <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span>Edit driver</span>
+                      </DropdownMenuItem>
+                    )}
+                    {canEditDrivers && (
+                      <RecordStatusMenuSection
+                        value={driver.status}
+                        options={DRIVER_STATUS_OPTIONS}
+                        onSelect={(next) => handleStatusChange(driver, next)}
+                        busy={updateDriver.isPending}
+                      />
+                    )}
+                    {canDeleteDrivers && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={(e) => handleDeleteDriver(driver, e)}
+                          className="cursor-pointer gap-2 text-xs text-destructive focus:text-destructive"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span>Delete driver</span>
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            ),
+          },
+        ]}
+      />
 
       {filteredDrivers.length > 0 && (
         <TablePager
@@ -1222,26 +1352,9 @@ export function DriversPage() {
         />
       )}
 
-      {/* Empty State */}
-      {filteredDrivers.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-12 text-center rounded-lg border border-dashed border-border bg-card">
-          <IconChip icon={User} tint="neutral" className="mb-3" />
-          <h3 className="text-base font-bold text-foreground">No Drivers Found</h3>
-          <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-            No driver matched the current filters.
-          </p>
-          {hasActiveFilters && (
-            <Button
-              variant="outline"
-              onClick={clearFilters}
-              leadingIcon={<RotateCcw className="h-3.5 w-3.5" />}
-              className="mt-4 rounded-full text-xs font-medium"
-            >
-              Clear filters
-            </Button>
-          )}
-        </div>
-      )}
+      {/* No "No Drivers Found" panel here: `DataTable` prints its own empty row
+          with the same escape, and the two together were the page saying it
+          twice. */}
 
       <DocumentViewerModal open={Boolean(viewingDoc)} onOpenChange={(open) => !open && setViewingDoc(null)} document={viewingDoc} />
     </div>

@@ -4,6 +4,7 @@ import {
   FileText,
   Mail,
   MapPin,
+  PauseCircle,
   Pencil,
   Phone,
   Upload,
@@ -150,6 +151,16 @@ function ApprovalBadge({ status }: { status: ApprovalStatus }) {
         <Badge intent="warning" size="sm">
           <Clock aria-hidden />
           Onboarding
+        </Badge>
+      );
+    /* Warning rather than destructive, and a pause rather than a cross: a
+       suspended account is stopped, not ended, and the mark is the only thing
+       that says which of the two this is. */
+    case 'Suspended':
+      return (
+        <Badge intent="warning" size="sm">
+          <PauseCircle aria-hidden />
+          Suspended
         </Badge>
       );
     case 'Canceled':

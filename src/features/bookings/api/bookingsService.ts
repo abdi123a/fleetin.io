@@ -36,6 +36,8 @@ export interface BookingShipmentContext {
   pickupLocationName: string;
   deliveryLocationName: string;
   estimatedDistanceKm: number;
+  /** Road time one way, as prose (`"34h 00m"`). What `@/lib/rating` holds a mission's span against. */
+  estimatedDurationHours?: string | null;
   cargoType: string;
   totalWeightKg: number;
   scheduledPickupTime: string;
@@ -64,6 +66,24 @@ export interface BookingRecord {
   emptyReturnException: string | null;
   scheduledPickupTime: string | null;
   completedAt: string | null;
+  driverRating?: number | null;
+  driverRatingReliability?: number | null;
+  driverRatingPunctuality?: number | null;
+  driverRatingProfessionalism?: number | null;
+  driverNote?: string | null;
+  /* The closing debrief — the shipper's half of the round trip. Asked when the
+     box is actually home, because that is the moment their part of it is over:
+     how fast they stripped and released it is what ran the detention clock, and
+     it is otherwise charged to the carrier who only fetched it. */
+  shipperRating?: number | null;
+  shipperRatingReliability?: number | null;
+  shipperRatingPunctuality?: number | null;
+  shipperRatingProfessionalism?: number | null;
+  shipperNote?: string | null;
+  /** Who wrote the debrief and when — stamped server-side from the token. */
+  driverRatedByName?: string | null;
+  driverRatedAt?: string | null;
+
   /** When this booking's container was emptied — set on the "Empty Ready" rung, and what the empty return counts from. */
   emptyReadyAt?: string | null;
   /** When Operations planned this container's own return for — written beside `emptyReturnException` on the "Plan Empty Return" decision. */
@@ -175,6 +195,25 @@ export async function updateBookingStatus(
 }
 
 export interface UpdateBookingPayload {
+  /**
+   * How the delivery went, as the operator saw it — asked for the moment a
+   * booking is marked Delivered.
+   *
+   * Separate from the star in `@/lib/rating`, which is computed from
+   * timestamps and says outright that nothing there is scored by hand. This is
+   * the human half; the two are shown side by side rather than blended, so
+   * neither stops being explainable.
+   */
+  driverRating?: number;
+  driverRatingReliability?: number;
+  driverRatingPunctuality?: number;
+  driverRatingProfessionalism?: number;
+  driverNote?: string;
+  shipperRating?: number;
+  shipperRatingReliability?: number;
+  shipperRatingPunctuality?: number;
+  shipperRatingProfessionalism?: number;
+  shipperNote?: string;
   partnerId?: string;
   /** `null` clears the assignment — the backend only skips fields that are `undefined`. */
   vehicleId?: string | null;

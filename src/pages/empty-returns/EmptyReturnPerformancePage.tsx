@@ -205,7 +205,7 @@ export function EmptyReturnPerformancePage() {
                 <div className="flex w-full flex-1 items-end">
                   <div
                     className={cn(
-                      'w-full rounded-t bg-primary',
+                      'w-full rounded-t-sm bg-primary',
                       point.rate === null && 'bg-muted',
                     )}
                     style={{

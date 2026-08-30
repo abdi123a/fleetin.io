@@ -84,8 +84,16 @@ export interface PartnerDriver {
   drivingLicenseNumber: string;
   licenseExpiry: string;   // ISO date string or formatted
   nationalIdExpiry?: string;
-  assignedVehicleId?: string;
-  assignedVehiclePlate?: string;
+  /**
+   * Container runs driven — one per booking, cancelled and failed excluded,
+   * counted server-side.
+   *
+   * This replaced `assignedVehicleId`/`assignedVehiclePlate`. A driver is not
+   * paired with a truck any more: they meet on a booking, per trip, which is
+   * where dispatch actually happens — so "which truck is theirs" had no single
+   * true answer and the stored one could disagree with every job on the road.
+   */
+  trips?: number;
   profilePictureUrl?: string;
   accessCards?: string[];  // e.g. ["Port Gate A", "Free Zone"]
   status: OperationalStatus;
@@ -120,8 +128,12 @@ export interface PartnerVehicle {
   hasGPS: boolean;
   gpsDeviceId?: string;
   operationalStatus: OperationalStatus;
-  assignedDriverId?: string;
-  assignedDriverName?: string;
+  /**
+   * Container runs made — one per booking, cancelled and failed excluded,
+   * counted server-side. Replaced the standing `assignedDriverId`/
+   * `assignedDriverName`; see `PartnerDriver.trips`.
+   */
+  trips?: number;
   year?: number;
   make?: string;
   model?: string;

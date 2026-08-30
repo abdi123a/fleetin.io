@@ -106,6 +106,46 @@ if (transitionAll) {
   warn('transition-all', `${transitionAll} use(s) remain. These animate every property including layout. The remaining ones are mostly progress fills that genuinely animate width — narrow those to transition-[width] rather than plain transition.`);
 }
 
+/* --- dead radius utilities ---------------------------------------------
+ *
+ * `src/styles/index.css` sets `--radius-*: initial`, which DELETES Tailwind's
+ * own radius scale so only the house steps survive: none / sm / md / lg / full,
+ * plus `card` and `card-nested`. A `rounded-xl` therefore does not fall back to
+ * anything — it matches no utility at all and the corner renders square.
+ *
+ * That is the nastiest kind of design-system drift, because it is invisible in
+ * review: the class name reads like a rounder corner and ships as a sharp one.
+ * This is a FAIL rather than a warning for exactly that reason — nobody is ever
+ * going to notice it in a diff.
+ */
+const RADIUS_STEPS = new Set(['none', 'sm', 'md', 'lg', 'full', 'card', 'card-nested']);
+/* Corner modifiers, longest first so `tl` is stripped before `t`. */
+const RADIUS_SIDES = /^(tl|tr|bl|br|ss|se|es|ee|t|b|l|r|s|e)(?:-|$)/;
+const deadRadius = [];
+for (const f of files.filter((x) => x.endsWith('.tsx'))) {
+  /* The bracket class is part of the token on purpose: `rounded-t-[3px]` is a
+     perfectly good arbitrary value, and a pattern that stops at the side
+     modifier reports it as a bare `rounded-t` and condemns working code. */
+  for (const m of read(f).matchAll(/\brounded(-[A-Za-z0-9[\]_.%/-]+)?/g)) {
+    const rest = m[1];
+    /* A bare `rounded` is skipped, not flagged. It reads the same as the word
+       "rounded" in a sentence, and this file is full of prose — a check that
+       reports six comments as bugs is one nobody reads the output of. */
+    if (!rest) continue;
+    const step = rest.slice(1).replace(RADIUS_SIDES, '');
+    /* An arbitrary value resolves on its own and needs no token. */
+    if (step.startsWith('[')) continue;
+    if (!RADIUS_STEPS.has(step)) deadRadius.push(`${rel(f)}: rounded${rest}`);
+  }
+}
+if (deadRadius.length) {
+  fail(
+    'dead-radius',
+    `${deadRadius.length} radius utility/utilities do not exist in this theme and render as square corners. ` +
+      `Use none/sm/md/lg/full, or card/card-nested inside a Card. Found: ${[...new Set(deadRadius)].slice(0, 6).join(', ')}`,
+  );
+}
+
 /* --- report ------------------------------------------------------------ */
 for (const { name, detail } of warnings) console.log(`  warn  ${name}\n        ${detail}\n`);
 for (const { name, detail } of failures) console.error(`  FAIL  ${name}\n        ${detail}\n`);

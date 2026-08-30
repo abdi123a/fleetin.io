@@ -18,13 +18,13 @@ import {
   UserCheck,
   Warehouse,
 } from '@/design-system/icons';
-import { Badge, Card, CompanyAvatar, IconChip, type IconChipTint } from '@/design-system';
+import { Badge, Card, IconChip, type IconChipTint } from '@/design-system';
 import {
   CONTAINER_OUTCOME_LABEL,
   CONTAINER_STAGE_META,
   RETURN_RISK_META,
 } from '@/data/emptyReturnData';
-import { useCompanyLogo } from '@/features/companies/companyLogos';
+import { IdentityFact, IdentityStrip, PartyName } from '@/components/common';
 import { formatDate } from '@/utils';
 import { cn } from '@/utils';
 import { DELAY_REASON_LABELS, RESPONSIBLE_PARTY_LABELS } from './delayVocabulary';
@@ -39,8 +39,7 @@ import {
   ReportEyebrow,
   ReportStat,
   ReportStatusBadge,
-  TimeDonut,
-  TimeLegend,
+  TimeRail,
   formatShare,
   type JourneyHue,
   type RibbonSegment,
@@ -55,11 +54,11 @@ import {
  *
  * 1. **The verdict** — status, total time, and one plain sentence saying what
  *    happened. Identity is a row of icon chips, not fourteen labelled fields.
- * 2. **Where the time went** — the mission as a single proportional ribbon, the
- *    seven §4 KPIs as its legend, and one ring for active against waiting.
- * 3. **The journey** — twelve milestones grouped into four chapters, drawn on a
- *    rail with the gap between them in a pill. The same data a table held, at a
- *    third of the reading.
+ * 2. **Time by party** — one rail per pair of hands the mission passed
+ *    through, ranked longest first, with the four custody figures under them.
+ * 3. **Mission timeline** — twelve milestones grouped into four chapters, drawn
+ *    on a rail with the gap between them in a pill. The same data a table held,
+ *    at a third of the reading.
  * 4. **The container** — free time drawn against the line's deadline, because
  *    "did we burn the free days" is the question that costs money.
  *
@@ -75,10 +74,9 @@ export interface MissionReportViewProps {
 export function MissionReportView({ report, className }: MissionReportViewProps) {
   const { overview, kpis, containerReturn: ret } = report;
 
-  /* The custody rollup, ready for the ring: one arc per party, in the order
-     the mission passed through their hands. Party is identity, not status, so
-     every arc takes the teal ramp — `TimeDonut` spreads it across however many
-     hands were involved. */
+  /* The custody rollup, ready for the rails: one row per party, ranked by how
+     long they held it. Party is identity, not status, so every row takes the
+     teal ramp — `TimeRail` spreads it across however many hands were involved. */
   const custody = report.custody;
   const segments = useMemo<RibbonSegment[]>(
     () =>
@@ -181,7 +179,7 @@ export function MissionReportView({ report, className }: MissionReportViewProps)
          * than a third of the row, and only the two companies carry a mark,
          * which is what makes them read as the parties and the rest as detail.
          */}
-        <div className="flex flex-wrap items-center gap-x-7 gap-y-3 border-t border-border/60 pt-4">
+        <IdentityStrip>
           <PartyName label="Shipper" name={overview.shipperName} />
           <PartyName label="Transporter" name={overview.transporter} />
           <IdentityFact label="Vehicle" value={overview.vehiclePlate} mono />
@@ -191,37 +189,43 @@ export function MissionReportView({ report, className }: MissionReportViewProps)
               .filter(Boolean)
               .join(' · ')}
           />
-        </div>
+        </IdentityStrip>
       </Card>
 
-      {/* ══ 2. Whose clock was running ═══════════════════════════════════
+      {/* ══ 2. Time by party ═════════════════════════════════════════════
           Deliberately NOT a second reading of the journey. The journey below
           walks the mission in order and prints the gap into every step; this
           card throws the order away and adds the gaps up by party, so the
           question it answers — who was holding this mission, and for how long —
           is one no other block on the page answers. It is also the only picture
           here whose parts sum to the whole mission: the §4 interval list can
-          measure two minutes of a twenty-hour run and call it 100% active. */}
+          measure two minutes of a twenty-hour run and call it 100% active.
+
+          The lead holder rides in the header rather than in a caption: it is
+          the card's conclusion, and the chip is where every other card on this
+          page puts its one-line answer. */}
       {custody.segments.length > 0 && (
         <ReportCard
           icon={Hourglass}
-          title="Who Held the Clock"
-          subtitle="the whole mission added up by whose hands it was in · the journey below says when, this says who"
+          title="Time by Party"
+          right={
+            lead && (
+              <Badge
+                variant="outline"
+                intent="default"
+                size="sm"
+                className="uppercase tracking-[0.08em]"
+              >
+                {formatShare(lead.share)} {lead.label}
+              </Badge>
+            )
+          }
         >
-          <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-center">
-            {/* `reverse`: these arcs are ranked, not sequenced — the party that
-                held the mission longest leads the list and takes the deepest
-                teal, rather than the palest rung a lifecycle order would give
-                whoever happened to touch it first. */}
-            <TimeDonut
-              segments={segments}
-              rampDirection="reverse"
-              centerValue={lead ? formatShare(lead.share) : '—'}
-              centerLabel={lead ? lead.label : 'Unmeasured'}
-              centerCaption={`of ${formatDuration(custody.totalMs, { compact: true })} recorded`}
-            />
-            <TimeLegend segments={segments} rampDirection="reverse" />
-          </div>
+          {/* `reverse`: these rails are ranked, not sequenced — the party that
+              held the mission longest leads the list and takes the deepest
+              teal, rather than the palest rung a lifecycle order would give
+              whoever happened to touch it first. */}
+          <TimeRail segments={segments} rampDirection="reverse" />
 
           <div className="grid grid-cols-2 gap-x-5 gap-y-3 border-t border-border/60 pt-3.5 sm:grid-cols-4">
             <ReportStat
@@ -254,11 +258,10 @@ export function MissionReportView({ report, className }: MissionReportViewProps)
         </ReportCard>
       )}
 
-      {/* ══ 3. The journey ══════════════════════════════════════════════ */}
+      {/* ══ 3. The mission timeline ══════════════════════════════════════════════ */}
       <ReportCard
         icon={Route}
-        title="The Journey"
-        subtitle="the steps this shipment actually recorded · each link carries the gap into the step below it"
+        title="Mission Timeline"
         right={
           <Badge
             variant="outline"
@@ -339,7 +342,6 @@ export function MissionReportView({ report, className }: MissionReportViewProps)
           icon={UserCheck}
           tint="red"
           title="Delay Responsibility"
-          subtitle="party and reason are recorded as two separate fields"
           right={
             <Badge
               variant="outline"
@@ -410,49 +412,6 @@ function goodsOf(cargo: string): string {
   return goods && goods !== cargo.trim() ? goods : cargo;
 }
 
-/** A named party: its own mark, then its name. Nothing else — the contact
-    behind a company is not what identifies it on a report. */
-function PartyName({ label, name }: { label: string; name: string }) {
-  return (
-    <div className="flex min-w-0 items-center gap-2.5">
-      <CompanyDisc name={name} />
-      <div className="min-w-0">
-        <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-          {label}
-        </p>
-        <p className="truncate text-[12.5px] font-bold leading-tight text-foreground">{name}</p>
-      </div>
-    </div>
-  );
-}
-
-/** A labelled fact with no mark — deliberately quieter than a party. */
-function IdentityFact({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="min-w-0">
-      <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-        {label}
-      </p>
-      <p
-        className={cn(
-          'truncate text-[12.5px] font-semibold leading-tight text-foreground',
-          mono && 'font-mono tabular-nums',
-        )}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
-
 /**
  * The outcome, as a colour on the card's opening disc.
  *
@@ -467,37 +426,6 @@ const VERDICT_TINT: Record<MissionReport['status'], IconChipTint> = {
   attention: 'amber',
   delayed: 'red',
 };
-
-/** Two letters, from the first two words that have any — "Bab el Mandeb
-    Logistics FZE" is BM, not B. */
-function companyInitials(name: string): string {
-  const words = name.split(/[\s-]+/).filter((word) => /[a-z0-9]/i.test(word));
-  return (words.slice(0, 2).map((word) => word[0]).join('') || '?').toUpperCase();
-}
-
-/**
- * A company's own mark, at the same 36px as the icon disc beside it.
- *
- * The report is read by the shipper it is about, and they know their carrier
- * by the logo that is on every booking screen long before they finish reading
- * "Nagad Transit SARL". The registry is filled from the real `/shippers` and
- * `/partners` responses, so a logo uploaded through the app appears here with
- * no work; a company with nothing on file falls back to its initials rather
- * than to an empty circle.
- */
-function CompanyDisc({ name }: { name: string }) {
-  const logo = useCompanyLogo(name);
-  return (
-    <CompanyAvatar
-      src={logo}
-      name={name}
-      fallback={companyInitials(name)}
-      size="md"
-      shape="circle"
-      className="shrink-0"
-    />
-  );
-}
 
 /**
  * One mark per step.

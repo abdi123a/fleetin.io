@@ -13,7 +13,14 @@ import {
 import { Check, CheckCircle2, Clock, Package } from '@/design-system/icons';
 import { BOOKING_LADDER } from '@/features/bookings/api/bookingsService';
 import { useSettleBookingStatus, useUpdateBookingStatus } from '@/features/bookings/api/queries';
-import { containerStateOf, type ContainerState } from '@/lib/containerState';
+import {
+  BookingDebriefDialog,
+  debriefSubjectFor,
+  emptyDebrief,
+  type DebriefDraft,
+} from '@/components/bookings';
+import type { StatusIntent } from '@/design-system/primitives/Layout/statusIntent';
+import { statusIntentOf } from '@/lib/shipmentStatus';
 import { displayShipmentStatus, shipmentStepsFor, stepRungFor } from '@/lib/shipmentStatus';
 import { cn } from '@/utils';
 
@@ -68,17 +75,22 @@ function speakInLabels(message: string): string {
 /**
  * The dot each rung wears in the menu.
  *
- * These are the *container-state* colours — the app's normalised pair, teal
- * while the box is full, amber once it is empty, grey once it is home — and
- * they are the same tokens the badge on the card is painted with. A first cut
- * coloured the rungs by `statusIntentOf` instead, which is a different
- * three-colour system: the menu offered a blue "Delivered" and picking it
- * produced a teal badge, so the control and its own result disagreed.
+ * These are the ladder's own **phase** colours, the same four `statusIntentOf`
+ * paints the badge with: teal booked, green in transit, amber owing a return,
+ * slate closed. The menu and its own result therefore agree — picking a green
+ * "Delivered" produces a green badge.
+ *
+ * An earlier cut used `statusIntentOf` when it still returned blue for the
+ * three transit rungs, and a later one used the container-state pair to fix the
+ * resulting disagreement. Both were solving the same problem from opposite
+ * ends; the ladder now has one colour system and the dot simply reads it.
  */
-const CONTAINER_STATE_DOT: Record<ContainerState, string> = {
-  full: 'bg-container-full',
-  empty: 'bg-container-empty',
-  returned: 'bg-container-returned',
+const STEP_DOT: Record<StatusIntent, string> = {
+  teal: 'bg-primary',
+  green: 'bg-success',
+  orange: 'bg-accent',
+  blue: 'bg-info',
+  slate: 'bg-secondary-foreground/40',
 };
 
 /** Rungs that only exist for a booking that actually carries a box. */
@@ -92,6 +104,8 @@ export interface BookingStatusPickerBooking {
   vehicleId?: string;
   driverName?: string;
   vehicleNumber?: string;
+  /** The shipper this container belongs to — who the closing debrief is about. */
+  shipperCompany?: string;
 }
 
 export function BookingStatusPicker({
@@ -109,6 +123,19 @@ export function BookingStatusPicker({
 }) {
   const updateBookingStatus = useUpdateBookingStatus();
   const settle = useSettleBookingStatus();
+
+  /**
+   * The delivery debrief.
+   *
+   * Marking a booking Delivered is the one moment somebody has just watched the
+   * job finish, so it is the only moment they can say how it went. Asked here
+   * rather than left to a screen nobody revisits — a rating that has to be
+   * hunted for is a rating that never gets written.
+   *
+   * Not folded into the computed star (`@/lib/rating`), which is derived from
+   * timestamps and says so; this is stored beside it as the human read.
+   */
+  const [debrief, setDebrief] = useState<DebriefDraft | null>(null);
   const [pending, setPending] = useState<{ target: string; date: string; time: string } | null>(
     null,
   );
@@ -196,6 +223,11 @@ export function BookingStatusPicker({
       }
       setPending(null);
       onChanged?.(reached);
+      /* Only on the step that actually means "the truck arrived" — walking past
+         Delivered on the way to a later rung is bookkeeping, not an event
+         somebody just witnessed. */
+      const subject = debriefSubjectFor(pending.target, reached);
+      if (subject) setDebrief(emptyDebrief(subject));
     } catch (caught) {
       /* The backend reports in raw rungs — "Cannot move a booking from Pending
          to Loaded" — while the picker offered "Created" and "Picked Up". Same
@@ -251,19 +283,14 @@ export function BookingStatusPicker({
                 <span className="w-3.5 shrink-0 pt-0.5 text-center font-mono text-[10px] text-muted-foreground">
                   {isCurrent ? <Check className="size-3.5 text-primary-bold" /> : index + 1}
                 </span>
-                {(() => {
-                  const state = containerStateOf(step.rung, hasContainer);
-                  return (
-                    <span
-                      aria-hidden
-                      className={cn(
-                        'mt-1 size-2 shrink-0 rounded-full',
-                        state ? CONTAINER_STATE_DOT[state] : 'bg-border-strong',
-                        blocker && 'opacity-40',
-                      )}
-                    />
-                  );
-                })()}
+                <span
+                  aria-hidden
+                  className={cn(
+                    'mt-1 size-2 shrink-0 rounded-full',
+                    STEP_DOT[statusIntentOf(step.rung)],
+                    blocker && 'opacity-40',
+                  )}
+                />
                 <span className="min-w-0 flex-1">
                   <span className={cn('block text-xs', isCurrent && 'font-bold text-foreground')}>
                     {step.label}
@@ -353,6 +380,18 @@ export function BookingStatusPicker({
           </Card>
         </div>
       )}
+
+      {/* ── HOW DID IT GO? ──
+          Shared with the Booking Preview's own status control, so the debrief
+          is asked on the same rungs however the operator moved the booking. */}
+      <BookingDebriefDialog
+        draft={debrief}
+        bookingId={booking.id}
+        driverName={booking.driverName}
+        shipperCompany={booking.shipperCompany}
+        onChange={setDebrief}
+        onClose={() => setDebrief(null)}
+      />
     </>
   );
 }

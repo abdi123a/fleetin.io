@@ -7,12 +7,14 @@ import { PageHeader, TablePager, usePagedRows } from '@/components';
 import type { Mission, MissionFilterState } from '@/types/mission';
 import { MissionFilterToolbar } from './MissionFilterToolbar';
 import { MissionRowCard } from './MissionRowCard';
-import { displayShipmentStatus, shipmentProgress, statusIntentOf } from '@/lib/shipmentStatus';
 import {
-  CONTAINER_STATE_CORNER_INTENT,
-  carriesContainer,
-  containerStateOf,
-} from '@/lib/containerState';
+  displayShipmentStatus,
+  shipmentProgress,
+  statusCornerIntentOf,
+  statusIntentOf,
+} from '@/lib/shipmentStatus';
+import { formatKm, shipmentDistance } from '@/lib/shipmentDistance';
+import { carriesContainer } from '@/lib/containerState';
 import { ROUTES, buildPath } from '@/config/routes';
 import { EmptyReturnCalendarPage } from '@/pages/empty-returns';
 import { cn } from '@/utils';
@@ -84,6 +86,7 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
     containerNumber: '',
     status: initialStatusParam,
     paymentStatus: '',
+    assigneeId: '',
     sortBy: 'date-desc',
   });
 
@@ -104,6 +107,7 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
       containerNumber: '',
       status: '',
       paymentStatus: '',
+      assigneeId: '',
       sortBy: 'date-desc',
     });
   };
@@ -207,6 +211,18 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
       // Payment Status
       if (filters.paymentStatus && m.paymentStatus !== filters.paymentStatus) return false;
 
+      /* Crew — whose work.
+         Client-side, like every other filter on this page: the list holds the
+         whole book already and narrows it here, so routing this one through
+         the server would make it the only filter that needed a refetch.
+         `assigneeId` exists on the API too (and is what the query string
+         carries), for callers that page server-side. */
+      if (filters.assigneeId === 'unassigned') {
+        if ((m.crew?.length ?? 0) > 0) return false;
+      } else if (filters.assigneeId) {
+        if (!m.crew?.some((member) => member.id === filters.assigneeId)) return false;
+      }
+
       return true;
     });
 
@@ -243,6 +259,9 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
   const handleRowClick = (mission: Mission) => {
     navigate(buildPath(ROUTES.shipmentOverview, { id: mission.id }));
   };
+
+  /** A figure's share of the whole book — a fact these cards can actually stand behind. */
+  const shareOfBook = (n: number) => `${Math.round((n / (counts.all || 1)) * 100)}%`;
 
   return (
     <div className="space-y-5 pb-12">
@@ -293,38 +312,61 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
       ) : (
         <>
 
-      {/* KPI Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+      {/* KPI Stat Cards
+       *
+       * No `trend`/`percentage` on any of these, and that is the point. Every
+       * one of the four used to carry an arrow: "Total shipments ↑ 100%" (100%
+       * of itself), "Started ↑ 0%" (an up-arrow on nothing), "Waiting ↓ 8
+       * pending" (a down-arrow on a restatement of the number above it). An
+       * arrow promises a comparison against a previous period, and none of
+       * these had one — so the cards were making a claim the data could not
+       * support. What each figure genuinely has is a *share of the book*, and
+       * that is what the caption now says, in words, without an arrow. */}
+      {/* The tiles wear the LADDER'S OWN COLOURS, not a pastel set.
+       *
+       * They used to run teal · sky · peach · pink, which is a palette, not a
+       * statement — the sky tile was no more "started" than the pink one was
+       * "completed", and a reader had to check every caption because the colour
+       * told them nothing. Each tile now takes the colour of the phase it
+       * counts, straight off `statusIntentOf` (`src/lib/shipmentStatus.ts`):
+       *
+       *   teal   the book        — the brand's own total, the anchor
+       *   green  started         — in transit, the phase its shipments' pills wear
+       *   amber  waiting return  — the box owes a return; the container scale's amber
+       *   slate  completed       — closed, and the same dark slab a fully
+       *                            returned shipment's masthead goes to
+       *
+       * So a green tile and a green pill on the card below it are the same
+       * green, meaning the same thing. Teal stays on the total deliberately: it
+       * is the count of everything rather than a phase, and it anchors the row
+       * to the sidebar. */}
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
         <StatisticCard
-          title="Total Shipments"
+          title="Total shipments"
           value={counts.all}
           variant="teal"
-          trend="up"
-          percentage="100%"
+          subtitle="all statuses"
           icon={<Compass className="h-5 w-5" />}
         />
         <StatisticCard
-          title="Started Shipments"
+          title="Started shipments"
           value={counts.started}
-          variant="blue"
-          trend="up"
-          percentage={`${Math.round((counts.started / (counts.all || 1)) * 100)}%`}
+          variant="green"
+          subtitle={`${shareOfBook(counts.started)} of the book · underway`}
           icon={<Truck className="h-5 w-5" />}
         />
         <StatisticCard
-          title="Waiting Empty Return"
+          title="Waiting empty return"
           value={waitingEmptyReturn}
-          variant="peach"
-          trend={waitingEmptyReturn > 0 ? 'down' : 'neutral'}
-          percentage={waitingEmptyReturn > 0 ? `${waitingEmptyReturn} pending` : '0'}
+          variant="orange"
+          subtitle="containers still out"
           icon={<Repeat className="h-5 w-5" />}
         />
         <StatisticCard
-          title="Completed Shipments"
+          title="Completed shipments"
           value={counts.completed}
-          variant="pink"
-          trend="up"
-          percentage={`${Math.round((counts.completed / (counts.all || 1)) * 100)}%`}
+          variant="slate"
+          subtitle={`${shareOfBook(counts.completed)} of the book · delivered`}
           icon={<BadgeCheck className="h-5 w-5" />}
         />
       </div>
@@ -352,6 +394,18 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
             </h2>
           </div>
 
+          {/* Cards at every width, not a table.
+
+              The list was converted to `DataTable` to match the other
+              directories, and it reads worse here: a shipper directory row is
+              five short values that compare down a column, while a shipment is
+              a route, a cargo, a crew and a progress figure — seven columns of
+              it, squeezed until "Port of Dj… → UKAB Free…" told you neither
+              end. Reverted at the user's direction on 2026-08-30.
+
+              The distinction worth keeping: a *table* is for comparing many of
+              one small thing; a *card* is for taking in one complicated thing.
+              Shippers and transporters are the former, shipments the latter. */}
           <div className="space-y-3.5">
             {pagedMissions.rows.map((mission) => (
               <MissionRowCard
@@ -361,13 +415,13 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
                 onClick={() => handleRowClick(mission)}
               />
             ))}
-
-            {filteredMissions.length === 0 && (
-              <Card className="p-12 text-center text-muted-foreground rounded-lg border border-border/80">
+            {pagedMissions.rows.length === 0 && (
+              <div className="rounded-card-nested border border-border bg-card px-3 py-12 text-center text-sm text-muted-foreground">
                 No shipments match these filters.
-              </Card>
+              </div>
             )}
           </div>
+
 
           {filteredMissions.length > 0 && (
             <TablePager
@@ -393,12 +447,12 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {pagedMissions.rows.map((mission) => {
-              /* Same container scale as the list rows and the shipment page:
-                 teal while the boxes are full, brand yellow while one is out
-                 empty, grey once they are all home. A bulk load has no box and
-                 keeps the ladder colours. */
+              /* Same ladder phase as the list rows and the shipment page: teal
+                 booked, green in transit, amber owing a return, slate closed.
+                 `hasContainer` still matters for the progress figure — a bulk
+                 load is tipped, not stripped, so its ladder has no empty-return
+                 rungs and its percentage is out of a shorter run. */
               const hasContainer = carriesContainer(mission);
-              const containerState = containerStateOf(mission.status, hasContainer);
               const progress = shipmentProgress(mission.status, hasContainer);
               return (
               <ShipmentCard
@@ -416,7 +470,8 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
                 vehicleSpecs={mission.transporter.fleetCode}
                 driverName={mission.driver?.name}
                 truckPlate={mission.assignedTruck?.registrationNumber}
-                distance={`${mission.estimatedDistanceKm} km`}
+                /* The whole road, like the row card — see `@/lib/shipmentDistance`. */
+                distance={formatKm(shipmentDistance(mission.estimatedDistanceKm, mission.bookingId).totalKm)}
                 duration={mission.estimatedDurationHours}
                 paymentStatus={mission.paymentStatus}
                 /* Through the shared vocabulary, like every other surface. This
@@ -424,12 +479,8 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
                    its own, so the grid said "Unloading / orange" for the row the
                    list called "Depotage / blue". */
                 status={displayShipmentStatus(mission.status, 'shipment')}
-                statusIntent={
-                  containerState
-                    ? (`container-${containerState}` as const)
-                    : statusIntentOf(mission.status)
-                }
-                cornerIntent={containerState ? CONTAINER_STATE_CORNER_INTENT[containerState] : 'teal'}
+                statusIntent={statusIntentOf(mission.status)}
+                cornerIntent={statusCornerIntentOf(mission.status)}
                 progressPercent={progress?.percent}
                 clickable
                 onClick={() => handleRowClick(mission)}

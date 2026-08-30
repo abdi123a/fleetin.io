@@ -123,7 +123,7 @@ function MoneySheet({
 /** The account this money is landing on or leaving, restated so it can't be mistaken. */
 function AccountBanner({ account, caption }: { account: BankAccountRecord; caption: string }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-sunken/50 p-3">
+    <div className="flex items-center gap-3 rounded-card-nested border border-border bg-surface-sunken/50 p-3">
       <BankLogo logoUrl={account.logoUrl} name={account.bankName} size={36} />
       <span className="flex min-w-0 flex-col">
         <span className="truncate text-sm font-bold text-foreground">{account.bankName}</span>

@@ -479,6 +479,25 @@ const STEP_FILL: Record<1 | 2 | 3 | 4 | 5, string> = {
   5: 'bg-[var(--chart-step-5)]',
 };
 
+/**
+ * How each operational stage is drawn, by key.
+ *
+ * The mission report's own ribbon is built stage by stage inside
+ * `missionReport.ts`; every *aggregate* of missions — a month, a shipment —
+ * redraws the same seven intervals and needs the same tone and rung, so the
+ * three pictures read as one shape. Keys mirror `STAGE_ROWS` in
+ * `monthlyReport.ts`.
+ */
+export const STAGE_VISUAL: Record<string, { tone: 'active' | 'waiting'; step: 1 | 2 | 3 | 4 | 5 }> = {
+  wait_pickup: { tone: 'waiting', step: 1 },
+  loading: { tone: 'active', step: 1 },
+  transit: { tone: 'active', step: 2 },
+  wait_dropoff: { tone: 'waiting', step: 1 },
+  unloading: { tone: 'active', step: 3 },
+  depotage: { tone: 'active', step: 4 },
+  empty_return: { tone: 'active', step: 5 },
+};
+
 export interface RibbonSegment {
   key: string;
   label: string;
@@ -609,6 +628,75 @@ export function TimeRibbon({
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Where the time went, as ranked rails.
+ *
+ * The ring this replaces spent 168px stating one conclusion — that a single
+ * pair of hands held nearly the whole mission — and then repeated every figure
+ * beside it in a legend, each row carrying its own hairline bar. Two graphics,
+ * one fact. A rail per holder says it once: the name, a bar drawn to its share,
+ * the duration, the share. Ranked, so the answer is the top line; and the ramp
+ * runs deepest-first, so the order is legible before any number is read.
+ *
+ * Rows, not one stacked bar: the journey below this card is already a stacked
+ * bar, and the point of the block is that it is NOT a second reading of the
+ * journey. Rows also keep a two-minute holder visible, which a 1% sliver of a
+ * shared bar is not.
+ */
+export function TimeRail({
+  segments,
+  rampDirection = 'forward',
+  className,
+}: {
+  segments: RibbonSegment[];
+  /** `reverse` gives the deepest teal to the FIRST row — use it when ranked. */
+  rampDirection?: 'forward' | 'reverse';
+  className?: string;
+}) {
+  const ramp = rampSteps(segments, rampDirection);
+
+  if (segments.length === 0) return null;
+
+  return (
+    <div className={cn('space-y-2', className)}>
+      {segments.map((segment) => (
+        <div key={segment.key} className="flex items-center gap-3">
+          <span
+            className={cn(
+              'w-24 shrink-0 truncate text-[12px] sm:w-44',
+              segment.isLongest ? 'font-semibold text-foreground' : 'text-muted-foreground',
+            )}
+          >
+            {segment.label}
+          </span>
+          {/* The bar keeps a visible stub at 0%: a party that held the mission
+              for a measured minute is not the same as one that never touched
+              it, and a zero-width div says the wrong one. */}
+          <div className="h-6 min-w-0 flex-1 overflow-hidden rounded-md bg-secondary">
+            <div
+              title={`${segment.label} — ${segment.value} (${formatShare(segment.share)})`}
+              style={{ width: `${Math.max(segment.share, 1.5)}%` }}
+              className={cn('h-full rounded-md', segmentFill(segment, ramp))}
+            />
+          </div>
+          <span
+            className={cn(
+              'w-[52px] shrink-0 text-right font-mono text-[12.5px] tabular-nums',
+              segment.tone === 'waiting' ? 'text-accent' : 'text-foreground',
+              segment.isLongest ? 'font-bold' : 'font-semibold',
+            )}
+          >
+            {segment.value}
+          </span>
+          <span className="w-9 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground">
+            {formatShare(segment.share)}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1141,7 +1229,20 @@ export function JourneyRail({ rows, className }: { rows: JourneyRailRow[]; class
                       {row.responsible}
                     </span>
                   )}
-                  <span className="ml-auto shrink-0 font-mono text-[11.5px] font-semibold tabular-nums text-foreground">
+                  {/* The step and its time are the two ends of one fact, and on
+                      a wide report a hand's width of nothing sat between them —
+                      the eye had to track across the card to find out when
+                      "Delivered" happened, seven times down the page. This is
+                      the hairline the booking cards use: one pixel, invisible at
+                      the label you have already read, resolving as it travels
+                      right so it lands on the time. It keeps the times in a
+                      scannable right-hand column, which moving them next to the
+                      label would have cost. */}
+                  <span
+                    aria-hidden
+                    className="ml-auto h-px min-w-4 flex-1 self-center bg-gradient-to-r from-transparent via-border to-border-strong"
+                  />
+                  <span className="shrink-0 font-mono text-[11.5px] font-semibold tabular-nums text-foreground">
                     {row.at}
                   </span>
                   {row.caption && (

@@ -749,7 +749,7 @@ function HeaderSubsection() {
 
       <ShowcaseExample
         title="Account menu contents"
-        description="A static rendering of the dropdown in src/layouts/app-layout/components/HeaderUserMenu.tsx. The real menu is a DropdownMenu and needs the auth store to name the account."
+        description="A static rendering of the dropdown in src/layouts/app-layout/components/UserMenu.tsx. The real menu is a DropdownMenu and needs the auth store to name the account. It sits in the sidebar footer and carries the theme control."
         layout="bare"
       >
         <div className="p-5">

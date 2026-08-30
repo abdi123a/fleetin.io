@@ -32,8 +32,13 @@ export interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement
   containerClassName?: string;
 }
 
+/* All three sit on `--radius-md`, the token documented as "buttons, default
+   control radius". `sm` used to take `rounded-sm` — the *chip* radius — which
+   is what made a sort select read as a foreign object beside the search field
+   it shares a row with: same height, four pixels less corner. A small select is
+   still a control, not a chip. */
 const sizeClasses = {
-  sm: 'h-8 px-2.5 text-xs rounded-sm pr-8',
+  sm: 'h-8 px-2.5 text-xs rounded-md pr-8',
   md: 'h-10 px-3.5 text-sm rounded-md pr-10',
   lg: 'h-11 px-4 text-base rounded-md pr-11',
 };
