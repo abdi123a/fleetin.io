@@ -29,6 +29,7 @@ import {
 } from '@/components/common';
 import { cn } from '@/utils';
 import { PanelHeader } from '@/components/panels';
+import { RecordRaise } from '@/features/workspace';
 import { useConfirm } from '@/design-system';
 import {
   Button,
@@ -348,7 +349,13 @@ export function ShippersPage() {
           const q = searchTerm.toLowerCase();
           const matchName = s.companyLegalName.toLowerCase().includes(q);
           const matchReg = s.registrationNumber?.toLowerCase().includes(q);
-          const matchContact = s.primaryContact.name.toLowerCase().includes(q) || s.primaryContact.email.toLowerCase().includes(q);
+          /* Optional: a shipper created without one has no primary contact, and
+             an unguarded read here takes the whole page down with the error
+             boundary rather than showing a row with a blank contact.
+             `registrationNumber` on the line above was already guarded. */
+          const matchContact =
+            s.primaryContact?.name?.toLowerCase().includes(q) ||
+            s.primaryContact?.email?.toLowerCase().includes(q);
           const matchCountry = s.country.toLowerCase().includes(q) || s.address.toLowerCase().includes(q);
           return matchName || matchReg || matchContact || matchCountry;
         }
@@ -591,10 +598,10 @@ export function ShippersPage() {
                 approvalStatus: drawerState.shipper.approvalStatus,
                 country: drawerState.shipper.country,
                 address: drawerState.shipper.address,
-                primaryContactName: drawerState.shipper.primaryContact.name,
-                primaryContactTitle: drawerState.shipper.primaryContact.title,
-                primaryContactEmail: drawerState.shipper.primaryContact.email,
-                primaryContactPhone: drawerState.shipper.primaryContact.phone,
+                primaryContactName: drawerState.shipper.primaryContact?.name ?? '',
+                primaryContactTitle: drawerState.shipper.primaryContact?.title ?? '',
+                primaryContactEmail: drawerState.shipper.primaryContact?.email ?? '',
+                primaryContactPhone: drawerState.shipper.primaryContact?.phone ?? '',
                 uploadedDocuments: drawerState.shipper.uploadedDocuments,
                 logoUrl: drawerState.shipper.logoUrl,
               }}
@@ -634,6 +641,15 @@ export function ShippersPage() {
                       ? () => setDrawerState({ mode: 'edit', shipper: drawerState.shipper })
                       : undefined
                   }
+                />
+
+                <RecordRaise
+                  recordType="SHIPPER"
+                  recordId={drawerState.shipper.id}
+                  recordRef={drawerState.shipper.reference ?? drawerState.shipper.id}
+                  label={drawerState.shipper.companyLegalName}
+                  size="sm"
+                  className="mt-3"
                 />
               </div>
 
@@ -677,19 +693,19 @@ export function ShippersPage() {
                 <div className="grid grid-cols-2 gap-3 text-xs">
                   <div>
                     <span className="text-muted-foreground font-medium block">Name</span>
-                    <span className="font-bold text-foreground">{drawerState.shipper.primaryContact.name}</span>
+                    <span className="font-bold text-foreground">{drawerState.shipper.primaryContact?.name ?? '—'}</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground font-medium block">Title</span>
-                    <span className="font-medium text-foreground">{drawerState.shipper.primaryContact.title}</span>
+                    <span className="font-medium text-foreground">{drawerState.shipper.primaryContact?.title ?? '—'}</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground font-medium block">Email</span>
-                    <span className="font-medium text-foreground truncate block">{drawerState.shipper.primaryContact.email}</span>
+                    <span className="font-medium text-foreground truncate block">{drawerState.shipper.primaryContact?.email ?? '—'}</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground font-medium block">Phone</span>
-                    <span className="font-mono font-medium text-foreground">{drawerState.shipper.primaryContact.phone}</span>
+                    <span className="font-mono font-medium text-foreground">{drawerState.shipper.primaryContact?.phone ?? '—'}</span>
                   </div>
                 </div>
               </Card>
