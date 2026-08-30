@@ -43,6 +43,7 @@ const OPERATIONS_ROLE = {
     PERMISSIONS.vehicles.view,
     PERMISSIONS.drivers.view,
     PERMISSIONS.analytics.view,
+    'workspace.*',
   ],
 };
 

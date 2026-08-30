@@ -68,6 +68,7 @@ const DEFAULT_ROLES = [
       PERMISSIONS.hr.view,
       PERMISSIONS.leave.view,
       PERMISSIONS.leave.approve,
+      'workspace.*',
     ],
   },
   /*
@@ -85,7 +86,14 @@ const DEFAULT_ROLES = [
   {
     name: 'HR_ADMIN',
     description: 'HR Administrator — full access to staff records, payroll and HR documents',
-    permissions: ['hr.*', 'payroll.*', 'hr-documents.*', 'leave.*', PERMISSIONS.settings.view],
+    permissions: [
+      'hr.*',
+      'payroll.*',
+      'hr-documents.*',
+      'leave.*',
+      'workspace.*',
+      PERMISSIONS.settings.view,
+    ],
   },
   {
     name: 'FINANCE',
@@ -101,6 +109,7 @@ const DEFAULT_ROLES = [
       PERMISSIONS.hrDocuments.issue,
       PERMISSIONS.hrDocuments.download,
       PERMISSIONS.leave.view,
+      'workspace.*',
     ],
   },
   {
@@ -114,6 +123,10 @@ const DEFAULT_ROLES = [
       PERMISSIONS.hrDocuments.download,
       PERMISSIONS.leave.view,
       PERMISSIONS.leave.request,
+      /* Can raise work and be given it; cannot hand it to somebody else or
+       * edit work they did not raise. */
+      PERMISSIONS.workspace.view,
+      PERMISSIONS.workspace.create,
     ],
   },
   {
@@ -131,6 +144,7 @@ const DEFAULT_ROLES = [
       PERMISSIONS.shippers.view,
       PERMISSIONS.documents.view,
       PERMISSIONS.documents.upload,
+      'workspace.*',
     ],
   },
   {

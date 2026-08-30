@@ -150,6 +150,32 @@ export const PERMISSIONS = {
     request: 'leave.request',
     approve: 'leave.approve',
   },
+  /*
+   * Workspace — the internal work layer.
+   *
+   * Four grants, not one per sub-object. Tasks, comments, mentions and the
+   * inbox are one feature: an account that can open Workspace can read all of
+   * it, because a board with rows missing is worse than no board. What the
+   * grants separate is *doing* rather than *seeing* — `create` raises work,
+   * `assign` hands it to somebody else, `manage` edits or cancels work you
+   * did not raise.
+   *
+   * Deliberately NOT scoped per record type. A task naming an invoice is
+   * visible to anyone with `workspace.view`; the invoice BEHIND the link is
+   * still gated on `finance.view` when it renders. Work is shared, data is
+   * not.
+   *
+   * Note for whoever adds the next one: `Role.permissions` is a JSON column,
+   * so a new string here reaches nobody until a data migration writes it into
+   * the existing role rows. See `..._workspace_permissions`.
+   */
+  workspace: {
+    view: 'workspace.view',
+    create: 'workspace.create',
+    assign: 'workspace.assign',
+    /** Edit or cancel work somebody else raised. */
+    manage: 'workspace.manage',
+  },
 } as const;
 
 /** Grants every permission. Reserved for the ADMIN role. */

@@ -51,6 +51,19 @@ model User {
   shipmentCrewAdded ShipmentAssignee[] @relation("ShipmentCrewAssigner")
   /// Everything this account has said on a shipment or one of its bookings.
   comments          Comment[]
+
+  /// Workspace. Named relations throughout: User reaches WorkspaceMessage five
+  /// different ways, and Prisma cannot disambiguate them positionally.
+  workspaceTasksAssigned       WorkspaceTask[]         @relation("WorkspaceTaskAssignee")
+  workspaceTasksCreated        WorkspaceTask[]         @relation("WorkspaceTaskCreator")
+  workspaceMessages            WorkspaceMessage[]      @relation("WorkspaceMessageAuthor")
+  workspaceMessagesAssigned    WorkspaceMessage[]      @relation("WorkspaceMessageAssignee")
+  workspaceMessagesAssignedBy  WorkspaceMessage[]      @relation("WorkspaceMessageAssigner")
+  workspaceMessagesResolved    WorkspaceMessage[]      @relation("WorkspaceMessageResolver")
+  workspaceMentions            WorkspaceMention[]
+  workspaceTaskEvents          WorkspaceTaskEvent[]
+  workspaceNotifications       WorkspaceNotification[] @relation("WorkspaceNotificationRecipient")
+  workspaceNotificationsActed  WorkspaceNotification[] @relation("WorkspaceNotificationActor")
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
@@ -1861,4 +1874,335 @@ model HrAuditLog {
   @@index([actorId])
   @@index([createdAt])
   @@map("hr_audit_logs")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WORKSPACE
+//
+// The domain modules above answer "what happened?". Workspace answers "what
+// does someone need to do about it?" — and those are deliberately different
+// systems. `BKG-01178 -> Driver Assigned` is a domain fact; "Investigate
+// delayed pickup, assigned to Ahmed, about BKG-01178" is Workspace.
+//
+// Nothing here owns or recomputes a domain value. A Workspace row never holds
+// a shipment status, a rate, a detention day or a settlement figure; it holds
+// a POINTER to the row that does, and the domain module stays authoritative.
+//
+// Everything is prefixed `workspace_` so it never collides with `comments`,
+// which predates this module and is retired by the same migration.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum WorkspaceTaskStatus {
+  OPEN
+  IN_PROGRESS
+  /// Blocked on somebody else. "Waiting" rather than "Blocked" because that is
+  /// the word the desk already uses for a container sitting on a third party.
+  WAITING
+  COMPLETED
+  CANCELLED
+}
+
+enum WorkspaceTaskPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+/// What a task or a message can point at.
+///
+/// There is deliberately no `CONTAINER`: a container is not a row. It is
+/// `Booking.containerNumber`, a nullable string on the booking that carries
+/// it, so a container reference IS a `BOOKING` reference and the container
+/// number is what the chip displays.
+enum WorkspaceRecordType {
+  SHIPMENT
+  BOOKING
+  VEHICLE
+  DRIVER
+  PARTNER
+  SHIPPER
+  INVOICE
+  PAYOUT_HOLD
+  EMPTY_RETURN_CYCLE
+  EMPTY_RETURN_CHAIN
+}
+
+enum WorkspaceTaskEventKind {
+  CREATED
+  TITLE_CHANGED
+  DESCRIPTION_CHANGED
+  STATUS_CHANGED
+  PRIORITY_CHANGED
+  ASSIGNED
+  UNASSIGNED
+  DUE_CHANGED
+  LINKED
+  UNLINKED
+}
+
+enum WorkspaceNotificationKind {
+  MENTIONED
+  /// A task was handed to you.
+  ASSIGNED
+  UNASSIGNED
+  TASK_UPDATED
+  COMMENT_ADDED
+  REPLY_ADDED
+  /// A comment was handed to you — lighter than ASSIGNED, same Inbox.
+  COMMENT_ASSIGNED
+  /// Something you assigned to somebody else came back resolved.
+  COMMENT_RESOLVED
+}
+
+/// One piece of human work.
+///
+/// A task needs neither a record nor an assignee. "Renew the office insurance"
+/// is real work with no shipment behind it, and a task raised at 2am with
+/// nobody to give it to yet is still worth writing down — which is why
+/// `assigneeId` is nullable and `WorkspaceTaskLink` is a separate table rather
+/// than a `relatedRecordId` column.
+///
+/// A join table rather than one column because a task about a late container
+/// legitimately names both the booking and its shipment, and discovering that
+/// after the fact would be a migration on a table with rows.
+model WorkspaceTask {
+  id          String @id @default(uuid())
+  /// `TSK-00184`. Minted by `nextReference()`, the same scheme as every other
+  /// Fleetin reference — three letters, a hyphen, five digits.
+  reference   String @unique @db.VarChar(32)
+
+  title       String  @db.VarChar(255)
+  description String? @db.Text
+
+  status   WorkspaceTaskStatus   @default(OPEN)
+  priority WorkspaceTaskPriority @default(NORMAL)
+
+  /// Exactly one person is accountable. Followers arrive in Phase 3; until
+  /// then, null means nobody has picked it up, which is a state worth seeing.
+  assigneeId String?
+  assignee   User?   @relation("WorkspaceTaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  /// Who raised it. `Restrict`, like `Comment.authorId`: a deleted account must
+  /// not silently take the provenance of open work with it.
+  createdById String
+  createdBy   User   @relation("WorkspaceTaskCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  dueAt       DateTime?
+  /// Stamped when status first reaches COMPLETED. Kept as its own column so
+  /// "closed this week" is a query, not a scan of the event rail.
+  completedAt DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  links    WorkspaceTaskLink[]
+  messages WorkspaceMessage[]
+  events   WorkspaceTaskEvent[]
+  notifications WorkspaceNotification[]
+
+  /// "My Tasks", the default landing query.
+  @@index([assigneeId, status])
+  /// "Assigned by Me".
+  @@index([createdById, status])
+  /// Overdue and due-today sweeps.
+  @@index([status, dueAt])
+  @@map("workspace_tasks")
+}
+
+/// A task's pointer at a real Fleetin row.
+///
+/// Deliberately NOT a Prisma relation. Ten nullable foreign keys on one table
+/// to express "points at exactly one of these" would be ten indexes and ten
+/// joins to read one chip. Existence and read-permission are checked in the
+/// service instead, batched per record type — see `record-access.service.ts`.
+///
+/// `recordRef` is denormalised on purpose: a task list renders `SHI-00412`
+/// beside every row, and resolving that from the id would be a second query
+/// per row on the app's busiest list.
+model WorkspaceTaskLink {
+  id     String        @id @default(uuid())
+  taskId String
+  task   WorkspaceTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  recordType WorkspaceRecordType
+  recordId   String              @db.VarChar(64)
+  /// The human reference — `SHI-00412`, `DJ-4471-AB`, `MSCU-889-2314`.
+  recordRef  String              @db.VarChar(64)
+  /// A short human hint beside the reference: a shipper's name, a route.
+  label      String?             @db.VarChar(160)
+
+  createdAt DateTime @default(now())
+
+  @@unique([taskId, recordType, recordId])
+  /// "What is open on this shipment?" — the count beside every Raise button.
+  @@index([recordType, recordId])
+  @@map("workspace_task_links")
+}
+
+/// One message in a Workspace conversation.
+///
+/// Anchored to a task, OR to a record directly — never both, enforced by a
+/// CHECK constraint in the migration. The record anchor exists because the
+/// retired `comments` table's rows migrate into it: those were shipment
+/// comments with no task behind them, and the standing rule is not to destroy
+/// rows.
+///
+/// Attribution is a live relation, not a snapshot, for the reason `Comment`
+/// gave: a thread is read as a conversation between people still in the
+/// building, and a renamed colleague should not appear under two identities
+/// halfway down.
+model WorkspaceMessage {
+  id String @id @default(uuid())
+
+  taskId String?
+  task   WorkspaceTask? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  recordType WorkspaceRecordType?
+  recordId   String?              @db.VarChar(64)
+  recordRef  String?              @db.VarChar(64)
+
+  /// Stored with `@[user:<id>|Name]` and `@[shipment:SHI-00412]` tokens intact.
+  /// The client renders them; the server parses them once, on write, to raise
+  /// the mentions. Storing rendered HTML would make every future change to how
+  /// a chip looks a data migration.
+  body String @db.Text
+
+  authorId String
+  author   User   @relation("WorkspaceMessageAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  /// A reply lives in the same conversation as its parent, one level deep.
+  /// Deeper nesting is a thread nobody can read on a phone.
+  parentMessageId String?
+  parentMessage   WorkspaceMessage?  @relation("WorkspaceMessageReplies", fields: [parentMessageId], references: [id], onDelete: Cascade)
+  replies         WorkspaceMessage[] @relation("WorkspaceMessageReplies")
+
+  /// ── The assigned comment ────────────────────────────────────────────────
+  ///
+  /// A message with an `assigneeId` is an *assigned comment*: the lightest
+  /// unit of accountability the system has. "@Ahmed this driver is missing his
+  /// licence" needs an owner, but it does not need a title, a due date, a
+  /// priority or a type — demanding those is what stops somebody writing it
+  /// down at all.
+  ///
+  /// Three columns rather than a second table, because an assigned comment IS
+  /// a comment. A `WorkspaceTask` is for work that outlives a sentence; this
+  /// is for work that does not. Both land in the same Inbox.
+  ///
+  /// Note it does NOT reuse `resolvedAt` as a status ladder. An assigned
+  /// comment is open or it is resolved; anything needing more states was
+  /// always a task.
+  assigneeId String?
+  assignee   User?   @relation("WorkspaceMessageAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  /// Who did the assigning — the comment header reads "Assigned to X by Y",
+  /// and that second name is the whole point: it says who is waiting.
+  assignedById String?
+  assignedBy   User?   @relation("WorkspaceMessageAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+  assignedAt   DateTime?
+
+  resolvedAt   DateTime?
+  resolvedById String?
+  resolvedBy   User?     @relation("WorkspaceMessageResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  editedAt  DateTime?
+  deletedAt DateTime?
+
+  mentions      WorkspaceMention[]
+  notifications WorkspaceNotification[]
+
+  @@index([taskId, createdAt])
+  @@index([recordType, recordId, createdAt])
+  @@index([authorId])
+  @@index([parentMessageId])
+  /// "Assigned to me", the Inbox's second half.
+  @@index([assigneeId, resolvedAt])
+  @@map("workspace_messages")
+}
+
+/// Somebody was named in a message.
+///
+/// A mention is not an assignment and never becomes one — being asked a
+/// question is not the same as being handed the job. It notifies, and that is
+/// all it does.
+model WorkspaceMention {
+  id        String           @id @default(uuid())
+  messageId String
+  message   WorkspaceMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId])
+  @@index([userId, createdAt])
+  @@map("workspace_mentions")
+}
+
+/// A task's own history. Append-only.
+///
+/// This is the per-task audit rail — who assigned it, when the status moved,
+/// what the due date was before. There is deliberately no global activity feed
+/// built on it: a chronological river of everybody's events is a surface
+/// nobody opens twice. The value is on the task.
+///
+/// It never duplicates the shipment operational timeline. That stays in
+/// Shipments, where it belongs.
+model WorkspaceTaskEvent {
+  id     String        @id @default(uuid())
+  taskId String
+  task   WorkspaceTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  /// Null for anything the system did on its own — nothing does yet, but
+  /// Phase 4's automations will, and an event rail that cannot say "not a
+  /// person" would have to lie.
+  actorId String?
+  actor   User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  kind WorkspaceTaskEventKind
+
+  /// Rendered values, not ids: the rail must still read correctly after the
+  /// thing it names has been renamed or removed.
+  fromValue String? @db.VarChar(255)
+  toValue   String? @db.VarChar(255)
+
+  createdAt DateTime @default(now())
+
+  @@index([taskId, createdAt])
+  @@map("workspace_task_events")
+}
+
+/// One thing waiting for one person's attention.
+///
+/// Read state lives here, server-side, because the bell must survive a
+/// refresh and a second device. The Settings notification matrix that writes
+/// to localStorage is not connected to this and does not govern it.
+model WorkspaceNotification {
+  id     String @id @default(uuid())
+  /// Who is being told.
+  userId String
+  user   User   @relation("WorkspaceNotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+
+  kind WorkspaceNotificationKind
+
+  /// Who caused it. Null for the system.
+  actorId String?
+  actor   User?   @relation("WorkspaceNotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  taskId String?
+  task   WorkspaceTask? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  messageId String?
+  message   WorkspaceMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  /// The bell's only query: my unread, newest first.
+  @@index([userId, readAt, createdAt])
+  @@map("workspace_notifications")
 }
