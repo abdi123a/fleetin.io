@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 
 import { ROUTES, buildPath } from '@/config/routes';
 import { ArrowLeft, Printer } from '@/design-system/icons';
+import { RecordRaise } from '@/features/workspace';
 import { useSystemSettings } from '@/features/settings';
 import { amountInWords, fmtDjfPlain, fmtDocDate } from '@/lib/finance';
 import { useInvoice, useMarkInvoicePaid, type InvoiceRecord } from '@/features/finance';
@@ -129,6 +130,13 @@ export function InvoiceDocumentPage() {
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <RecordRaise
+            recordType="INVOICE"
+            recordId={invoice.id}
+            recordRef={invoice.number}
+            label={invoice.status}
+            size="sm"
+          />
           {invoice.status === 'Paid' ? (
             <Pill tone="teal">Settled</Pill>
           ) : (

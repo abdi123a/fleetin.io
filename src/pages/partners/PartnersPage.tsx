@@ -28,6 +28,7 @@ import {
   type RecordStatusOption,
 } from '@/components/common';
 import { PanelHeader } from '@/components/panels';
+import { RecordRaise } from '@/features/workspace';
 import { StarRating } from '@/components/performance';
 import { useBookings } from '@/features/bookings/api/queries';
 import type { BookingRecord } from '@/features/bookings/api/bookingsService';
@@ -647,6 +648,14 @@ export function PartnersPage() {
                     ? () => setDrawerState({ mode: 'edit', partner: drawerState.partner })
                     : undefined
                 }
+              />
+
+              <RecordRaise
+                recordType="PARTNER"
+                recordId={drawerState.partner.id}
+                recordRef={drawerState.partner.reference}
+                label={drawerState.partner.companyLegalName}
+                size="sm"
               />
 
               <div className="grid grid-cols-3 gap-2 text-center">

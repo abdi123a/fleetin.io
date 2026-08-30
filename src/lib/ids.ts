@@ -58,6 +58,8 @@ export type IdKind =
   | 'costLine'
   // ── Operations ────────────────────────────────────────────────────────
   | 'mission'
+  // ── Workspace ─────────────────────────────────────────────────────────
+  | 'task'
   // ── The register ──────────────────────────────────────────────────────
   | 'vehicle'
   | 'driver'
@@ -84,6 +86,12 @@ export const ID_PREFIX: Record<IdKind, string> = {
    * does not exist. When the two datasets are unified, this prefix retires.
    */
   mission: 'MSN',
+  /**
+   * One piece of human work in Workspace — "Investigate delayed pickup".
+   * Distinct from every prefix above because it is not a domain record: a
+   * task POINTS AT `SHI-00412` rather than being a tier of it.
+   */
+  task: 'TSK',
   vehicle: 'VEH',
   driver: 'DRV',
   /** Any uploaded file on a party, vehicle or driver. */
@@ -105,6 +113,7 @@ export const ID_LABEL: Record<IdKind, string> = {
   repayment: 'Repayment',
   costLine: 'Cost line',
   mission: 'Mission',
+  task: 'Task',
   vehicle: 'Vehicle',
   driver: 'Driver',
   document: 'Document',

@@ -18,6 +18,7 @@ import {
   Download,
 } from '@/design-system/icons';
 import { DocumentViewerModal, type DocumentToView } from '@/components/DocumentViewerModal';
+import { RecordRaise } from '@/features/workspace';
 import { triggerDocumentDownload } from '@/components/documentDownload';
 import { RotateCcw, AlertTriangle, Building2, UserCheck, Check } from 'lucide-react';
 import { DataTable, FilterBar, PageHeader, TablePager, usePagedRows } from '@/components';
@@ -932,6 +933,14 @@ export function DriversPage() {
                 driver={selectedDriver}
                 onEdit={() => setDrawerTab(drawerTab === 'edit' ? 'view' : 'edit')}
                 editing={drawerTab === 'edit'}
+              />
+
+              <RecordRaise
+                recordType="DRIVER"
+                recordId={selectedDriver.id}
+                recordRef={selectedDriver.reference ?? selectedDriver.id}
+                label={selectedDriver.fullName}
+                size="sm"
               />
 
               {/* Toast / Notice */}

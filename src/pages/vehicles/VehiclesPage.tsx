@@ -27,6 +27,7 @@ import {
 } from '@/components/common';
 import { usePermissions } from '@/hooks';
 import { PanelHeader } from '@/components/panels';
+import { RecordRaise } from '@/features/workspace';
 import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
 import { IconChip, Tooltip, useConfirm } from '@/design-system';
 import {
@@ -880,6 +881,14 @@ export function VehiclesPage() {
                 status={<StatusPill status={selectedVehicle.operationalStatus} />}
                 onEdit={() => setDrawerTab(drawerTab === 'edit' ? 'view' : 'edit')}
                 editing={drawerTab === 'edit'}
+              />
+
+              <RecordRaise
+                recordType="VEHICLE"
+                recordId={selectedVehicle.id}
+                recordRef={selectedVehicle.plateNumber}
+                label={selectedVehicle.truckType}
+                size="sm"
               />
 
               {/* Toast / Notice */}

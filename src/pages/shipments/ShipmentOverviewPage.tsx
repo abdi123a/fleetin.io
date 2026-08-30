@@ -23,6 +23,7 @@ import {
 import { ROUTES } from '@/config/routes';
 import { BookingPreviewSheet, type BookingPreviewItem, type EmptyReturnStage } from './components';
 import { CrewPicker, CrewStack } from '@/components/crew';
+import { RecordRaise } from '@/features/workspace';
 import { useSetShipmentCrew, useShipment, useShipmentRaw } from '@/features/shipments/api/queries';
 import { useBookingsForShipment } from '@/features/bookings/api/queries';
 import { ShipmentReportPanel } from '@/components/reports';
@@ -554,6 +555,24 @@ export function ShipmentOverviewPage() {
              * `bg-card`, because the tile holds its colour in both themes and a
              * dark-mode card on it would read as a hole.
              */}
+            {/*
+             * Raise — and a count of what is still open on this shipment.
+             *
+             * Deliberately not a thread. A comment thread lived on this page
+             * for one day in August 2026 and was withdrawn, because nobody
+             * re-opens a shipment to check for replies. What stays is the
+             * moment that matters — you are looking at the shipment when you
+             * notice — and a number that links to where it is read.
+             */}
+            <RecordRaise
+              recordType="SHIPMENT"
+              recordId={mission.id}
+              recordRef={mission.id}
+              label={mission.customer?.company}
+              tone="slab"
+              slabInk={slab.ink}
+            />
+
             <Button
               variant="secondary"
               size="sm"

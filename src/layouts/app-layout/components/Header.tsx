@@ -1,7 +1,9 @@
-import { Bell, Menu } from '@/design-system/icons';
+import { Menu } from '@/design-system/icons';
 
-import { IconButton, Tooltip } from '@/design-system';
+import { IconButton } from '@/design-system';
 import { cn } from '@/utils';
+
+import { NotificationBell } from '@/features/workspace';
 
 import { Breadcrumbs } from './Breadcrumbs';
 
@@ -39,11 +41,7 @@ export function Header({ onOpenMobileNav, className }: HeaderProps) {
       <Breadcrumbs className="flex-1" />
 
       <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-        <Tooltip content="Notifications">
-          <IconButton aria-label="Notifications" size="sm" shape="pill">
-            <Bell />
-          </IconButton>
-        </Tooltip>
+        <NotificationBell />
 
       </div>
     </header>

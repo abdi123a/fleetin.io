@@ -64,6 +64,7 @@ export default defineConfig({
       'src/stores/**/*.test.ts',
       'src/components/reports/**/*.test.ts',
       'src/features/empty-returns/**/*.test.ts',
+      'src/features/workspace/**/*.test.ts',
       'src/features/transporters/**/*.test.ts',
       'src/features/bookings/**/*.test.ts',
     ],

@@ -95,6 +95,12 @@ const EmptyReturnModuleChrome = lazyWithRetry(
   () => import('@/pages/empty-returns'),
   'EmptyReturnModuleChrome',
 );
+const WorkspaceModuleChrome = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceModuleChrome');
+const WorkspaceInboxPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceInboxPage');
+const WorkspaceMyTasksPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceMyTasksPage');
+const WorkspaceAssignedByMePage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceAssignedByMePage');
+const WorkspaceAllTasksPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceAllTasksPage');
+const WorkspaceTaskDetailPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceTaskDetailPage');
 const EmptyReturnControlTowerPage = lazyWithRetry(
   () => import('@/pages/empty-returns'),
   'ControlTowerPage',
@@ -249,6 +255,21 @@ export const routes: RouteObject[] = [
       { path: ROUTES.bookingDetail, element: <ShipmentOverviewPage /> },
       { path: ROUTES.missions, element: <MissionsPage /> },
       { path: ROUTES.missionDetail, element: <ShipmentOverviewPage /> },
+      // Workspace — the work layer. Same pathless-layout shape as Empty
+      // Container below: four sibling URLs sharing one title and one Raise
+      // entry point. `/workspace` itself is a redirect, because a module root
+      // that renders nothing is a dead click from the sidebar.
+      {
+        element: <WorkspaceModuleChrome />,
+        children: [
+          { path: ROUTES.workspace, element: <Navigate to={ROUTES.workspaceInbox} replace /> },
+          { path: ROUTES.workspaceInbox, element: <WorkspaceInboxPage /> },
+          { path: ROUTES.workspaceMyTasks, element: <WorkspaceMyTasksPage /> },
+          { path: ROUTES.workspaceAssignedByMe, element: <WorkspaceAssignedByMePage /> },
+          { path: ROUTES.workspaceAllTasks, element: <WorkspaceAllTasksPage /> },
+          { path: ROUTES.workspaceTaskDetail, element: <WorkspaceTaskDetailPage /> },
+        ],
+      },
       // Pathless layout route: the views are siblings in the URL, but they
       // share one 30s clock and one toast renderer. See EmptyReturnModuleChrome.
       // Chains used to be a sibling here; it's now drawn inside Cycles — the

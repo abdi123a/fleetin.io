@@ -1,5 +1,8 @@
 import {
   ArrowLeftRight,
+  ClipboardList,
+  Inbox,
+  ListChecks,
   BarChart3,
   Package,
   Building2,
@@ -51,6 +54,33 @@ export const NAVIGATION: NavSection[] = [
         label: 'Dashboard',
         path: ROUTES.dashboard,
         icon: LayoutDashboard,
+      },
+    ],
+  },
+  /*
+   * Workspace sits directly under the Dashboard, above Operations, because it
+   * is where the day starts: what was handed to me overnight, and what is
+   * still open. Everything below it is a place you go on purpose.
+   */
+  {
+    id: 'workspace',
+    label: 'Workspace',
+    items: [
+      {
+        id: 'workspace-inbox',
+        label: 'Inbox',
+        path: ROUTES.workspaceInbox,
+        icon: Inbox,
+      },
+      {
+        id: 'workspace-tasks',
+        label: 'Tasks',
+        icon: ListChecks,
+        children: [
+          { id: 'workspace-my-tasks', label: 'My Tasks', path: ROUTES.workspaceMyTasks, icon: ClipboardList },
+          { id: 'workspace-assigned-by-me', label: 'Assigned by Me', path: ROUTES.workspaceAssignedByMe, icon: ListChecks },
+          { id: 'workspace-all-tasks', label: 'All Tasks', path: ROUTES.workspaceAllTasks, icon: ListChecks },
+        ],
       },
     ],
   },

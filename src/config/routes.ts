@@ -69,6 +69,21 @@ export const ROUTES = {
   missions: '/missions',
   missionDetail: '/shipments/:id',
   onboarding: '/onboarding',
+  /*
+   * Workspace — the work layer.
+   *
+   * The task detail is `/workspace/task/:reference` (singular) rather than
+   * living under `/workspace/tasks/`, so a reference can never be shadowed by
+   * one of the three view paths beside it. Router ranking would resolve it
+   * correctly today; a URL that depends on ranking to mean the right thing is
+   * a trap for whoever adds the fourth view.
+   */
+  workspace: '/workspace',
+  workspaceInbox: '/workspace/inbox',
+  workspaceMyTasks: '/workspace/tasks/mine',
+  workspaceAssignedByMe: '/workspace/tasks/assigned-by-me',
+  workspaceAllTasks: '/workspace/tasks/all',
+  workspaceTaskDetail: '/workspace/task/:reference',
   /**
    * Empty Container Management — five sibling views, five real URLs.
    *

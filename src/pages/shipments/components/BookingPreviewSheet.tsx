@@ -42,6 +42,7 @@ import {
 } from '@/design-system';
 import { ROUTES } from '@/config/routes';
 import { BOOKING_LADDER } from '@/features/bookings/api/bookingsService';
+import { RecordRaise } from '@/features/workspace';
 import { displayShipmentStatus, shipmentStepsFor, statusIntentOf, stepRungFor } from '@/lib/shipmentStatus';
 import {
   CONTAINER_STATE_BADGE_CLASS,
@@ -574,7 +575,16 @@ export function BookingPreviewSheet({
             </p>
           </div>
 
-          <CloseButton onClick={onClose} />
+          <div className="flex items-center gap-2">
+            <RecordRaise
+              recordType="BOOKING"
+              recordId={booking.id}
+              recordRef={booking.bookingNumber}
+              label={booking.containerNumber}
+              size="sm"
+            />
+            <CloseButton onClick={onClose} />
+          </div>
         </div>
 
         {/* ── SCROLLABLE BODY CONTENT ── */}

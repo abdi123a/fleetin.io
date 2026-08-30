@@ -21,6 +21,11 @@ import { hasAnyPermission } from '@/utils';
  * can ever satisfy hides a screen from everybody except ADMIN.
  */
 export const ROUTE_PERMISSIONS: Record<string, readonly string[]> = {
+  /* Workspace — the module root only. Every view under it inherits through
+     the nearest-ancestor walk below, including the task detail, which sits at
+     `/workspace/task/:reference`. */
+  [ROUTES.workspace]: ['workspace.view'],
+
   /* Operations */
   [ROUTES.shipmentsList]: ['shipments.view'],
   [ROUTES.shipmentOverview]: ['shipments.view'],
