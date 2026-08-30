@@ -355,8 +355,14 @@ export function CompanyName({ name, tone = 'default', size = 'xs', className }: 
      stays behind it for the handful of names the API does not carry. */
   const registered = useCompanyLogo(name);
 
+  /* `max-w-full` is load-bearing: `min-w-0` only permits shrinking, it does not
+     bound the box. An `inline-flex` sizes to its content, so inside a
+     `table-fixed` cell a long legal name ("Freight Secure Logistics &
+     Services") laid out at its full width and overran the column into its
+     neighbour instead of truncating. Capping at the cell width is what gives
+     the inner `truncate` something to truncate against. */
   return (
-    <span className={cn('inline-flex min-w-0 items-center gap-1.5', className)} title={name}>
+    <span className={cn('inline-flex min-w-0 max-w-full items-center gap-1.5', className)} title={name}>
       <CompanyAvatar
         size={size}
         src={registered ?? getEmptyReturnCompanyLogo(name)}
