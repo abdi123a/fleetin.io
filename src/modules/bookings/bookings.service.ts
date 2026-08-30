@@ -7,10 +7,14 @@ import { EmptyReturnsService } from '../empty-returns/empty-returns.service';
 import {
   allowedNextShipmentStatuses,
   isValidShipmentStatusTransition,
+  statusFromAssignments,
   timelineKeyForStatus,
 } from '../shipments/shipment-status.util';
+import { isEmptyReturnSettled } from '../empty-returns/empty-return-status.util';
+import { syncShipmentFromBookings } from '../shipments/shipment-sync';
 import { CreateBookingsDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
+import type { AuthenticatedUser } from '../auth/jwt.strategy';
 import { UpdateBookingStatusDto } from './dto/update-booking-status.dto';
 
 interface FindAllParams {
@@ -20,6 +24,12 @@ interface FindAllParams {
   partnerId?: string;
   page: number;
   limit: number;
+  /**
+   * Row-level scoping for portal callers (BR-10.5) — a shipper sees only the
+   * bookings under its own shipments, a transporter only its own runs. `null`
+   * for internal roles, where the permission check was the whole gate.
+   */
+  scope?: Record<string, unknown> | null;
 }
 
 /**
@@ -46,7 +56,7 @@ export class BookingsService {
    * ids, not just the FK. Kept as one shared shape, same convention as
    * `EmptyReturnsService.bookingDisplayInclude`.
    */
-  private readonly bookingDetailInclude = { partner: true, vehicle: true, driver: true } as const;
+  private readonly bookingDetailInclude = { shipment: true, partner: true, vehicle: true, driver: true } as const;
 
   private async resolveShipment(shipmentId: string) {
     const shipment = await this.prisma.shipment.findFirst({
@@ -57,13 +67,14 @@ export class BookingsService {
   }
 
   async findAll(params: FindAllParams) {
-    const { shipmentId, status, containerNumber, partnerId, page, limit } = params;
+    const { shipmentId, status, containerNumber, partnerId, page, limit, scope } = params;
     const where: Prisma.BookingWhereInput = {
       deletedAt: null,
       ...(shipmentId ? { shipmentId } : {}),
       ...(status && status !== 'all' ? { status } : {}),
       ...(containerNumber ? { containerNumber: { contains: containerNumber } } : {}),
       ...(partnerId ? { partnerId } : {}),
+      ...((scope ?? {}) as Prisma.BookingWhereInput),
     };
     const skip = (page - 1) * limit;
 
@@ -81,20 +92,27 @@ export class BookingsService {
     return { items, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
   }
 
-  /** `id` accepts either the primary key or the human-readable `BKG-####` reference, same convention as Shipments. */
-  async findOne(id: string) {
+  /**
+   * `id` accepts either the primary key or the human-readable `BKG-####`
+   * reference, same convention as Shipments.
+   *
+   * `scope` is the portal caller's own-company filter: another company's
+   * booking is reported as not found rather than as forbidden, so the id space
+   * itself stays unenumerable.
+   */
+  async findOne(id: string, scope: Record<string, unknown> | null = null) {
     const booking = await this.prisma.booking.findFirst({
-      where: { OR: [{ id }, { reference: id }], deletedAt: null },
+      where: { OR: [{ id }, { reference: id }], deletedAt: null, ...(scope as Prisma.BookingWhereInput) },
       include: { timeline: { orderBy: { createdAt: 'asc' } }, ...this.bookingDetailInclude },
     });
     if (!booking) throw new NotFoundException(`Booking with ID "${id}" not found`);
     return booking;
   }
 
-  async findForShipment(shipmentId: string) {
+  async findForShipment(shipmentId: string, scope: Record<string, unknown> | null = null) {
     const shipment = await this.resolveShipment(shipmentId);
     return this.prisma.booking.findMany({
-      where: { shipmentId: shipment.id, deletedAt: null },
+      where: { shipmentId: shipment.id, deletedAt: null, ...(scope as Prisma.BookingWhereInput) },
       orderBy: { createdAt: 'asc' },
       include: this.bookingDetailInclude,
     });
@@ -167,11 +185,34 @@ export class BookingsService {
       created.push(booking);
     }
 
+    // New bookings start at Pending, so adding them to a shipment that had
+    // already moved pulls it back — correct: the job is only as far along as
+    // its least advanced container.
+    await syncShipmentFromBookings(this.prisma, shipment.id);
+
     return created;
   }
 
-  async update(id: string, dto: UpdateBookingDto) {
+  async update(id: string, dto: UpdateBookingDto, user?: AuthenticatedUser) {
     const existing = await this.findOne(id);
+
+    const wroteDebrief =
+      dto.driverRating !== undefined ||
+      dto.driverRatingReliability !== undefined ||
+      dto.driverRatingPunctuality !== undefined ||
+      dto.driverRatingProfessionalism !== undefined ||
+      dto.driverNote !== undefined;
+
+    /* Signed separately from the driver's. The two debriefs are asked on
+       different rungs, days apart, and often by different people — one stamp
+       covering both would put whoever closed the container's name on a verdict
+       about the driver they never saw. */
+    const wroteShipperDebrief =
+      dto.shipperRating !== undefined ||
+      dto.shipperRatingReliability !== undefined ||
+      dto.shipperRatingPunctuality !== undefined ||
+      dto.shipperRatingProfessionalism !== undefined ||
+      dto.shipperNote !== undefined;
 
     if (dto.partnerId) {
       const partner = await this.prisma.partner.findFirst({ where: { id: dto.partnerId, deletedAt: null } });
@@ -202,16 +243,94 @@ export class BookingsService {
         ? splitCommission(repricedRateFdj, await fleetinCommissionPct(this.prisma)).transporterMinorUnits
         : repricedRateFdj;
 
-    return this.prisma.booking.update({
+    /* A truck and a driver belong to a transporter. Moving the booking to a
+     * different one leaves them pointing at somebody else's fleet, so unless
+     * the same call names replacements they are cleared — the alternative is a
+     * booking that claims Al-Baraka's driver is running Gulf Horn's job. */
+    const switchedPartner = Boolean(dto.partnerId && dto.partnerId !== existing.partnerId);
+    const clearFleet = switchedPartner && dto.vehicleId === undefined && dto.driverId === undefined;
+
+    const nextVehicleId = clearFleet ? null : (dto.vehicleId ?? existing.vehicleId);
+    const nextDriverId = clearFleet ? null : (dto.driverId ?? existing.driverId);
+
+    /* Assigning a truck and a driver *is* reaching those rungs — the status
+     * follows the facts rather than waiting to be told about them. Raised in
+     * the same write, so a booking is never briefly out of step with its own
+     * record, and stamped on the timeline like any other status change so the
+     * mission report still shows when it happened. */
+    const earned = statusFromAssignments(existing.status, {
+      hasVehicle: Boolean(nextVehicleId),
+      hasDriver: Boolean(nextDriverId),
+    });
+
+    /* And the same rule in reverse. Every rung above Pending asserts a truck —
+     * "At Pickup" with no vehicle is the same lie as "Driver Assigned" with no
+     * driver, just further along. Losing the fleet therefore returns the
+     * booking to Pending, which is also the state that asks for what the
+     * dispatcher is about to do anyway: pick the new transporter's truck and
+     * driver. A closed or cancelled job is left alone. */
+    const dropped =
+      clearFleet && !['Completed', 'Cancelled', 'Failed', 'Pending'].includes(existing.status)
+        ? 'Pending'
+        : null;
+    const restated = earned ?? dropped;
+
+    const updated = await this.prisma.booking.update({
       where: { id: existing.id },
       data: {
         partnerId: dto.partnerId,
-        vehicleId: dto.vehicleId,
-        driverId: dto.driverId,
+        vehicleId: clearFleet ? null : dto.vehicleId,
+        driverId: clearFleet ? null : dto.driverId,
+        ...(restated
+          ? {
+              status: restated,
+              timeline: {
+                create: {
+                  key: timelineKeyForStatus(restated),
+                  title: `Status changed to ${restated}`,
+                  description: `Booking marked as ${restated}`,
+                  timestamp: new Date(),
+                  status: 'completed',
+                },
+              },
+            }
+          : {}),
         transporterCostMinorUnits,
         transporterCostCurrency: transporterCostMinorUnits === undefined ? undefined : transporterCostMinorUnits === null ? null : 'DJF',
         transporterCostFxRate: transporterCostMinorUnits === undefined ? undefined : transporterCostMinorUnits === null ? null : 1.0,
         transporterCostBaseAmountMinorUnits: transporterCostMinorUnits,
+        /* The operator's own read of the delivery. `undefined` when absent, so
+           re-saving a booking for any other reason never wipes a note that was
+           written when it was delivered. */
+        driverRating: dto.driverRating,
+        driverRatingReliability: dto.driverRatingReliability,
+        driverRatingPunctuality: dto.driverRatingPunctuality,
+        driverRatingProfessionalism: dto.driverRatingProfessionalism,
+        driverNote: dto.driverNote,
+        /* Stamped from the token, never from the body: a debrief is somebody's
+           opinion with their name on it, so the name has to be one the client
+           cannot choose. Only written when the call actually carries a debrief,
+           so an unrelated edit never re-signs an existing one. */
+        ...(wroteDebrief && user
+          ? {
+              driverRatedById: user.id,
+              driverRatedByName: `${user.firstName} ${user.lastName}`.trim() || user.email,
+              driverRatedAt: new Date(),
+            }
+          : {}),
+        /* The shipper's half, on the same terms. */
+        shipperRating: dto.shipperRating,
+        shipperRatingReliability: dto.shipperRatingReliability,
+        shipperRatingPunctuality: dto.shipperRatingPunctuality,
+        shipperRatingProfessionalism: dto.shipperRatingProfessionalism,
+        shipperNote: dto.shipperNote,
+        ...(wroteShipperDebrief && user
+          ? {
+              shipperRatedById: user.id,
+              shipperRatedByName: `${user.firstName} ${user.lastName}`.trim() || user.email,
+              shipperRatedAt: new Date(),
+            }
+          : {}),
         containerNumber: dto.containerNumber,
         shippingLine: dto.shippingLine,
         containerReturnDepot: dto.containerReturnDepot,
@@ -220,6 +339,15 @@ export class BookingsService {
       },
       include: { timeline: { orderBy: { createdAt: 'asc' } }, ...this.bookingDetailInclude },
     });
+
+    /* A booking that moved rung takes its shipment's derived status with it,
+     * exactly as a real status write would. */
+    if (restated) {
+      await syncShipmentFromBookings(this.prisma, updated.shipmentId);
+      await this.emptyReturns.syncCycleStatusForBooking(updated.id, restated);
+    }
+
+    return updated;
   }
 
   async updateStatus(id: string, dto: UpdateBookingStatusDto) {
@@ -240,26 +368,74 @@ export class BookingsService {
     if (dto.status === 'Driver Assigned' && !existing.driverId) {
       throw new BadRequestException('A booking cannot move to "Driver Assigned" without an assigned driver');
     }
-    if (dto.status === 'En Route' && !existing.vehicleId) {
-      throw new BadRequestException('A booking cannot move to "En Route" without an assigned vehicle');
+    if ((dto.status === 'Heading to Pickup' || dto.status === 'En Route') && !existing.vehicleId) {
+      throw new BadRequestException(`A booking cannot move to "${dto.status}" without an assigned vehicle`);
     }
     // Belt-and-braces: a booking that reached "En Route" before this rule
     // existed could still be missing a vehicle by the time it's completed.
+    /* When it happened, not when it was typed. Every rung asks for this now:
+     * a status is a report of the world, and the office is always behind the
+     * yard. Read up here because the empty-return settle below is stamped
+     * with the same reported moment. */
+    const occurredAt = dto.occurredAt ? new Date(dto.occurredAt) : new Date();
+
     if (dto.status === 'Completed' && !existing.vehicleId) {
       throw new BadRequestException('A booking cannot be completed without an assigned vehicle');
     }
+
+    /* Marking a booking "Empty Returned" IS the report that the box is home.
+     * The dispatcher on this booking is the person who watches it arrive, so
+     * this writes the cycle's `returnedAt` rather than making them go and find
+     * the Empty Returns module to say the same thing. `isEmptyReturnSettled`
+     * below then passes on its own terms — the guard is satisfied, not
+     * bypassed, and the two records agree on the moment. */
+    if (dto.status === 'Completed' && existing.containerNumber) {
+      await this.emptyReturns.recordReturnedAt(existing.id, occurredAt);
+    }
+    /* "POD Submitted" no longer asks for an attachment. Proof of delivery was
+     * removed from the product on 2026-08-26 at the user's direction — the
+     * booking sheet has no uploader any more, so a document guard here would
+     * make this rung permanently unreachable. The rung now records that the
+     * drop happened; nothing evidences it. */
+    /* A bulk or machinery load has no box, so it has no "empty ready" moment
+     * to record. The ladder skips the rung for it (`Completed` stays reachable
+     * from any state), and claiming it here would put a container that does
+     * not exist into Empty Return's pool. */
+    if (dto.status === 'Empty Ready' && !existing.containerNumber) {
+      throw new BadRequestException(
+        `Booking "${existing.reference}" carries no container, so it has no empty return to start.`,
+      );
+    }
+    // The container cycle is part of the job. A box still at the consignee's
+    // yard — or not yet matched to a truck taking it back — is outstanding
+    // work, and detention accrues against it daily, so the booking carrying
+    // it is not finished. It is completed for us by the Empty Returns module
+    // the moment the box lands back at the depot (`completeOnEmptyReturn`),
+    // which is why nothing here needs to poll or be re-clicked.
+    if (dto.status === 'Completed' && !(await isEmptyReturnSettled(this.prisma, existing))) {
+      throw new BadRequestException(
+        `Booking "${existing.reference}" cannot be completed while its container is still out. ` +
+          'It closes automatically once the empty return is confirmed.',
+      );
+    }
+
 
     const booking = await this.prisma.booking.update({
       where: { id: existing.id },
       data: {
         status: dto.status,
-        completedAt: dto.status === 'Completed' ? new Date() : undefined,
+        completedAt: dto.status === 'Completed' ? occurredAt : undefined,
+        /* The moment the whole return side counts from — matching offers the
+         * box from here, and detention runs from here. Stamped once: walking
+         * back down the ladder and up it again must not restart the clock. */
+        emptyReadyAt:
+          dto.status === 'Empty Ready' && !existing.emptyReadyAt ? occurredAt : undefined,
         timeline: {
           create: {
             key: timelineKeyForStatus(dto.status),
             title: `Status changed to ${dto.status}`,
             description: `Booking marked as ${dto.status}`,
-            timestamp: new Date(),
+            timestamp: occurredAt,
             status: 'completed',
           },
         },
@@ -267,10 +443,24 @@ export class BookingsService {
       include: { timeline: { orderBy: { createdAt: 'asc' } }, ...this.bookingDetailInclude },
     });
 
+    /* A box matched before it was emptied already has a cycle carrying its own
+     * copy of this instant — keep the two saying the same thing. */
+    if (dto.status === 'Empty Ready' && !existing.emptyReadyAt) {
+      await this.prisma.emptyReturnCycle.updateMany({
+        where: { bookingId: booking.id, emptyReadyAt: null },
+        data: { emptyReadyAt: occurredAt },
+      });
+    }
+
     // The one line that replaces the whole manual milestone clicker: if this
     // booking is somebody's matched outbound load, its cycle now reflects
     // reality instead of waiting for a button to be pressed.
     await this.emptyReturns.syncCycleStatusForBooking(booking.id, booking.status);
+
+    // Same idea one level up: the shipment this booking belongs to is a job
+    // over its containers, so its status is re-read from them here rather
+    // than moved by a second, independent button.
+    await syncShipmentFromBookings(this.prisma, booking.shipmentId);
 
     // Deliberately NOT invoicing here. The shipper is billed once, at the end
     // of the month, on a statement covering every shipment that ran in it
@@ -287,6 +477,12 @@ export class BookingsService {
 
   async remove(id: string) {
     const existing = await this.findOne(id);
-    return this.prisma.booking.update({ where: { id: existing.id }, data: { deletedAt: new Date() } });
+    const booking = await this.prisma.booking.update({
+      where: { id: existing.id },
+      data: { deletedAt: new Date() },
+    });
+    // Removing the container that was holding the job back can complete it.
+    await syncShipmentFromBookings(this.prisma, booking.shipmentId);
+    return booking;
   }
 }

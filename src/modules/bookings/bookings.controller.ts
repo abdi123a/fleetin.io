@@ -6,6 +6,7 @@ import { UpdateBookingDto } from './dto/update-booking.dto';
 import { UpdateBookingStatusDto } from './dto/update-booking-status.dto';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { bookingOwnerScope } from '../../common/helpers/row-scope.util';
 import { PERMISSIONS } from '../../common/constants/permissions';
 import type { AuthenticatedUser } from '../auth/jwt.strategy';
 
@@ -29,8 +30,8 @@ export class BookingsController {
   @Get('shipments/:shipmentId/bookings')
   @RequirePermissions(PERMISSIONS.bookings.view)
   @ApiOperation({ summary: "A shipment's own bookings, in creation order" })
-  findForShipment(@Param('shipmentId') shipmentId: string) {
-    return this.bookingsService.findForShipment(shipmentId);
+  findForShipment(@Param('shipmentId') shipmentId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.bookingsService.findForShipment(shipmentId, bookingOwnerScope(user));
   }
 
   @Get('bookings')
@@ -43,6 +44,7 @@ export class BookingsController {
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 25 })
   findAll(
+    @CurrentUser() user: AuthenticatedUser,
     @Query('shipmentId') shipmentId?: string,
     @Query('status') status?: string,
     @Query('containerNumber') containerNumber?: string,
@@ -57,21 +59,26 @@ export class BookingsController {
       partnerId,
       page: +page,
       limit: +limit,
+      scope: bookingOwnerScope(user),
     });
   }
 
   @Get('bookings/:id')
   @RequirePermissions(PERMISSIONS.bookings.view)
   @ApiOperation({ summary: 'Get a booking by ID, including its status timeline' })
-  findOne(@Param('id') id: string) {
-    return this.bookingsService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.bookingsService.findOne(id, bookingOwnerScope(user));
   }
 
   @Patch('bookings/:id')
   @RequirePermissions(PERMISSIONS.bookings.update)
   @ApiOperation({ summary: 'Update non-status fields (driver/vehicle/transporter assignment, return details)' })
-  update(@Param('id') id: string, @Body() dto: UpdateBookingDto) {
-    return this.bookingsService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateBookingDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.bookingsService.update(id, dto, user);
   }
 
   @Patch('bookings/:id/status')

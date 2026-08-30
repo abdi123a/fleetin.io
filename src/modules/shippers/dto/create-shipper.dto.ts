@@ -11,10 +11,16 @@ export const COMPANY_SIZES = [
   'Enterprise (1000+)',
 ] as const;
 
-export const SHIPPER_APPROVAL_STATUSES = ['Verified', 'Pending', 'Canceled'] as const;
+/**
+ * `Suspended` added 2026-08-30 — a paused account, not a refused or a closed
+ * one. Without it the only way to stop a shipper trading was to delete the
+ * record. `approvalStatus` is a VarChar(16), so the new word needed no
+ * migration.
+ */
+export const SHIPPER_APPROVAL_STATUSES = ['Verified', 'Pending', 'Suspended', 'Canceled'] as const;
 
 export class CreateShipperDto {
-  @ApiProperty({ example: 'AMINA FZCO' })
+  @ApiProperty({ example: 'CMA-CGM' })
   @IsString()
   @IsNotEmpty()
   companyLegalName: string;

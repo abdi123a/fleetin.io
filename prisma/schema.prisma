@@ -45,6 +45,12 @@ model User {
   /// Portal scoping (BR-10.5) — set only for TRANSPORTER-role accounts.
   partnerId     String?
   partner       Partner?       @relation(fields: [partnerId], references: [id])
+  /// Shipments this account is on the crew of, and shipments where it put
+  /// somebody else on the crew.
+  shipmentCrew      ShipmentAssignee[] @relation("ShipmentCrew")
+  shipmentCrewAdded ShipmentAssignee[] @relation("ShipmentCrewAssigner")
+  /// Everything this account has said on a shipment or one of its bookings.
+  comments          Comment[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
@@ -522,7 +528,7 @@ model Shipper {
   country            String    @db.VarChar(120)
   address            String    @db.Text
   projectsCount      Int       @default(0)
-  approvalStatus     String    @default("Pending") @db.VarChar(16) // Verified | Pending | Canceled
+  approvalStatus     String    @default("Pending") @db.VarChar(16) // Verified | Pending | Suspended | Canceled
   registrationDate   DateTime
   /// StorageService key, not a URL — the URL is derived per request.
   logoKey            String?   @db.VarChar(512)
@@ -650,10 +656,17 @@ model Vehicle {
   hasGPS             Boolean   @default(false)
   gpsDeviceId        String?   @db.VarChar(64)
   operationalStatus  String    @default("Available") @db.VarChar(24) // Available | In Transit | Under Maintenance | Out of Service
-  /// DD-06 resolution: a single stored FK, not a bidirectional pair.
-  /// @unique means a driver can be the current driver of at most one vehicle.
-  assignedDriverId   String?   @unique
-  assignedDriver     Driver?   @relation("VehicleAssignedDriver", fields: [assignedDriverId], references: [id])
+  /// No standing driver.
+  ///
+  /// A vehicle used to carry `assignedDriverId` — one driver, `@unique`, set
+  /// from the Vehicles page. It was a second, competing answer to a question
+  /// `Booking` already answers properly: a booking names the driver *and* the
+  /// vehicle that ran it, per trip, which is how the work is actually
+  /// dispatched. The standing pair could disagree with every booking on the
+  /// road and nothing reconciled them.
+  ///
+  /// Who drove what is therefore read from `bookings` — see the trip counts
+  /// the fleet directories render. Dropped 2026-08-30.
   year               Int?
   make               String?   @db.VarChar(64)
   model              String?   @db.VarChar(64)
@@ -691,9 +704,10 @@ model Driver {
   updatedAt            DateTime  @updatedAt
   deletedAt            DateTime?
 
-  assignedVehicle Vehicle?   @relation("VehicleAssignedDriver")
-  shipments       Shipment[]
-  bookings        Booking[]
+  /// No standing vehicle — the pairing lives on each `Booking`. See the note
+  /// on `Vehicle.year` for why.
+  shipments Shipment[]
+  bookings  Booking[]
 
   @@index([partnerId])
   @@index([status])
@@ -745,9 +759,11 @@ model Shipment {
   id              String @id @default(uuid())
   /// Preserves Mission.id, e.g. "MSN-2026-8801".
   reference       String @unique @db.VarChar(64)
-  /// May be a comma-joined multi-id string for DPCS sources — preserved
-  /// as-is, not modeled relationally (single-tier Shipment, no Booking).
-  bookingId       String @db.VarChar(255)
+  /// Every booking reference under this shipment, comma-joined — a legacy
+  /// single-tier column now derived by `syncShipmentFromBookings`. Widened
+  /// from 255 on 2026-08-26: a twenty-container shipment is a real job, and at
+  /// 255 the rollup overflowed and took the whole booking write down with it.
+  bookingId       String @db.VarChar(1024)
   referenceNumber String @db.VarChar(64)
   dpcsReference   String @db.VarChar(64)
   /// Persists CreateShipmentDto.shipmentSource ('dpcs'|'custom') — previously
@@ -813,7 +829,10 @@ model Shipment {
   estimatedDurationHours  String    @db.VarChar(32)
   cargoType               String    @db.VarChar(120)
   shipmentCategory        String?   @db.VarChar(24) // container_20|container_40|bulk|machinery|containerized|bulky_goods|special
-  containerNumber         String?   @db.VarChar(64)
+  /// Every container under this shipment, comma-joined — derived, and what
+  /// shipment search matches on. Widened from 64 for the same reason as
+  /// `bookingId`: four containers already filled it.
+  containerNumber         String?   @db.VarChar(1024)
   shippingLine            String?   @db.VarChar(64)
   containerReturnDepot    String?   @db.VarChar(255)
   containerReturnDeadline DateTime?
@@ -868,11 +887,17 @@ model Shipment {
   deletedAt DateTime?
 
   timeline ShipmentTimelineStep[]
+  /// The Fleetin staff working this shipment — see `ShipmentAssignee`.
+  assignees ShipmentAssignee[]
   /// One row per container the shipper asked for — see `Booking`'s own doc
   /// comment for why this exists alongside the shipment-level fields above
   /// rather than replacing them yet.
   bookings Booking[]
   holds    PayoutHold[]
+  /// The shipment's conversation — including the comments scoped to one of
+  /// its bookings, which hang off the shipment too so the whole thread can be
+  /// read in one query. See `Comment`.
+  comments Comment[]
 
   @@index([shipperId])
   @@index([partnerId])
@@ -901,6 +926,109 @@ model ShipmentTimelineStep {
 
   @@index([shipmentId])
   @@map("shipment_timeline_steps")
+}
+
+/// One Fleetin person on one shipment — the "crew".
+///
+/// A shipment is worked by staff, not only by carriers: someone chases the
+/// documents, someone watches the empties, someone answers when the shipper
+/// calls. Until now that fact lived in people's heads, so "who is on
+/// MSN-08801?" had no answer the system could give.
+///
+/// Deliberately a join table rather than an `assigneeId` column on `Shipment`,
+/// because a real job has more than one person on it and the single column
+/// would force a choice the operation does not actually make.
+///
+/// `isLead` is the one distinction that survives: whoever is on point, i.e.
+/// who you call. Exactly one row per shipment carries it — enforced in
+/// `setAssignees`, not by the database, since MySQL has no partial unique
+/// index. A crew with no lead is legal and means nobody has claimed point yet.
+model ShipmentAssignee {
+  id         String   @id @default(uuid())
+  shipmentId String
+  shipment   Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  /// The staff account. `onDelete: Cascade` — an account that no longer exists
+  /// is not "assigned"; the shipment goes back to unassigned rather than
+  /// pointing at a ghost.
+  userId     String
+  user       User     @relation("ShipmentCrew", fields: [userId], references: [id], onDelete: Cascade)
+  /// On point. At most one per shipment.
+  isLead     Boolean  @default(false)
+  assignedAt DateTime @default(now())
+  /// Who put them on it. Nullable for rows created by a seed or a migration.
+  assignedById String?
+  assignedBy   User?   @relation("ShipmentCrewAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  /// One row per person per shipment — assigning twice is a no-op, not a
+  /// duplicate avatar in the stack.
+  @@unique([shipmentId, userId])
+  @@index([userId])
+  @@index([shipmentId])
+  @@map("shipment_assignees")
+}
+
+/// One thing somebody said on a shipment.
+///
+/// ## One thread, not two
+///
+/// A comment always names a shipment, and *optionally* one of its bookings.
+/// That is deliberate: a shipment's conversation is one thread, and
+/// `bookingId` is a scope inside it — "this is about container MSKU4567890"
+/// — not a second, separate thread hidden behind a container. The Shipment
+/// Overview page reads the whole thread and labels the scoped ones; the
+/// booking sheet reads the same rows filtered to that booking. This is the
+/// same "the container picker is half a scope switch" shape the shipment
+/// report block already uses.
+///
+/// Keeping `shipmentId` populated even on a booking comment is what makes
+/// that one query possible — walking `booking.shipmentId` would mean either
+/// a join per row or two round trips, on the page that shows the thread.
+///
+/// ## Attribution is a relation, not a snapshot
+///
+/// Unlike `PayoutHold`, which snapshots `raisedByName`, the author here is a
+/// live FK. A thread is read as a conversation between people who are still
+/// in the building: their current name and avatar is what a reader needs, and
+/// a renamed colleague should not appear under two identities halfway down.
+/// `onDelete: Restrict` — a deleted account must not silently take its half
+/// of a conversation with it.
+///
+/// ## Editing and deleting
+///
+/// Both are soft and author-only. `editedAt` is what the UI marks as
+/// "edited"; a deleted comment keeps its row and its place in the thread so
+/// the replies around it still make sense, and the service never returns its
+/// body.
+model Comment {
+  id         String   @id @default(uuid())
+
+  /// The thread this belongs to. Always set — see the doc comment above.
+  shipmentId String
+  shipment   Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  /// The container this comment is *about*, when it is about one. Null means
+  /// it speaks to the whole shipment.
+  bookingId  String?
+  booking    Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  body       String   @db.Text
+
+  authorId   String
+  author     User     @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  /// Set on the first edit — absent means "as written".
+  editedAt   DateTime?
+  /// Soft delete: the row stays, the body is never served again.
+  deletedAt  DateTime?
+
+  /// The thread read, oldest first — one shipment, in order.
+  @@index([shipmentId, createdAt])
+  /// The booking sheet's filtered read.
+  @@index([bookingId, createdAt])
+  @@index([authorId])
+  @@map("comments")
 }
 
 // ─── 12. Bookings & Empty Returns ──────────────────────────────────────────
@@ -954,8 +1082,80 @@ model Booking {
   /// offered for matching at all.
   emptyReturnException String? @db.VarChar(64)
 
+  /// When Operations planned this container's standalone empty return for.
+  /// Set together with `emptyReturnException` on the "Plan Empty Return"
+  /// decision: the flag says matching has stopped, this says when the box is
+  /// actually going back. Kept on the booking beside the flag it belongs to,
+  /// for the same reason — an unmatched box has no cycle row to carry it.
+  emptyReturnPlannedAt DateTime?
+
+  /// How many empty containers this booking can take back on its outbound leg
+  /// — v19's `qty`. Null means one, which is every ordinary single-container
+  /// booking; a value >1 lets one full load absorb several empties, and the
+  /// matching service refuses the (n+1)th.
+  emptySlots Int?
+
+  /// Road distance between where the empty currently sits and this load's
+  /// pickup hub. v19 scores pairings on it (`distKm`), so it has to be a real
+  /// stored number rather than something the UI guesses per render.
+  emptyReturnDistanceKm Decimal? @db.Decimal(8, 2)
+
   scheduledPickupTime DateTime?
   completedAt         DateTime?
+
+  /// When this booking's own container was emptied and became available to go
+  /// back — recorded by hand on the "Empty Ready" rung, because the box is
+  /// emptied at the consignee's yard hours before anybody records it and every
+  /// detention day is counted from that moment, not from the click. Lives here
+  /// rather than only on `EmptyReturnCycle` because this is what puts the
+  /// container into the matching pool in the first place: an unmatched box has
+  /// no cycle row to carry it.
+  emptyReadyAt DateTime?
+
+  /// How the delivery actually went, recorded by the operator at the moment
+  /// they mark the booking Delivered.
+  ///
+  /// This is the rating. Since 2026-08-30 the frontend's `lib/rating.ts`
+  /// computes no star of its own: it still measures the mission window, the
+  /// turnaround and whether the box came home on time, and it reports those as
+  /// figures, but the stars beside a driver's name are these columns and only
+  /// these columns. A carrier's star is the same marks rolled up across its
+  /// drivers — there is no separate transporter score, because nobody is ever
+  /// asked to give one.
+  /// The overall — the mean of whichever axes below were answered. Stored
+  /// rather than derived so a reader never has to know the averaging rule.
+  driverRating Int?    @db.TinyInt
+  /// The three axes the debrief asks, of the person who just watched the
+  /// delivery. What the profile's three bars print back, verbatim.
+  driverRatingReliability     Int? @db.TinyInt
+  driverRatingPunctuality     Int? @db.TinyInt
+  driverRatingProfessionalism Int? @db.TinyInt
+  driverNote   String? @db.Text
+  /// Who wrote the debrief, and when. The name is denormalised on purpose: it
+  /// is what the sheet prints, and "recorded by" has to keep naming the person
+  /// who actually wrote it even after that account is renamed or deactivated.
+  /// Set server-side from the authenticated user — never accepted from the
+  /// client, which could otherwise sign somebody else's name to an opinion.
+  driverRatedById   String?   @db.VarChar(191)
+  driverRatedByName String?   @db.VarChar(255)
+  driverRatedAt     DateTime?
+
+  /// The closing debrief — the shipper's half of the round trip, asked when the
+  /// box is actually home. How fast they stripped and released it is what ran
+  /// the detention clock, and it is otherwise charged to the carrier who only
+  /// fetched it. Same three axes, same 1-5, same rule: a person's answer or
+  /// nothing. The frontend has collected these since the debrief shipped; until
+  /// this migration there was nowhere to put them and every one was discarded.
+  shipperRating Int? @db.TinyInt
+  shipperRatingReliability     Int? @db.TinyInt
+  shipperRatingPunctuality     Int? @db.TinyInt
+  shipperRatingProfessionalism Int? @db.TinyInt
+  shipperNote   String? @db.Text
+  /// Who wrote it, stamped server-side from the token — never from the client,
+  /// which could otherwise sign somebody else's name to an opinion.
+  shipperRatedById   String?   @db.VarChar(191)
+  shipperRatedByName String?   @db.VarChar(255)
+  shipperRatedAt     DateTime?
 
   /// What this specific container's own transporter charges — the piece
   /// `Shipment.rateMinorUnits` collapses away by summing across every
@@ -978,8 +1178,14 @@ model Booking {
   /// booking (matching consumes it).
   asEmpty    EmptyReturnCycle?     @relation("CycleEmptyBooking")
   /// This booking as the full load a cycle is going out to collect.
-  asNextFull EmptyReturnCycle?     @relation("CycleNextFullBooking")
+  /// The empties riding out under this load. A LIST since 2026-08-29: v19
+  /// gives a load `emptySlots` capacity, so one outbound booking can carry
+  /// several boxes back. `emptySlots` caps it; the service enforces that.
+  asNextFull EmptyReturnCycle[]    @relation("CycleNextFullBooking")
   holds      PayoutHold[]
+  /// What people have said about this container specifically — a subset of
+  /// the shipment's thread, not a separate one. See `Comment`.
+  comments   Comment[]
 
   @@index([shipmentId])
   @@index([partnerId])
@@ -1029,7 +1235,14 @@ model EmptyReturnCycle {
   /// tracked booking (it always is — matching only ever offers real open
   /// bookings). Its own `status` is what drives this cycle's `status` below;
   /// nothing here duplicates that ladder.
-  nextBookingId String?  @unique
+  /// The full load this empty rides out under.
+  ///
+  /// Deliberately NOT unique since 2026-08-29: the v19 model gives a full load
+  /// `qty` container slots and an `assigned[]` list, so ONE outbound load can
+  /// absorb SEVERAL empties (a 2-container booking takes two boxes back). The
+  /// old `@unique` encoded a 1:1 assumption the product never actually had —
+  /// `Booking.emptySlots` below is what now caps it, checked in the service.
+  nextBookingId String?
   nextBooking   Booking? @relation("CycleNextFullBooking", fields: [nextBookingId], references: [id])
 
   chainId String?
@@ -1043,15 +1256,44 @@ model EmptyReturnCycle {
   /// advanced by a click here. See `EmptyReturnsService`.
   status String @default("preparing") @db.VarChar(16) // preparing|ready|in_progress|completed
 
+  /// The decision this cycle is at, stored rather than re-derived.
+  ///
+  /// v19 keeps `stage` on the record and every screen switches on it; the
+  /// frontend used to infer it from (returnedAt, nextFull) instead, which
+  /// meant two surfaces could disagree about a container mid-write. One
+  /// authoritative word, advanced only by the four service actions.
+  stage   String  @default("empty") @db.VarChar(16) // empty|paired|return_planned|closed
+  /// How it finished. Null until `stage` is closed.
+  outcome String? @db.VarChar(16) // paired|returned|returned_late
+
+  /// Provenance of the pairing — v19's `matchInfo`. Kept because an operator
+  /// override and the engine's own pick are different claims, and a board that
+  /// shows both without saying which is which is not auditable.
+  matchedAt     DateTime?
+  matchedBy     String?   @db.VarChar(120)
+  /// e.g. "Suggestion — Recommended", "Manual — Matching", "Contextual".
+  matchSource   String?   @db.VarChar(64)
+
+  /// Stamped when the return leg actually leaves. Distinct from `returnedAt`:
+  /// dispatched is "the truck has it", returned is "the depot has it".
+  dispatchedAt DateTime?
+
   emptyReadyAt DateTime?
   /// Stamped once, the first time `nextBooking` reaches a delivered status.
   returnedAt   DateTime?
+
+  /// What the late return actually cost, resolved at close time from the
+  /// day-rate in Settings. Stored rather than recomputed so a historic cycle
+  /// keeps the price that was in force when it closed.
+  detentionFee Decimal? @db.Decimal(12, 2)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([chainId])
   @@index([status])
+  @@index([stage])
+  @@index([nextBookingId])
   @@map("empty_return_cycles")
 }
 

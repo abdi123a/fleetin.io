@@ -23,3 +23,11 @@ logs/
 .idea/
 .vscode/
 *.swp
+
+# Deploy target config — host and paths, not secrets, but machine-specific.
+deploy/deploy.env
+
+# Local database dumps written before migrations (deploy/deploy.sh, manual pg/mysqldump).
+# Snapshots of real data — large and never belong in the repo.
+backups/
+.backups/

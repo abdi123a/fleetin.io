@@ -2,7 +2,6 @@ import { Body, Controller, Delete, Get, Param, Patch, Query } from '@nestjs/comm
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { VehiclesService } from './vehicles.service';
 import { UpdateVehicleDto } from './dto/update-vehicle.dto';
-import { AssignDriverDto } from './dto/assign-driver.dto';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../common/constants/permissions';
@@ -72,12 +71,6 @@ export class VehiclesController {
     return this.vehiclesService.update(id, dto);
   }
 
-  @Patch(':id/assign-driver')
-  @RequirePermissions(PERMISSIONS.vehicles.update)
-  @ApiOperation({ summary: 'Assign or unassign this vehicle’s driver' })
-  assignDriver(@Param('id') id: string, @Body() dto: AssignDriverDto) {
-    return this.vehiclesService.assignDriver(id, dto);
-  }
 
   @Delete(':id')
   @RequirePermissions(PERMISSIONS.vehicles.delete)

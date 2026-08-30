@@ -7,6 +7,7 @@ import { StorageService } from '../src/modules/storage/storage.service';
 import { EmptyReturnsService } from '../src/modules/empty-returns/empty-returns.service';
 import { seedHr } from './seed-hr';
 import { ID_DIGITS, formatReference } from '../src/common/helpers/reference.util';
+import { assertSeedTargetIsSafe } from './seed-target-guard';
 
 const prisma = new PrismaClient();
 
@@ -158,6 +159,10 @@ const DEFAULT_ROLES = [
     permissions: [
       PERMISSIONS.shippers.view, // own record only; enforced by row-level scoping, not by this grant
       PERMISSIONS.shipments.view,
+      // The shipment report reads per-booking timelines and empty-return
+      // cycles — a shipper must see its own containers' runs end to end.
+      PERMISSIONS.bookings.view,
+      PERMISSIONS.emptyReturns.view,
       PERMISSIONS.documents.view,
       PERMISSIONS.documents.upload,
       PERMISSIONS.analytics.view,
@@ -237,7 +242,7 @@ interface SeedShipper {
 const SEED_SHIPPERS: SeedShipper[] = [
   {
     mockId: 'SHP-101',
-    companyLegalName: 'AMINA FZCO',
+    companyLegalName: 'CMA-CGM',
     registrationNumber: 'DJ-REG-2022-4482',
     industry: 'Logistics & Freight',
     companySize: 'Medium (51-250)',
@@ -535,7 +540,7 @@ const SEED_MISSIONS: SeedMission[] = [
     status: 'En Route',
     paymentStatus: 'Paid',
     shipperMockId: 'SHP-101',
-    customer: { name: 'Mohamed Amin', company: 'AMINA FZCO', phone: '+253 77 81 92 01', email: 'm.amin@amina-fzco.dj', rating: 4.9 },
+    customer: { name: 'Mohamed Amin', company: 'CMA-CGM', phone: '+253 77 81 92 01', email: 'm.amin@amina-fzco.dj', rating: 4.9 },
     partnerMockId: 'PTR-001',
     transporter: { name: 'Omar Hassan Ali', company: 'Red Sea Express Ltd', phone: '+253 77 81 12 01', fleetCode: 'RSE-FLT-01', rating: 4.8 },
     driverMockId: 'DRV-001',
@@ -558,7 +563,7 @@ const SEED_MISSIONS: SeedMission[] = [
     rateFDJ: 50000,
     timeline: [
       { key: 'creation', title: 'Mission Creation', description: 'Mission created from Booking BKG-1178', timestamp: '2026-08-06 07:30:12', status: 'completed', actor: 'Super Admin' },
-      { key: 'booking_confirmation', title: 'Booking Confirmation', description: 'Confirmed by Shipper AMINA FZCO', timestamp: '2026-08-06 07:35:45', status: 'completed', actor: 'AMINA FZCO Ops' },
+      { key: 'booking_confirmation', title: 'Booking Confirmation', description: 'Confirmed by Shipper CMA-CGM', timestamp: '2026-08-06 07:35:45', status: 'completed', actor: 'CMA-CGM Ops' },
       { key: 'vehicle_assignment', title: 'Vehicle Assignment', description: 'Truck DJ-ABJ-1234 assigned to mission', timestamp: '2026-08-06 07:42:10', status: 'completed', actor: 'Red Sea Express Dispatch' },
       { key: 'driver_assignment', title: 'Driver Assignment', description: 'Abdi Yusuf Mohamed dispatched & accepted', timestamp: '2026-08-06 07:45:00', status: 'completed', actor: 'Abdi Yusuf Mohamed' },
       { key: 'gate_in', title: 'Gate-in Time', description: 'Checked into Doraleh Container Terminal Gate 4A', timestamp: '2026-08-06 08:15:33', status: 'completed', actor: 'Port Gate System', location: 'Doraleh Gate 4A' },
@@ -620,7 +625,7 @@ const SEED_MISSIONS: SeedMission[] = [
     status: 'En Route',
     paymentStatus: 'Paid',
     shipperMockId: 'SHP-101',
-    customer: { name: 'Mohamed Amin', company: 'AMINA FZCO', phone: '+253 77 81 92 01', email: 'm.amin@amina-fzco.dj', rating: 4.9 },
+    customer: { name: 'Mohamed Amin', company: 'CMA-CGM', phone: '+253 77 81 92 01', email: 'm.amin@amina-fzco.dj', rating: 4.9 },
     partnerMockId: 'PTR-002',
     transporter: { name: 'Tigist Bekele', company: 'Horn Transit Solutions', phone: '+251 91 234 5678', fleetCode: 'HTS-FLT-02', rating: 4.9 },
     driverMockId: 'DRV-101',
@@ -887,7 +892,6 @@ async function seedPartners(storage: StorageService, uploadedById: string) {
   const vehicleIdByMockId = new Map<string, string>();
   const driverIdByMockId = new Map<string, string>();
   /** Deferred assignment pairs — resolved in a second pass once every vehicle and driver exists. */
-  const pendingAssignments: { vehicleId: string; driverMockId: string }[] = [];
 
   for (const seed of SEED_PARTNERS) {
     const existing = await prisma.partner.findUnique({ where: { reference: seed.mockId } });
@@ -986,9 +990,6 @@ async function seedPartners(storage: StorageService, uploadedById: string) {
         },
       });
       vehicleIdByMockId.set(v.mockId, vehicle.id);
-      if (v.assignedDriverMockId) {
-        pendingAssignments.push({ vehicleId: vehicle.id, driverMockId: v.assignedDriverMockId });
-      }
     }
 
     for (const d of seed.drivers) {
@@ -1010,15 +1011,10 @@ async function seedPartners(storage: StorageService, uploadedById: string) {
     }
   }
 
-  // Second pass: resolve vehicle<->driver assignment now that every driver row exists.
-  for (const { vehicleId, driverMockId } of pendingAssignments) {
-    const driverId = driverIdByMockId.get(driverMockId);
-    if (!driverId) {
-      console.warn(`⚠️  Skipping vehicle-driver assignment: driver mock id "${driverMockId}" not found`);
-      continue;
-    }
-    await prisma.vehicle.update({ where: { id: vehicleId }, data: { assignedDriverId: driverId } });
-  }
+  /* There is no second pass any more. A vehicle used to be paired with a
+     standing driver here; that pairing was removed from the product on
+     2026-08-30 — a driver and a truck meet on a booking, per trip, and the
+     fleet directories count those instead. */
 
   console.log(`🚚 Seeded ${SEED_PARTNERS.length} partners, ${vehicleIdByMockId.size} vehicles, ${driverIdByMockId.size} drivers`);
   return { partnerIdByMockId, vehicleIdByMockId, driverIdByMockId };
@@ -1280,8 +1276,8 @@ async function seedDemoPortalUsers(roleIds: Record<string, string>, shipperIdByM
     create: {
       email: SHIPPER_DEMO_EMAIL,
       passwordHash: shipperPasswordHash,
-      firstName: 'AMINA',
-      lastName: 'FZCO (Demo)',
+      firstName: 'CMA-CGM',
+      lastName: '(Demo)',
       status: UserStatus.ACTIVE,
       roleId: roleIds['SHIPPER'],
       shipperId: shipperIdByMockId.get('SHP-101'),
@@ -1307,6 +1303,9 @@ async function seedDemoPortalUsers(roleIds: Record<string, string>, shipperIdByM
 }
 
 async function main() {
+  // Refuse to touch anything but a local database — see seed-target-guard.ts.
+  assertSeedTargetIsSafe('seed.ts');
+
   console.log('🌱 Starting database seed...');
 
   if (process.env.NODE_ENV === 'production' && !process.env.SEED_ADMIN_PASSWORD) {

@@ -1,13 +1,14 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { ShipmentsService } from './shipments.service';
 import { CreateShipmentDto } from './dto/create-shipment.dto';
 import { UpdateShipmentDto } from './dto/update-shipment.dto';
 import { UpdateShipmentStatusDto } from './dto/update-shipment-status.dto';
+import { SetShipmentCrewDto } from './dto/set-shipment-crew.dto';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../common/constants/permissions';
-import { ownCompanyScope } from '../../common/helpers/row-scope.util';
+import { isPortalAccount, ownCompanyScope } from '../../common/helpers/row-scope.util';
 import type { AuthenticatedUser } from '../auth/jwt.strategy';
 
 @ApiTags('Shipments')
@@ -36,6 +37,11 @@ export class ShipmentsController {
   @ApiQuery({ name: 'cargoType', required: false })
   @ApiQuery({ name: 'containerNumber', required: false })
   @ApiQuery({ name: 'route', required: false })
+  @ApiQuery({
+    name: 'assigneeId',
+    required: false,
+    description: "Staff member on the shipment's crew. The literal 'unassigned' returns the shipments nobody is on.",
+  })
   @ApiQuery({ name: 'datePreset', required: false, description: 'all | today | week | month | custom' })
   @ApiQuery({ name: 'startDate', required: false })
   @ApiQuery({ name: 'endDate', required: false })
@@ -54,6 +60,7 @@ export class ShipmentsController {
     @Query('cargoType') cargoType?: string,
     @Query('containerNumber') containerNumber?: string,
     @Query('route') route?: string,
+    @Query('assigneeId') assigneeId?: string,
     @Query('datePreset') datePreset?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
@@ -72,10 +79,13 @@ export class ShipmentsController {
       cargoType,
       containerNumber,
       route,
+      assigneeId,
       datePreset,
       startDate,
       endDate,
       sortBy,
+      // Which of our people is on a job is our staffing, not the customer's.
+      includeCrew: !isPortalAccount(user),
       page: +page,
       limit: +limit,
       scope: ownCompanyScope(user, { shipperField: 'shipperId', partnerField: 'partnerId' }),
@@ -89,6 +99,7 @@ export class ShipmentsController {
     return this.shipmentsService.findOne(
       id,
       ownCompanyScope(user, { shipperField: 'shipperId', partnerField: 'partnerId' }),
+      !isPortalAccount(user),
     );
   }
 
@@ -96,7 +107,7 @@ export class ShipmentsController {
   @RequirePermissions(PERMISSIONS.shipments.create)
   @ApiOperation({ summary: 'Create a shipment — the rate is always server-computed, never accepted from the client (BR-2.6)' })
   create(@Body() dto: CreateShipmentDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.shipmentsService.create(dto, `${user.firstName} ${user.lastName}`.trim());
+    return this.shipmentsService.create(dto, `${user.firstName} ${user.lastName}`.trim(), user.id);
   }
 
   @Patch('reprice-unpriced')
@@ -105,6 +116,19 @@ export class ShipmentsController {
   @ApiQuery({ name: 'shipperId', required: false })
   repriceUnpriced(@Query('shipperId') shipperId?: string) {
     return this.shipmentsService.repriceUnpriced(shipperId);
+  }
+
+  @Put(':id/assignees')
+  @RequirePermissions(PERMISSIONS.shipments.update)
+  @ApiOperation({
+    summary: 'Set the whole crew on this shipment — the Fleetin staff working it. Replaces the current set.',
+  })
+  setAssignees(
+    @Param('id') id: string,
+    @Body() dto: SetShipmentCrewDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.shipmentsService.setAssignees(id, dto.userIds, dto.leadUserId, user.id);
   }
 
   @Patch(':id')

@@ -32,7 +32,7 @@ export class ShippersController {
   @RequirePermissions(PERMISSIONS.shippers.view)
   @ApiOperation({ summary: 'List shippers' })
   @ApiQuery({ name: 'search', required: false })
-  @ApiQuery({ name: 'status', required: false, description: 'all | Verified | Pending | Canceled' })
+  @ApiQuery({ name: 'status', required: false, description: 'all | Verified | Pending | Suspended | Canceled' })
   @ApiQuery({ name: 'industry', required: false })
   @ApiQuery({ name: 'sortBy', required: false, description: 'name-asc | name-desc | date-desc' })
   @ApiQuery({ name: 'page', required: false, example: 1 })

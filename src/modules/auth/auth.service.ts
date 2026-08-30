@@ -30,6 +30,10 @@ type UserWithRole = {
   lastName: string;
   passwordHash: string;
   status: string;
+  /** Which shipper/transporter account a portal user belongs to. The portals
+   * bind every query to these, so the session payload must carry them. */
+  shipperId?: string | null;
+  partnerId?: string | null;
   role: { name: string; permissions: unknown };
 };
 
@@ -265,6 +269,8 @@ export class AuthService {
         lastName: user.lastName,
         role: user.role.name,
         permissions: user.role.permissions,
+        shipperId: user.shipperId ?? null,
+        partnerId: user.partnerId ?? null,
       },
     };
   }

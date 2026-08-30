@@ -16,4 +16,20 @@ export class CreateCycleDto {
   @IsOptional()
   @IsString()
   nextBookingId?: string;
+
+  /* v19's `matchInfo`. The engine's own pick and an operator's override are
+     different claims, and a board showing both without saying which is which
+     is not auditable — so provenance travels with the write. */
+  @ApiPropertyOptional({ description: 'Who confirmed the pairing', default: 'Operations' })
+  @IsOptional()
+  @IsString()
+  matchedBy?: string;
+
+  @ApiPropertyOptional({
+    description: 'How it was chosen',
+    example: 'Suggestion — Recommended',
+  })
+  @IsOptional()
+  @IsString()
+  matchSource?: string;
 }

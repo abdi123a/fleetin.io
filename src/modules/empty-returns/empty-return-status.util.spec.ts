@@ -13,10 +13,18 @@ describe('cycleStatusForBookingStatus', () => {
     }
   });
 
+  it('reads the whole pickup leg as the cycle being under way', () => {
+    // These became real rungs when the ladder gained the pickup leg. Before
+    // that, a matched cycle sat on "ready" through four status changes and
+    // looked stalled while the truck was in fact working.
+    for (const status of ['Heading to Pickup', 'At Pickup', 'Loading', 'Loaded', 'En Route']) {
+      expect(cycleStatusForBookingStatus(status)).toBe('in_progress');
+    }
+  });
+
   it('has no opinion on a status outside the reachable ladder', () => {
     expect(cycleStatusForBookingStatus('Pending')).toBeNull();
     expect(cycleStatusForBookingStatus('Payment Pending')).toBeNull();
-    expect(cycleStatusForBookingStatus('Loading')).toBeNull();
     expect(cycleStatusForBookingStatus('Cancelled')).toBeNull();
     expect(cycleStatusForBookingStatus('Failed')).toBeNull();
   });

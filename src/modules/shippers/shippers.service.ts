@@ -190,8 +190,8 @@ export class ShippersService {
    * The full response shape for both list rows and the detail response —
    * kept identical so a shipper opened from a list-sourced object (e.g. the
    * quick-edit drawer) has exactly what the detail page would have fetched.
-   * activeShipments/pastShipments are always computed here, never stored
-   * (they'd drift).
+   * activeShipments/pastShipments/lastShipmentAt are always computed here,
+   * never stored (they'd drift).
    */
   private async enrich(shippers: Shipper[]) {
     if (shippers.length === 0) return [];
@@ -201,6 +201,12 @@ export class ShippersService {
         by: ['shipperId', 'status'],
         where: { shipperId: { in: ids }, deletedAt: null },
         _count: true,
+        /* When this client last actually moved something.
+           `scheduledPickupTime`, not `createdAt`: the question is when a truck
+           last collected for them, not when somebody typed the record in. The
+           groupBy is per status, so this is the newest pickup *within* each
+           status and the reduce below takes the newest across them. */
+        _max: { scheduledPickupTime: true },
       }),
       this.prisma.contact.findMany({
         where: { ownerType: 'SHIPPER', ownerId: { in: ids } },
@@ -212,11 +218,18 @@ export class ShippersService {
       }),
     ]);
 
-    const counts = new Map<string, { active: number; past: number }>();
+    const counts = new Map<
+      string,
+      { active: number; past: number; lastShipmentAt: Date | null }
+    >();
     for (const row of grouped) {
-      const entry = counts.get(row.shipperId) ?? { active: 0, past: 0 };
+      const entry = counts.get(row.shipperId) ?? { active: 0, past: 0, lastShipmentAt: null };
       if (TERMINAL_SHIPMENT_STATUSES.includes(row.status)) entry.past += row._count;
       else entry.active += row._count;
+      const latest = row._max?.scheduledPickupTime ?? null;
+      if (latest && (entry.lastShipmentAt === null || latest > entry.lastShipmentAt)) {
+        entry.lastShipmentAt = latest;
+      }
       counts.set(row.shipperId, entry);
     }
 
@@ -245,6 +258,9 @@ export class ShippersService {
         ...shipper,
         activeShipments: counts.get(shipper.id)?.active ?? 0,
         pastShipments: counts.get(shipper.id)?.past ?? 0,
+        /* Null means "never shipped with us", which the directory draws as
+           exactly that rather than as a stale date. */
+        lastShipmentAt: counts.get(shipper.id)?.lastShipmentAt ?? null,
         primaryContact: primaryContactByShipperId.get(shipper.id) ?? null,
         operationalContacts: operationalContactsByShipperId.get(shipper.id) ?? [],
         uploadedDocuments: documentsByShipperId.get(shipper.id) ?? [],

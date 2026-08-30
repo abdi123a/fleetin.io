@@ -1,3 +1,6 @@
+packages:
+  - '.'
+
 # pnpm build-script allowlist.
 #
 # pnpm blocks postinstall scripts by default. Each package that genuinely needs

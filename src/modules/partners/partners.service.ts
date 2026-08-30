@@ -21,6 +21,19 @@ interface FindAllParams {
   scope: Record<string, string> | null;
 }
 
+/**
+ * A trip is one booking — one container run. Cancelled and failed runs are
+ * excluded, matching the Vehicles, Drivers and Shipments services exactly, so
+ * a truck's trip count reads the same wherever it is printed.
+ */
+const LIVE_BOOKINGS = { deletedAt: null, status: { notIn: ['Cancelled', 'Failed'] } };
+
+/** Flattens Prisma's `_count.bookings` into the flat `trips` the wire carries. */
+function withTrips<T extends { _count: { bookings: number } }>(row: T) {
+  const { _count, ...rest } = row;
+  return { ...rest, trips: _count.bookings };
+}
+
 @Injectable()
 export class PartnersService {
   constructor(
@@ -79,13 +92,31 @@ export class PartnersService {
 
     const [enriched] = await this.enrich([partner]);
     const [vehicles, drivers, pricingGrid, bankAccount] = await Promise.all([
-      this.prisma.vehicle.findMany({ where: { partnerId: partner.id, deletedAt: null } }),
-      this.prisma.driver.findMany({ where: { partnerId: partner.id, deletedAt: null } }),
+      /* `trips` alongside, because the transporter workspace prints it on every
+         fleet card and every driver row. It used to print the standing driver
+         a vehicle was paired with; that pairing is gone, and a trip count read
+         from anywhere but the bookings would have shown 0 for a truck that has
+         run ten times. Counted the same way the Vehicles and Drivers
+         directories count it — see `VEHICLE_INCLUDE`. */
+      this.prisma.vehicle.findMany({
+        where: { partnerId: partner.id, deletedAt: null },
+        include: { _count: { select: { bookings: { where: LIVE_BOOKINGS } } } },
+      }),
+      this.prisma.driver.findMany({
+        where: { partnerId: partner.id, deletedAt: null },
+        include: { _count: { select: { bookings: { where: LIVE_BOOKINGS } } } },
+      }),
       this.prisma.pricingTier.findMany({ where: { partnerId: partner.id }, orderBy: { createdAt: 'desc' } }),
       this.prisma.partnerBankAccount.findUnique({ where: { partnerId: partner.id } }),
     ]);
 
-    return { ...enriched, vehicles, drivers, pricingGrid, bankAccount };
+    return {
+      ...enriched,
+      vehicles: vehicles.map(withTrips),
+      drivers: drivers.map(withTrips),
+      pricingGrid,
+      bankAccount,
+    };
   }
 
   async create(dto: CreatePartnerDto) {

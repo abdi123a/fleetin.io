@@ -1,9 +1,13 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { UploadDocumentDto } from './dto/upload-document.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { VerifyDocumentDto } from './dto/verify-document.dto';
+import { PROOF_OF_DELIVERY } from './document-owner-type';
+
+/** A booking whose record is settled — see `remove` below. */
+const CLOSED_BOOKING_STATUSES = ['Completed', 'Cancelled', 'Failed'];
 
 interface FindAllParams {
   ownerType?: string;
@@ -107,6 +111,28 @@ export class DocumentsService {
 
   async remove(id: string) {
     const document = await this.findOne(id);
+
+    /**
+     * A closed job's proof of delivery is not deletable.
+     *
+     * It is the evidence the booking was closed on — the thing that let its
+     * container start home and its payout be released — so removing it after
+     * the fact would leave the record asserting a delivery with nothing behind
+     * it. While the job is still running the POD is ordinary working paperwork
+     * and can be corrected freely.
+     */
+    if (document.ownerType === 'BOOKING' && document.category === PROOF_OF_DELIVERY) {
+      const booking = await this.prisma.booking.findUnique({
+        where: { id: document.ownerId },
+        select: { reference: true, status: true },
+      });
+      if (booking && CLOSED_BOOKING_STATUSES.includes(booking.status)) {
+        throw new ConflictException(
+          `Booking "${booking.reference}" is ${booking.status.toLowerCase()} — its proof of delivery is part of the closed record and cannot be removed.`,
+        );
+      }
+    }
+
     await this.storage.delete(document.storageKey);
     return this.prisma.document.delete({ where: { id } });
   }

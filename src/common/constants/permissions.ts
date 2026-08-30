@@ -189,6 +189,49 @@ export function hasPermission(granted: string[], required: string): boolean {
   return granted.some((grant) => grantSatisfies(grant, required));
 }
 
+/**
+ * One resource and everything that can be done to it.
+ *
+ * Served to the admin UI (`GET /roles/catalog`) so the permission picker is
+ * generated from this file rather than from a second list maintained in the
+ * frontend. A permission added here shows up in the picker on the next reload;
+ * one that is renamed cannot be silently granted by a stale checkbox.
+ */
+export interface PermissionCatalogEntry {
+  /** e.g. `empty-returns`. */
+  resource: string;
+  /** Action halves only, e.g. `view`, `view-salary`. */
+  actions: string[];
+  /** Fully-qualified grants, e.g. `empty-returns.view`. */
+  permissions: string[];
+  /** The `resource.*` grant that covers every action above. */
+  wildcard: string;
+}
+
+/** Every resource with its actions, in catalogue order. */
+export const PERMISSION_CATALOG: PermissionCatalogEntry[] = ALL_RESOURCES.map((resource) => {
+  const permissions = ALL_PERMISSIONS.filter((p) => p.startsWith(`${resource}.`));
+  return {
+    resource,
+    actions: permissions.map((p) => p.slice(resource.length + 1)),
+    permissions,
+    wildcard: `${resource}.*`,
+  };
+});
+
+/**
+ * Expands a role's grants into the concrete permissions they actually confer.
+ *
+ * Wildcards are what make "how much access does this account have?"
+ * unanswerable by counting the stored array: `['*']` is one entry and total
+ * control. The admin UI states a real number, so the expansion that produces
+ * it lives here next to `grantSatisfies` rather than being reimplemented in a
+ * browser.
+ */
+export function expandGrants(granted: string[]): string[] {
+  return ALL_PERMISSIONS.filter((permission) => hasPermission(granted, permission));
+}
+
 /** True when the string is a permission this system recognises. */
 export function isKnownPermission(value: string): boolean {
   if (value === WILDCARD_ALL) return true;

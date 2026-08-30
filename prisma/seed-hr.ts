@@ -21,14 +21,14 @@ import {
  * below them are demo fixtures, skipped when `HR_SEED_DEMO=false`.
  */
 
-const ITS_CSV_PATH = join(__dirname, 'data/its_brackets_2022.csv');
+export const ITS_CSV_PATH = join(__dirname, 'data/its_brackets_2022.csv');
 
 /** Expected band count of the published table, asserted rather than assumed. */
 const EXPECTED_ITS_BANDS = 503;
 
-const CONFIG_LABEL = 'Djibouti — barème 2022 (en vigueur depuis le 1er janvier 2022)';
+export const CONFIG_LABEL = 'Djibouti — barème 2022 (en vigueur depuis le 1er janvier 2022)';
 
-function parseItsCsv(csv: string) {
+export function parseItsCsv(csv: string) {
   const [header, ...rows] = csv
     .split('\n')
     .map((line) => line.trim())
@@ -52,7 +52,7 @@ function parseItsCsv(csv: string) {
  * hole. Verified at seed time so a bad CSV is caught before payroll runs on
  * it, not after a filing.
  */
-function assertContiguous(bands: { lowerBound: number; upperBound: number }[]) {
+export function assertContiguous(bands: { lowerBound: number; upperBound: number }[]) {
   if (bands.length !== EXPECTED_ITS_BANDS) {
     throw new Error(`ITS CSV: expected ${EXPECTED_ITS_BANDS} bands, found ${bands.length}`);
   }
@@ -74,7 +74,13 @@ function assertContiguous(bands: { lowerBound: number; upperBound: number }[]) {
  * structural and are laid out by the renderer, which reads the same payload.
  * ───────────────────────────────────────────────────────────────────────── */
 
-const DOCUMENT_TEMPLATES = [
+/**
+ * Exported so `prisma/tools/generate-hr-reference-migration.ts` can emit the
+ * data migration that carries these into an already-deployed database. The
+ * seed and the migration must say the same thing, and the only way to
+ * guarantee that is for both to read this one array.
+ */
+export const DOCUMENT_TEMPLATES = [
   {
     key: 'attestation_travail',
     label: 'Attestation de travail',
@@ -181,6 +187,49 @@ const DEMO_EMPLOYEES = [
 
 const utc = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 
+/** The date the 2022 barème came into force. */
+export const CONFIG_EFFECTIVE_FROM = '2022-01-01';
+
+/**
+ * The 2022 rate set, as plain numbers.
+ *
+ * Hoisted out of `seedHr` so the data migration that carries this into an
+ * already-deployed database reads the same literals rather than a copy of
+ * them — these are what people are paid by, and two versions of them is one
+ * version too many.
+ *
+ * The three booleans/nulls at the end reproduce the workbook. Changing any of
+ * them changes what people are paid, so they are decisions for the business,
+ * not defaults for a seed script.
+ */
+export const CONFIG_RATES = {
+  contributionCeiling: 400000,
+  retirementEmployeeRate: 0.04,
+  amuEmployeeRate: 0.02,
+  amuCeilingAmount: 8000,
+  employerRate: 0.157,
+  employerCappedPortion: 0.117,
+  monthlyHours: 208,
+  overtimeTier1Rate: 1.25,
+  overtimeTier1MaxHours: 6,
+  overtimeTier2Rate: 1.5,
+  severanceRatePerYear: 0.2,
+  severanceCnssRate: 0.06,
+  annualLeaveDays: 30,
+  seniorityIncludedInGross: false,
+  capRetirementEmployee: false,
+  leaveCarryOverCapDays: null,
+} as const;
+
+/** Seniority uplift by completed service, in days. */
+export const SENIORITY_BANDS = [
+  { minDays: 360, rate: 0.02 },
+  { minDays: 720, rate: 0.04 },
+  { minDays: 1080, rate: 0.06 },
+  { minDays: 1440, rate: 0.08 },
+  { minDays: 1800, rate: 0.1 },
+] as const;
+
 export async function seedHr(prisma: PrismaClient, adminUserId: string) {
   // ── 1. Rate configuration ────────────────────────────────────────────────
   const bands = parseItsCsv(readFileSync(ITS_CSV_PATH, 'utf8'));
@@ -195,26 +244,23 @@ export async function seedHr(prisma: PrismaClient, adminUserId: string) {
     (await prisma.payrollConfig.create({
       data: {
         label: CONFIG_LABEL,
-        effectiveFrom: utc('2022-01-01'),
-        contributionCeiling: new Prisma.Decimal(400000),
-        retirementEmployeeRate: new Prisma.Decimal(0.04),
-        amuEmployeeRate: new Prisma.Decimal(0.02),
-        amuCeilingAmount: new Prisma.Decimal(8000),
-        employerRate: new Prisma.Decimal(0.157),
-        employerCappedPortion: new Prisma.Decimal(0.117),
-        monthlyHours: new Prisma.Decimal(208),
-        overtimeTier1Rate: new Prisma.Decimal(1.25),
-        overtimeTier1MaxHours: new Prisma.Decimal(6),
-        overtimeTier2Rate: new Prisma.Decimal(1.5),
-        severanceRatePerYear: new Prisma.Decimal(0.2),
-        severanceCnssRate: new Prisma.Decimal(0.06),
-        annualLeaveDays: new Prisma.Decimal(30),
-        /* All three reproduce the workbook. Changing any of them changes what
-         * people are paid, so they are decisions for the business, not
-         * defaults for a seed script. */
-        seniorityIncludedInGross: false,
-        capRetirementEmployee: false,
-        leaveCarryOverCapDays: null,
+        effectiveFrom: utc(CONFIG_EFFECTIVE_FROM),
+        contributionCeiling: new Prisma.Decimal(CONFIG_RATES.contributionCeiling),
+        retirementEmployeeRate: new Prisma.Decimal(CONFIG_RATES.retirementEmployeeRate),
+        amuEmployeeRate: new Prisma.Decimal(CONFIG_RATES.amuEmployeeRate),
+        amuCeilingAmount: new Prisma.Decimal(CONFIG_RATES.amuCeilingAmount),
+        employerRate: new Prisma.Decimal(CONFIG_RATES.employerRate),
+        employerCappedPortion: new Prisma.Decimal(CONFIG_RATES.employerCappedPortion),
+        monthlyHours: new Prisma.Decimal(CONFIG_RATES.monthlyHours),
+        overtimeTier1Rate: new Prisma.Decimal(CONFIG_RATES.overtimeTier1Rate),
+        overtimeTier1MaxHours: new Prisma.Decimal(CONFIG_RATES.overtimeTier1MaxHours),
+        overtimeTier2Rate: new Prisma.Decimal(CONFIG_RATES.overtimeTier2Rate),
+        severanceRatePerYear: new Prisma.Decimal(CONFIG_RATES.severanceRatePerYear),
+        severanceCnssRate: new Prisma.Decimal(CONFIG_RATES.severanceCnssRate),
+        annualLeaveDays: new Prisma.Decimal(CONFIG_RATES.annualLeaveDays),
+        seniorityIncludedInGross: CONFIG_RATES.seniorityIncludedInGross,
+        capRetirementEmployee: CONFIG_RATES.capRetirementEmployee,
+        leaveCarryOverCapDays: CONFIG_RATES.leaveCarryOverCapDays,
       },
     }));
 
@@ -230,14 +276,7 @@ export async function seedHr(prisma: PrismaClient, adminUserId: string) {
     });
   }
 
-  const seniorityBands = [
-    { minDays: 360, rate: 0.02 },
-    { minDays: 720, rate: 0.04 },
-    { minDays: 1080, rate: 0.06 },
-    { minDays: 1440, rate: 0.08 },
-    { minDays: 1800, rate: 0.1 },
-  ];
-  for (const band of seniorityBands) {
+  for (const band of SENIORITY_BANDS) {
     await prisma.seniorityBand.upsert({
       where: { configId_minDays: { configId: config.id, minDays: band.minDays } },
       update: { rate: new Prisma.Decimal(band.rate) },
@@ -252,7 +291,7 @@ export async function seedHr(prisma: PrismaClient, adminUserId: string) {
   console.log(
     `💰 Payroll config "${config.label}" — ${await prisma.itsBracket.count({
       where: { configId: config.id },
-    })} ITS bands, ${seniorityBands.length} seniority bands`,
+    })} ITS bands, ${SENIORITY_BANDS.length} seniority bands`,
   );
 
   // ── 2. Company settings ──────────────────────────────────────────────────

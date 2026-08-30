@@ -34,6 +34,25 @@ export class UsersController {
     return this.usersService.findAll(+page, +limit, roleId);
   }
 
+  /*
+   * Above `:id`, or the param route swallows the literal one.
+   *
+   * Gated on `shipments.view`, deliberately not `users.view`. This is the
+   * picker behind "who is on this shipment", and the dispatchers who assign
+   * work are exactly the accounts that do *not* administer users — gating it
+   * on `users.view` would have made the crew feature admin-only. It returns
+   * names and roles, no contact details or status, so it is a directory of
+   * colleagues rather than an account list.
+   */
+  @Get('team')
+  @RequirePermissions(PERMISSIONS.shipments.view)
+  @ApiOperation({
+    summary: 'The Fleetin team — active internal staff, assignable to a shipment. Excludes shipper and transporter portal accounts.',
+  })
+  team() {
+    return this.usersService.team();
+  }
+
   @Get(':id')
   @RequirePermissions(PERMISSIONS.users.view)
   @ApiOperation({ summary: 'Get user details by ID' })

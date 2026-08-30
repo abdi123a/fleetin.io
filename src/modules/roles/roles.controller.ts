@@ -1,9 +1,11 @@
-import { Controller, Get, Post, Body, Param, Delete } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { RolesService } from './roles.service';
-import { CreateRoleDto } from './dto/create-role.dto';
-import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+
 import { PERMISSIONS } from '../../common/constants/permissions';
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { CreateRoleDto } from './dto/create-role.dto';
+import { UpdateRoleDto } from './dto/update-role.dto';
+import { RolesService } from './roles.service';
 
 /**
  * Role administration.
@@ -19,6 +21,15 @@ import { PERMISSIONS } from '../../common/constants/permissions';
 export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
 
+  /* Declared before `:id` — Nest matches in declaration order, so the
+     parameterised route would otherwise swallow `/roles/catalog`. */
+  @Get('catalog')
+  @RequirePermissions(PERMISSIONS.roles.view)
+  @ApiOperation({ summary: 'The permission vocabulary, grouped by resource' })
+  catalog() {
+    return this.rolesService.catalog();
+  }
+
   @Get()
   @RequirePermissions(PERMISSIONS.roles.view)
   @ApiOperation({ summary: 'List all system roles' })
@@ -28,21 +39,28 @@ export class RolesController {
 
   @Get(':id')
   @RequirePermissions(PERMISSIONS.roles.view)
-  @ApiOperation({ summary: 'Get role details by ID' })
+  @ApiOperation({ summary: 'Get role details and holders by ID' })
   findOne(@Param('id') id: string) {
     return this.rolesService.findOne(id);
   }
 
   @Post()
   @RequirePermissions(PERMISSIONS.roles.create)
-  @ApiOperation({ summary: 'Create a custom role' })
+  @ApiOperation({ summary: 'Create a custom access profile' })
   create(@Body() createRoleDto: CreateRoleDto) {
     return this.rolesService.create(createRoleDto);
   }
 
+  @Patch(':id')
+  @RequirePermissions(PERMISSIONS.roles.update)
+  @ApiOperation({ summary: 'Edit a custom profile’s description or grants' })
+  update(@Param('id') id: string, @Body() updateRoleDto: UpdateRoleDto) {
+    return this.rolesService.update(id, updateRoleDto);
+  }
+
   @Delete(':id')
   @RequirePermissions(PERMISSIONS.roles.delete)
-  @ApiOperation({ summary: 'Delete a role' })
+  @ApiOperation({ summary: 'Delete a custom access profile' })
   remove(@Param('id') id: string) {
     return this.rolesService.remove(id);
   }

@@ -5,7 +5,6 @@ import { StorageService } from '../storage/storage.service';
 import { nextReference } from '../../common/helpers/reference.util';
 import { CreateVehicleDto } from './dto/create-vehicle.dto';
 import { UpdateVehicleDto } from './dto/update-vehicle.dto';
-import { AssignDriverDto } from './dto/assign-driver.dto';
 
 interface FindAllParams {
   search?: string;
@@ -16,6 +15,26 @@ interface FindAllParams {
   limit: number;
   scope: Record<string, string> | null;
 }
+
+/**
+ * What a vehicle row carries beyond its own columns.
+ *
+ * `bookings` is a *count*, not a list: one booking is one container run, so
+ * counting them is the honest answer to "how much work has this truck done".
+ * It replaced the standing `assignedDriver` this used to include — a second
+ * answer to a question the booking already answers per trip, with nothing
+ * keeping the two in agreement.
+ *
+ * Cancelled and failed runs are excluded: a trip that never happened is not a
+ * trip made. Same `LIVE` rule the shipments service counts containers by, so a
+ * truck's trip count and a shipment's container count cannot drift apart.
+ */
+const LIVE_BOOKINGS = { deletedAt: null, status: { notIn: ['Cancelled', 'Failed'] } };
+
+const VEHICLE_INCLUDE = {
+  partner: true,
+  _count: { select: { bookings: { where: LIVE_BOOKINGS } } },
+} satisfies Prisma.VehicleInclude;
 
 @Injectable()
 export class VehiclesService {
@@ -51,7 +70,7 @@ export class VehiclesService {
         skip,
         take: limit,
         orderBy: { plateNumber: 'asc' },
-        include: { partner: true, assignedDriver: true },
+        include: VEHICLE_INCLUDE,
       }),
       this.prisma.vehicle.count({ where }),
     ]);
@@ -63,7 +82,7 @@ export class VehiclesService {
   async findOne(id: string, scope: Record<string, string> | null) {
     const vehicle = await this.prisma.vehicle.findFirst({
       where: { id, deletedAt: null, ...(scope ?? {}) },
-      include: { partner: true, assignedDriver: true },
+      include: VEHICLE_INCLUDE,
     });
     if (!vehicle) throw new NotFoundException(`Vehicle with ID "${id}" not found`);
     return this.enrich(vehicle);
@@ -95,7 +114,7 @@ export class VehiclesService {
         make: dto.make,
         model: dto.model,
       },
-      include: { partner: true, assignedDriver: true },
+      include: VEHICLE_INCLUDE,
     });
 
     return this.enrich(vehicle);
@@ -121,7 +140,7 @@ export class VehiclesService {
         make: dto.make,
         model: dto.model,
       },
-      include: { partner: true, assignedDriver: true },
+      include: VEHICLE_INCLUDE,
     });
     return this.enrich(vehicle);
   }
@@ -131,29 +150,6 @@ export class VehiclesService {
     return this.prisma.vehicle.update({ where: { id }, data: { deletedAt: new Date() } });
   }
 
-  /** DD-06: a single stored FK (Vehicle.assignedDriverId), unique — a driver can be assigned to at most one vehicle at a time. */
-  async assignDriver(id: string, dto: AssignDriverDto) {
-    await this.findOne(id, null);
-
-    if (dto.driverId) {
-      const alreadyAssigned = await this.prisma.vehicle.findFirst({
-        where: { assignedDriverId: dto.driverId, id: { not: id } },
-      });
-      if (alreadyAssigned) {
-        throw new ConflictException(
-          `Driver is already assigned to vehicle "${alreadyAssigned.plateNumber}" — unassign it there first`,
-        );
-      }
-    }
-
-    const vehicle = await this.prisma.vehicle.update({
-      where: { id },
-      data: { assignedDriverId: dto.driverId ?? null },
-      include: { partner: true, assignedDriver: true },
-    });
-    return this.enrich(vehicle);
-  }
-
   async expiring(withinDays: number) {
     const threshold = new Date(Date.now() + withinDays * 24 * 60 * 60 * 1000);
     const rows = await this.prisma.vehicle.findMany({
@@ -161,16 +157,14 @@ export class VehiclesService {
         deletedAt: null,
         OR: [{ insuranceExpiry: { lte: threshold } }, { registrationExpiry: { lte: threshold } }],
       },
-      include: { partner: true, assignedDriver: true },
+      include: VEHICLE_INCLUDE,
       orderBy: { insuranceExpiry: 'asc' },
     });
     return Promise.all(rows.map((row) => this.enrich(row)));
   }
 
-  private async enrich(
-    vehicle: Prisma.VehicleGetPayload<{ include: { partner: true; assignedDriver: true } }>,
-  ) {
-    const { partner, assignedDriver, ...rest } = vehicle;
+  private async enrich(vehicle: Prisma.VehicleGetPayload<{ include: typeof VEHICLE_INCLUDE }>) {
+    const { partner, _count, ...rest } = vehicle;
     return {
       ...rest,
       partnerId: partner.id,
@@ -178,7 +172,8 @@ export class VehiclesService {
       partnerName: partner.companyLegalName,
       partnerLogo: partner.logoKey ? await this.storage.getUrl(partner.logoKey) : null,
       partnerCountry: partner.country,
-      assignedDriverName: assignedDriver?.fullName ?? null,
+      /** Container runs actually made — see `VEHICLE_INCLUDE`. */
+      trips: _count.bookings,
     };
   }
 }

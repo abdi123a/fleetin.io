@@ -17,9 +17,11 @@ import { VehiclesModule } from './modules/vehicles/vehicles.module';
 import { DriversModule } from './modules/drivers/drivers.module';
 import { PartnersModule } from './modules/partners/partners.module';
 import { ShipmentsModule } from './modules/shipments/shipments.module';
+import { BiModule } from './modules/bi/bi.module';
 import { EmptyReturnsModule } from './modules/empty-returns/empty-returns.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { HoldsModule } from './modules/holds/holds.module';
+import { CommentsModule } from './modules/comments/comments.module';
 import { LedgerModule } from './modules/ledger/ledger.module';
 import { FundingModule } from './modules/funding/funding.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
@@ -75,9 +77,11 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     DriversModule,
     PartnersModule,
     ShipmentsModule,
+    BiModule,
     EmptyReturnsModule,
     BookingsModule,
     HoldsModule,
+    CommentsModule,
     LedgerModule,
     FundingModule,
     InvoicesModule,

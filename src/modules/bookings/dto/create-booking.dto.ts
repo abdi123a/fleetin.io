@@ -17,7 +17,7 @@ import {
  * whether it has a container number at all — bulk/machinery bookings don't).
  */
 export class CreateBookingItemDto {
-  @ApiPropertyOptional({ description: 'DPCS already assigns its own booking id externally — pass it through as this booking\'s reference instead of minting a new one. Omit to auto-generate (Fleetin-direct).' })
+  @ApiPropertyOptional({ description: 'This booking\'s reference, chosen by the caller — the shipment wizard sends one for every booking, and on a DPCS job it is the id DPCS assigned. Omit to mint the next BKG-##### (seeds, imports).' })
   @IsOptional()
   @IsString()
   reference?: string;

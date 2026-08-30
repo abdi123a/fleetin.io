@@ -1,8 +1,10 @@
 import {
   ALL_PERMISSIONS,
   ALL_RESOURCES,
+  PERMISSION_CATALOG,
   PERMISSIONS,
   WILDCARD_ALL,
+  expandGrants,
   grantSatisfies,
   hasPermission,
   isKnownPermission,
@@ -54,6 +56,43 @@ describe('permission resolution', () => {
 
     it('is false for an empty grant list', () => {
       expect(hasPermission([], 'users.view')).toBe(false);
+    });
+  });
+
+  describe('expandGrants', () => {
+    it('counts the superuser grant as the whole catalogue', () => {
+      expect(expandGrants([WILDCARD_ALL])).toHaveLength(ALL_PERMISSIONS.length);
+    });
+
+    it('expands a resource wildcard to that resource only', () => {
+      const expanded = expandGrants(['partners.*']);
+      expect(expanded).toEqual(ALL_PERMISSIONS.filter((p) => p.startsWith('partners.')));
+    });
+
+    it('deduplicates overlapping grants', () => {
+      /* The admin UI states a number; a role holding both the wildcard and
+       * one of its members must not be counted as holding it twice. */
+      expect(expandGrants(['partners.*', 'partners.view'])).toEqual(
+        expandGrants(['partners.*']),
+      );
+    });
+
+    it('drops a grant no permission matches', () => {
+      expect(expandGrants(['teleportation.engage'])).toEqual([]);
+    });
+  });
+
+  describe('PERMISSION_CATALOG', () => {
+    it('covers every permission exactly once', () => {
+      const flat = PERMISSION_CATALOG.flatMap((entry) => entry.permissions);
+      expect(flat.sort()).toEqual([...ALL_PERMISSIONS].sort());
+    });
+
+    it('pairs each resource with its own wildcard', () => {
+      for (const entry of PERMISSION_CATALOG) {
+        expect(entry.wildcard).toBe(`${entry.resource}.*`);
+        expect(entry.actions).toHaveLength(entry.permissions.length);
+      }
     });
   });
 
