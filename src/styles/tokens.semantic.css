@@ -358,8 +358,22 @@
 
   --container-empty: var(--accent-bold);
   --container-empty-foreground: var(--accent-bold-foreground);
-  --container-empty-subtle: var(--accent-subtle);
-  --container-empty-subtle-foreground: var(--accent-subtle-foreground);
+  /* One step up the ramp from `--accent-subtle`, on purpose.
+     `--fl-orange-50` is #fffbf0 — cream in name only, and against a white page
+     it is invisible: a column of eleven cards painted with it read as eleven
+     white cards, and "this whole side is empties" was a fact the ground was
+     supposed to state and could not. `-100` is the first step with enough
+     presence to be seen as a colour while still carrying `--accent-subtle-
+     foreground` at full contrast. Only the container-EMPTY surface moves;
+     `--accent-subtle` itself is unchanged for the other 38 files on it. */
+  --container-empty-subtle: var(--fl-orange-100);
+  /* Its own ink, three steps down the ramp — not `--accent-subtle-foreground`.
+     That token is `--fl-orange-700`, calibrated to sit on the near-white
+     `--fl-orange-50`; on the `-100` ground this surface now uses it measures
+     3.1:1 and the type goes muddy. `-900` reads at 6.2:1 on the same ground and
+     is still unmistakably of the amber family, so secondary text on an empty
+     card belongs to the card instead of looking like grey that landed on it. */
+  --container-empty-subtle-foreground: var(--fl-orange-900);
   --container-empty-border: var(--accent);
 
   --container-returned: var(--fl-neutral-950);

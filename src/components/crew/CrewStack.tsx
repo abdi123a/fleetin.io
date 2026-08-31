@@ -1,6 +1,6 @@
 import { forwardRef, type ButtonHTMLAttributes } from 'react';
 
-import { Avatar, Tooltip } from '@/design-system';
+import { Avatar, MARK_STACK_OVERLAP, Tooltip } from '@/design-system';
 import { UserPlus } from '@/design-system/icons';
 import { cn } from '@/utils';
 
@@ -111,9 +111,9 @@ const TONES = {
 } as const;
 
 const SIZE = {
-  xs: { avatar: 'xs' as const, overlap: '-ml-1.5', chip: 'size-6 text-[9px]', icon: 'size-3' },
-  sm: { avatar: 'sm' as const, overlap: '-ml-2', chip: 'size-8 text-[10px]', icon: 'size-3.5' },
-  md: { avatar: 'md' as const, overlap: '-ml-2.5', chip: 'size-9 text-[11px]', icon: 'size-4' },
+  xs: { avatar: 'xs' as const, overlap: MARK_STACK_OVERLAP.xs, chip: 'size-6 text-[9px]', icon: 'size-3' },
+  sm: { avatar: 'sm' as const, overlap: MARK_STACK_OVERLAP.sm, chip: 'size-8 text-[10px]', icon: 'size-3.5' },
+  md: { avatar: 'md' as const, overlap: MARK_STACK_OVERLAP.md, chip: 'size-9 text-[11px]', icon: 'size-4' },
 };
 
 /** Name, and the desk they sit at — the whole tooltip. */
@@ -149,16 +149,24 @@ export const CrewStack = forwardRef<HTMLButtonElement, CrewStackProps>(function 
 
   const faces = (
     <span className="inline-flex items-center">
-      {visible.map((face, index) => (
+      {visible.map((face, index) => {
+        /* The lead's halo is a ring plus a 2px gap drawn OUTSIDE its plate, so
+           it needs 4px of clearance that the plate's own box does not reserve.
+           The face after it therefore takes a small positive gap instead of an
+           overlap — which also sets the person to call slightly apart from the
+           crew behind them, and is the reason the old stack cut the second
+           face's initials in half. */
+        const afterLead = index > 0 && showLead && visible[index - 1]?.isLead === true;
+
+        return (
         <Tooltip key={face.id} content={faceLabel(face, showLead)}>
           <span
+            /* Earlier faces paint over later ones, so a row reads left to
+               right and no ring is ever half-covered by the next plate. */
+            style={{ zIndex: visible.length - index }}
             className={cn(
               'relative inline-flex',
-              index > 0 && metrics.overlap,
-              /* The lead's halo sits outside its own plate, so the face
-                 overlapping it would paint over the right half. Lifting the
-                 lead keeps the halo whole. */
-              showLead && face.isLead && 'z-10',
+              index > 0 && (afterLead ? 'ml-1' : metrics.overlap),
             )}
           >
             <Avatar
@@ -173,7 +181,8 @@ export const CrewStack = forwardRef<HTMLButtonElement, CrewStackProps>(function 
             />
           </span>
         </Tooltip>
-      ))}
+        );
+      })}
 
       {overflow.length > 0 && (
         <Tooltip content={overflow.map((face) => face.fullName).join(', ')}>

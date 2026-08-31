@@ -97,10 +97,10 @@ const EmptyReturnModuleChrome = lazyWithRetry(
 );
 const WorkspaceModuleChrome = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceModuleChrome');
 const WorkspaceInboxPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceInboxPage');
-const WorkspaceMyTasksPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceMyTasksPage');
-const WorkspaceAssignedByMePage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceAssignedByMePage');
-const WorkspaceAllTasksPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceAllTasksPage');
+const WorkspaceTasksPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceTasksPage');
 const WorkspaceTaskDetailPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceTaskDetailPage');
+const WorkspaceMessagesPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceMessagesPage');
+const WorkspaceAutomationPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceAutomationPage');
 const EmptyReturnControlTowerPage = lazyWithRetry(
   () => import('@/pages/empty-returns'),
   'ControlTowerPage',
@@ -264,10 +264,17 @@ export const routes: RouteObject[] = [
         children: [
           { path: ROUTES.workspace, element: <Navigate to={ROUTES.workspaceInbox} replace /> },
           { path: ROUTES.workspaceInbox, element: <WorkspaceInboxPage /> },
-          { path: ROUTES.workspaceMyTasks, element: <WorkspaceMyTasksPage /> },
-          { path: ROUTES.workspaceAssignedByMe, element: <WorkspaceAssignedByMePage /> },
-          { path: ROUTES.workspaceAllTasks, element: <WorkspaceAllTasksPage /> },
+          { path: ROUTES.workspaceTasks, element: <WorkspaceTasksPage /> },
+          /* The three paths this screen replaced. Kept as redirects that carry
+             the scope across, so a link somebody already wrote down still
+             lands on the list they meant. */
+          { path: ROUTES.workspaceMyTasks, element: <Navigate to={`${ROUTES.workspaceTasks}?scope=mine`} replace /> },
+          { path: ROUTES.workspaceAssignedByMe, element: <Navigate to={`${ROUTES.workspaceTasks}?scope=raised`} replace /> },
+          { path: ROUTES.workspaceAllTasks, element: <Navigate to={ROUTES.workspaceTasks} replace /> },
           { path: ROUTES.workspaceTaskDetail, element: <WorkspaceTaskDetailPage /> },
+          { path: ROUTES.workspaceAutomation, element: <WorkspaceAutomationPage /> },
+          { path: ROUTES.workspaceMessages, element: <WorkspaceMessagesPage /> },
+          { path: ROUTES.workspaceChannel, element: <WorkspaceMessagesPage /> },
         ],
       },
       // Pathless layout route: the views are siblings in the URL, but they

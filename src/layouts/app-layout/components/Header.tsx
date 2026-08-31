@@ -5,7 +5,6 @@ import { cn } from '@/utils';
 
 import { NotificationBell } from '@/features/workspace';
 
-import { Breadcrumbs } from './Breadcrumbs';
 
 /**
  * Header — the sticky top bar of the application shell.
@@ -38,7 +37,12 @@ export function Header({ onOpenMobileNav, className }: HeaderProps) {
         <Menu />
       </IconButton>
 
-      <Breadcrumbs className="flex-1" />
+      {/* No breadcrumbs. Every page already names itself in its own `PageHeader`
+          — "Empty Container / Cycles" was printed twice, six millimetres apart,
+          and the trail's only unique link was "Dashboard", which the sidebar
+          holds permanently. A row of chrome that repeats the page title is a row
+          of chrome. The spacer keeps the bell at the right edge. */}
+      <div className="flex-1" />
 
       <div className="flex shrink-0 items-center gap-1 sm:gap-2">
         <NotificationBell />

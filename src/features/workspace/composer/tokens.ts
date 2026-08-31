@@ -95,6 +95,25 @@ export function parseBody(body: string): BodySegment[] {
   return segments;
 }
 
+/**
+ * A stored body as a person reads it — for anywhere the message is quoted
+ * rather than rendered: a peek panel's "what was said", a notification, a
+ * tooltip. Tokens become the words they stand for, so `@[user:u-1|Hodan]` is
+ * `@Hodan` and `@[shipment:853220]` is `853220`, and nothing turns into
+ * bracket soup in a context that cannot draw chips.
+ */
+export function plainBody(body: string): string {
+  return parseBody(body)
+    .map((segment) => {
+      if (segment.kind === 'text') return segment.text;
+      if (segment.kind === 'user') return `@${segment.label}`;
+      return segment.label || segment.reference;
+    })
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function serializeUser(userId: string, fullName: string): string {
   return `@[user:${userId}|${fullName}]`;
 }
@@ -144,10 +163,12 @@ export interface RecordHrefOptions {
  * route nothing else in the app links to, rendering the shipment page against a
  * booking reference it can never resolve. It always 404'd.
  *
- * Only some types have a page at all. Vehicles and drivers open in a sheet on
- * their list page with no deep link, and empty returns live in a module dialog;
- * for those the list page is the honest destination. Returning `null` would
- * render a chip that looks clickable and is not, which is worse.
+ * **Nothing here settles for a list page.** Several of these records have no
+ * page of their own — a vehicle, a driver and an empty container each open as
+ * a sheet or a dialog on a list — and the first version of this function sent
+ * people to that list to go and find the row themselves. On a fleet of two
+ * hundred trucks that is not a link, it is a search request. Each of them now
+ * carries the parameter that opens the right one.
  */
 export function recordHref(
   recordType: RecordType,
@@ -162,7 +183,15 @@ export function recordHref(
     case 'BOOKING': {
       if (!parentRef) return ROUTES.shipmentsList;
       const path = buildPath(ROUTES.shipmentOverview, { id: parentRef });
-      return recordId ? `${path}?openBooking=${encodeURIComponent(recordId)}` : path;
+      /* The REFERENCE, not the uuid. The shipment page matches on either
+         (`b.id === openBooking || b.bookingNumber === openBooking`), and the
+         uuid was winning whenever a task link carried one — which put
+         `?openBooking=7ffe05db-bd88-43b5-84b7-3196567fd6b9` in the address bar
+         of a link somebody is expected to read, recognise and paste to a
+         colleague. `?openBooking=609196` is the same click and the number is
+         the one printed on the chip they just pressed. */
+      const key = reference || recordId;
+      return key ? `${path}?openBooking=${encodeURIComponent(key)}` : path;
     }
     case 'PARTNER':
       return buildPath(ROUTES.partnerDetail, { id: reference });
@@ -170,16 +199,71 @@ export function recordHref(
       return buildPath(ROUTES.shipperDetail, { id: reference });
     case 'INVOICE':
       return buildPath(ROUTES.financeInvoiceDetail, { invoiceId: reference });
+    /* `?vehicle=` and `?driver=` open that row's sheet on the list page and
+       match on id, reference or plate. The drivers one already existed — the
+       transporter roster links to it. Reference first, uuid only as a fallback,
+       for the same reason as the booking above: `?vehicle=298D405` is a
+       readable link, `?vehicle=<uuid>` is 36 characters of noise. */
     case 'VEHICLE':
-      return ROUTES.vehicles;
+      return `${ROUTES.vehicles}?vehicle=${encodeURIComponent(reference || recordId || '')}`;
     case 'DRIVER':
-      return ROUTES.drivers;
+      return `${ROUTES.drivers}?driver=${encodeURIComponent(reference || recordId || '')}`;
     case 'PAYOUT_HOLD':
       return parentRef ? buildPath(ROUTES.financeShipmentDetail, { shipmentId: parentRef }) : ROUTES.finance;
+    /* The Empty Container module keys its dialog by REFERENCE, not uuid — see
+       `mappers.ts`, where every record's `id` is `booking.reference` or
+       `cycle.reference`. So this passes the reference deliberately. */
     case 'EMPTY_RETURN_CYCLE':
     case 'EMPTY_RETURN_CHAIN':
-      return ROUTES.emptyReturnsCycles;
+      return `${ROUTES.emptyReturnsCycles}?container=${encodeURIComponent(reference)}`;
     default:
       return ROUTES.workspace;
   }
+}
+
+
+/* ── What the writer sees, versus what gets stored ──────────────────────────
+ *
+ * The tokens above are STORAGE. Putting one in a textarea means somebody
+ * composing a message stares at
+ *
+ *     @[user:d700356e-a0a4-48bf-b878-cbd4239bc1a5|Souad Mohamed]
+ *
+ * which is a uuid where a name should be. So the composer inserts a short
+ * DISPLAY form — `@Souad Mohamed`, `#609196` — remembers which display stands
+ * for which token, and swaps them back on send.
+ *
+ * A plain `<textarea>` is what makes this the right trade. It cannot render a
+ * chip inline, and the alternatives are worse: a mirrored highlight layer
+ * needs the visible and stored text to be the same width, which they are not,
+ * and a `contenteditable` hands you a caret and undo stack you have to rebuild
+ * by hand. This keeps native editing and shows a readable name.
+ *
+ * What it costs: a display typed by hand rather than picked resolves to
+ * nothing and stays plain text. That degrades to exactly what it looks like,
+ * which is the right failure.
+ */
+
+export function displayUser(fullName: string): string {
+  return `@${fullName}`;
+}
+
+export function displayRecord(reference: string): string {
+  return `#${reference}`;
+}
+
+/**
+ * Swap every remembered display back to its token, longest first.
+ *
+ * Longest first because one name can be a prefix of another — replacing
+ * "@Ali" before "@Ali Hassan" would leave a stray "Hassan" outside the token.
+ */
+export function materializeBody(text: string, tokensByDisplay: Map<string, string>): string {
+  const displays = [...tokensByDisplay.keys()].sort((a, b) => b.length - a.length);
+  let out = text;
+  for (const display of displays) {
+    const token = tokensByDisplay.get(display);
+    if (token) out = out.split(display).join(token);
+  }
+  return out;
 }

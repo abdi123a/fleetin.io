@@ -340,12 +340,20 @@ function ChainCard({
             It was a grey pill on a white card — the quietest strip on the page
             carrying the only numbers that say the product worked. Filled, it
             becomes the card's spine and the flow below it reads as evidence.
-            The fill was the brand teal first, and that was wrong for a strip
-            whose whole job is to colour-code its figures: mint green on teal
-            is one hue family, so the mark meaning "this went well" came out a
-            dull shade of its own background. `--tile-ink` is neutral, so green
-            reads green and amber reads amber. */}
-        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg bg-tile-ink px-3.5 py-2.5 text-tile-ink-foreground/70 shadow-2xs">
+            It has been three fills. Brand teal first — wrong, because a mint
+            green "this went well" on teal is one hue family and came out a dull
+            shade of its own background. Then `--tile-ink`, neutral so the
+            greens and ambers read true, and reverted here on 2026-08-31: a
+            near-black slab is the heaviest thing on the page and it was landing
+            on a summary, not on the flow the card is actually about.
+
+            `--primary-bold` is the house fill for a coloured surface carrying
+            text. The one figure that still needs to stand out of it — the
+            avoidance rate — takes `--stage-returning-on-fill`, the amber step
+            picked to survive a saturated ground (3.7:1 on this teal). White
+            reads at 5.9:1, so the labels no longer need an opacity step to sit
+            below the figures: 10px against 14px bold is the hierarchy. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg bg-primary-bold px-3.5 py-2.5 text-primary-bold-foreground shadow-2xs">
           {/* Plain counts. What happened, in white — they carry no verdict, and
               tinting them was what turned the row into one green wall with
               nothing standing out of it. */}
@@ -529,7 +537,7 @@ function Figure({
         className={cn(
           'font-bold leading-none',
           lead ? 'text-lg' : 'text-sm',
-          tone === 'warn' ? 'text-stage-returning-on-fill' : 'text-tile-ink-foreground',
+          tone === 'warn' ? 'text-stage-returning-on-fill' : 'text-primary-bold-foreground',
         )}
       >
         {value}

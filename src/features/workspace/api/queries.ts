@@ -1,11 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { useEffect, useRef } from 'react';
+
 import type { RecordType } from '../contracts';
 import {
   assignMessage, createTask, editMessage, fetchInbox, fetchMessages, fetchNotifications,
   fetchRecordCounts, fetchTask, fetchTasks, fetchTaskSummary, fetchUnread, markNotificationsRead, postMessage,
   searchRecords, setMessageResolved, setTaskLinks, updateTask, withdrawMessage,
-  type CreateTaskPayload, type PostMessagePayload, type TaskFilters,
+  createChannel, fetchChannel, fetchChannelMessages, fetchConversations, fetchThread,
+  markChannelRead, openDirectMessage, searchMessages, setChannelMembers, updateChannel,
+  archiveTemplate, bulkUpdateTasks, createRecurrence, createTemplate, deleteRecurrence,
+  fetchRecurrences, fetchTemplates, fetchWorkload, runRecurrences, setChecklist,
+  applyTemplate, setFollowers, setOwnFollow, toggleChecklistItem, updateRecurrence,
+  type BulkPayload, type ChecklistDraft, type CreateChannelPayload, type CreateTaskPayload,
+  type CreateTemplatePayload, type MessageSearchFilters, type PostMessagePayload,
+  type RecurrencePayload, type TaskFilters, type UseTemplatePayload,
 } from './workspaceService';
 
 export const workspaceQueryKeys = {
@@ -21,6 +30,14 @@ export const workspaceQueryKeys = {
   unread: () => [...workspaceQueryKeys.all, 'unread'] as const,
   notifications: () => [...workspaceQueryKeys.all, 'notifications'] as const,
   recordSearch: (q: string) => [...workspaceQueryKeys.all, 'records', q] as const,
+  conversations: () => [...workspaceQueryKeys.all, 'conversations'] as const,
+  channel: (id: string) => [...workspaceQueryKeys.all, 'channel', id] as const,
+  channelMessages: (id: string) => [...workspaceQueryKeys.all, 'channel', id, 'messages'] as const,
+  thread: (id: string) => [...workspaceQueryKeys.all, 'thread', id] as const,
+  messageSearch: (filters: MessageSearchFilters) => [...workspaceQueryKeys.all, 'message-search', filters] as const,
+  templates: () => [...workspaceQueryKeys.all, 'templates'] as const,
+  recurrences: () => [...workspaceQueryKeys.all, 'recurrences'] as const,
+  workload: () => [...workspaceQueryKeys.all, 'workload'] as const,
 };
 
 /*
@@ -34,6 +51,10 @@ export const workspaceQueryKeys = {
  */
 const POLL_UNREAD = 60_000;
 const POLL_LIST = 30_000;
+/* A conversation somebody is looking at needs to feel live; the rail behind it
+   does not. Both still pause in a hidden tab. */
+const POLL_OPEN_CONVERSATION = 8_000;
+const POLL_RAIL = 45_000;
 
 export function useTasks(filters: TaskFilters = {}) {
   return useQuery({
@@ -204,4 +225,207 @@ export function useResolveMessage() {
 export function useMarkNotificationsRead() {
   const invalidate = useInvalidateWorkspace();
   return useMutation({ mutationFn: (ids?: string[]) => markNotificationsRead(ids), onSuccess: invalidate });
+}
+
+// ── Channels & direct messages (Phase 2) ────────────────────────────────────
+
+export function useConversations() {
+  return useQuery({
+    queryKey: workspaceQueryKeys.conversations(),
+    queryFn: fetchConversations,
+    refetchInterval: POLL_RAIL,
+  });
+}
+
+export function useChannel(id: string | undefined) {
+  return useQuery({
+    queryKey: workspaceQueryKeys.channel(id ?? ''),
+    queryFn: () => fetchChannel(id ?? ''),
+    enabled: Boolean(id),
+  });
+}
+
+/**
+ * The open conversation's river.
+ *
+ * Polls faster than anything else in the app, and only while the tab is
+ * visible — TanStack pauses `refetchInterval` in a hidden tab by default, which
+ * is what makes an 8s interval safe when operators keep many tabs open.
+ *
+ * This is the seam a websocket would replace: swap the interval for a
+ * subscription that invalidates this key, and no component changes.
+ */
+export function useChannelMessages(channelId: string | undefined) {
+  return useQuery({
+    queryKey: workspaceQueryKeys.channelMessages(channelId ?? ''),
+    queryFn: () => fetchChannelMessages(channelId ?? ''),
+    enabled: Boolean(channelId),
+    refetchInterval: POLL_OPEN_CONVERSATION,
+  });
+}
+
+export function useThread(messageId: string | undefined) {
+  return useQuery({
+    queryKey: workspaceQueryKeys.thread(messageId ?? ''),
+    queryFn: () => fetchThread(messageId ?? ''),
+    enabled: Boolean(messageId),
+    refetchInterval: POLL_OPEN_CONVERSATION,
+  });
+}
+
+export function useMessageSearch(filters: MessageSearchFilters, enabled = true) {
+  return useQuery({
+    queryKey: workspaceQueryKeys.messageSearch(filters),
+    queryFn: () => searchMessages(filters),
+    enabled: enabled && Boolean(filters.q?.trim()),
+    staleTime: 30_000,
+  });
+}
+
+export function useCreateChannel() {
+  const invalidate = useInvalidateWorkspace();
+  return useMutation({ mutationFn: (p: CreateChannelPayload) => createChannel(p), onSuccess: invalidate });
+}
+
+export function useUpdateChannel() {
+  const invalidate = useInvalidateWorkspace();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: { name?: string; topic?: string; isPrivate?: boolean } }) =>
+      updateChannel(id, patch),
+    onSuccess: invalidate,
+  });
+}
+
+export function useSetChannelMembers() {
+  const invalidate = useInvalidateWorkspace();
+  return useMutation({
+    mutationFn: ({ id, memberIds }: { id: string; memberIds: string[] }) => setChannelMembers(id, memberIds),
+    onSuccess: invalidate,
+  });
+}
+
+export function useOpenDirectMessage() {
+  const invalidate = useInvalidateWorkspace();
+  return useMutation({ mutationFn: (userId: string) => openDirectMessage(userId), onSuccess: invalidate });
+}
+
+/**
+ * Marks the open conversation read — once on open, and again whenever new
+ * messages land while it is on screen.
+ *
+ * Without the second half, a room somebody is sitting in keeps accruing an
+ * unread badge they can already see, which is the fastest way to make the
+ * number meaningless.
+ */
+export function useMarkChannelReadOnView(channelId: string | undefined, newestMessageId: string | undefined) {
+  const queryClient = useQueryClient();
+  const lastMarked = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!channelId || !newestMessageId) return;
+    const key = `${channelId}:${newestMessageId}`;
+    if (lastMarked.current === key) return;
+    lastMarked.current = key;
+
+    void markChannelRead(channelId).then(() => {
+      queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.conversations() });
+      queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.unread() });
+    });
+  }, [channelId, newestMessageId, queryClient]);
+}
+
+// ── Productivity (Phase 3) ──────────────────────────────────────────────────
+
+export function useTemplates() {
+  return useQuery({ queryKey: workspaceQueryKeys.templates(), queryFn: fetchTemplates, staleTime: 5 * 60_000 });
+}
+
+export function useRecurrences() {
+  return useQuery({ queryKey: workspaceQueryKeys.recurrences(), queryFn: fetchRecurrences });
+}
+
+export function useWorkload() {
+  return useQuery({
+    queryKey: workspaceQueryKeys.workload(),
+    queryFn: fetchWorkload,
+    refetchInterval: POLL_LIST,
+  });
+}
+
+export function useSetChecklist() {
+  const invalidate = useInvalidateWorkspace();
+  return useMutation({
+    mutationFn: ({ taskRef, items }: { taskRef: string; items: ChecklistDraft[] }) => setChecklist(taskRef, items),
+    onSuccess: invalidate,
+  });
+}
+
+export function useToggleChecklistItem() {
+  const invalidate = useInvalidateWorkspace();
+  return useMutation({
+    mutationFn: ({ itemId, done }: { itemId: string; done: boolean }) => toggleChecklistItem(itemId, done),
+    onSuccess: invalidate,
+  });
+}
+
+export function useSetFollowers() {
+  const invalidate = useInvalidateWorkspace();
+  return useMutation({
+    mutationFn: ({ taskRef, userIds }: { taskRef: string; userIds: string[] }) => setFollowers(taskRef, userIds),
+    onSuccess: invalidate,
+  });
+}
+
+export function useSetOwnFollow() {
+  const invalidate = useInvalidateWorkspace();
+  return useMutation({
+    mutationFn: ({ taskRef, follow }: { taskRef: string; follow: boolean }) => setOwnFollow(taskRef, follow),
+    onSuccess: invalidate,
+  });
+}
+
+export function useCreateTemplate() {
+  const invalidate = useInvalidateWorkspace();
+  return useMutation({ mutationFn: (p: CreateTemplatePayload) => createTemplate(p), onSuccess: invalidate });
+}
+
+export function useArchiveTemplate() {
+  const invalidate = useInvalidateWorkspace();
+  return useMutation({ mutationFn: (id: string) => archiveTemplate(id), onSuccess: invalidate });
+}
+
+export function useUseTemplate() {
+  const invalidate = useInvalidateWorkspace();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload?: UseTemplatePayload }) => applyTemplate(id, payload),
+    onSuccess: invalidate,
+  });
+}
+
+export function useCreateRecurrence() {
+  const invalidate = useInvalidateWorkspace();
+  return useMutation({ mutationFn: (p: RecurrencePayload) => createRecurrence(p), onSuccess: invalidate });
+}
+
+export function useUpdateRecurrence() {
+  const invalidate = useInvalidateWorkspace();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<RecurrencePayload> }) => updateRecurrence(id, patch),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteRecurrence() {
+  const invalidate = useInvalidateWorkspace();
+  return useMutation({ mutationFn: (id: string) => deleteRecurrence(id), onSuccess: invalidate });
+}
+
+export function useRunRecurrences() {
+  const invalidate = useInvalidateWorkspace();
+  return useMutation({ mutationFn: () => runRecurrences(), onSuccess: invalidate });
+}
+
+export function useBulkUpdateTasks() {
+  const invalidate = useInvalidateWorkspace();
+  return useMutation({ mutationFn: (p: BulkPayload) => bulkUpdateTasks(p), onSuccess: invalidate });
 }

@@ -1,15 +1,14 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 
-import { Avatar, Button, Spinner } from '@/design-system';
+import { Button, Spinner } from '@/design-system';
 import { AtSign, Check, CornerDownLeft, ListChecks, UserPlus } from '@/design-system/icons';
 import { buildPath, ROUTES } from '@/config/routes';
 import {
-  DueMark, MessageBody, PriorityMark, RecordChip, TaskStatusBadge,
+  DueMark, MessageBody, PersonAvatar, PriorityMark, RecordChip, TaskStatusBadge,
   useMarkNotificationsRead, useResolveMessage, useWorkspaceInbox,
   type WorkspaceNotification,
 } from '@/features/workspace';
-import { resolveAssetUrl } from '@/services/api.client';
 import { useAuthStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/utils';
 
@@ -126,12 +125,27 @@ export function WorkspaceInboxPage() {
                 <li key={task.id}>
                   <Link
                     to={buildPath(ROUTES.workspaceTaskDetail, { reference: task.reference })}
-                    className="flex items-center gap-3 px-4 py-2.5 transition-colors duration-fast hover:bg-surface-sunken"
+                    className="flex flex-col gap-1.5 px-4 py-3 transition-colors duration-fast hover:bg-surface-sunken sm:flex-row sm:items-center sm:gap-3"
                   >
-                    <PriorityMark priority={task.priority} />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">{task.title}</p>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                    {/*
+                     * On a phone the three marks lead as their own row and the
+                     * title gets the full width beneath them; on a desk
+                     * `sm:contents` dissolves this wrapper so they become
+                     * direct flex items again and split around the title.
+                     *
+                     * The title was truncating to "Customs paperwork missing
+                     * for…" at narrow widths — squeezed by badges that did not
+                     * need to share its line.
+                     */}
+                    <div className="flex flex-wrap items-center gap-2 sm:contents">
+                      <PriorityMark priority={task.priority} />
+                      <TaskStatusBadge status={task.status} className="sm:order-3" />
+                      <DueMark dueAt={task.dueAt} status={task.status} className="sm:order-4" />
+                    </div>
+
+                    <div className="min-w-0 sm:order-2 sm:flex-1">
+                      <p className="text-sm font-medium text-foreground sm:truncate">{task.title}</p>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
                         <span className="font-mono text-[0.6875rem] text-muted-foreground">{task.reference}</span>
                         {task.links.slice(0, 2).map((link) => (
                           <RecordChip
@@ -147,23 +161,16 @@ export function WorkspaceInboxPage() {
                         ))}
                       </div>
                     </div>
-                    <TaskStatusBadge status={task.status} />
-                    <DueMark dueAt={task.dueAt} status={task.status} />
                   </Link>
                 </li>
               ))}
 
               {/* Assigned comments — lighter than a task, same obligation. */}
               {comments.map((message) => (
-                <li key={message.id} className="flex items-start gap-3 px-4 py-2.5">
-                  <Avatar
-                    size="xs"
-                    name={`${message.author.firstName} ${message.author.lastName}`}
-                    src={resolveAssetUrl(message.author.avatarUrl ?? undefined)}
-                    className="mt-0.5"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <MessageBody body={message.body} currentUserId={currentUserId} className="line-clamp-2" />
+                <li key={message.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-start sm:gap-3">
+                  <PersonAvatar person={message.author} size="sm" className="shrink-0 sm:order-1" />
+                  <div className="min-w-0 flex-1 sm:order-2">
+                    <MessageBody body={message.body} currentUserId={currentUserId} references={message.references} className="line-clamp-2" />
                     <p className="mt-0.5 text-[0.6875rem] text-muted-foreground">
                       {message.assignedBy ? `Asked by ${message.assignedBy.firstName} ${message.assignedBy.lastName}` : 'Assigned to you'}
                       {message.task ? <> · <span className="font-mono">{message.task.reference}</span></> : null}
@@ -173,6 +180,7 @@ export function WorkspaceInboxPage() {
                     variant="outline"
                     size="xs"
                     shape="pill"
+                    className="self-start sm:order-3 sm:self-auto"
                     disabled={resolve.isPending}
                     onClick={() => resolve.mutate({ id: message.id, resolved: true })}
                     leadingIcon={<Check className="h-3.5 w-3.5" />}
@@ -203,7 +211,7 @@ export function WorkspaceInboxPage() {
         {grouped.length === 0 ? (
           <p className="px-4 py-10 text-center text-sm text-muted-foreground">Nothing new.</p>
         ) : (
-          <div className="max-h-[calc(100vh-16rem)] overflow-y-auto">
+          <div className="max-h-[26rem] overflow-y-auto lg:max-h-[calc(100vh-16rem)]">
             {grouped.map(([day, items]) => (
               <div key={day}>
                 <p className="sticky top-0 z-10 bg-surface-raised px-3 py-1.5 text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">

@@ -1,9 +1,11 @@
 import { Select } from '@/design-system';
-import { ArrowDown, ArrowUp, Minus, TriangleAlert } from '@/design-system/icons';
+import { ArrowDown, ArrowUp, Minus, Timer, TriangleAlert } from '@/design-system/icons';
 import { cn } from '@/utils';
 
+import { TASK_URGENCY_META, taskUrgency } from './taskUrgency';
+
 import {
-  isTaskClosed, TASK_PRIORITIES, TASK_PRIORITY_LABEL, TASK_STATUS_LABEL, TASK_STATUSES,
+  TASK_PRIORITIES, TASK_PRIORITY_LABEL, TASK_STATUS_LABEL, TASK_STATUSES,
   type TaskPriority, type TaskStatus,
 } from '../contracts';
 
@@ -21,11 +23,18 @@ import {
  * every row shouted none of them would.
  */
 const STATUS_TONE: Record<TaskStatus, string> = {
-  OPEN: 'bg-secondary text-secondary-foreground',
-  IN_PROGRESS: 'bg-primary text-primary-foreground',
-  WAITING: 'bg-warning text-warning-foreground',
-  COMPLETED: 'bg-success text-success-foreground',
-  CANCELLED: 'bg-muted text-muted-foreground line-through',
+  /* Sky: raised, nobody has picked it up — the same colour a container wears
+     when it is available and waiting to be taken. Grey said "nothing here",
+     which is exactly wrong for the state most of the board is in. */
+  OPEN: 'bg-stage-available-subtle text-stage-available-subtle-foreground border border-stage-available-border',
+  /* Green is "work is happening" throughout this app — the shipment ladder
+     collapses three transit rungs into one green for that reason. */
+  IN_PROGRESS: 'bg-stage-loaded-subtle text-stage-loaded-subtle-foreground border border-stage-loaded-border',
+  /* Amber is "waiting on somebody else", the same amber a box owing a return
+     wears. The two systems agree here on purpose. */
+  WAITING: 'bg-warning-subtle text-warning-subtle-foreground border border-warning',
+  COMPLETED: 'bg-stage-closed-subtle text-stage-closed-subtle-foreground border border-stage-closed-border',
+  CANCELLED: 'bg-muted text-muted-foreground border border-border line-through',
 };
 
 export function TaskStatusBadge({
@@ -83,30 +92,57 @@ export function TaskStatusSelect({
  * where hue is semantic that would spend `--destructive` on a sorting hint.
  * Direction reads at a glance and survives being printed.
  */
-const PRIORITY_MARK: Record<TaskPriority, { icon: typeof ArrowUp; tone: string; filled?: boolean }> = {
-  /* Urgent is the one that gets a filled plate. Everything else is an arrow:
-     if all four were coloured chips, the one that matters would not stand out. */
-  URGENT: { icon: TriangleAlert, tone: 'bg-destructive text-destructive-foreground', filled: true },
-  HIGH: { icon: ArrowUp, tone: 'text-warning-bold' },
-  NORMAL: { icon: Minus, tone: 'text-muted-foreground' },
-  LOW: { icon: ArrowDown, tone: 'text-muted-foreground' },
+/*
+ * Graded, on the same `--urgency-*` tokens the container risk badge uses.
+ *
+ * Urgent is solid and shouts. High is a warning wash. Normal and Low are
+ * quiet on purpose — if all four were loud, none of them would be, and a
+ * board where every row is coloured tells the reader nothing about which one
+ * to open first.
+ */
+const PRIORITY_MARK: Record<TaskPriority, { icon: typeof ArrowUp; tone: string; pill: boolean }> = {
+  URGENT: {
+    icon: TriangleAlert,
+    tone: 'bg-urgency-overdue-bg text-urgency-overdue-fg border-urgency-overdue-border',
+    pill: true,
+  },
+  HIGH: {
+    icon: ArrowUp,
+    tone: 'bg-urgency-watch-bg text-urgency-watch-fg border-transparent',
+    pill: true,
+  },
+  /* Normal and Low get colours too, but *cool* ones — sky for the default and
+     a settled slate-teal for low. They still read as quieter than High and
+     Urgent because the eye goes to warm before cool, so the ranking survives
+     while every row still says something. Grey said "no value set", which was
+     wrong: Normal is a choice. */
+  NORMAL: {
+    icon: Minus,
+    tone: 'bg-stage-available-subtle text-stage-available-subtle-foreground border-stage-available-border',
+    pill: true,
+  },
+  LOW: {
+    icon: ArrowDown,
+    tone: 'bg-muted text-muted-foreground border-border',
+    pill: true,
+  },
 };
 
 export function PriorityMark({
   priority, withLabel = false, className,
 }: { priority: TaskPriority; withLabel?: boolean; className?: string }) {
-  const { icon: Icon, tone, filled } = PRIORITY_MARK[priority];
+  const { icon: Icon, tone, pill } = PRIORITY_MARK[priority];
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 text-xs font-medium',
-        filled && 'rounded-full px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide',
+        'inline-flex items-center gap-1 whitespace-nowrap text-xs font-medium',
+        pill && 'rounded-md border px-1.5 py-0.5 text-[0.6875rem] font-semibold',
         tone,
         className,
       )}
     >
       <Icon className="size-3.5 shrink-0" aria-hidden />
-      <span className={withLabel || filled ? '' : 'sr-only'}>{TASK_PRIORITY_LABEL[priority]}</span>
+      <span className={withLabel || pill ? '' : 'sr-only'}>{TASK_PRIORITY_LABEL[priority]}</span>
     </span>
   );
 }
@@ -136,39 +172,38 @@ export function PrioritySelect({
 /* ── Due date ───────────────────────────────────────────────────────────── */
 
 /**
- * A due date that says how it is going, not just when it is.
+ * A due date as a graded urgency pill — the same shape, and the same tokens,
+ * as the Empty Container module's `RiskBadge`.
  *
- * "Overdue" and "Today" are the only two states anybody scans a list for, so
- * they are words rather than a date the reader has to compare against today's.
+ * The Timer is what makes it scannable: a column of dates asks the reader to
+ * do arithmetic against today, while a column of pills answers "which of these
+ * is on fire" from across the room. Overdue pulses, and nothing else does, so
+ * the one thing that needs somebody now is the one thing that moves.
  */
 export function DueMark({
   dueAt, status, className,
 }: { dueAt: string | null; status: TaskStatus; className?: string }) {
-  if (!dueAt) return <span className={cn('text-xs text-muted-foreground', className)}>—</span>;
+  const level = taskUrgency(dueAt, status);
+  const meta = TASK_URGENCY_META[level];
+
+  if (!dueAt || level === 'none') {
+    return <span className={cn('text-xs text-muted-foreground', className)}>—</span>;
+  }
 
   const due = new Date(dueAt);
-  const closed = isTaskClosed(status);
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-  const startOfTomorrow = new Date(startOfToday);
-  startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
-
-  const overdue = !closed && due < startOfToday;
-  const today = !closed && due >= startOfToday && due < startOfTomorrow;
-
-  const text = overdue ? 'Overdue' : today ? 'Today' : due.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
 
   return (
     <span
       title={due.toLocaleString()}
       className={cn(
-        'inline-flex items-center gap-1 text-xs tabular-nums',
-        overdue ? 'font-semibold text-destructive' : today ? 'font-semibold text-warning-bold' : 'text-muted-foreground',
+        'inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[0.6875rem] font-semibold tabular-nums',
+        meta.className,
+        meta.pulse && 'animate-pulse motion-reduce:animate-none',
         className,
       )}
     >
-      {overdue ? <TriangleAlert className="size-3.5 shrink-0" aria-hidden /> : null}
-      {text}
+      <Timer className="size-[11px] shrink-0" aria-hidden />
+      {meta.label(due)}
     </span>
   );
 }

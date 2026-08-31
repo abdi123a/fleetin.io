@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation, useSearchParams } from 'react-router-dom';
 
 import { CheckCircle2, Clock, RefreshCw, X } from '@/design-system/icons';
 import { Button } from '@/design-system';
@@ -49,14 +49,39 @@ import { viewForPath } from './components/views';
 export function EmptyReturnModuleChrome() {
   const location = useLocation();
   const view = viewForPath(location.pathname);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const toast = useEmptyReturnStore((state) => state.toast);
   const dismissToast = useEmptyReturnStore((state) => state.dismissToast);
   const now = useEmptyReturnStore((state) => state.now);
 
   const { isLoading, refetch } = useEmptyContainers();
+  const openRecord = useEmptyReturnStore((state) => state.openRecord);
 
   useEffect(() => startEmptyReturnClock(), []);
+
+  /* `?container=<reference>` opens that container's dialog — what a Workspace
+     record chip links to. It lives on the chrome rather than on one view
+     because the dialog does: all five views open the same one, so the deep
+     link has to work from whichever the reader lands on.
+
+     The value is a REFERENCE, not a uuid: every record in this module is keyed
+     by one (`mappers.ts` sets `id` to `booking.reference` / `cycle.reference`).
+
+     Cleared once consumed, so a refresh does not reopen a dialog somebody
+     closed on purpose. */
+  const wantedContainer = searchParams.get('container');
+  useEffect(() => {
+    if (!wantedContainer) return;
+    openRecord(wantedContainer);
+    setSearchParams(
+      (params) => {
+        params.delete('container');
+        return params;
+      },
+      { replace: true },
+    );
+  }, [wantedContainer, openRecord, setSearchParams]);
 
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-[1600px] flex-col gap-5 px-4 pb-12 pt-1 sm:px-6">

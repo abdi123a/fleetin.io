@@ -67,7 +67,7 @@ export function RecordRaise({
     <div className={cn('flex items-center gap-2', className)}>
       {openCount > 0 ? (
         <Link
-          to={`${ROUTES.workspaceAllTasks}?recordType=${recordType}&recordId=${encodeURIComponent(recordRef)}`}
+          to={`${ROUTES.workspaceTasks}?recordType=${recordType}&recordId=${encodeURIComponent(recordRef)}`}
           className={cn(
             'inline-flex items-center gap-1 rounded-sm border px-2 py-1 text-xs font-medium',
             'transition-colors duration-fast focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring',

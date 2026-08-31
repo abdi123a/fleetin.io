@@ -80,10 +80,33 @@ export const ROUTES = {
    */
   workspace: '/workspace',
   workspaceInbox: '/workspace/inbox',
+  /*
+   * ONE tasks route. Whose work you are looking at is `?scope=`, and which of
+   * the four views draws it is `?view=` — both are parameters of one screen,
+   * not three screens.
+   *
+   * They used to be three nav rows and three paths, which is how the sidebar
+   * ended up with six Workspace rows saying "tasks" four different ways. The
+   * three old paths still resolve, as redirects that carry the scope across,
+   * so any link already written down still lands somewhere right.
+   */
+  workspaceTasks: '/workspace/tasks',
   workspaceMyTasks: '/workspace/tasks/mine',
   workspaceAssignedByMe: '/workspace/tasks/assigned-by-me',
   workspaceAllTasks: '/workspace/tasks/all',
   workspaceTaskDetail: '/workspace/task/:reference',
+  /*
+   * Messages is ONE route, not a "Channels" page beside a "Direct Messages"
+   * page. Both would open the same two-pane screen, and two nav rows for one
+   * screen is the same navigation twice — the reason Empty Container has no
+   * tab strip either. Channels and DMs are sections of the rail, as they are
+   * in every tool that gets this right.
+   */
+  /* Templates and recurring rules — the standing arrangements, kept off the
+     task screens because they describe work that does not exist yet. */
+  workspaceAutomation: '/workspace/automation',
+  workspaceMessages: '/workspace/messages',
+  workspaceChannel: '/workspace/messages/:channelId',
   /**
    * Empty Container Management — five sibling views, five real URLs.
    *

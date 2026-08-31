@@ -1,8 +1,8 @@
 import {
   ArrowLeftRight,
-  ClipboardList,
   Inbox,
   ListChecks,
+  MessageSquare,
   BarChart3,
   Package,
   Building2,
@@ -73,14 +73,30 @@ export const NAVIGATION: NavSection[] = [
         icon: Inbox,
       },
       {
+        /*
+         * One row, not a tree of four.
+         *
+         * "My Tasks", "Assigned by Me" and "All Tasks" were the same list with
+         * a different fixed filter — three nav rows for one screen, and the
+         * page already carries a filter band that answers the same question
+         * better. Whose work you want is now a control on the page (`?scope=`)
+         * and "Recurring & Templates" sits behind the page's gear, where a
+         * standing arrangement belongs — it describes work that does not exist
+         * yet, which is not something to put beside the work that does.
+         */
         id: 'workspace-tasks',
         label: 'Tasks',
+        path: ROUTES.workspaceTasks,
         icon: ListChecks,
-        children: [
-          { id: 'workspace-my-tasks', label: 'My Tasks', path: ROUTES.workspaceMyTasks, icon: ClipboardList },
-          { id: 'workspace-assigned-by-me', label: 'Assigned by Me', path: ROUTES.workspaceAssignedByMe, icon: ListChecks },
-          { id: 'workspace-all-tasks', label: 'All Tasks', path: ROUTES.workspaceAllTasks, icon: ListChecks },
-        ],
+        matchNested: true,
+      },
+      {
+        id: 'workspace-messages',
+        label: 'Messages',
+        path: ROUTES.workspaceMessages,
+        icon: MessageSquare,
+        /* Every conversation lives under this one row. */
+        matchNested: true,
       },
     ],
   },

@@ -3,12 +3,13 @@ import { Link, useParams } from 'react-router-dom';
 
 import { CrewPicker, CrewStack } from '@/components/crew';
 import { Button, DatePicker, Input, Spinner } from '@/design-system';
-import { ArrowLeft, Check, Pencil, TriangleAlert } from '@/design-system/icons';
+import { ArrowLeft, Check, Pencil, RefreshCw, TriangleAlert } from '@/design-system/icons';
 import { ROUTES } from '@/config/routes';
 import { useTeam } from '@/features/team';
 import {
-  DueMark, PrioritySelect, RecordChip, TaskStatusSelect, Thread,
-  isOverdue, TASK_PRIORITY_LABEL, TASK_STATUS_LABEL,
+  DueMark, MessageBody, PriorityMark, PrioritySelect, RecordChip, RecurrenceDialog,
+  TaskChecklist, TaskFollowers, TaskStatusBadge, TaskStatusSelect, Thread,
+  describeRecurrence, isOverdue, TASK_PRIORITY_LABEL, TASK_STATUS_LABEL,
   useTask, useUpdateTask, type TaskPriority, type TaskStatus,
 } from '@/features/workspace';
 import { cn, formatRelativeTime } from '@/utils';
@@ -59,6 +60,7 @@ export function WorkspaceTaskDetailPage() {
 
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
+  const [repeatOpen, setRepeatOpen] = useState(false);
 
   useEffect(() => {
     if (task) setTitleDraft(task.title);
@@ -77,7 +79,7 @@ export function WorkspaceTaskDetailPage() {
       <div className="rounded-card border border-destructive/30 bg-destructive-subtle p-8 text-center">
         <p className="text-sm font-medium text-destructive">That task could not be found.</p>
         <p className="mt-1 text-xs text-muted-foreground">{(error as Error)?.message}</p>
-        <Link to={ROUTES.workspaceAllTasks} className="mt-4 inline-block text-xs font-medium text-primary-bold hover:underline">
+        <Link to={ROUTES.workspaceTasks} className="mt-4 inline-block text-xs font-medium text-primary-bold hover:underline">
           Back to all tasks
         </Link>
       </div>
@@ -97,7 +99,7 @@ export function WorkspaceTaskDetailPage() {
       {/* ── The record ─────────────────────────────────────────────────── */}
       <div className="min-w-0 space-y-4">
         <Link
-          to={ROUTES.workspaceAllTasks}
+          to={ROUTES.workspaceTasks}
           className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors duration-fast hover:text-foreground"
         >
           <ArrowLeft className="size-3.5" aria-hidden /> All tasks
@@ -112,6 +114,17 @@ export function WorkspaceTaskDetailPage() {
             {task.priority !== 'NORMAL' ? (
               <span className={cn('rounded-full border border-current px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide', slab.soft)}>
                 {TASK_PRIORITY_LABEL[task.priority]}
+              </span>
+            ) : null}
+            {task.occurrence ? (
+              /* Says WHICH rule, not just "recurring": on a desk where three
+                 rules file similar work, the name is the useful half. */
+              <span
+                title={`${task.occurrence.recurrence.title} — ${describeRecurrence(task.occurrence.recurrence)}`}
+                className={cn('inline-flex items-center gap-1 rounded-full border border-current px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide', slab.soft)}
+              >
+                <RefreshCw className="size-3" aria-hidden />
+                {describeRecurrence(task.occurrence.recurrence)}
               </span>
             ) : null}
             {overdue ? (
@@ -162,28 +175,57 @@ export function WorkspaceTaskDetailPage() {
                 >
                   <Pencil className="size-4" aria-hidden />
                 </button>
+                {/* Make this a standing job. Seeded from the task rather than
+                    opening an empty form: somebody clicking Repeat has already
+                    written the thing they want repeated. Hidden on a task a
+                    rule already filed — that rule is edited on its own screen,
+                    and a second one would file the same work twice. */}
+                {!task.occurrence ? (
+                  <button
+                    type="button"
+                    onClick={() => setRepeatOpen(true)}
+                    aria-label="Repeat this task on a schedule"
+                    className={cn(
+                      'mt-1 rounded-sm p-1 opacity-0 transition-opacity duration-fast',
+                      'focus-visible:opacity-100 group-hover/title:opacity-100',
+                      slab.soft,
+                    )}
+                  >
+                    <RefreshCw className="size-4" aria-hidden />
+                  </button>
+                ) : null}
               </>
             )}
           </div>
         </header>
 
         <div className="rounded-card border border-border bg-surface-raised px-4 py-3">
+          {/* The mark sits BESIDE the select, not inside it: a native <select>
+              cannot colour its own options, and the house rule is that a status
+              picker shows the whole ladder in one. So the control stays plain
+              and the current state carries the colour next to it. */}
           <Field label="Status">
-            <TaskStatusSelect
-              value={task.status}
-              disabled={update.isPending}
-              onChange={(status: TaskStatus) => save({ status })}
-              className="max-w-[13rem]"
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <TaskStatusSelect
+                value={task.status}
+                disabled={update.isPending}
+                onChange={(status: TaskStatus) => save({ status })}
+                className="max-w-[11rem]"
+              />
+              <TaskStatusBadge status={task.status} />
+            </div>
           </Field>
 
           <Field label="Priority">
-            <PrioritySelect
-              value={task.priority}
-              disabled={update.isPending}
-              onChange={(priority: TaskPriority) => save({ priority })}
-              className="max-w-[13rem]"
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <PrioritySelect
+                value={task.priority}
+                disabled={update.isPending}
+                onChange={(priority: TaskPriority) => save({ priority })}
+                className="max-w-[11rem]"
+              />
+              <PriorityMark priority={task.priority} withLabel />
+            </div>
           </Field>
 
           <Field label="Owner">
@@ -215,6 +257,10 @@ export function WorkspaceTaskDetailPage() {
                 )}
               </button>
             </CrewPicker>
+          </Field>
+
+          <Field label="Watching">
+            <TaskFollowers taskRef={task.reference} followers={task.followers} />
           </Field>
 
           <Field label="Due">
@@ -257,9 +303,17 @@ export function WorkspaceTaskDetailPage() {
           </Field>
         </div>
 
+        {/* Under the fields and above the description: the steps ARE the work
+            once a task has any, and burying them below prose puts the thing
+            people tick at the bottom of the page. */}
+        <TaskChecklist taskRef={task.reference} items={task.checklist} />
+
         {task.description ? (
           <div className="rounded-card border border-border bg-surface-raised px-4 py-3">
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{task.description}</p>
+            {/* Through MessageBody, not raw: a description written in the
+                composer holds the same tokens a message does, and printing it
+                raw put a uuid on the page. */}
+            <MessageBody body={task.description} />
           </div>
         ) : null}
       </div>
@@ -268,6 +322,12 @@ export function WorkspaceTaskDetailPage() {
       <aside className={cn('min-w-0 rounded-card border border-border bg-surface-raised', 'flex max-h-[calc(100vh-12rem)] flex-col px-2 lg:sticky lg:top-4')}>
         <Thread messages={task.messages} events={task.events} taskId={task.id} className="min-h-0 flex-1" />
       </aside>
+
+      <RecurrenceDialog
+        open={repeatOpen}
+        onOpenChange={setRepeatOpen}
+        seed={{ title: task.title, priority: task.priority, assigneeId: task.assignee?.id }}
+      />
     </div>
   );
 }

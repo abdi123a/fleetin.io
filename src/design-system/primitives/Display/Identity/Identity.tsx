@@ -7,7 +7,11 @@ import {
 
 import { forwardRef, type HTMLAttributes, type ReactNode } from 'react';
 
-import { Avatar, type AvatarProps } from '@/design-system/primitives/Avatar';
+import {
+  Avatar,
+  MARK_STACK_OVERLAP,
+  type AvatarProps,
+} from '@/design-system/primitives/Avatar';
 import { cn } from '@/utils';
 
 /* ---------------------------------------------------------------------------
@@ -47,14 +51,15 @@ export const AvatarGroup = forwardRef<HTMLDivElement, AvatarGroupProps>(
             size={size}
             className={cn(
               'ring-2 ring-surface',
-              idx > 0 && '-ml-2',
+              idx > 0 && MARK_STACK_OVERLAP[size ?? 'md'],
             )}
           />
         ))}
         {overflow > 0 && (
           <span
             className={cn(
-              'relative -ml-2 flex shrink-0 items-center justify-center rounded-full bg-muted ring-2 ring-surface font-semibold text-muted-foreground select-none',
+              'relative flex shrink-0 items-center justify-center rounded-full bg-muted ring-2 ring-surface font-semibold text-muted-foreground select-none',
+              MARK_STACK_OVERLAP[size ?? 'md'],
               size === 'xs' && 'size-6 text-2xs',
               size === 'sm' && 'size-8 text-xs',
               (size === 'md' || !size) && 'size-9 text-xs',

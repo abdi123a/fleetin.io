@@ -1,6 +1,13 @@
 import React from 'react';
 import type { Mission } from '@/types/mission';
-import { Card, CornerBadge, Button, Tooltip, rowCardActionClasses } from '@/design-system';
+import {
+  Card,
+  CornerBadge,
+  Button,
+  MARK_STACK_OVERLAP,
+  Tooltip,
+  rowCardActionClasses,
+} from '@/design-system';
 import { carriesContainer, containerStateOf } from '@/lib/containerState';
 import { shipmentProgress, statusCornerIntentOf } from '@/lib/shipmentStatus';
 import { formatKm, shipmentDistance } from '@/lib/shipmentDistance';
@@ -181,8 +188,10 @@ export const MissionRowCard: React.FC<MissionRowCardProps> = ({
                         name={transporter.name}
                         size="sm"
                         /* Overlapped, so a second carrier costs a sliver of the
-                           line rather than another full slot. */
-                        className={index > 0 ? '-ml-2' : undefined}
+                           line rather than another full slot — but only just:
+                           the shared scale keeps a mark's initials clear of the
+                           mark in front of it. */
+                        className={index > 0 ? MARK_STACK_OVERLAP.sm : undefined}
                       />
                     ))}
                     {/* The marks are the whole label here, so the names still

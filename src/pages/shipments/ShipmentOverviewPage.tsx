@@ -17,6 +17,7 @@ import {
   ContainerStateTag,
   CornerBadge,
   IconChip,
+  MARK_STACK_OVERLAP,
   Tooltip,
   VerificationBadge,
 } from '@/design-system';
@@ -232,7 +233,15 @@ export function ShipmentOverviewPage() {
   const openBookingId = searchParams.get('openBooking');
   useEffect(() => {
     if (!openBookingId || bookings.length === 0) return;
-    const target = bookings.find((b) => b.id === openBookingId);
+    /* Matches the row's uuid OR its booking number.
+     *
+     * Both arrive: a Workspace task link carries the uuid, while a `/booking`
+     * reference typed into a message carries only the human reference — a
+     * message body is read by people, and burying a uuid in one to make a link
+     * work would be the tail wagging the dog. */
+    const target = bookings.find(
+      (b) => b.id === openBookingId || b.bookingNumber === openBookingId,
+    );
     if (target) {
       setSelectedBooking(target);
       setIsBookingSheetOpen(true);
@@ -500,7 +509,11 @@ export function ShipmentOverviewPage() {
                             id={transporter.id}
                             name={transporter.name}
                             size="sm"
-                            className={index > 0 ? '-ml-2 ring-white/70' : 'ring-white/70'}
+                            className={
+                              index > 0
+                                ? `ring-white/70 ${MARK_STACK_OVERLAP.sm}`
+                                : 'ring-white/70'
+                            }
                           />
                         ))}
                         <span className="sr-only">

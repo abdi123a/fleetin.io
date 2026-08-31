@@ -1,43 +1,40 @@
 import { useSearchParams } from 'react-router-dom';
 
-import { useAuthStore } from '@/stores';
 import { TaskList, type RecordType } from '@/features/workspace';
 
-export type TaskScope = 'mine' | 'assigned-by-me' | 'all';
-
-const EMPTY_COPY: Record<TaskScope, string> = {
-  mine: 'Nothing is assigned to you.',
-  'assigned-by-me': 'You have not handed anything to anybody yet.',
-  all: 'No tasks yet. Raise one from here, or from any shipment, vehicle or driver.',
-};
-
 /**
- * The three task views, off one list.
+ * Tasks — one screen.
  *
- * They differ only in which filter is fixed, so they share a component rather
- * than being three pages that drift apart. The record filter arrives in the
- * query string — that is the link behind every "2 open" badge on a record page.
+ * It used to be three: My Tasks, Assigned by Me and All Tasks, three sidebar
+ * rows and three routes for the same list with one filter changed. Whose work
+ * you want is `?scope=` on the page now, which composes with the state bands
+ * instead of being a separate axis you have to navigate away to change.
+ *
+ * The record filter still arrives in the query string — that is the link
+ * behind every "2 open" badge on a record page.
  */
-export function WorkspaceTasksPage({ scope }: { scope: TaskScope }) {
-  const currentUserId = useAuthStore((state) => state.user?.id);
+export function WorkspaceTasksPage() {
   const [params] = useSearchParams();
 
   const recordType = params.get('recordType') as RecordType | null;
   const recordId = params.get('recordId');
+  const scope = params.get('scope');
 
   return (
     <TaskList
       baseFilters={{
-        ...(scope === 'mine' ? { assigneeId: currentUserId } : {}),
-        ...(scope === 'assigned-by-me' ? { createdById: currentUserId } : {}),
         ...(recordType ? { recordType } : {}),
         ...(recordId ? { recordId } : {}),
       }}
-      emptyCopy={EMPTY_COPY[scope]}
+      emptyCopy={
+        scope === 'mine'
+          ? 'Nothing is assigned to you.'
+          : scope === 'raised'
+            ? 'You have not raised anything yet.'
+            : 'No tasks yet. Raise one from here, or from any shipment, vehicle or driver.'
+      }
     />
   );
 }
 
-export const WorkspaceMyTasksPage = () => <WorkspaceTasksPage scope="mine" />;
-export const WorkspaceAssignedByMePage = () => <WorkspaceTasksPage scope="assigned-by-me" />;
-export const WorkspaceAllTasksPage = () => <WorkspaceTasksPage scope="all" />;
+export default WorkspaceTasksPage;

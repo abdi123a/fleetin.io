@@ -1,6 +1,6 @@
 export { WorkspaceModuleChrome } from './WorkspaceModuleChrome';
 export { WorkspaceInboxPage } from './WorkspaceInboxPage';
-export {
-  WorkspaceMyTasksPage, WorkspaceAssignedByMePage, WorkspaceAllTasksPage,
-} from './WorkspaceTasksPage';
+export { WorkspaceTasksPage } from './WorkspaceTasksPage';
 export { WorkspaceTaskDetailPage } from './WorkspaceTaskDetailPage';
+export { WorkspaceMessagesPage } from './WorkspaceMessagesPage';
+export { WorkspaceAutomationPage } from './WorkspaceAutomationPage';

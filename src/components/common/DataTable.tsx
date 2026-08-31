@@ -66,8 +66,25 @@ export interface DataColumn<T> {
   card?: 'identity' | 'meta' | 'trailing' | 'action' | 'hidden';
   /** Overrides `label` for the card's field label. */
   cardLabel?: string;
-  /** Right-align the cell (numbers, actions). */
-  align?: 'left' | 'right';
+  /**
+   * Cell alignment. `right` for numbers and actions, `center` for a column
+   * whose whole content is one control — a selection checkbox, typically,
+   * which looks dropped rather than placed when it sits against the left
+   * padding of a column two or three times its width. The heading follows the
+   * cell for `center` only, because a centred control needs its own control
+   * centred over it; `right` headings stay left, see the note on the `th`.
+   */
+  align?: 'left' | 'right' | 'center';
+  /**
+   * Replaces the heading's text with a control — a select-all checkbox in a
+   * selection column, typically.
+   *
+   * Without it a selection column has to ship a blank `th`, which reads as an
+   * unfinished table rather than as a column whose heading is a control. The
+   * `label` is still required and still used as the card's field label and as
+   * the accessible name, so a column is never nameless.
+   */
+  header?: ReactNode;
 }
 
 export interface DataTableProps<T> {
@@ -274,23 +291,35 @@ export function DataTable<T>({
                      the columns hang from. The extra height is what makes it
                      look deliberate beside the 44px data rows. */
                   className={cn(
-                    'type-label px-2.5 py-3.5 text-left align-bottom',
+                    'type-label px-2.5 py-3.5 align-bottom',
+                    column.align === 'center' ? 'text-center' : 'text-left',
                     column.width,
                   )}
                 >
-                  <span className="flex items-center gap-2 leading-tight">
+                  <span
+                    className={cn(
+                      'flex items-center gap-2 leading-tight',
+                      column.align === 'center' && 'justify-center',
+                    )}
+                  >
+                    {/* A control in place of the words, when the column has
+                        one. The label survives as the accessible name. */}
                     {/* `size-4` at 90%. At 3.5 and 70% the glyph was smaller
                        than the 10px capitals beside it and washed halfway into
                        the tinted band — and this glyph is the thing a reader
                        actually re-finds a column by after scrolling, which is
                        the whole reason it is there. */}
-                    {column.icon && <column.icon className="size-4 shrink-0 opacity-90" />}
-                    {/* `truncate`, so a heading wider than its column ends in
-                        an ellipsis instead of being sliced mid-letter and
-                        running into its neighbour. It is a safety net, not a
-                        licence: a clipped heading still means the column is too
-                        narrow, and the fix is the width. */}
-                    <span className="min-w-0 truncate">{column.label}</span>
+                    {column.header ?? (
+                      <>
+                        {column.icon && <column.icon className="size-4 shrink-0 opacity-90" />}
+                        {/* `truncate`, so a heading wider than its column ends
+                            in an ellipsis instead of being sliced mid-letter
+                            and running into its neighbour. It is a safety net,
+                            not a licence: a clipped heading still means the
+                            column is too narrow, and the fix is the width. */}
+                        <span className="min-w-0 truncate">{column.label}</span>
+                      </>
+                    )}
                   </span>
                 </th>
               ))}
@@ -313,6 +342,7 @@ export function DataTable<T>({
                     className={cn(
                       'px-2.5 py-3 align-middle',
                       column.align === 'right' && 'text-right',
+                      column.align === 'center' && 'text-center',
                     )}
                   >
                     {column.cell(row)}

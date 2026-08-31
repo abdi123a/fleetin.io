@@ -9,13 +9,18 @@ import { cn } from '@/utils';
 
 import { RECORD_TYPE_LABEL } from '../contracts';
 import { useRecordSearch } from '../api/queries';
-import { serializeRecord, serializeUser } from './tokens';
+import { displayRecord, displayUser, materializeBody, serializeRecord, serializeUser } from './tokens';
 import { applyToken, useTypeahead } from './useTypeahead';
 
 export interface ComposerProps {
   value: string;
   onChange: (value: string) => void;
-  onSubmit: () => void;
+  /**
+   * Receives the body with every picked name and reference turned back into a
+   * storage token. Callers must send THIS, not their own `value` — that one
+   * still holds the readable display text.
+   */
+  onSubmit: (body: string) => void;
   placeholder?: string;
   busy?: boolean;
   /** Hidden on the compact Raise form, where the dialog has its own buttons. */
@@ -27,7 +32,10 @@ export interface ComposerProps {
 
 interface Option {
   key: string;
+  /** What gets stored. */
   token: string;
+  /** What the writer sees while typing. */
+  display: string;
   primary: string;
   secondary: string | null;
   avatarUrl?: string | null;
@@ -52,8 +60,12 @@ export function Composer({
   busy = false, showSubmit = true, autoFocus = false, rows = 3, className,
 }: ComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  /* display -> token, for everything picked in this draft. A ref, not state:
+     nothing renders from it, and re-rendering on every pick would fight the
+     caret restore below. */
+  const tokensByDisplay = useRef(new Map<string, string>());
   const { trigger, setCaret, dismiss } = useTypeahead(value);
-  const [highlighted, setHighlighted] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(0);
 
   const { data: team = [], isLoading: teamLoading } = useTeam();
   const recordQuery = trigger?.char === '/' ? trigger.query : '';
@@ -70,6 +82,7 @@ export function Composer({
         .map((m) => ({
           key: m.id,
           token: serializeUser(m.id, m.fullName),
+          display: displayUser(m.fullName),
           primary: m.fullName,
           secondary: m.roleName,
           avatarUrl: m.avatarUrl,
@@ -79,6 +92,7 @@ export function Composer({
     return records.slice(0, 10).map((r) => ({
       key: `${r.type}:${r.id}`,
       token: serializeRecord(r.type, r.reference, r.subtitle, r.parentRef),
+      display: displayRecord(r.reference),
       primary: r.reference,
       secondary: r.status ? [r.subtitle, r.status].filter(Boolean).join(' · ') : r.subtitle,
       badge: RECORD_TYPE_LABEL[r.type],
@@ -86,17 +100,52 @@ export function Composer({
   }, [trigger, team, records]);
 
   const open = Boolean(trigger) && (options.length > 0 || recordsFetching || teamLoading);
-  const active = Math.min(highlighted, Math.max(0, options.length - 1));
+  const active = Math.min(activeIndex, Math.max(0, options.length - 1));
+
+  /**
+   * The value split into the bits that resolved and the bits that did not.
+   *
+   * Longest display first, so one name sitting inside another does not get
+   * half-marked.
+   */
+  const highlighted = useMemo(() => {
+    const displays = [...tokensByDisplay.current.keys()]
+      .filter((d) => value.includes(d))
+      .sort((a, b) => b.length - a.length);
+    if (displays.length === 0) return [{ text: value, resolved: false }];
+
+    let pieces: { text: string; resolved: boolean }[] = [{ text: value, resolved: false }];
+    for (const display of displays) {
+      pieces = pieces.flatMap((piece) => {
+        if (piece.resolved) return [piece];
+        return piece.text
+          .split(display)
+          .flatMap((part, index) =>
+            index === 0
+              ? [{ text: part, resolved: false }]
+              : [{ text: display, resolved: true }, { text: part, resolved: false }],
+          )
+          .filter((part) => part.text.length > 0);
+      });
+    }
+    return pieces;
+  }, [value]);
 
   function syncCaret() {
     setCaret(textareaRef.current?.selectionStart ?? 0);
   }
 
+  /** Hand the caller storage tokens, not the readable text on screen. */
+  function submit() {
+    onSubmit(materializeBody(value, tokensByDisplay.current));
+  }
+
   function choose(option: Option) {
     if (!trigger) return;
-    const next = applyToken(value, trigger, option.token);
+    tokensByDisplay.current.set(option.display, option.token);
+    const next = applyToken(value, trigger, option.display);
     onChange(next.value);
-    setHighlighted(0);
+    setActiveIndex(0);
     /* Put the caret back after React has written the new value, or the
        browser drops it to the end and the sentence is typed backwards. */
     requestAnimationFrame(() => {
@@ -112,12 +161,12 @@ export function Composer({
     if (open && options.length > 0) {
       if (event.key === 'ArrowDown') {
         event.preventDefault();
-        setHighlighted((h) => (h + 1) % options.length);
+        setActiveIndex((h) => (h + 1) % options.length);
         return;
       }
       if (event.key === 'ArrowUp') {
         event.preventDefault();
-        setHighlighted((h) => (h - 1 + options.length) % options.length);
+        setActiveIndex((h) => (h - 1 + options.length) % options.length);
         return;
       }
       if (event.key === 'Enter' || event.key === 'Tab') {
@@ -137,7 +186,7 @@ export function Composer({
        withdrawn CommentThread used, so the habit survives. */
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
-      if (value.trim() && !busy) onSubmit();
+      if (value.trim() && !busy) submit();
     }
   }
 
@@ -145,23 +194,56 @@ export function Composer({
     <div className={cn('flex flex-col gap-2', className)}>
       <Popover.Root open={open}>
         <Popover.Anchor asChild>
-          <Textarea
-            ref={textareaRef}
-            value={value}
-            rows={rows}
-            autoFocus={autoFocus}
-            disabled={busy}
-            placeholder={placeholder}
-            resizable={false}
-            onChange={(event) => {
-              onChange(event.target.value);
-              setCaret(event.target.selectionStart ?? 0);
-              setHighlighted(0);
-            }}
-            onKeyUp={syncCaret}
-            onClick={syncCaret}
-            onKeyDown={handleKeyDown}
-          />
+          {/*
+           * A mirror behind the textarea, drawing the same characters with the
+           * resolved names and references marked.
+           *
+           * This only works because the composer now shows DISPLAY text rather
+           * than storage tokens: the mirror and the field hold identical
+           * strings, so every glyph lands in the same place and the caret
+           * stays honest. With a uuid in the field it could never line up.
+           *
+           * The mark is confirmation, not decoration — it is how somebody
+           * knows `@Fatouma Abdillahi` actually resolved to a person rather
+           * than being three words they typed.
+           */}
+          <div className="relative">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words rounded-md px-3 py-2 text-sm"
+            >
+              {highlighted.map((piece, index) =>
+                piece.resolved ? (
+                  <mark
+                    key={index}
+                    className="rounded-sm bg-primary-subtle text-primary-bold"
+                  >
+                    {piece.text}
+                  </mark>
+                ) : (
+                  <span key={index} className="invisible">{piece.text}</span>
+                ),
+              )}
+            </div>
+            <Textarea
+              ref={textareaRef}
+              value={value}
+              rows={rows}
+              autoFocus={autoFocus}
+              disabled={busy}
+              placeholder={placeholder}
+              resizable={false}
+              onChange={(event) => {
+                onChange(event.target.value);
+                setCaret(event.target.selectionStart ?? 0);
+                setActiveIndex(0);
+              }}
+              onKeyUp={syncCaret}
+              onClick={syncCaret}
+              onKeyDown={handleKeyDown}
+              className="relative bg-transparent"
+            />
+          </div>
         </Popover.Anchor>
 
         <Popover.Portal>
@@ -192,7 +274,7 @@ export function Composer({
                   <li key={option.key}>
                     <button
                       type="button"
-                      onMouseEnter={() => setHighlighted(index)}
+                      onMouseEnter={() => setActiveIndex(index)}
                       onMouseDown={(event) => {
                         event.preventDefault();
                         choose(option);
@@ -233,7 +315,7 @@ export function Composer({
             size="sm"
             shape="pill"
             disabled={!value.trim() || busy}
-            onClick={onSubmit}
+            onClick={submit}
             leadingIcon={busy ? <Spinner className="size-3.5" /> : <Send className="size-3.5" />}
           >
             Send

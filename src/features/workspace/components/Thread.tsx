@@ -1,6 +1,10 @@
 import { useMemo, useState } from 'react';
 
 import { useConfirm } from '@/design-system';
+import {
+  ArrowRight, CalendarDays, CheckCircle2, Circle, CircleDashed, Copy, Eye, EyeOff,
+  Link2, ListChecks, Pencil, Repeat, TriangleAlert, UserPlus,
+} from '@/design-system/icons';
 import { useAuthStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/utils';
 
@@ -8,8 +12,41 @@ import {
   useAssignMessage, useEditMessage, usePostMessage, useResolveMessage, useWithdrawMessage,
 } from '../api/queries';
 import { Composer } from '../composer/Composer';
-import { TASK_STATUS_LABEL, type RecordType, type TaskEvent, type WorkspaceMessage } from '../contracts';
+import {
+  TASK_PRIORITIES, TASK_STATUSES,
+  type RecordType, type TaskEvent, type TaskPriority, type TaskStatus, type WorkspaceMessage,
+} from '../contracts';
 import { MessageRow } from './MessageRow';
+import { PriorityMark, TaskStatusBadge } from './TaskMarks';
+
+/** A glyph per event kind, so the rail scans as shapes before words. */
+const EVENT_ICON: Record<string, typeof CircleDashed> = {
+  CREATED: CircleDashed,
+  TITLE_CHANGED: Pencil,
+  DESCRIPTION_CHANGED: Pencil,
+  STATUS_CHANGED: ListChecks,
+  PRIORITY_CHANGED: TriangleAlert,
+  ASSIGNED: UserPlus,
+  UNASSIGNED: UserPlus,
+  DUE_CHANGED: CalendarDays,
+  LINKED: Link2,
+  UNLINKED: Link2,
+  /* Phase 3. Checklist ticks get the filled/hollow pair rather than one glyph
+     twice, because a rail of eight checklist lines is the one place where the
+     shape has to say which direction it went without reading the words. */
+  CHECKLIST_ADDED: ListChecks,
+  CHECKLIST_DONE: CheckCircle2,
+  CHECKLIST_REOPENED: Circle,
+  FOLLOWER_ADDED: Eye,
+  FOLLOWER_REMOVED: EyeOff,
+  TEMPLATE_USED: Copy,
+  RECURRENCE_GENERATED: Repeat,
+};
+
+const isTaskStatus = (value: string): value is TaskStatus =>
+  (TASK_STATUSES as readonly string[]).includes(value);
+const isTaskPriority = (value: string): value is TaskPriority =>
+  (TASK_PRIORITIES as readonly string[]).includes(value);
 
 type ThreadTab = 'open' | 'mine' | 'resolved';
 
@@ -29,12 +66,15 @@ export interface ThreadProps {
   className?: string;
 }
 
-/** "Brian changed status: Open → In Progress" — one line, inline. */
+/**
+ * One line of history — "changed priority NORMAL → HIGH".
+ *
+ * The transition carries the actual badges rather than bare uppercase words.
+ * A rail of grey text is unreadable at length, and a status change is exactly
+ * the thing somebody scrolls the history to find; showing it in the colour it
+ * wears everywhere else means they can spot it without reading.
+ */
 function EventLine({ event }: { event: TaskEvent }) {
-  const actor = event.actor ? `${event.actor.firstName} ${event.actor.lastName}`.trim() : 'Fleetin';
-  const pretty = (value: string | null) =>
-    value && value in TASK_STATUS_LABEL ? TASK_STATUS_LABEL[value as keyof typeof TASK_STATUS_LABEL] : value;
-
   const what: Record<string, string> = {
     CREATED: 'raised this',
     TITLE_CHANGED: 'renamed it',
@@ -44,24 +84,127 @@ function EventLine({ event }: { event: TaskEvent }) {
     ASSIGNED: 'assigned it',
     UNASSIGNED: 'unassigned it',
     DUE_CHANGED: 'changed the due date',
-    LINKED: 'changed the linked records',
+    LINKED: 'linked',
     UNLINKED: 'removed a link',
+    CHECKLIST_DONE: 'ticked off',
+    CHECKLIST_REOPENED: 'reopened',
+    FOLLOWER_REMOVED: 'stopped watching',
+    TEMPLATE_USED: 'filed this from',
+    /* No actor on this one — the processor wrote it. `actor` falls back to
+       "Fleetin", which is the truthful answer to who filed it. */
+    RECURRENCE_GENERATED: 'filed this automatically —',
   };
 
-  const showsTransition = event.fromValue && event.toValue;
+  /** Renders a from/to value as the badge it is, when it is one. */
+  const asMark = (value: string | null) => {
+    if (!value) return null;
+    if (isTaskStatus(value)) return <TaskStatusBadge status={value} />;
+    if (isTaskPriority(value)) return <PriorityMark priority={value} withLabel />;
+    return <span className="font-medium text-foreground">{value}</span>;
+  };
+
+  /* Two of the Phase 3 kinds carry a COUNT rather than a value — a
+     replace-whole-set call adds three steps at once, and one line per step
+     would bury the conversation the rail sits in. Their sentence is built
+     here, from that number, because the backend writing the prose would put
+     the same sentence in two places. */
+  const count = Number(event.toValue);
+  if (event.kind === 'CHECKLIST_ADDED' || (event.kind === 'FOLLOWER_ADDED' && Number.isFinite(count) && event.toValue)) {
+    const noun = event.kind === 'CHECKLIST_ADDED' ? 'step' : 'watcher';
+    what[event.kind] = `added ${count} ${count === 1 ? noun : `${noun}s`}`;
+  }
+  if (event.kind === 'FOLLOWER_ADDED' && !event.toValue) what[event.kind] = 'started watching';
+
+  /* A checklist step, a template name or a rule name is free text that arrives
+     in the same column a status does — quoted, so a step reading "Completed"
+     cannot be mistaken for the badge of that name. The counted kinds above
+     have already said their number in the verb, so they are not quoted. */
+  const quoted = event.kind === 'CHECKLIST_DONE'
+    || event.kind === 'CHECKLIST_REOPENED'
+    || event.kind === 'TEMPLATE_USED'
+    || event.kind === 'RECURRENCE_GENERATED';
+
+  const counted = event.kind === 'CHECKLIST_ADDED' || event.kind === 'FOLLOWER_ADDED';
+  const from = quoted || counted ? null : asMark(event.fromValue);
+  const to = counted
+    ? null
+    : quoted
+      ? event.toValue
+        ? <span className="min-w-0 truncate font-medium text-foreground">“{event.toValue}”</span>
+        : null
+      : asMark(event.toValue);
+  const Icon = EVENT_ICON[event.kind] ?? CircleDashed;
 
   return (
-    <div className="flex flex-wrap items-baseline gap-x-1.5 px-3 py-1 text-[0.6875rem] text-muted-foreground">
-      <span className="font-medium text-foreground">{actor}</span>
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[0.6875rem] text-muted-foreground">
+      <Icon className="size-3 shrink-0 text-muted-foreground" aria-hidden />
       <span>{what[event.kind] ?? event.kind.toLowerCase().replace(/_/g, ' ')}</span>
-      {showsTransition ? (
-        <span className="font-medium text-foreground">
-          {pretty(event.fromValue)} → {pretty(event.toValue)}
+      {from && to ? (
+        <span className="inline-flex items-center gap-1">
+          {from}
+          <ArrowRight className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+          {to}
         </span>
-      ) : null}
-      <time dateTime={event.createdAt} className="ml-auto tabular-nums">
-        {formatRelativeTime(event.createdAt)}
-      </time>
+      ) : (
+        to
+      )}
+    </div>
+  );
+}
+
+/** How long a gap can be and still count as one sitting. */
+const GROUP_WINDOW_MS = 10 * 60_000;
+
+/** Beyond this, a run collapses behind a "+N more" until somebody asks. */
+const GROUP_VISIBLE = 3;
+
+/**
+ * A run of changes by one person, as one block.
+ *
+ * The rail used to draw every event as its own row carrying its own name and
+ * its own timestamp — so eight edits in one sitting read as eight paragraphs,
+ * all beginning "System Administrator", each with the time on a second line
+ * because the row could not hold both. The information was there and nobody
+ * could see it.
+ *
+ * Grouped, that becomes one name, one time, and eight tight lines under them —
+ * the same trick the message list already plays on consecutive messages from
+ * one author, for the same reason. Runs longer than three collapse, because
+ * the useful part of a long run is that it happened, not each step of it.
+ */
+function EventGroup({ events }: { events: TaskEvent[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const first = events[0];
+  if (!first) return null;
+
+  const actor = first.actor ? `${first.actor.firstName} ${first.actor.lastName}`.trim() : 'Fleetin';
+  const hidden = expanded ? 0 : Math.max(0, events.length - GROUP_VISIBLE);
+  const shown = hidden > 0 ? events.slice(0, GROUP_VISIBLE) : events;
+
+  return (
+    <div className="px-3 py-1.5">
+      <div className="flex items-baseline gap-1.5 text-[0.6875rem] text-muted-foreground">
+        <span className="font-medium text-foreground">{actor}</span>
+        <time dateTime={first.createdAt} className="ml-auto shrink-0 tabular-nums">
+          {formatRelativeTime(first.createdAt)}
+        </time>
+      </div>
+      {/* Indented under the name and ruled, so the block reads as one thing
+          rather than as loose lines that happen to be adjacent. */}
+      <div className="mt-0.5 space-y-0.5 border-l border-border-subtle pl-2">
+        {shown.map((event) => (
+          <EventLine key={event.id} event={event} />
+        ))}
+        {hidden > 0 ? (
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="text-[0.6875rem] font-medium text-primary-bold underline-offset-2 hover:underline"
+          >
+            +{hidden} more {hidden === 1 ? 'change' : 'changes'}
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -135,7 +278,30 @@ export function Thread({ messages, events = [], taskId, recordType, recordId, cl
         ? events.map((e): StreamItem => ({ at: new Date(e.createdAt).getTime(), node: 'event', event: e }))
         : []),
     ];
-    return items.sort((a, b) => a.at - b.at);
+    items.sort((a, b) => a.at - b.at);
+
+    /* Fold neighbouring events by one person into a single block. A rail where
+       every change repeats the same name and its own timestamp is eight
+       paragraphs saying what one paragraph says — the complaint that produced
+       `EventGroup`. A message between two runs breaks them apart, which is
+       right: the comment is usually the reason for the change after it. */
+    type Row =
+      | { node: 'message'; at: number; message: WorkspaceMessage }
+      | { node: 'events'; at: number; events: TaskEvent[] };
+
+    const rows: Row[] = [];
+    for (const item of items) {
+      if (item.node === 'message') { rows.push(item); continue; }
+      const last = rows.at(-1);
+      const previous = last?.node === 'events' ? last.events.at(-1) : undefined;
+      const sameHand =
+        previous !== undefined
+        && (previous.actor?.id ?? null) === (item.event.actor?.id ?? null)
+        && item.at - new Date(previous.createdAt).getTime() < GROUP_WINDOW_MS;
+      if (sameHand && last?.node === 'events') last.events.push(item.event);
+      else rows.push({ node: 'events', at: item.at, events: [item.event] });
+    }
+    return rows;
   }, [visible, events, tab]);
 
   async function handleWithdraw(id: string) {
@@ -148,10 +314,10 @@ export function Thread({ messages, events = [], taskId, recordType, recordId, cl
     if (ok) withdraw.mutate(id);
   }
 
-  function send() {
-    if (!draft.trim()) return;
+  function send(body: string) {
+    if (!body.trim()) return;
     post.mutate(
-      { body: draft, taskId, recordType, recordId, parentMessageId: replyTo ?? undefined },
+      { body, taskId, recordType, recordId, parentMessageId: replyTo ?? undefined },
       { onSuccess: () => { setDraft(''); setReplyTo(null); } },
     );
   }
@@ -187,8 +353,8 @@ export function Thread({ messages, events = [], taskId, recordType, recordId, cl
           </p>
         ) : (
           stream.map((item) =>
-            item.node === 'event' ? (
-              <EventLine key={`e-${item.event.id}`} event={item.event} />
+            item.node === 'events' ? (
+              <EventGroup key={`e-${item.events[0]?.id}`} events={item.events} />
             ) : (
               <MessageRow
                 key={item.message.id}

@@ -14,7 +14,14 @@ import {
   EmptyState,
   TimePicker,
 } from '@/design-system';
-import { AlertTriangle, ArrowLeft, ArrowLeftRight, CheckCircle2, RotateCcw, X } from '@/design-system/icons';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowLeftRight,
+  CheckCircle2,
+  RotateCcw,
+  X,
+} from '@/design-system/icons';
 import { detentionFor, formatDetention, riskTextClass } from '@/data/emptyReturnData';
 import {
   defaultPlannedReturn,
@@ -221,18 +228,22 @@ export function MatchingPage() {
                 className={cn(
                   'w-full min-w-0 cursor-pointer rounded-card border p-3 text-left transition',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  /* The card wears what is in the box. Every card in this
-                     column is an EMPTY container, so the whole column sits on
-                     the empty ground — the reader sees which half of the
-                     workbench is supply before reading a single word, and the
-                     two halves stop being two identical stacks of white cards.
-                     Selection is then a border job, not a fill job: sky, the
-                     v19 "available" hue, so picking one does not read as the
-                     same signal as the load it might carry. */
-                  'bg-container-empty-subtle',
+                  /* The container-empty ground, at full strength.
+                     Every card in this column is an EMPTY, so the column sits on
+                     the empty colour and the reader sees which half of the
+                     workbench is supply before reading a word. Nothing here is
+                     dimmed with an opacity modifier: `--container-empty-subtle`
+                     and `-border` are already the calibrated quiet steps of that
+                     hue, and knocking them down again is what made the column
+                     look washed out.
+
+                     Selection is a border job, not a fill job — sky, the v19
+                     "available" hue — so picking one does not read as the same
+                     signal as the load it might carry. */
+                  'border-container-empty-border bg-container-empty-subtle',
                   active
-                    ? 'border-2 border-stage-available shadow-2xs'
-                    : 'border-container-empty-border/40 hover:border-stage-available hover:shadow-sm',
+                    ? 'border-2 border-stage-available shadow-sm'
+                    : 'hover:border-stage-available hover:shadow-sm',
                 )}
               >
                 {active && (
@@ -240,10 +251,12 @@ export function MatchingPage() {
                     ✓ SELECTED
                   </div>
                 )}
-                {/* Wraps rather than competes. The badge and the number were
+                {/* Identity and urgency on one line, hard against the two edges.
+
+                    Wraps rather than competes: the badge and the number were
                     sharing one line, so on a phone the badge won and the
                     container read "MAEU-58565…" — the identity cut to make room
-                    for its status. The badge drops to its own line instead. */}
+                    for its status. */}
                 <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
                   <span className="flex min-w-0 items-center gap-1.5">
                     <EmptyTag small />
@@ -253,7 +266,14 @@ export function MatchingPage() {
                   </span>
                   <RiskBadge risk={risk} className="shrink-0" />
                 </div>
-                <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                {/* One line, not a spec sheet. Eleven of these stack in a column
+                    the operator scans, so height is the scarce resource — three
+                    ruled label/value rows per card tripled every card to line up
+                    values nobody compares across cards. */}
+                {/* The amber's own ink, not `muted-foreground`. That grey is
+                    calibrated for a white page; on this ground it reads as text
+                    that landed on the card by accident. */}
+                <div className="mt-1 truncate text-[11px] font-medium text-container-empty-subtle-foreground">
                   {record.line} · {record.size} · {record.locationName}
                 </div>
                 <div className={cn('font-mono text-[11px] font-bold', riskTextClass(risk))}>
@@ -605,7 +625,15 @@ function CompatChecklist({ suggestion }: { suggestion: PairingSuggestion }) {
  * cannot afford that. Inline halves the height and still keeps the label, which
  * matters — "4646" and "+3d 18h" mean nothing on their own.
  */
-function Datum({
+/**
+ * One fact, label inline.
+ *
+ * A ruled label-left/value-right sheet was tried here and reverted: this card
+ * is a row in a list the operator scans, and five ruled rows made it three
+ * times as tall to align values nobody compares across cards. Height is the
+ * scarce resource on this page, not alignment.
+ */
+function SpecRow({
   label,
   children,
   className,
@@ -651,13 +679,18 @@ function SuggestionCard({
            box with everything inside a single column, so the header, the facts
            and the actions all shared one undifferentiated block and the reader
            had to find the structure themselves. */
+        /* Every card here is a FULL load, so it sits on the full ground —
+           empty on the left, full on the right, and the trade the page exists
+           to make is legible from across the room. At full strength: the border
+           carried a `/40` and the rules a `/25`, which is what made this side
+           look faded next to the other.
+
+           Violet stays the pairing hue and rides on top as the border: a
+           pairing is the product's whole point, not a shade of "full". */
         'min-w-0 overflow-hidden rounded-card border bg-container-full-subtle',
-        /* Violet stays the pairing hue and rides on top as the border. The
-           scale's own note is the reason: a pairing is the product's whole
-           point, it is not a shade of "full", and teal made it look like one. */
         featured
-          ? 'border-stage-paired ring-1 ring-stage-paired/25'
-          : 'border-container-full-border/40',
+          ? 'border-stage-paired ring-1 ring-stage-paired'
+          : 'border-container-full-border',
       )}
     >
       {/* ── WHAT THIS IS ──
@@ -665,7 +698,7 @@ function SuggestionCard({
           it. It used to be `ml-auto` inside a wrapping row, so on a narrow card
           it dropped to a line of its own and floated under the reference with
           nothing to align to. */}
-      <div className="flex min-w-0 items-center justify-between gap-2 border-b border-container-full-border/25 px-3 py-2">
+      <div className="flex min-w-0 items-center justify-between gap-2 border-b border-container-full-border px-3 py-2">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <span
             className={cn(
@@ -688,25 +721,27 @@ function SuggestionCard({
       </div>
 
       {/* ── THE FACTS ──
-          Two dense columns, one line each. This card is a row in a list the
-          operator scans, so height is the scarce resource: labels sit inline
-          rather than stacked, the gutter is `px-3`, and rows are `gap-y-1`. */}
+          Label left, value right, ruled between — the same spec sheet the empty
+          cards opposite now use, so the two halves of the pairing are read the
+          same way. Inline `label value` pairs in a two-column grid put every
+          value at a different x, which is exactly the thing that makes a card
+          feel unorganised: nothing to run the eye down. */}
       <dl className="grid grid-cols-1 gap-x-5 gap-y-1 px-3 py-2 sm:grid-cols-2">
-        <Datum label="Container">
+        <SpecRow label="Container">
           <Mono className="font-bold text-foreground">{load.container || '—'}</Mono>
-        </Datum>
-        <Datum label="Pickup">
+        </SpecRow>
+        <SpecRow label="Pickup">
           <Mono className="font-semibold text-foreground">{formatStamp(load.pickupAt)}</Mono>
-        </Datum>
-        <Datum label="From">
+        </SpecRow>
+        <SpecRow label="From">
           <span className="truncate font-semibold text-foreground" title={load.pickupHub}>
             {load.pickupHub}
           </span>
-        </Datum>
-        <Datum label="Margin">
+        </SpecRow>
+        <SpecRow label="Margin">
           <Mono
             className={cn(
-              'font-semibold',
+              'font-bold',
               tight
                 ? 'text-stage-returning-subtle-foreground'
                 : 'text-stage-closed-subtle-foreground',
@@ -714,18 +749,14 @@ function SuggestionCard({
           >
             +{formatSpan(marginMs)}
           </Mono>
-        </Datum>
-        {/* Spans both columns because the carrier's name is the longest value
-            on the card. The "Assigned in the Shipment module" line that used to
-            sit under it is gone: it was the same sentence on every card, so it
-            cost a row per card and told the reader nothing about this one. */}
-        <Datum label="Transporter" className="sm:col-span-2">
+        </SpecRow>
+        <SpecRow label="Transporter" className="sm:col-span-2">
           {load.transporter ? (
             <CompanyName name={load.transporter} className="min-w-0 font-semibold text-foreground" />
           ) : (
             <span className="font-semibold text-foreground">Not assigned yet</span>
           )}
-        </Datum>
+        </SpecRow>
       </dl>
 
       {/* ── WHY, AND WHAT TO DO ──
@@ -733,7 +764,7 @@ function SuggestionCard({
           actions are a normal card footer: secondary left, primary right. They
           used to be a column pinned to the top-right of a tall card, which left
           "Not this one" floating halfway up beside the facts. */}
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-t border-container-full-border/25 px-3 py-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-t border-container-full-border px-3 py-1.5">
         <CompatChecklist suggestion={suggestion} />
         <div className="flex shrink-0 items-center gap-2">
           <Button

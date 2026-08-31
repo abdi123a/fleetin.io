@@ -7,10 +7,13 @@ import {
 import { useTeam } from '@/features/team';
 import { cn } from '@/utils';
 
-import { useCreateTask } from '../api/queries';
+import { ListChecks } from '@/design-system/icons';
+
+import { useCreateTask, useTemplates, useUseTemplate } from '../api/queries';
 import { Composer } from '../composer/Composer';
 import { RecordChip } from '../composer/RecordChip';
-import type { RecordType, TaskPriority } from '../contracts';
+import type { RecordType, TaskPriority, TaskStatus } from '../contracts';
+import { TASK_STATUS_LABEL } from '../contracts';
 import { PrioritySelect } from './TaskMarks';
 
 export interface RaiseTaskDialogProps {
@@ -18,6 +21,8 @@ export interface RaiseTaskDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Pre-attached record when raised from a shipment, vehicle or driver page. */
   record?: { recordType: RecordType; recordId: string; recordRef: string; label?: string | null };
+  /** Files the task straight into this column — set by the board's "Add task". */
+  status?: TaskStatus;
   onCreated?: (reference: string) => void;
 }
 
@@ -29,9 +34,11 @@ export interface RaiseTaskDialogProps {
  * is a reason to close it and carry on, and the thing never gets written down.
  * Description, links and the conversation all live on the task afterwards.
  */
-export function RaiseTaskDialog({ open, onOpenChange, record, onCreated }: RaiseTaskDialogProps) {
+export function RaiseTaskDialog({ open, onOpenChange, record, status, onCreated }: RaiseTaskDialogProps) {
   const { data: team = [] } = useTeam();
+  const { data: templates = [] } = useTemplates();
   const create = useCreateTask();
+  const fromTemplate = useUseTemplate();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -48,14 +55,19 @@ export function RaiseTaskDialog({ open, onOpenChange, record, onCreated }: Raise
   const assignee = team.find((m) => m.id === assigneeId);
   const canSubmit = title.trim().length > 0 && !create.isPending;
 
-  function submit() {
+  /* The Composer hands back a materialised body; typing straight into the
+     title and pressing Enter has no tokens to swap, so `description` is used
+     as-is in that path. */
+  function submit(body?: string) {
     if (!canSubmit) return;
+    const detail = (body ?? description).trim();
     create.mutate(
       {
         title: title.trim(),
-        description: description.trim() || undefined,
+        description: detail || undefined,
         assigneeId,
         priority,
+        status,
         /* The picker hands back a date; the API wants an instant. End of day,
            because "due Friday" means by the end of Friday, not 00:00. */
         dueAt: dueAt ? new Date(`${dueAt}T23:59:59`).toISOString() : undefined,
@@ -73,7 +85,15 @@ export function RaiseTaskDialog({ open, onOpenChange, record, onCreated }: Raise
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
-        <DialogHeader title={record ? `Raise on ${record.recordRef}` : 'Raise a task'} />
+        <DialogHeader
+          title={
+            record
+              ? `Raise on ${record.recordRef}`
+              : status && status !== 'OPEN'
+                ? `Raise in ${TASK_STATUS_LABEL[status]}`
+                : 'Raise a task'
+          }
+        />
 
         <DialogBody className="space-y-4">
           {record ? (
@@ -84,6 +104,47 @@ export function RaiseTaskDialog({ open, onOpenChange, record, onCreated }: Raise
                 reference={record.recordRef}
                 label={record.label}
               />
+            </div>
+          ) : null}
+
+          {/* Templates lead, because a template is the whole form: picking
+              one files the task with its checklist and closes the dialog. Only
+              shown when the desk has actually made some — an empty rail of
+              buttons is a feature advertising itself. */}
+          {templates.length > 0 ? (
+            <div className="space-y-1.5">
+              <span className="block text-xs font-medium text-foreground">Start from a template</span>
+              <div className="flex flex-wrap gap-1.5">
+                {templates.map((template) => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    disabled={fromTemplate.isPending}
+                    onClick={() =>
+                      fromTemplate.mutate(
+                        {
+                          id: template.id,
+                          payload: {
+                            assigneeId,
+                            recordType: record?.recordType,
+                            recordId: record?.recordId,
+                          },
+                        },
+                        {
+                          onSuccess: (task) => { onOpenChange(false); onCreated?.(task.reference); },
+                        },
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary-subtle px-2.5 py-1 text-xs font-medium text-primary-subtle-foreground transition-colors duration-fast hover:bg-primary/15 disabled:opacity-60"
+                  >
+                    <ListChecks className="size-3.5" aria-hidden />
+                    {template.name}
+                    {template.items.length > 0 ? (
+                      <span className="tabular-nums opacity-70">{template.items.length}</span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
             </div>
           ) : null}
 
@@ -162,7 +223,7 @@ export function RaiseTaskDialog({ open, onOpenChange, record, onCreated }: Raise
             size="sm"
             shape="pill"
             disabled={!canSubmit}
-            onClick={submit}
+            onClick={() => submit()}
             leadingIcon={create.isPending ? <Spinner className="size-3.5" /> : undefined}
           >
             Raise

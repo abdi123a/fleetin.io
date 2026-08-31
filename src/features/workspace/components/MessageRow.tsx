@@ -1,15 +1,15 @@
 import { useState } from 'react';
 
-import { Avatar, Tooltip } from '@/design-system';
+import { Tooltip } from '@/design-system';
 import { Check, CornerDownLeft, Pencil, Trash2, UserPlus } from '@/design-system/icons';
 import { CrewPicker } from '@/components/crew';
-import { resolveAssetUrl } from '@/services/api.client';
 import { useAuthStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/utils';
 
 import type { WorkspaceMessage } from '../contracts';
 import { Composer } from '../composer/Composer';
 import { MessageBody } from '../composer/MessageBody';
+import { PersonAvatar } from './PersonAvatar';
 
 export interface MessageRowProps {
   message: WorkspaceMessage;
@@ -96,16 +96,11 @@ export function MessageRow({
       ) : null}
 
       <div className="flex gap-2.5 px-3 py-2.5">
-        <Avatar
-          size="xs"
-          name={fullName(message.author)}
-          src={resolveAssetUrl(message.author.avatarUrl ?? undefined)}
-          className="mt-0.5 shrink-0"
-        />
+        <PersonAvatar person={message.author} size="sm" className="shrink-0" />
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2">
-            <span className="text-xs font-semibold text-foreground">{fullName(message.author)}</span>
+            <span className="text-sm font-bold leading-tight text-foreground">{fullName(message.author)}</span>
             <time className="text-[0.6875rem] text-muted-foreground" dateTime={message.createdAt}>
               {formatRelativeTime(message.createdAt)}
             </time>
@@ -120,14 +115,22 @@ export function MessageRow({
                 busy={busy}
                 rows={2}
                 autoFocus
-                onSubmit={() => {
-                  onEdit(message.id, draft);
+                onSubmit={(body) => {
+                  onEdit(message.id, body);
                   setEditing(false);
                 }}
               />
             </div>
           ) : (
-            <MessageBody body={message.body} currentUserId={currentUserId} className="mt-0.5" />
+            <MessageBody
+              body={message.body}
+              currentUserId={currentUserId}
+              references={message.references}
+              /* So a record chip's peek can quote the line it was clicked in —
+                 the ask scrolls away behind the panel otherwise. */
+              context={{ author: fullName(message.author), at: message.createdAt }}
+              className="mt-0.5"
+            />
           )}
 
           <div className="mt-1.5 flex items-center gap-1">

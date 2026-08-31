@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ContainerIcon,
   Truck,
@@ -293,6 +293,7 @@ export function VehiclesPage() {
   const createVehicle = useCreateVehicle();
   const updateVehicle = useUpdateVehicle();
   const [selectedVehicle, setSelectedVehicle] = useState<EnrichedVehicle | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // Add Vehicle Modal State
   const [isAddVehicleOpen, setIsAddVehicleOpen] = useState(false);
@@ -412,6 +413,37 @@ export function VehiclesPage() {
     setDrawerTab('view');
     setDocNotice(null);
     setShowAddDocType(false);
+  };
+
+  /* `?vehicle=<id|reference|plate>` opens straight into that vehicle's sheet —
+     what a Workspace record chip links to. A chip that landed on this list
+     instead was asking the reader to go and find the truck themselves, which
+     on a fleet this size is a search, not a link.
+
+     Matches three ways because three things call a vehicle by name: the uuid
+     a task link carries, the `VEH-#####` reference, and the plate people
+     actually say out loud. Mirrors `?driver=` on the drivers page. */
+  const wantedVehicle = searchParams.get('vehicle');
+  useEffect(() => {
+    if (!wantedVehicle || vehicles.length === 0) return;
+    const match = vehicles.find(
+      (v) => v.id === wantedVehicle || v.reference === wantedVehicle || v.plateNumber === wantedVehicle,
+    );
+    if (match) handleSelectVehicle(match);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantedVehicle, vehicles]);
+
+  const closeVehicleDrawer = () => {
+    setSelectedVehicle(null);
+    if (wantedVehicle) {
+      setSearchParams(
+        (params) => {
+          params.delete('vehicle');
+          return params;
+        },
+        { replace: true },
+      );
+    }
   };
 
   /** Defines a new document type — saved to the catalog, so it shows up as
@@ -867,7 +899,7 @@ export function VehiclesPage() {
         />
       </FilterBar>
       {/* Vehicle Drawer */}
-      <Sheet open={Boolean(selectedVehicle)} onOpenChange={(open) => !open && setSelectedVehicle(null)}>
+      <Sheet open={Boolean(selectedVehicle)} onOpenChange={(open) => !open && closeVehicleDrawer()}>
         <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto p-6 bg-background border-l border-border space-y-6">
           <SheetTitle className="sr-only">Vehicle Details & Documents</SheetTitle>
           <SheetDescription className="sr-only">Vehicle specifications and documents.</SheetDescription>
