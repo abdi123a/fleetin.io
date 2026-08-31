@@ -28,6 +28,8 @@ interface MissionFilterToolbarProps {
   transporterOptions?: { id: string; name: string }[];
   driverOptions?: { id: string; name: string }[];
   vehicleOptions?: { id: string; registrationNumber: string }[];
+  /** Cargo types actually present in the book, from the host. */
+  cargoTypeOptions?: string[];
   viewMode?: 'rows' | 'cards' | 'list' | 'grid';
   onViewModeChange?: (mode: 'rows' | 'cards') => void;
   counts?: {
@@ -38,20 +40,6 @@ interface MissionFilterToolbarProps {
     completed?: number;
   };
 }
-
-const CARGO_TYPES = [
-  'All Cargo Types',
-  'Container 20ft',
-  'Container 40ft',
-  'Bulk Cargo',
-  'Machinery',
-  'Containerized',
-  'Dry Bulk',
-  'Refrigerated',
-  'Steel Construction Beams',
-  'General Cargo',
-  'Heavy Machinery',
-];
 
 const ROUTES_LIST = [
   'All Routes',
@@ -66,27 +54,18 @@ export const MissionFilterToolbar: React.FC<MissionFilterToolbarProps> = ({
   filters,
   onFilterChange,
   onResetFilters,
-  customerOptions = [
-    { id: 'SHP-101', name: 'Transit Marill' },
-    { id: 'SHP-102', name: 'Red Sea Cargo Inc' },
-    { id: 'SHP-103', name: 'Horn Trade Group' },
-    { id: 'SHP-104', name: 'EA Express Cargo' },
-  ],
-  transporterOptions = [
-    { id: 'PTR-501', name: 'Fleetin Express Ltd' },
-    { id: 'PTR-502', name: 'Gulf Transporter Group' },
-    { id: 'PTR-503', name: 'Red Sea Transports' },
-  ],
-  driverOptions = [
-    { id: 'DRV-00301', name: 'Abdo Driver' },
-    { id: 'DRV-00302', name: 'Osman Farah' },
-    { id: 'DRV-00303', name: 'Ibrahim Ali' },
-  ],
-  vehicleOptions = [
-    { id: 'VEH-00201', registrationNumber: '340D103' },
-    { id: 'VEH-00202', registrationNumber: '298D405' },
-    { id: 'VEH-00203', registrationNumber: '512D109' },
-  ],
+  /* Empty, not invented. These carried placeholder rows — "Fleetin Express
+     Ltd", "Red Sea Cargo Inc", plate "340D103" — and the one page that renders
+     this toolbar passed nothing, so the defaults were what every operator
+     actually saw: a filter offering four shippers and three transporters that
+     do not exist, where picking any of them returned an empty list. An option
+     nothing can match is worse than no option, because it reads as a working
+     control. The host derives the real ones and passes them in. */
+  customerOptions = [],
+  transporterOptions = [],
+  driverOptions = [],
+  vehicleOptions = [],
+  cargoTypeOptions = [],
   viewMode = 'rows',
   onViewModeChange,
   counts = {
@@ -258,16 +237,10 @@ export const MissionFilterToolbar: React.FC<MissionFilterToolbarProps> = ({
                 value: filters.cargoType || 'all',
                 onChange: (value) =>
                   onFilterChange({ cargoType: value === 'all' ? '' : value }),
-                /* The catalogue's first entry is the "no filter" one, and it
-                   has to map to `all` or it can never be chosen back: the old
-                   code tested for `'All Truck Types'`, a label this list does
-                   not contain (it starts `'All Cargo Types'`), so picking it
-                   set cargoType to the literal string and the filter could not
-                   be cleared from this control at all. */
-                options: CARGO_TYPES.map((ct, i) => ({
-                  value: i === 0 ? 'all' : ct,
-                  label: ct,
-                })),
+                options: [
+                  { value: 'all', label: 'All cargo types' },
+                  ...cargoTypeOptions.map((ct) => ({ value: ct, label: ct })),
+                ],
               },
               {
                 key: 'sort',
