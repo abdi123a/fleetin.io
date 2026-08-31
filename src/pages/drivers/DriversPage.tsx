@@ -3,7 +3,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   User,
   MoreVertical,
-  SlidersHorizontal,
   ExternalLink,
   Star,
   Truck,
@@ -21,7 +20,8 @@ import { DocumentViewerModal, type DocumentToView } from '@/components/DocumentV
 import { RecordRaise } from '@/features/workspace';
 import { triggerDocumentDownload } from '@/components/documentDownload';
 import { RotateCcw, AlertTriangle, Building2, UserCheck, Check } from 'lucide-react';
-import { DataTable, FilterBar, PageHeader, TablePager, usePagedRows } from '@/components';
+import { DataTable, FilterBar,
+  FilterMenu, PageHeader, TablePager, usePagedRows } from '@/components';
 import {
   RecordStatusMenuSection,
   DRIVER_STATUS_OPTIONS,
@@ -907,18 +907,19 @@ export function DriversPage() {
           total: drivers.length,
         }}
       >
-        <Select
-          selectSize="sm"
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value)}
-          aria-label="Sort drivers"
-          leadingIcon={<SlidersHorizontal />}
-          containerClassName="w-full @[26rem]/bar:w-auto"
-          className="h-9 w-full min-w-[9.5rem] text-xs font-medium @[26rem]/bar:w-auto"
-          options={[
-            { value: 'name-asc', label: 'Driver name' },
-            { value: 'partner-asc', label: 'Transporter' },
-            { value: 'license-asc', label: 'License no.' },
+        <FilterMenu
+          groups={[
+            {
+              key: 'sort',
+              label: 'Sort by',
+              value: sortBy,
+              onChange: setSortBy,
+              options: [
+                { value: 'name-asc', label: 'Driver name' },
+                { value: 'partner-asc', label: 'Transporter' },
+                { value: 'license-asc', label: 'License no.' },
+              ],
+            },
           ]}
         />
       </FilterBar>

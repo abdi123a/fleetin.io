@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { MissionFilterState } from '@/types/mission';
-import { Avatar, Input, Badge, Select } from '@/design-system';
+import { Avatar, Input, Badge } from '@/design-system';
+import { FilterMenu } from '@/components/common';
 import { useTeam } from '@/features/team';
 import { useAuthStore } from '@/stores';
 import { cn } from '@/utils';
@@ -234,39 +235,54 @@ export const MissionFilterToolbar: React.FC<MissionFilterToolbarProps> = ({
             </button>
           )}
 
-          <Select
-            selectSize="sm"
-            containerClassName="flex-1 sm:flex-initial sm:w-32 lg:w-36"
-            value={filters.transporterId || 'all'}
-            onChange={(e) => onFilterChange({ transporterId: e.target.value === 'all' ? '' : e.target.value })}
-            options={[
-              { value: 'all', label: 'All Transporters' },
-              ...transporterOptions.map((t) => ({ value: t.id, label: t.name })),
+          {/* The same menu every other list uses. This was three selects reading
+              "All Transporters", "All Cargo Types" and "Sort: Date (Newest)"
+              side by side — three unlabelled words competing for the same
+              corner, and on a narrow column they wrapped under the tabs. */}
+          <FilterMenu
+            groups={[
+              {
+                key: 'transporter',
+                label: 'Transporter',
+                value: filters.transporterId || 'all',
+                onChange: (value) =>
+                  onFilterChange({ transporterId: value === 'all' ? '' : value }),
+                options: [
+                  { value: 'all', label: 'All transporters' },
+                  ...transporterOptions.map((t) => ({ value: t.id, label: t.name })),
+                ],
+              },
+              {
+                key: 'cargo',
+                label: 'Cargo type',
+                value: filters.cargoType || 'all',
+                onChange: (value) =>
+                  onFilterChange({ cargoType: value === 'all' ? '' : value }),
+                /* The catalogue's first entry is the "no filter" one, and it
+                   has to map to `all` or it can never be chosen back: the old
+                   code tested for `'All Truck Types'`, a label this list does
+                   not contain (it starts `'All Cargo Types'`), so picking it
+                   set cargoType to the literal string and the filter could not
+                   be cleared from this control at all. */
+                options: CARGO_TYPES.map((ct, i) => ({
+                  value: i === 0 ? 'all' : ct,
+                  label: ct,
+                })),
+              },
+              {
+                key: 'sort',
+                label: 'Sort by',
+                value: filters.sortBy || 'date-desc',
+                onChange: (value) => onFilterChange({ sortBy: value }),
+                options: [
+                  { value: 'date-desc', label: 'Date (newest)' },
+                  { value: 'booking-asc', label: 'Booking no.' },
+                  { value: 'plate-asc', label: 'Plate no.' },
+                  { value: 'customer-asc', label: 'Shipper' },
+                ],
+                defaultValue: 'date-desc',
+              },
             ]}
-            className="text-2xs py-1 rounded-md"
-          />
-
-          <Select
-            selectSize="sm"
-            containerClassName="flex-1 sm:flex-initial sm:w-32 lg:w-36"
-            value={filters.cargoType || 'all'}
-            onChange={(e) => onFilterChange({ cargoType: e.target.value === 'all' ? '' : e.target.value })}
-            options={CARGO_TYPES.map((ct) => ({ value: ct === 'All Truck Types' ? 'all' : ct, label: ct }))}
-            className="text-2xs py-1 rounded-md"
-          />
-
-          <Select
-            selectSize="sm"
-            containerClassName="flex-1 sm:flex-initial sm:w-32 lg:w-36"
-            value={filters.sortBy || 'date-desc'}
-            onChange={(e) => onFilterChange({ sortBy: e.target.value })}
-            options={[
-              { value: 'plate-asc', label: 'Sort: Plate No' },
-              { value: 'booking-asc', label: 'Sort: Booking No' },
-              { value: 'date-desc', label: 'Sort: Date (Newest)' },
-              { value: 'customer-asc', label: 'Sort: Shipper' },
-            ]}
-            className="text-2xs py-1 rounded-md"
           />
 
           {onViewModeChange && (

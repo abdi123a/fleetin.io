@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { FileText, Search } from '@/design-system/icons';
 import { Badge, Card, Input } from '@/design-system';
+import { FilterMenu } from '@/components/common';
 import { CardHeading } from '@/features/shipper-bi/charts';
 import {
   CompanyLabel,
@@ -83,21 +84,24 @@ export function TripsSection({
                   className="h-8 w-full pl-8 text-xs sm:w-64"
                 />
               </div>
-              <select
-                value={statusFilter}
-                onChange={(event) =>
-                  setStatusFilter(event.target.value as TripStatus | 'all')
-                }
-                aria-label="Filter by status"
-                className="h-8 rounded-md border border-border bg-surface px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                <option value="all">All statuses</option>
-                {TRIP_STATUSES.map((status) => (
-                  <option key={status} value={status}>
-                    {TRIP_STATUS_LABELS[status]}
-                  </option>
-                ))}
-              </select>
+              <FilterMenu
+                groups={[
+                  {
+                    key: 'status',
+                    label: 'Status',
+                    value: statusFilter,
+                    onChange: (value) =>
+                      setStatusFilter(value as TripStatus | 'all'),
+                    options: [
+                      { value: 'all', label: 'All statuses' },
+                      ...TRIP_STATUSES.map((status) => ({
+                        value: status,
+                        label: TRIP_STATUS_LABELS[status],
+                      })),
+                    ],
+                  },
+                ]}
+              />
             </div>
           }
         />

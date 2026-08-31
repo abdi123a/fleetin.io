@@ -9,7 +9,6 @@ import {
   Package,
   Pencil,
   Plus,
-  SlidersHorizontal,
   Trash2,
   Clock,
   Truck,
@@ -20,7 +19,8 @@ import {
   Mail,
 } from '@/design-system/icons';
 import { BadgeCheck, RotateCcw, Star } from 'lucide-react';
-import { DataTable, FilterBar, PageHeader, TablePager, usePagedRows } from '@/components';
+import { DataTable, FilterBar,
+  FilterMenu, PageHeader, TablePager, usePagedRows } from '@/components';
 import {
   RecordStatusMark,
   RecordStatusMenuSection,
@@ -46,7 +46,6 @@ import {
   SheetContent,
   SheetDescription,
   SheetTitle,
-  Select,
   StatisticCard,
 } from '@/design-system';
 import { usePermissions } from '@/hooks';
@@ -553,32 +552,23 @@ export function PartnersPage() {
           total: partners.length,
         }}
       >
-        <Select
-          selectSize="sm"
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value)}
-          aria-label="Sort transporters"
-          leadingIcon={<SlidersHorizontal />}
-          containerClassName="w-full @[26rem]/bar:w-auto"
-          className="h-9 w-full min-w-[9.5rem] text-xs font-medium @[26rem]/bar:w-auto"
-          options={[
-            { value: 'name-asc', label: 'Name (A–Z)' },
-            { value: 'name-desc', label: 'Name (Z–A)' },
-            { value: 'fleet-desc', label: 'Largest fleet' },
+        <FilterMenu
+          groups={[
+            {
+              key: 'sort',
+              label: 'Sort by',
+              value: sortBy,
+              onChange: setSortBy,
+              options: [
+                { value: 'name-asc', label: 'Name (A–Z)' },
+                { value: 'name-desc', label: 'Name (Z–A)' },
+                { value: 'fleet-desc', label: 'Largest fleet' },
+              ],
+            },
           ]}
+          onReset={clearFilters}
+          resetActive={hasActiveFilters}
         />
-        {hasActiveFilters && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={clearFilters}
-            aria-label="Clear all filters"
-            className="type-label h-9 w-9 shrink-0 gap-1 px-0 text-muted-foreground sm:w-auto sm:px-2"
-          >
-            <X className="size-3.5" />
-            <span className="hidden sm:inline">Clear</span>
-          </Button>
-        )}
       </FilterBar>
 
       {/* ── Add / Edit Sheet Drawer ── */}

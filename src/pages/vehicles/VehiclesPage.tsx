@@ -9,7 +9,6 @@ import {
   X,
   Route,
   MoreVertical,
-  SlidersHorizontal,
   Pencil,
   FileText,
   Upload,
@@ -20,7 +19,8 @@ import {
 import { DocumentViewerModal, type DocumentToView } from '@/components/DocumentViewerModal';
 import { triggerDocumentDownload } from '@/components/documentDownload';
 import { RotateCcw, AlertTriangle, Building2, Check } from 'lucide-react';
-import { DataTable, FilterBar, PageHeader, TablePager, usePagedRows } from '@/components';
+import { DataTable, FilterBar,
+  FilterMenu, PageHeader, TablePager, usePagedRows } from '@/components';
 import {
   RecordStatusMenuSection,
   VEHICLE_STATUS_OPTIONS,
@@ -865,36 +865,34 @@ export function VehiclesPage() {
           total: vehicles.length,
         }}
       >
-        <Select
-          selectSize="sm"
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-          aria-label="Filter by vehicle type"
-          leadingIcon={<ContainerIcon />}
-          containerClassName="w-full @[26rem]/bar:w-auto"
-          className="h-9 w-full min-w-[9rem] text-xs font-medium @[26rem]/bar:w-auto"
-          options={[
-            { value: 'all', label: 'All vehicle types' },
-            { value: '40ft Container', label: '40ft Container' },
-            { value: '20ft Container', label: '20ft Container' },
-            { value: 'Flatbed', label: 'Flatbed' },
-            { value: 'Refrigerated', label: 'Refrigerated' },
-            { value: 'Tanker', label: 'Tanker' },
-            { value: 'Box Truck', label: 'Box Truck' },
-          ]}
-        />
-        <Select
-          selectSize="sm"
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value)}
-          aria-label="Sort vehicles"
-          leadingIcon={<SlidersHorizontal />}
-          containerClassName="w-full @[26rem]/bar:w-auto"
-          className="h-9 w-full min-w-[9.5rem] text-xs font-medium @[26rem]/bar:w-auto"
-          options={[
-            { value: 'plate-asc', label: 'Plate no.' },
-            { value: 'partner-asc', label: 'Transporter' },
-            { value: 'type-asc', label: 'Vehicle type' },
+        <FilterMenu
+          groups={[
+            {
+              key: 'type',
+              label: 'Vehicle type',
+              value: typeFilter,
+              onChange: setTypeFilter,
+              options: [
+                { value: 'all', label: 'All vehicle types' },
+                { value: '40ft Container', label: '40ft Container' },
+                { value: '20ft Container', label: '20ft Container' },
+                { value: 'Flatbed', label: 'Flatbed' },
+                { value: 'Refrigerated', label: 'Refrigerated' },
+                { value: 'Tanker', label: 'Tanker' },
+                { value: 'Box Truck', label: 'Box Truck' },
+              ],
+            },
+            {
+              key: 'sort',
+              label: 'Sort by',
+              value: sortBy,
+              onChange: setSortBy,
+              options: [
+                { value: 'plate-asc', label: 'Plate no.' },
+                { value: 'partner-asc', label: 'Transporter' },
+                { value: 'type-asc', label: 'Vehicle type' },
+              ],
+            },
           ]}
         />
       </FilterBar>

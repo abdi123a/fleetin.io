@@ -3,9 +3,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { ROUTES } from '@/config/routes';
 
-import { FilterBar } from '@/components/common';
-import { Button, Card, EmptyState, Select } from '@/design-system';
-import { PackageOpen, SlidersHorizontal, X } from '@/design-system/icons';
+import { FilterBar, FilterMenu } from '@/components/common';
+import { Card, EmptyState } from '@/design-system';
+import { PackageOpen } from '@/design-system/icons';
 import { detentionFor } from '@/data/emptyReturnData';
 import { useEmptyContainers } from '@/features/empty-returns';
 import {
@@ -284,32 +284,23 @@ export function ControlTowerPage() {
             implicit in the band a container sat in; with the bands gone it
             becomes a control, and the default reproduces the old arrangement —
             worst at the top — so nothing moved for anyone who never touches it. */}
-        <Select
-          value={sort}
-          aria-label="Sort containers"
-          onChange={(event) => setSort(event.target.value as SortKey)}
-          leadingIcon={<SlidersHorizontal />}
-          containerClassName="w-full @[26rem]/bar:w-auto"
-          className="h-9 w-full min-w-[9.5rem] text-xs font-medium @[26rem]/bar:w-auto"
-        >
-          {(Object.keys(SORTS) as SortKey[]).map((key) => (
-            <option key={key} value={key}>
-              {SORTS[key].label}
-            </option>
-          ))}
-        </Select>
-        {filtersActive && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => applyFilterPreset(ALL_FILTERS)}
-            aria-label="Clear all filters"
-            className="type-label h-9 w-9 shrink-0 gap-1 px-0 text-muted-foreground sm:w-auto sm:px-2"
-          >
-            <X className="size-3.5" />
-            <span className="hidden sm:inline">Clear</span>
-          </Button>
-        )}
+        <FilterMenu
+          groups={[
+            {
+              key: 'sort',
+              label: 'Sort by',
+              value: sort,
+              onChange: (value) => setSort(value as SortKey),
+              options: (Object.keys(SORTS) as SortKey[]).map((key) => ({
+                value: key,
+                label: SORTS[key].label,
+              })),
+              defaultValue: 'urgency',
+            },
+          ]}
+          onReset={() => applyFilterPreset(ALL_FILTERS)}
+          resetActive={filtersActive}
+        />
       </FilterBar>
 
       {/* No band heading: the tab above already names the band and prints its

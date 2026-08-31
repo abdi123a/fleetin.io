@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 
-import { Card, Select, StatisticCard } from '@/design-system';
+import { Card, StatisticCard } from '@/design-system';
+import { FilterMenu } from '@/components/common';
 import { AlertTriangle, ArrowLeftRight, Package, PackageOpen, Timer } from '@/design-system/icons';
 import {
   AVOIDED_TRIP_DETENTION_DAYS,
@@ -124,48 +125,47 @@ export function EmptyReturnPerformancePage() {
     <div className="flex w-full min-w-0 flex-col gap-4">
       {/* Filters */}
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        <Select
-          selectSize="sm"
-          value={filters.period}
-          onChange={(event) =>
-            setFilters({ period: event.target.value as typeof filters.period })
-          }
-          options={[...PERFORMANCE_PERIOD_OPTIONS]}
-          aria-label="Reporting period"
-          containerClassName="w-full sm:w-36"
-        />
-        <Select
-          selectSize="sm"
-          value={filters.line}
-          onChange={(event) => setFilters({ line: event.target.value })}
-          options={[
-            { value: 'all', label: 'All shipping lines' },
-            ...lines.map((line) => ({ value: line, label: line })),
+        <FilterMenu
+          groups={[
+            {
+              key: 'period',
+              label: 'Reporting period',
+              value: filters.period,
+              onChange: (value) =>
+                setFilters({ period: value as typeof filters.period }),
+              options: [...PERFORMANCE_PERIOD_OPTIONS],
+            },
+            {
+              key: 'line',
+              label: 'Shipping line',
+              value: filters.line,
+              onChange: (value) => setFilters({ line: value }),
+              options: [
+                { value: 'all', label: 'All shipping lines' },
+                ...lines.map((line) => ({ value: line, label: line })),
+              ],
+            },
+            {
+              key: 'transporter',
+              label: 'Transporter',
+              value: filters.transporter,
+              onChange: (value) => setFilters({ transporter: value }),
+              options: [
+                { value: 'all', label: 'All transporters' },
+                ...transporters.map((name) => ({ value: name, label: name })),
+              ],
+            },
+            {
+              key: 'size',
+              label: 'Container size',
+              value: filters.size,
+              onChange: (value) => setFilters({ size: value }),
+              options: [
+                { value: 'all', label: 'All sizes' },
+                ...sizes.map((size) => ({ value: size, label: size })),
+              ],
+            },
           ]}
-          aria-label="Filter by shipping line"
-          containerClassName="w-full sm:w-48"
-        />
-        <Select
-          selectSize="sm"
-          value={filters.transporter}
-          onChange={(event) => setFilters({ transporter: event.target.value })}
-          options={[
-            { value: 'all', label: 'All transporters' },
-            ...transporters.map((name) => ({ value: name, label: name })),
-          ]}
-          aria-label="Filter by transporter"
-          containerClassName="w-full sm:w-56"
-        />
-        <Select
-          selectSize="sm"
-          value={filters.size}
-          onChange={(event) => setFilters({ size: event.target.value })}
-          options={[
-            { value: 'all', label: 'All sizes' },
-            ...sizes.map((size) => ({ value: size, label: size })),
-          ]}
-          aria-label="Filter by container size"
-          containerClassName="w-full sm:w-32"
         />
         <span className="ml-auto text-xs text-muted-foreground">
           <Mono className="font-bold text-foreground">{model.scope.length}</Mono> container

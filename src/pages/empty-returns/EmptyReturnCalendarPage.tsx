@@ -9,8 +9,8 @@ import {
   DialogContent,
   DialogFooter,
   DialogHeader,
-  Select,
 } from '@/design-system';
+import { FilterMenu } from '@/components/common';
 import {
   EMPTY_RETURN_EVENT_META,
   EMPTY_RETURN_RISK_FILTER_OPTIONS,
@@ -95,35 +95,37 @@ export function EmptyReturnCalendarPage() {
             red bar already past today, and how much room is left is the length
             of every other one. */}
         <div className="mb-3 flex min-w-0 flex-wrap items-center justify-end gap-1.5">
-          <Select
-            selectSize="sm"
-            value={filters.risk}
-            onChange={(event) => setFilters({ risk: event.target.value as typeof filters.risk })}
-            options={[...EMPTY_RETURN_RISK_FILTER_OPTIONS]}
-            aria-label="Filter by urgency"
-            containerClassName="w-full sm:w-36"
-          />
-          <Select
-            selectSize="sm"
-            value={filters.line}
-            onChange={(event) => setFilters({ line: event.target.value })}
-            options={[
-              { value: 'all', label: 'All lines' },
-              ...lines.map((line) => ({ value: line, label: line })),
+          <FilterMenu
+            groups={[
+              {
+                key: 'risk',
+                label: 'Urgency',
+                value: filters.risk,
+                onChange: (value) =>
+                  setFilters({ risk: value as typeof filters.risk }),
+                options: [...EMPTY_RETURN_RISK_FILTER_OPTIONS],
+              },
+              {
+                key: 'line',
+                label: 'Shipping line',
+                value: filters.line,
+                onChange: (value) => setFilters({ line: value }),
+                options: [
+                  { value: 'all', label: 'All lines' },
+                  ...lines.map((line) => ({ value: line, label: line })),
+                ],
+              },
+              {
+                key: 'size',
+                label: 'Container size',
+                value: filters.size,
+                onChange: (value) => setFilters({ size: value }),
+                options: [
+                  { value: 'all', label: 'All sizes' },
+                  ...sizes.map((size) => ({ value: size, label: size })),
+                ],
+              },
             ]}
-            aria-label="Filter by shipping line"
-            containerClassName="w-full sm:w-36"
-          />
-          <Select
-            selectSize="sm"
-            value={filters.size}
-            onChange={(event) => setFilters({ size: event.target.value })}
-            options={[
-              { value: 'all', label: 'All sizes' },
-              ...sizes.map((size) => ({ value: size, label: size })),
-            ]}
-            aria-label="Filter by container size"
-            containerClassName="w-full sm:w-28"
           />
         </div>
 

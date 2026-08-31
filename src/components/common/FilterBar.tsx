@@ -92,12 +92,18 @@ export function FilterBar<K extends string>({
           crossed 64rem. 72rem is the width at which five bands and a full
           control set genuinely fit; below it the bar stacks, which is the
           layout that was working. */}
+      {/* 72rem and 52rem were measured when the right-hand side was two wide
+          selects and a greedy search — about 33rem of controls, which a
+          five-band tab row could not sit beside until the bar was very wide.
+          A single `FilterMenu` pill plus a capped search is roughly 20rem, so
+          the controls fit next to the tabs far sooner and the bar stops
+          spending a whole second line on itself. */}
       <div
         className={cn(
           'flex min-w-0 flex-col gap-2',
           tabs.length > 4
-            ? '@[72rem]/bar:flex-row @[72rem]/bar:items-end @[72rem]/bar:justify-between @[72rem]/bar:gap-6'
-            : '@[52rem]/bar:flex-row @[52rem]/bar:items-end @[52rem]/bar:justify-between @[52rem]/bar:gap-6',
+            ? '@[52rem]/bar:flex-row @[52rem]/bar:items-end @[52rem]/bar:justify-between @[52rem]/bar:gap-6'
+            : '@[40rem]/bar:flex-row @[40rem]/bar:items-end @[40rem]/bar:justify-between @[40rem]/bar:gap-6',
         )}
       >
         <div className="pb-2 @[30rem]/bar:hidden">
@@ -138,9 +144,19 @@ export function FilterBar<K extends string>({
             26rem a sort select and a search field on the same line leave the
             search a stub you cannot read your own query in. */}
         {(search || children) && (
-          <div className="order-first flex w-full flex-col items-stretch gap-2 pb-2 @[26rem]/bar:flex-row @[26rem]/bar:flex-wrap @[26rem]/bar:items-center @[52rem]/bar:order-last @[52rem]/bar:w-auto @[52rem]/bar:flex-nowrap @[52rem]/bar:shrink-0">
-            {children}
+          /* Search first, then the menu — the filter sits on the outside edge
+             where the eye lands last, rather than between the tabs and the
+             field it does not belong to. */
+          <div
+            className={cn(
+              'order-first flex w-full flex-col items-stretch gap-2 pb-2 @[26rem]/bar:flex-row @[26rem]/bar:flex-wrap @[26rem]/bar:items-center',
+              tabs.length > 4
+                ? '@[52rem]/bar:order-last @[52rem]/bar:w-auto @[52rem]/bar:flex-nowrap @[52rem]/bar:shrink-0'
+                : '@[40rem]/bar:order-last @[40rem]/bar:w-auto @[40rem]/bar:flex-nowrap @[40rem]/bar:shrink-0',
+            )}
+          >
             {search && <SearchField {...search} />}
+            {children}
           </div>
         )}
       </div>
@@ -219,7 +235,11 @@ export function SearchField({
 }) {
   const counting = value.trim() !== '' && matched !== undefined && total !== undefined;
   return (
-    <div className={cn('relative min-w-0 flex-1 @[52rem]/bar:w-60 @[52rem]/bar:flex-none', className)}>
+    /* Full width only while it is alone on its own row. The moment there is
+       room to sit beside anything it takes a fixed 13rem: `flex-1` made it
+       swallow every spare pixel of the bar, which is a very large box to type
+       one shipper's name into. */
+    <div className={cn('relative min-w-0 flex-1 @[26rem]/bar:w-52 @[26rem]/bar:flex-none', className)}>
       <Search
         className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
         aria-hidden

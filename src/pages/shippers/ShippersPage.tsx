@@ -8,7 +8,6 @@ import {
   MoreVertical,
   Pencil,
   Plus,
-  SlidersHorizontal,
   Trash2,
   User,
   Clock,
@@ -18,7 +17,15 @@ import {
   XCircle,
 } from '@/design-system/icons';
 import { BadgeCheck, RotateCcw } from 'lucide-react';
-import { CountryFlag, DataTable, FilterBar, PageHeader, TablePager, usePagedRows } from '@/components';
+import {
+  CountryFlag,
+  DataTable,
+  FilterBar,
+  FilterMenu,
+  PageHeader,
+  TablePager,
+  usePagedRows,
+} from '@/components';
 import {
   RecordStatusBadge,
   RecordStatusMark,
@@ -43,7 +50,6 @@ import {
   SheetContent,
   SheetDescription,
   SheetTitle,
-  Select,
   StatisticCard,
 } from '@/design-system';
 
@@ -518,46 +524,34 @@ export function ShippersPage() {
           total: shippers.length,
         }}
       >
-        <Select
-          selectSize="sm"
-          value={industryFilter}
-          onChange={(e) => setIndustryFilter(e.target.value)}
-          aria-label="Filter by industry"
-          leadingIcon={<Building2 />}
-          containerClassName="w-full @[26rem]/bar:w-auto"
-          className="h-9 w-full min-w-[8.5rem] text-xs font-medium @[26rem]/bar:w-auto"
-          options={[
-            { value: 'all', label: 'All industries' },
-            ...uniqueIndustries.map((ind) => ({ value: ind, label: ind })),
+        <FilterMenu
+          groups={[
+            {
+              key: 'industry',
+              label: 'Industry',
+              value: industryFilter,
+              onChange: setIndustryFilter,
+              options: [
+                { value: 'all', label: 'All industries' },
+                ...uniqueIndustries.map((ind) => ({ value: ind, label: ind })),
+              ],
+            },
+            {
+              key: 'sort',
+              label: 'Sort by',
+              value: sortBy,
+              onChange: setSortBy,
+              options: [
+                { value: 'name-asc', label: 'Name (A–Z)' },
+                { value: 'name-desc', label: 'Name (Z–A)' },
+                { value: 'shipments-desc', label: 'Most active' },
+                { value: 'date-desc', label: 'Newest first' },
+              ],
+            },
           ]}
+          onReset={clearFilters}
+          resetActive={hasActiveFilters}
         />
-        <Select
-          selectSize="sm"
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value)}
-          aria-label="Sort shippers"
-          leadingIcon={<SlidersHorizontal />}
-          containerClassName="w-full @[26rem]/bar:w-auto"
-          className="h-9 w-full min-w-[9.5rem] text-xs font-medium @[26rem]/bar:w-auto"
-          options={[
-            { value: 'name-asc', label: 'Name (A–Z)' },
-            { value: 'name-desc', label: 'Name (Z–A)' },
-            { value: 'shipments-desc', label: 'Most active' },
-            { value: 'date-desc', label: 'Newest first' },
-          ]}
-        />
-        {hasActiveFilters && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={clearFilters}
-            aria-label="Clear all filters"
-            className="type-label h-9 w-9 shrink-0 gap-1 px-0 text-muted-foreground sm:w-auto sm:px-2"
-          >
-            <X className="size-3.5" />
-            <span className="hidden sm:inline">Clear</span>
-          </Button>
-        )}
       </FilterBar>
 
       {/* Slide-over Drawer for Create / Edit / Profile Quick View */}

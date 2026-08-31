@@ -14,6 +14,12 @@ export { ThemeToggle, type ThemeToggleProps } from './ThemeToggle';
 export { IdentityFact, IdentityStrip, PartyName } from './IdentityStrip';
 export { FilterBar, SearchField, type FilterBarProps, type FilterTab } from './FilterBar';
 export {
+  FilterMenu,
+  type FilterMenuGroup,
+  type FilterMenuOption,
+  type FilterMenuProps,
+} from './FilterMenu';
+export {
   DataTable,
   type DataColumn,
   type DataTableBreakpoint,
