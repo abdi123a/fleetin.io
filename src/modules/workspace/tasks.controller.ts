@@ -36,7 +36,7 @@ export class WorkspaceTasksController {
   @ApiOperation({ summary: 'Totals per scope tab — declared above :idOrRef so it is not read as a reference' })
   async summary(@Query() query: QueryTasksDto, @CurrentUser() user: AuthenticatedUser) {
     assertInternal(user);
-    return this.tasks.summary(query);
+    return this.tasks.summary(query, user.id);
   }
 
   @Get()

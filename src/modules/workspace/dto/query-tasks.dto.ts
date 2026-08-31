@@ -42,6 +42,18 @@ export class QueryTasksDto {
   @IsOptional() @IsBooleanString()
   mine?: string;
 
+  @ApiPropertyOptional({ description: 'Tasks this person follows — a user id, or "me"' })
+  @IsOptional() @IsString()
+  followerId?: string;
+
+  @ApiPropertyOptional({ description: 'Raised on or after this ISO date' })
+  @IsOptional() @IsString()
+  createdFrom?: string;
+
+  @ApiPropertyOptional({ description: 'Raised on or before this ISO date' })
+  @IsOptional() @IsString()
+  createdTo?: string;
+
   @ApiPropertyOptional({ default: 1 })
   @IsOptional() @Type(() => Number) @IsInt() @Min(1)
   page?: number;

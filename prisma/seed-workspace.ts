@@ -11,7 +11,10 @@
  * second run changes nothing. It creates only Workspace rows and never touches
  * a domain table, so it is safe on a working database.
  */
-import { PrismaClient, WorkspaceRecordType, WorkspaceTaskPriority, WorkspaceTaskStatus } from '@prisma/client';
+import {
+  PrismaClient, WorkspaceChannelKind, WorkspaceChannelRole,
+  WorkspaceRecordType, WorkspaceTaskPriority, WorkspaceTaskStatus,
+} from '@prisma/client';
 import { nextReference } from '../src/common/helpers/reference.util';
 import { assertSeedTargetIsSafe } from './seed-target-guard';
 
@@ -79,6 +82,55 @@ async function pickRecords() {
   return map;
 }
 
+/**
+ * The five rooms the desk actually needs.
+ *
+ * Everybody internal is a member of all five: on a team of eight, a private
+ * room is a way to leave somebody out rather than a way to focus, and private
+ * channels are something people should create deliberately.
+ */
+const CHANNELS = [
+  { key: 'operations', name: 'Operations', topic: 'Shipments on the road — problems, delays, whose job it is' },
+  { key: 'dispatch', name: 'Dispatch', topic: 'Trucks, drivers and who is going where today' },
+  { key: 'finance', name: 'Finance', topic: 'Invoices, settlements, holds and anything owing' },
+  { key: 'management', name: 'Management', topic: 'Decisions, escalations and the week ahead' },
+  { key: 'general', name: 'General', topic: 'Everything else' },
+];
+
+async function seedChannels(team: { id: string }[]) {
+  let made = 0;
+  for (const spec of CHANNELS) {
+    const existing = await prisma.workspaceChannel.findUnique({ where: { key: spec.key } });
+    const channel = existing
+      ? await prisma.workspaceChannel.update({
+          where: { key: spec.key },
+          data: { name: spec.name, topic: spec.topic },
+        })
+      : await prisma.workspaceChannel.create({
+          data: {
+            key: spec.key,
+            name: spec.name,
+            topic: spec.topic,
+            kind: WorkspaceChannelKind.CHANNEL,
+            createdById: team[0]?.id ?? null,
+          },
+        });
+    if (!existing) made += 1;
+
+    /* `skipDuplicates` on the unique pair — re-running adds nobody twice, and
+       a member added since is left exactly as they are, `lastReadAt` intact. */
+    await prisma.workspaceChannelMember.createMany({
+      data: team.map((member, index) => ({
+        channelId: channel.id,
+        userId: member.id,
+        role: index === 0 ? WorkspaceChannelRole.OWNER : WorkspaceChannelRole.MEMBER,
+      })),
+      skipDuplicates: true,
+    });
+  }
+  return made;
+}
+
 async function main() {
   assertSeedTargetIsSafe('seed-workspace.ts');
 
@@ -92,6 +144,9 @@ async function main() {
     console.log('No internal accounts. Run `pnpm prisma:seed:team` first.');
     return;
   }
+
+  const channelsMade = await seedChannels(team);
+  console.log(`✅ Channels — ${channelsMade} created, ${CHANNELS.length - channelsMade} already present`);
 
   const records = await pickRecords();
   let created = 0;

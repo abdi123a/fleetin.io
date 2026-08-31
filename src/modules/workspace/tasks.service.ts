@@ -14,6 +14,7 @@ import { UpdateTaskDto } from './dto/update-task.dto';
 import { QueryTasksDto } from './dto/query-tasks.dto';
 import { RecordAccessService } from './record-access.service';
 import { WorkspaceNotificationsService } from './notifications.service';
+import { ProductivityService } from './productivity.service';
 
 const TASK_INCLUDE = {
   assignee: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } },
@@ -34,6 +35,10 @@ export class TasksService {
     private readonly prisma: PrismaService,
     private readonly records: RecordAccessService,
     private readonly notifications: WorkspaceNotificationsService,
+    /* Plain injection, no forwardRef: ProductivityService does not import this
+       one back, so there is no cycle to break and pretending otherwise would
+       imply one to the next reader. */
+    private readonly productivity: ProductivityService,
   ) {}
 
   /**
@@ -132,6 +137,17 @@ export class TasksService {
       };
     }
 
+    if (query.followerId) {
+      const who = query.followerId === 'me' ? user.id : query.followerId;
+      where.followers = { some: { userId: who } };
+    }
+    if (query.createdFrom || query.createdTo) {
+      where.createdAt = {
+        ...(query.createdFrom ? { gte: new Date(query.createdFrom) } : {}),
+        ...(query.createdTo ? { lte: new Date(query.createdTo) } : {}),
+      };
+    }
+
     const today = startOfToday();
     if (query.due === 'overdue') {
       where.dueAt = { lt: today };
@@ -184,11 +200,58 @@ export class TasksService {
           orderBy: { createdAt: 'asc' },
           include: { actor: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } } },
         },
+        checklist: { orderBy: { position: 'asc' } },
+        followers: {
+          include: { user: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } } },
+        },
+        /* The rule this task came from, if any. One row by the `taskId @unique`
+           on the occurrence, so a badge can say "every Monday" rather than
+           leaving the reader wondering who keeps filing the same job. */
+        occurrence: { include: { recurrence: true } },
       },
     });
     if (!task) throw new NotFoundException(`Task "${idOrRef}" not found`);
     await this.enrichLinks([task]);
+    await this.nameEventPeople(task.events);
     return task;
+  }
+
+  /**
+   * Turns the user ids on assignment events into names.
+   *
+   * The event rail stores WHO as an id, correctly — a person can be renamed
+   * and the history should still point at the same human. But an id is
+   * meaningless to a reader, and the rail was printing
+   * "assigned it df545439-34e1… → 64495415-2eda…" on screen.
+   *
+   * Resolved on read rather than denormalised on write, for the same reason
+   * record status is: a name written into an event in March is a stale name in
+   * September. One batched query for the whole rail.
+   */
+  private async nameEventPeople(
+    events: { kind: string; fromValue: string | null; toValue: string | null }[],
+  ): Promise<void> {
+    const ids = new Set<string>();
+    for (const event of events) {
+      if (event.kind !== 'ASSIGNED' && event.kind !== 'UNASSIGNED') continue;
+      if (event.fromValue) ids.add(event.fromValue);
+      if (event.toValue) ids.add(event.toValue);
+    }
+    if (ids.size === 0) return;
+
+    const people = await this.prisma.user.findMany({
+      where: { id: { in: [...ids] } },
+      select: { id: true, firstName: true, lastName: true },
+    });
+    const nameOf = new Map(people.map((p) => [p.id, `${p.firstName} ${p.lastName}`.trim()]));
+
+    for (const event of events) {
+      if (event.kind !== 'ASSIGNED' && event.kind !== 'UNASSIGNED') continue;
+      /* A deleted account keeps its id rather than becoming "Unknown" — the id
+         is at least a fact, and the rail renders it as one. */
+      if (event.fromValue) event.fromValue = nameOf.get(event.fromValue) ?? event.fromValue;
+      if (event.toValue) event.toValue = nameOf.get(event.toValue) ?? event.toValue;
+    }
   }
 
   /**
@@ -199,7 +262,10 @@ export class TasksService {
    * lie, not a placeholder. Four `count`s in one round trip is the honest
    * price of four honest numbers.
    */
-  async summary(query: Pick<QueryTasksDto, 'assigneeId' | 'createdById' | 'recordType' | 'recordId'>) {
+  async summary(
+    query: Pick<QueryTasksDto, 'assigneeId' | 'createdById' | 'recordType' | 'recordId'>,
+    userId: string,
+  ) {
     const base: Prisma.WorkspaceTaskWhereInput = { deletedAt: null };
     if (query.createdById) base.createdById = query.createdById;
     if (query.assigneeId && query.assigneeId !== 'unassigned') base.assigneeId = query.assigneeId;
@@ -213,13 +279,38 @@ export class TasksService {
     }
 
     const live = { notIn: [WorkspaceTaskStatus.COMPLETED, WorkspaceTaskStatus.CANCELLED] };
-    const [all, open, overdue, unassigned] = await this.prisma.$transaction([
+    const today = startOfToday();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const [all, open, overdue, dueToday, unassigned, urgent, following] = await this.prisma.$transaction([
       this.prisma.workspaceTask.count({ where: base }),
       this.prisma.workspaceTask.count({ where: { ...base, status: live } }),
-      this.prisma.workspaceTask.count({ where: { ...base, status: live, dueAt: { lt: startOfToday() } } }),
-      this.prisma.workspaceTask.count({ where: { ...base, status: live, assigneeId: null } }),
+      this.prisma.workspaceTask.count({ where: { ...base, status: live, dueAt: { lt: today } } }),
+      this.prisma.workspaceTask.count({ where: { ...base, status: live, dueAt: { gte: today, lt: tomorrow } } }),
+      /*
+       * `AND`, not a spread — the two conditions have to survive together.
+       *
+       * `{ ...base, assigneeId: null }` silently dropped the page's own pin,
+       * so "My Tasks" counted every unassigned task in the system and printed
+       * "Unassigned 1" beside "All 0". Spreading the other way round is no
+       * better: it would drop the `null` and count every task assigned to you.
+       *
+       * Both kept, a pinned page asks for "assigned to Ahmed AND assigned to
+       * nobody" and gets the truthful 0 — which is why the band is hidden
+       * there rather than printed as a permanent zero.
+       */
+      this.prisma.workspaceTask.count({
+        where: { AND: [base, { status: live, assigneeId: null }] },
+      }),
+      this.prisma.workspaceTask.count({ where: { ...base, status: live, priority: 'URGENT' } }),
+      /* Whose watch list — the caller's, always. "Following" on somebody
+         else's behalf is not a question this screen asks. */
+      this.prisma.workspaceTask.count({
+        where: { ...base, status: live, followers: { some: { userId } } },
+      }),
     ]);
-    return { all, open, overdue, unassigned };
+    return { all, open, overdue, today: dueToday, unassigned, urgent, following };
   }
 
   /**
@@ -358,6 +449,17 @@ export class TasksService {
         actorId: user.id,
         taskId: task.id,
       });
+    }
+
+    /* Followers wanted updates without owning it — a status move is the update
+       they wanted. `notifyWatchers` drops the actor, so nobody hears about
+       their own click. */
+    if (dto.status !== undefined && dto.status !== existing.status) {
+      await this.productivity.notifyWatchers(
+        task.id,
+        user.id,
+        WorkspaceNotificationKind.TASK_UPDATED,
+      );
     }
     return task;
   }

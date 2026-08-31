@@ -14,6 +14,10 @@ export class CreateMessageDto {
   @IsOptional() @IsString()
   taskId?: string;
 
+  @ApiPropertyOptional({ description: 'Anchor: a channel or direct-message id' })
+  @IsOptional() @IsString()
+  channelId?: string;
+
   @ApiPropertyOptional({ enum: WorkspaceRecordType, description: 'Anchor: a domain record' })
   @IsOptional() @IsEnum(WorkspaceRecordType)
   recordType?: WorkspaceRecordType;

@@ -1,11 +1,13 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, WorkspaceNotificationKind, WorkspaceRecordType } from '@prisma/client';
+import { Prisma, WorkspaceChannelKind, WorkspaceNotificationKind, WorkspaceRecordType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/jwt.strategy';
 import { AssignMessageDto, CreateMessageDto, UpdateMessageDto } from './dto/message.dto';
+import { SearchMessagesDto } from './dto/channel.dto';
+import { ChannelsService } from './channels.service';
 import { RecordAccessService } from './record-access.service';
 import { WorkspaceNotificationsService } from './notifications.service';
-import { mentionedUserIds } from './tokens.util';
+import { mentionedUserIds, parseTokens } from './tokens.util';
 
 const MESSAGE_INCLUDE = {
   author: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } },
@@ -21,9 +23,72 @@ export class MessagesService {
     private readonly prisma: PrismaService,
     private readonly records: RecordAccessService,
     private readonly notifications: WorkspaceNotificationsService,
+    private readonly channels: ChannelsService,
   ) {}
 
-  async findMany(params: { taskId?: string; recordType?: WorkspaceRecordType; recordId?: string }) {
+  /**
+   * Resolve every record a batch of messages *mentions in its body*, so a chip
+   * in a message can wear the same live status a chip on a task does.
+   *
+   * Without this, `609196` in a channel renders as a grey plate while the same
+   * booking on a task card is amber "Empty Ready" — two colours for one fact,
+   * and the greyer one is the surface people spend all day in.
+   *
+   * Resolved per read, never stored, and batched by record type: a page of 40
+   * messages naming a dozen records costs at most ten queries.
+   */
+  private async attachReferences<T extends { body: string }>(messages: T[]): Promise<T[]> {
+    const KIND_TYPE: Record<string, WorkspaceRecordType> = {
+      shipment: WorkspaceRecordType.SHIPMENT,
+      booking: WorkspaceRecordType.BOOKING,
+      vehicle: WorkspaceRecordType.VEHICLE,
+      driver: WorkspaceRecordType.DRIVER,
+      partner: WorkspaceRecordType.PARTNER,
+      transporter: WorkspaceRecordType.PARTNER,
+      shipper: WorkspaceRecordType.SHIPPER,
+      invoice: WorkspaceRecordType.INVOICE,
+      hold: WorkspaceRecordType.PAYOUT_HOLD,
+      cycle: WorkspaceRecordType.EMPTY_RETURN_CYCLE,
+      chain: WorkspaceRecordType.EMPTY_RETURN_CHAIN,
+    };
+
+    const wanted: { type: WorkspaceRecordType; idOrRef: string }[] = [];
+    for (const message of messages) {
+      for (const token of parseTokens(message.body)) {
+        const type = KIND_TYPE[token.kind];
+        /* A booking token carries `reference~parentShipment`; the reference is
+           the half that resolves. */
+        if (type) wanted.push({ type, idOrRef: token.value.split('~')[0] ?? token.value });
+      }
+    }
+    if (wanted.length === 0) {
+      return messages.map((message) => ({ ...message, references: [] }));
+    }
+
+    const summaries = await this.records.resolveMany(wanted);
+    const byRef = new Map(summaries.map((s) => [`${s.type}:${s.reference}`, s]));
+
+    return messages.map((message) => {
+      const references = parseTokens(message.body)
+        .map((token) => {
+          const type = KIND_TYPE[token.kind];
+          if (!type) return null;
+          const reference = token.value.split('~')[0] ?? token.value;
+          const found = byRef.get(`${type}:${reference}`);
+          return found ? { ...found } : null;
+        })
+        .filter((r): r is NonNullable<typeof r> => r !== null);
+      return { ...message, references };
+    });
+  }
+
+  async findMany(params: {
+    taskId?: string;
+    channelId?: string;
+    recordType?: WorkspaceRecordType;
+    recordId?: string;
+    userId: string;
+  }) {
     const where: Prisma.WorkspaceMessageWhereInput = {};
     if (params.taskId) {
       const task = await this.prisma.workspaceTask.findFirst({
@@ -32,23 +97,139 @@ export class MessagesService {
       });
       if (!task) throw new NotFoundException(`Task "${params.taskId}" not found`);
       where.taskId = task.id;
+    } else if (params.channelId) {
+      await this.channels.assertMember(params.channelId, params.userId);
+      where.channelId = params.channelId;
     } else if (params.recordType && params.recordId) {
       const record = await this.records.resolve(params.recordType, params.recordId);
       where.recordType = params.recordType;
       where.recordId = record.id;
     } else {
-      throw new BadRequestException('Provide either taskId, or recordType and recordId');
+      throw new BadRequestException('Provide taskId, channelId, or recordType and recordId');
     }
 
-    return this.prisma.workspaceMessage.findMany({
+    const rows = await this.prisma.workspaceMessage.findMany({
       where,
       orderBy: { createdAt: 'asc' },
       include: MESSAGE_INCLUDE,
     });
+    return this.attachReferences(rows);
+  }
+
+  /**
+   * A channel's river, newest page first, oldest message last.
+   *
+   * Thread replies are excluded: they belong to the thread panel, and letting
+   * them back into the river is how a channel becomes unreadable the first
+   * time somebody has a long back-and-forth. The channel shows the parent and
+   * a reply count instead.
+   *
+   * Cursor pagination on `before`, not offset — a river gets new messages at
+   * the end while somebody is scrolling back through it, and offsets shift
+   * under them.
+   */
+  async channelMessages(
+    channelId: string,
+    userId: string,
+    { before, limit = 40 }: { before?: string; limit?: number },
+  ) {
+    await this.channels.assertMember(channelId, userId);
+
+    let cursorAt: Date | undefined;
+    if (before) {
+      const anchorMessage = await this.prisma.workspaceMessage.findUnique({
+        where: { id: before },
+        select: { createdAt: true },
+      });
+      cursorAt = anchorMessage?.createdAt;
+    }
+
+    const rows = await this.prisma.workspaceMessage.findMany({
+      where: {
+        channelId,
+        parentMessageId: null,
+        ...(cursorAt ? { createdAt: { lt: cursorAt } } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit + 1,
+      include: {
+        ...MESSAGE_INCLUDE,
+        _count: { select: { replies: true } },
+      },
+    });
+
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+
+    /* Reversed so the caller renders top-to-bottom without thinking about it. */
+    const items = await this.attachReferences(page.reverse());
+    return { items, hasMore, nextBefore: hasMore ? items[0]?.id ?? null : null };
+  }
+
+  /** A thread: the parent, then its replies oldest-first. */
+  async thread(messageId: string, userId: string) {
+    const parent = await this.prisma.workspaceMessage.findFirst({
+      where: { id: messageId, deletedAt: null },
+      include: MESSAGE_INCLUDE,
+    });
+    if (!parent) throw new NotFoundException(`Message "${messageId}" not found`);
+    if (parent.channelId) await this.channels.assertMember(parent.channelId, userId);
+
+    const replies = await this.prisma.workspaceMessage.findMany({
+      where: { parentMessageId: parent.id },
+      orderBy: { createdAt: 'asc' },
+      include: MESSAGE_INCLUDE,
+    });
+    const [withRefs, repliesWithRefs] = await Promise.all([
+      this.attachReferences([parent]),
+      this.attachReferences(replies),
+    ]);
+    return { parent: withRefs[0] ?? parent, replies: repliesWithRefs };
+  }
+
+  /**
+   * Search, scoped to rooms the reader is actually in.
+   *
+   * The record clause is the point of it: searching `609196` finds messages
+   * that merely *reference* that booking, because the reference is stored as a
+   * token in the body rather than as rendered text. That is a thing a WhatsApp
+   * group cannot do at all.
+   */
+  async search(dto: SearchMessagesDto, userId: string) {
+    const memberships = await this.prisma.workspaceChannelMember.findMany({
+      where: { userId },
+      select: { channelId: true },
+    });
+    const myChannels = memberships.map((m) => m.channelId);
+    if (myChannels.length === 0) return [];
+
+    const where: Prisma.WorkspaceMessageWhereInput = {
+      deletedAt: null,
+      channelId: dto.channelId ? dto.channelId : { in: myChannels },
+    };
+    if (dto.channelId && !myChannels.includes(dto.channelId)) return [];
+    if (dto.authorId) where.authorId = dto.authorId;
+    if (dto.q?.trim()) where.body = { contains: dto.q.trim() };
+    if (dto.from || dto.to) {
+      where.createdAt = {
+        ...(dto.from ? { gte: new Date(dto.from) } : {}),
+        ...(dto.to ? { lte: new Date(dto.to) } : {}),
+      };
+    }
+
+    return this.prisma.workspaceMessage.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: dto.limit ?? 30,
+      include: {
+        ...MESSAGE_INCLUDE,
+        channel: { select: { id: true, key: true, name: true, kind: true } },
+      },
+    });
   }
 
   async create(dto: CreateMessageDto, user: AuthenticatedUser) {
-    const anchor = await this.resolveAnchor(dto);
+    const anchor = await this.resolveAnchor(dto, user.id);
 
     const message = await this.prisma.workspaceMessage.create({
       data: {
@@ -185,15 +366,24 @@ export class MessagesService {
    * (error 3823). `shipment-crew.util.ts` keeps "at most one lead" the same
    * way, for the same reason.
    */
-  private async resolveAnchor(dto: CreateMessageDto) {
+  private async resolveAnchor(dto: CreateMessageDto, userId: string) {
     const hasTask = Boolean(dto.taskId);
     const hasRecord = Boolean(dto.recordType && dto.recordId);
+    const hasChannel = Boolean(dto.channelId);
 
-    if (hasTask && hasRecord) {
-      throw new BadRequestException('A message belongs to a task or to a record, not both');
+    const anchors = [hasTask, hasRecord, hasChannel].filter(Boolean).length;
+    if (anchors > 1) {
+      throw new BadRequestException('A message belongs to a task, a record or a channel — not more than one');
     }
-    if (!hasTask && !hasRecord) {
-      throw new BadRequestException('A message needs an anchor: taskId, or recordType and recordId');
+    if (anchors === 0) {
+      throw new BadRequestException('A message needs an anchor: taskId, channelId, or recordType and recordId');
+    }
+
+    if (hasChannel) {
+      /* Membership is the gate. A private room is invisible to a non-member,
+         so this throws NotFound rather than Forbidden — see `assertMember`. */
+      await this.channels.assertMember(dto.channelId!, userId);
+      return { taskId: null, channelId: dto.channelId!, recordType: null, recordId: null, recordRef: null };
     }
 
     if (hasTask) {
@@ -202,12 +392,13 @@ export class MessagesService {
         select: { id: true },
       });
       if (!task) throw new NotFoundException(`Task "${dto.taskId}" not found`);
-      return { taskId: task.id, recordType: null, recordId: null, recordRef: null };
+      return { taskId: task.id, channelId: null, recordType: null, recordId: null, recordRef: null };
     }
 
     const record = await this.records.resolve(dto.recordType!, dto.recordId!);
     return {
       taskId: null,
+      channelId: null,
       recordType: record.type,
       recordId: record.id,
       recordRef: record.reference,
@@ -216,7 +407,7 @@ export class MessagesService {
 
   /** Mentions, replies and the task's owner — each told once, never twice. */
   private async fanOut(
-    message: { id: string; body: string; taskId: string | null; assigneeId: string | null },
+    message: { id: string; body: string; taskId: string | null; channelId: string | null; assigneeId: string | null },
     user: AuthenticatedUser,
     parentMessageId?: string,
   ) {
@@ -267,6 +458,35 @@ export class MessagesService {
           actorId: user.id,
           messageId: message.id,
           taskId: message.taskId,
+        });
+      }
+    } else if (message.channelId) {
+      /*
+       * The one rule that decides whether people keep notifications on.
+       *
+       * A DM notifies its recipient, always — somebody wrote to you by name.
+       * A CHANNEL message notifies NOBODY beyond the mentions handled above:
+       * a bell that rings for every message in Operations is a bell people
+       * turn off within a day, and then the mention that mattered is missed
+       * along with the noise. §8 asks for exactly this restraint.
+       *
+       * Unread counts still move for everyone. Unread is a number you glance
+       * at; a notification is an interruption, and they are not the same thing.
+       */
+      const channel = await this.prisma.workspaceChannel.findUnique({
+        where: { id: message.channelId },
+        select: {
+          kind: true,
+          members: { where: { mutedAt: null }, select: { userId: true } },
+        },
+      });
+
+      if (channel?.kind === WorkspaceChannelKind.DIRECT) {
+        await this.notifications.notify({
+          userIds: channel.members.map((m) => m.userId).filter((id) => !mentioned.includes(id)),
+          kind: WorkspaceNotificationKind.COMMENT_ADDED,
+          actorId: user.id,
+          messageId: message.id,
         });
       }
     }

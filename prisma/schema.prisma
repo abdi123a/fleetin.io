@@ -64,6 +64,13 @@ model User {
   workspaceTaskEvents          WorkspaceTaskEvent[]
   workspaceNotifications       WorkspaceNotification[] @relation("WorkspaceNotificationRecipient")
   workspaceNotificationsActed  WorkspaceNotification[] @relation("WorkspaceNotificationActor")
+  workspaceChannelsCreated     WorkspaceChannel[]      @relation("WorkspaceChannelCreator")
+  workspaceChannelMemberships  WorkspaceChannelMember[]
+  workspaceChecklistCompleted  WorkspaceTaskChecklistItem[] @relation("WorkspaceChecklistCompleter")
+  workspaceTasksFollowed       WorkspaceTaskFollower[]      @relation("WorkspaceTaskFollower")
+  workspaceTemplatesCreated    WorkspaceTaskTemplate[]      @relation("WorkspaceTemplateCreator")
+  workspaceRecurrencesAssigned WorkspaceTaskRecurrence[]    @relation("WorkspaceRecurrenceAssignee")
+  workspaceRecurrencesCreated  WorkspaceTaskRecurrence[]    @relation("WorkspaceRecurrenceCreator")
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
@@ -1939,6 +1946,15 @@ enum WorkspaceTaskEventKind {
   DUE_CHANGED
   LINKED
   UNLINKED
+  // ── Phase 3 ──
+  CHECKLIST_ADDED
+  CHECKLIST_DONE
+  CHECKLIST_REOPENED
+  FOLLOWER_ADDED
+  FOLLOWER_REMOVED
+  TEMPLATE_USED
+  /// Written by the recurrence processor, with no actor — nobody did it.
+  RECURRENCE_GENERATED
 }
 
 enum WorkspaceNotificationKind {
@@ -2001,6 +2017,9 @@ model WorkspaceTask {
   messages WorkspaceMessage[]
   events   WorkspaceTaskEvent[]
   notifications WorkspaceNotification[]
+  checklist WorkspaceTaskChecklistItem[]
+  followers WorkspaceTaskFollower[]
+  occurrence WorkspaceTaskOccurrence?
 
   /// "My Tasks", the default landing query.
   @@index([assigneeId, status])
@@ -2059,6 +2078,12 @@ model WorkspaceMessage {
   taskId String?
   task   WorkspaceTask? @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
+  /// The third anchor, added in Phase 2. A message hangs off a task, a record,
+  /// OR a channel — still exactly one, still enforced in `messages.service.ts`
+  /// because MySQL will not take a CHECK on a column carrying a cascading FK.
+  channelId String?
+  channel   WorkspaceChannel? @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
   recordType WorkspaceRecordType?
   recordId   String?              @db.VarChar(64)
   recordRef  String?              @db.VarChar(64)
@@ -2115,6 +2140,10 @@ model WorkspaceMessage {
   notifications WorkspaceNotification[]
 
   @@index([taskId, createdAt])
+  /// The channel river, oldest last.
+  @@index([channelId, createdAt])
+  /// Counting a member's unread without reading the bodies.
+  @@index([channelId, parentMessageId, createdAt])
   @@index([recordType, recordId, createdAt])
   @@index([authorId])
   @@index([parentMessageId])
@@ -2205,4 +2234,277 @@ model WorkspaceNotification {
   /// The bell's only query: my unread, newest first.
   @@index([userId, readAt, createdAt])
   @@map("workspace_notifications")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WORKSPACE · PHASE 2 — Communication
+//
+// Channels and direct messages, on the message model Phase 1 already has.
+// `WorkspaceMessage` gains a THIRD anchor rather than a second table: a
+// message belongs to a task, a record, or a channel, and the three read the
+// same, render the same and carry the same record chips.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum WorkspaceChannelKind {
+  CHANNEL
+  /// Exactly two members and no name — the pair's own faces are the name.
+  DIRECT
+}
+
+enum WorkspaceChannelRole {
+  OWNER
+  MEMBER
+}
+
+/// A room. A named channel, or a two-person DM.
+///
+/// One model for both because everything downstream is identical — messages,
+/// threads, mentions, unread, membership. Two tables would mean two of every
+/// query and two of every component, to express a difference that is really
+/// just "does it have a name".
+model WorkspaceChannel {
+  id String @id @default(uuid())
+
+  /// Stable handle. `operations` for a seeded channel; for a DM, the two user
+  /// ids sorted and joined — `dm:<a>:<b>`.
+  ///
+  /// That is what makes the DM unique: two people clicking each other at the
+  /// same moment both compute the same key, and the unique index turns the
+  /// race into one row instead of two conversations that each hold half the
+  /// history.
+  key String @unique @db.VarChar(128)
+
+  /// Null for a DM: it is named by whoever you are talking to.
+  name  String? @db.VarChar(120)
+  topic String? @db.VarChar(255)
+
+  kind      WorkspaceChannelKind @default(CHANNEL)
+  /// A private channel is invisible to non-members — not merely read-refused.
+  isPrivate Boolean              @default(false)
+
+  createdById String?
+  createdBy   User?   @relation("WorkspaceChannelCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  members  WorkspaceChannelMember[]
+  messages WorkspaceMessage[]
+
+  @@index([kind, archivedAt])
+  @@map("workspace_channels")
+}
+
+/// Who is in a room, and how far they have read.
+model WorkspaceChannelMember {
+  id        String           @id @default(uuid())
+  channelId String
+  channel   WorkspaceChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  role WorkspaceChannelRole @default(MEMBER)
+
+  /// The whole unread mechanism, in one column.
+  ///
+  /// Server-side on purpose: a count kept in the browser is lost on a refresh
+  /// and disagrees with itself across two devices, and §7 of the plan is
+  /// explicit that localStorage must not be authoritative. Null means the
+  /// member has never opened the room, so everything in it is unread.
+  lastReadAt DateTime?
+  /// Muted: still a member, still counted, but never notified.
+  mutedAt    DateTime?
+  joinedAt   DateTime  @default(now())
+
+  @@unique([channelId, userId])
+  /// The rail's own query: every room I am in.
+  @@index([userId])
+  @@map("workspace_channel_members")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WORKSPACE · PHASE 3 — Productivity
+//
+// The work that has STEPS (checklists), the people who want to KNOW about it
+// (followers), and the work that COMES BACK (templates and recurrence).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One tick-box on a task. Flat, never nested.
+///
+/// The source plan rules out deeply nested subtasks and it is right to: a tree
+/// is a different product, and "contact partner → request document → verify →
+/// update record" is a list, not a hierarchy.
+model WorkspaceTaskChecklistItem {
+  id     String        @id @default(uuid())
+  taskId String
+  task   WorkspaceTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  text String  @db.VarChar(255)
+  done Boolean @default(false)
+
+  doneAt   DateTime?
+  doneById String?
+  doneBy   User?     @relation("WorkspaceChecklistCompleter", fields: [doneById], references: [id], onDelete: SetNull)
+
+  /// Manual order. A gap-free integer rewritten on every reorder — the list is
+  /// a handful of rows, so fractional ranking would be cleverness with no
+  /// payoff.
+  position Int
+
+  createdAt DateTime @default(now())
+
+  @@index([taskId, position])
+  @@map("workspace_task_checklist_items")
+}
+
+/// Somebody who wants to hear about a task without owning it.
+///
+/// The third of three distinct relationships, and the distinction is the whole
+/// point:
+///   **assignee** — responsible for finishing it. Exactly one.
+///   **mention**  — asked a question in one message. Notified once.
+///   **follower** — wants the updates. Notified on changes, owns nothing.
+///
+/// Without this, a manager who wants to keep sight of a job has to assign it to
+/// themselves, and then nobody knows who is actually doing it.
+model WorkspaceTaskFollower {
+  id     String        @id @default(uuid())
+  taskId String
+  task   WorkspaceTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("WorkspaceTaskFollower", fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([taskId, userId])
+  @@index([userId])
+  @@map("workspace_task_followers")
+}
+
+/// A named shape for work that recurs in form rather than on a schedule.
+///
+/// Deliberately thin: a title, a default priority, a due offset and a
+/// checklist. No conditional record behaviour and no assignee strategy — for a
+/// desk of eight, a template is a checklist somebody would otherwise retype,
+/// and anything more is a builder nobody asked for.
+model WorkspaceTaskTemplate {
+  id          String  @id @default(uuid())
+  name        String  @db.VarChar(120)
+  title       String  @db.VarChar(255)
+  description String? @db.Text
+
+  priority WorkspaceTaskPriority @default(NORMAL)
+  /// Days from creation to the due date. Null leaves the task with no deadline.
+  dueInDays Int?
+
+  createdById String?
+  createdBy   User?   @relation("WorkspaceTemplateCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  items       WorkspaceTaskTemplateItem[]
+  recurrences WorkspaceTaskRecurrence[]
+
+  @@index([archivedAt])
+  @@map("workspace_task_templates")
+}
+
+model WorkspaceTaskTemplateItem {
+  id         String                @id @default(uuid())
+  templateId String
+  template   WorkspaceTaskTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  text     String @db.VarChar(255)
+  position Int
+
+  @@index([templateId, position])
+  @@map("workspace_task_template_items")
+}
+
+enum WorkspaceRecurrenceFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+/// "Every Monday, review outstanding transporter balances."
+///
+/// The rule is not a task. It mints tasks, and each one it mints is an ordinary
+/// `WorkspaceTask` that can be reassigned, commented on and closed without
+/// touching the rule.
+model WorkspaceTaskRecurrence {
+  id String @id @default(uuid())
+
+  /// Optional: a rule can carry its own title, or point at a template so the
+  /// generated task arrives with a checklist already on it.
+  templateId String?
+  template   WorkspaceTaskTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  title       String                @db.VarChar(255)
+  description String?               @db.Text
+  priority    WorkspaceTaskPriority @default(NORMAL)
+
+  frequency WorkspaceRecurrenceFrequency
+  /// Every N days/weeks/months. 1 unless somebody wants a fortnight.
+  interval  Int                          @default(1)
+  /// 0–6, Sunday first. Weekly rules only.
+  weekday    Int?
+  /// 1–31. Monthly rules only; a 31 in a 30-day month clamps to the last day
+  /// rather than skipping the month.
+  dayOfMonth Int?
+
+  assigneeId String?
+  assignee   User?   @relation("WorkspaceRecurrenceAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  createdById String?
+  createdBy   User?   @relation("WorkspaceRecurrenceCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  /// The date the next task is due to be minted. Stored as a date, not an
+  /// instant: "every Monday" is a calendar fact, and an instant would drift
+  /// with the clock the processor happens to run on.
+  nextRunOn DateTime  @db.Date
+  lastRunOn DateTime? @db.Date
+  enabled   Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  occurrences WorkspaceTaskOccurrence[]
+
+  /// The processor's only query: rules that are due.
+  @@index([enabled, nextRunOn])
+  @@map("workspace_task_recurrences")
+}
+
+/// One task a rule actually produced.
+///
+/// **This table is the duplicate guard**, and the reason it is a table at all.
+/// The unique pair means the second attempt at the same occurrence fails on
+/// the index rather than on a check the code has to remember to perform — so a
+/// processor that runs twice, a retry after a partial failure, and two workers
+/// racing all converge on one task instead of three.
+///
+/// The plan is explicit that title comparison is not good enough for this, and
+/// it is right: two people can legitimately raise "Review vehicle documents"
+/// on the same morning.
+model WorkspaceTaskOccurrence {
+  id           String                  @id @default(uuid())
+  recurrenceId String
+  recurrence   WorkspaceTaskRecurrence @relation(fields: [recurrenceId], references: [id], onDelete: Cascade)
+
+  /// The calendar day this occurrence is *for*, not when it was generated.
+  occurrenceOn DateTime @db.Date
+
+  taskId String        @unique
+  task   WorkspaceTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([recurrenceId, occurrenceOn])
+  @@map("workspace_task_occurrences")
 }
