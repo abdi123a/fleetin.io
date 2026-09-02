@@ -1,6 +1,8 @@
 import {
   ArrowLeft,
+  ArrowLeftToLine,
   ArrowRight,
+  CircleArrowRight,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -21,7 +23,9 @@ import {
 
 export {
   ArrowLeft,
+  ArrowLeftToLine,
   ArrowRight,
+  CircleArrowRight,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -42,7 +46,9 @@ export {
 
 export const NavigationIcons = {
   ArrowLeft,
+  ArrowLeftToLine,
   ArrowRight,
+  CircleArrowRight,
   ChevronDown,
   ChevronLeft,
   ChevronRight,

@@ -1,3 +1,4 @@
+import { ExpiryLabel, SheetHeading } from '@/components/common';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -11,14 +12,11 @@ import {
   MoreVertical,
   Pencil,
   FileText,
-  Upload,
   Trash2,
-  Eye,
-  Download,
 } from '@/design-system/icons';
 import { DocumentViewerModal, type DocumentToView } from '@/components/DocumentViewerModal';
 import { triggerDocumentDownload } from '@/components/documentDownload';
-import { RotateCcw, AlertTriangle, Building2, Check } from 'lucide-react';
+import { RotateCcw, AlertTriangle, Building2 } from 'lucide-react';
 import { DataTable, FilterBar,
   FilterMenu, PageHeader, TablePager, usePagedRows } from '@/components';
 import {
@@ -31,10 +29,8 @@ import { RecordRaise } from '@/features/workspace';
 import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
 import { IconChip, Tooltip, useConfirm } from '@/design-system';
 import {
-  Badge,
   Button,
   Card,
-  Checkbox,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -59,8 +55,12 @@ import {
   useUpdateVehicle,
   useVehicles,
 } from '@/features/vehicles/api/queries';
-import { useDocuments, useCreateDocumentType, useDocumentTypes, useUploadDocument, useDeleteDocument } from '@/features/documents/api/queries';
-import { toDisplayDocument, uploadDocument, type DocumentTypeRecord } from '@/features/documents/api/documentsService';
+import { useDocuments, useUploadDocument, useDeleteDocument } from '@/features/documents/api/queries';
+import { toDisplayDocument, type DisplayDocument } from '@/features/documents/api/documentsService';
+import { DocumentChecklist } from '@/features/documents/components/DocumentChecklist';
+import type { DocumentCapture } from '@/features/documents/components/DocumentCaptureDialog';
+import type { DocumentTypeSpec } from '@/features/documents/catalog';
+import { useStagedDocuments, uploadStagedDocuments } from '@/features/documents/stagedDocuments';
 import { cn, isVehicleVerified } from '@/utils';
 
 type StatusFilter = 'all' | 'available' | 'in-transit' | 'maintenance' | 'out-of-service';
@@ -104,186 +104,6 @@ function StatusPill({ status }: { status: OperationalStatus }) {
   );
 }
 
-function isExpiredOrSoon(dateStr?: string): 'expired' | 'soon' | 'ok' {
-  if (!dateStr) return 'ok';
-  const d = new Date(dateStr);
-  const now = new Date();
-  if (d < now) return 'expired';
-  const diff = (d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
-  if (diff <= 30) return 'soon';
-  return 'ok';
-}
-
-function ExpiryLabel({ date, label }: { date?: string; label: string }) {
-  if (!date) return null;
-  const state = isExpiredOrSoon(date);
-  const cls = state === 'expired' ? 'text-destructive-subtle-foreground font-semibold' : state === 'soon' ? 'text-warning-subtle-foreground font-semibold' : 'text-foreground';
-  return (
-    <div className="text-2xs">
-      <span className="text-muted-foreground block text-[10px]">{label}</span>
-      <span className={`flex items-center gap-1 ${cls}`}>
-        {state !== 'ok' && <AlertTriangle className="h-3 w-3 shrink-0" />}
-        {date}
-      </span>
-    </div>
-  );
-}
-
-interface VehicleDocRow {
-  id: string;
-  name: string;
-  category: string;
-  fileSize: string;
-}
-
-/** Shared "one row per document type" list — same pattern as the New Transporter
- *  Onboarding compliance-documents step. Used both in the Add Vehicle popup
- *  (docs staged before the vehicle exists) and the vehicle drawer's Documents tab. */
-function DocumentTypeList({
-  types,
-  docs,
-  onUpload,
-  onView,
-  onDownload,
-  onRemove,
-}: {
-  types: DocumentTypeRecord[];
-  docs: VehicleDocRow[];
-  onUpload: (type: DocumentTypeRecord, file: File) => void;
-  onView: (doc: VehicleDocRow) => void;
-  onDownload: (doc: VehicleDocRow) => void;
-  onRemove: (docId: string) => void;
-}) {
-  return (
-    <div className="space-y-1.5">
-      {types.map((type) => {
-        const existing = docs.find((d) => d.category === type.label);
-        return (
-          <div
-            key={type.id}
-            className={cn(
-              'flex items-center gap-3 rounded-lg border px-3.5 py-2.5 transition-colors',
-              existing ? 'border-success/30 bg-success-subtle/40' : 'border-border/70 bg-card hover:border-primary/40'
-            )}
-          >
-            <span
-              className={cn(
-                'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
-                existing ? 'border-success bg-success text-success-foreground' : 'border-border-strong text-transparent'
-              )}
-              aria-hidden
-            >
-              <Check className="h-3 w-3 stroke-[3]" />
-            </span>
-
-            <div className="min-w-0 flex-1 flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-bold text-foreground truncate">{type.label}</span>
-              {existing ? (
-                <span className="text-2xs text-muted-foreground truncate">
-                  {existing.name} · {existing.fileSize}
-                </span>
-              ) : (
-                <Badge intent={type.required ? 'warning' : 'default'} size="sm">
-                  {type.required ? 'Required' : 'Optional'}
-                </Badge>
-              )}
-            </div>
-
-            <div className="flex items-center gap-1 shrink-0">
-              {existing ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => onView(existing)}
-                    className="p-1 rounded-md text-muted-foreground hover:text-primary transition-colors"
-                    title="View Document"
-                  >
-                    <Eye className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDownload(existing)}
-                    className="p-1 rounded-md text-muted-foreground hover:text-primary transition-colors"
-                    title="Download Document"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onRemove(existing.id)}
-                    className="p-1 rounded-md text-muted-foreground hover:text-destructive transition-colors shrink-0"
-                    title="Remove document"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </>
-              ) : (
-                <label className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-dashed border-primary/40 bg-primary/5 text-primary text-2xs font-semibold hover:bg-primary/10 transition-colors cursor-pointer shrink-0">
-                  <input
-                    type="file"
-                    accept=".pdf,.png,.jpg,.jpeg"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) onUpload(type, file);
-                    }}
-                  />
-                  <Upload className="h-3 w-3" />
-                  <span>Upload</span>
-                </label>
-              )}
-            </div>
-          </div>
-        );
-      })}
-
-      {types.length === 0 && (
-        <div className="p-6 rounded-lg border border-dashed border-border/80 text-center text-xs text-muted-foreground">
-          No document types yet.
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Shared "define a new document type" box — same pattern as New Transporter Onboarding. */
-function AddDocumentTypeBox({
-  labelValue,
-  onLabelChange,
-  required,
-  onRequiredChange,
-  onSave,
-  placeholder,
-}: {
-  labelValue: string;
-  onLabelChange: (value: string) => void;
-  required: boolean;
-  onRequiredChange: (value: boolean) => void;
-  onSave: () => void;
-  placeholder: string;
-}) {
-  return (
-    <div className="p-4 rounded-lg border border-primary/30 bg-primary/5 space-y-3 animate-in fade-in">
-      <h5 className="text-xs font-bold text-primary">New Document Type</h5>
-      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 sm:items-center">
-        <Input placeholder={placeholder} value={labelValue} onChange={(e) => onLabelChange(e.target.value)} />
-        <Checkbox label="Required document" checked={required} onChange={(e) => onRequiredChange(e.target.checked)} />
-      </div>
-      <div className="flex justify-end pt-1">
-        <Button
-          type="button"
-          size="sm"
-          onClick={onSave}
-          disabled={!labelValue.trim()}
-          className="bg-primary text-primary-foreground font-semibold text-xs rounded-full px-4"
-        >
-          Save document type
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 export function VehiclesPage() {
   const navigate = useNavigate();
   const { data: vehiclesResponse } = useVehicles();
@@ -301,42 +121,24 @@ export function VehiclesPage() {
     partnerId: '',
     plateNumber: '',
     truckType: '40ft Container' as TruckType,
-    insuranceStartDate: '',
-    insuranceExpiry: '2026-12-31',
   });
   const [addSuccessNotice, setAddSuccessNotice] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
 
-  // Documents staged for the vehicle before it exists — uploaded to the
-  // backend once the vehicle record is created and has a real id.
-  const [newVehicleDocs, setNewVehicleDocs] = useState<VehicleDocRow[]>([]);
-  const [newVehicleFiles, setNewVehicleFiles] = useState<Record<string, File>>({});
-
-  const handleUploadForNewVehicleType = (type: DocumentTypeRecord, file: File) => {
-    const newDoc: VehicleDocRow = {
-      id: `staged-${Date.now()}`,
-      name: file.name,
-      category: type.label,
-      fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-    };
-    setNewVehicleDocs((prev) => [...prev.filter((d) => d.category !== type.label), newDoc]);
-    setNewVehicleFiles((prev) => ({ ...prev, [type.label]: file }));
-  };
-
-  const handleRemoveNewVehicleDoc = (docId: string) => {
-    setNewVehicleDocs((prev) => prev.filter((d) => d.id !== docId));
-  };
-
-  /** A staged (not-yet-persisted) upload has no backend document id — download the local File directly. */
-  const handleDownloadNewVehicleDoc = (doc: VehicleDocRow) => {
-    const file = newVehicleFiles[doc.category];
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = doc.name;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  /**
+   * The truck's two papers, held until it has an id to file them against.
+   *
+   * The form used to ask for `insuranceStartDate` and `insuranceExpiry` as
+   * bare date fields, and separately let somebody attach a certificate — two
+   * answers to one question, with nothing keeping them honest. A vehicle
+   * covered to March could be typed as covered to December, and every
+   * verification check in the app read the typed answer.
+   *
+   * The certificate is the answer now. Its dates become the vehicle's, its
+   * insurer becomes the vehicle's insurer (`syncVehicleComplianceDates` on the
+   * backend), and the grey card's expiry becomes the registration's.
+   */
+  const newVehicleDocs = useStagedDocuments();
 
   const handleCreateVehicle = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -345,6 +147,18 @@ export function VehiclesPage() {
     const partner = partners.find((p) => p.id === newVehicle.partnerId);
     if (!partner) return;
 
+    /* Both papers, before the truck exists. A vehicle with no registration and
+       no cover is not a vehicle that can be dispatched, so it is not a vehicle
+       worth registering — and the API needs both expiry dates anyway, which
+       used to be met with two invented constants. */
+    const greyCard = newVehicleDocs.captureFor('Grey Card');
+    const insurance = newVehicleDocs.captureFor('Insurance');
+    if (!greyCard || !insurance) {
+      setAddError('Attach the grey card and the insurance certificate before registering the truck.');
+      return;
+    }
+
+    setAddError(null);
     const created = await createVehicle.mutateAsync({
       partnerId: newVehicle.partnerId,
       payload: {
@@ -352,28 +166,23 @@ export function VehiclesPage() {
         truckType: newVehicle.truckType,
         containerCapacity: 'Standard Capacity',
         ownershipType: 'Owned',
-        insuranceStartDate: newVehicle.insuranceStartDate || undefined,
-        insuranceExpiry: newVehicle.insuranceExpiry || '2026-12-31',
-        registrationExpiry: '2026-06-30',
+        insuranceProvider: insurance.issuer,
+        insuranceStartDate: insurance.issueDate,
+        insuranceExpiry: insurance.expiryDate,
+        registrationExpiry: greyCard.expiryDate,
         hasGPS: false,
         operationalStatus: 'Available',
       },
     });
 
-    // Upload any documents staged during registration for the new vehicle.
-    for (const [category, file] of Object.entries(newVehicleFiles)) {
-      await uploadDocument({ ownerType: 'VEHICLE', ownerId: created.id, category, file });
-    }
+    await uploadStagedDocuments('VEHICLE', created.id, newVehicleDocs.staged);
 
     setIsAddVehicleOpen(false);
-    setNewVehicleDocs([]);
-    setNewVehicleFiles({});
+    newVehicleDocs.reset();
     setNewVehicle({
       partnerId: '',
       plateNumber: '',
       truckType: '40ft Container',
-      insuranceExpiry: '2026-12-31',
-      insuranceStartDate: '',
     });
 
     setAddSuccessNotice(`Vehicle "${created.plateNumber}" registered to ${partner.companyLegalName}.`);
@@ -388,21 +197,13 @@ export function VehiclesPage() {
   // Edit form state
   const [editForm, setEditForm] = useState<Partial<EnrichedVehicle>>({});
 
-  // Document-type catalog — shared across every vehicle via the backend.
-  const { data: vehicleDocTypes = [] } = useDocumentTypes('VEHICLE');
-  const createDocType = useCreateDocumentType('VEHICLE');
-
-  const [showAddDocType, setShowAddDocType] = useState(false);
-  const [newDocTypeLabel, setNewDocTypeLabel] = useState('');
-  const [newDocTypeRequired, setNewDocTypeRequired] = useState(true);
-
   const [docNotice, setDocNotice] = useState<string | null>(null);
   const [viewingDoc, setViewingDoc] = useState<DocumentToView | null>(null);
 
   const { data: selectedVehicleDocs = [] } = useDocuments('VEHICLE', selectedVehicle?.id);
   const uploadDoc = useUploadDocument('VEHICLE', selectedVehicle?.id);
   const deleteDoc = useDeleteDocument('VEHICLE', selectedVehicle?.id);
-  const vehicleDocRows: VehicleDocRow[] = useMemo(
+  const vehicleDocRows: DisplayDocument[] = useMemo(
     () => selectedVehicleDocs.map(toDisplayDocument),
     [selectedVehicleDocs],
   );
@@ -412,7 +213,6 @@ export function VehiclesPage() {
     setEditForm(vehicle);
     setDrawerTab('view');
     setDocNotice(null);
-    setShowAddDocType(false);
   };
 
   /* `?vehicle=<id|reference|plate>` opens straight into that vehicle's sheet —
@@ -446,16 +246,6 @@ export function VehiclesPage() {
     }
   };
 
-  /** Defines a new document type — saved to the catalog, so it shows up as
-   *  an upload slot for every vehicle after this one. */
-  const handleAddDocumentType = () => {
-    if (!newDocTypeLabel.trim()) return;
-    createDocType.mutate({ label: newDocTypeLabel, required: newDocTypeRequired });
-    setNewDocTypeLabel('');
-    setNewDocTypeRequired(true);
-    setShowAddDocType(false);
-  };
-
   const handleSaveEdit = async () => {
     if (!selectedVehicle) return;
     const updated = await updateVehicle.mutateAsync({
@@ -478,13 +268,19 @@ export function VehiclesPage() {
     setDrawerTab('view');
   };
 
-  const handleUploadForType = (type: DocumentTypeRecord, file: File) => {
+  const handleUploadForType = (spec: DocumentTypeSpec, capture: DocumentCapture) => {
     if (!selectedVehicle) return;
     uploadDoc.mutate(
-      { category: type.label, file },
+      {
+        category: spec.label,
+        file: capture.file,
+        issueDate: capture.issueDate,
+        expiryDate: capture.expiryDate,
+        issuer: capture.issuer,
+      },
       {
         onSuccess: (doc) => {
-          setDocNotice(`Document "${doc.name}" uploaded.`);
+          setDocNotice(`Document "${doc.name}" filed.`);
           setTimeout(() => setDocNotice(null), 4000);
         },
       },
@@ -501,7 +297,7 @@ export function VehiclesPage() {
     if (ok) deleteDoc.mutate(docId);
   };
 
-  const handleDownloadVehicleDoc = (doc: VehicleDocRow) => {
+  const handleDownloadVehicleDoc = (doc: DisplayDocument) => {
     void triggerDocumentDownload(doc.id, doc.name);
   };
 
@@ -657,14 +453,16 @@ export function VehiclesPage() {
           side="right"
           className="flex h-full w-full flex-col gap-0 overflow-hidden border-l border-border bg-background p-0 sm:max-w-md"
         >
-          <div className="shrink-0 space-y-1 border-b border-border/40 px-6 pb-4 pt-6 sm:px-8 sm:pt-8">
-            <SheetTitle className="flex items-center gap-2 text-xl font-extrabold tracking-tight text-foreground">
-              <Truck className="h-5 w-5 text-primary" /> Register Vehicle
-            </SheetTitle>
-            <SheetDescription className="text-xs text-muted-foreground">
-              Registered to the selected transporter's fleet.
-            </SheetDescription>
-          </div>
+          <SheetHeading
+            titleComponent={SheetTitle}
+            descriptionComponent={SheetDescription}
+            title={
+              <>
+                <Truck className="h-5 w-5 text-primary" /> Register Vehicle
+              </>
+            }
+            description="Registered to the selected transporter's fleet."
+          />
 
           <form onSubmit={handleCreateVehicle} className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5 sm:px-8">
@@ -712,67 +510,29 @@ export function VehiclesPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-foreground block">Insurance Start Date</label>
-                <Input
-                  type="date"
-                  value={newVehicle.insuranceStartDate}
-                  onChange={(e) => setNewVehicle((prev) => ({ ...prev, insuranceStartDate: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-foreground block">Insurance Expiry Date</label>
-                <Input
-                  type="date"
-                  value={newVehicle.insuranceExpiry}
-                  onChange={(e) => setNewVehicle((prev) => ({ ...prev, insuranceExpiry: e.target.value }))}
-                />
-              </div>
-            </div>
+            {/* The truck's papers, and the dates that come off them.
+             *
+             * The two date fields this replaced asked for the insurance
+             * period as free text beside an optional certificate, which let
+             * the record say one thing and the paper another. The certificate
+             * is the record now: its dates become the vehicle's cover, the
+             * grey card's expiry becomes its registration, and neither can be
+             * typed into disagreement with the file behind it. */}
+            <div className="space-y-3 border-t border-border/40 pt-3">
+              <h4 className="type-h4 flex items-center gap-2 font-semibold text-foreground">
+                <FileText className="h-4.5 w-4.5 text-primary" />
+                Vehicle Documents
+              </h4>
 
-            <div className="space-y-3 pt-3 border-t border-border/40">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
-                    <FileText className="h-4.5 w-4.5 text-primary" />
-                    Vehicle Compliance Documents
-                  </h4>
-                  <p className="type-caption text-muted-foreground mt-0.5">
-                    Optional; can be added later.
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowAddDocType((prev) => !prev)}
-                  leadingIcon={<Plus className="h-3.5 w-3.5" />}
-                  className="text-xs font-semibold rounded-full shrink-0"
-                >
-                  {showAddDocType ? 'Cancel' : 'Add document type'}
-                </Button>
-              </div>
-
-              {showAddDocType && (
-                <AddDocumentTypeBox
-                  labelValue={newDocTypeLabel}
-                  onLabelChange={setNewDocTypeLabel}
-                  required={newDocTypeRequired}
-                  onRequiredChange={setNewDocTypeRequired}
-                  onSave={handleAddDocumentType}
-                  placeholder="Document name (e.g. Weighbridge Certificate)"
-                />
-              )}
-
-              <DocumentTypeList
-                types={vehicleDocTypes}
-                docs={newVehicleDocs}
-                onUpload={handleUploadForNewVehicleType}
-                onView={setViewingDoc}
-                onDownload={handleDownloadNewVehicleDoc}
-                onRemove={handleRemoveNewVehicleDoc}
+              <DocumentChecklist
+                ownerType="VEHICLE"
+                documents={newVehicleDocs.rows}
+                subject={newVehicle.plateNumber || undefined}
+                onUpload={newVehicleDocs.stage}
+                onRemove={newVehicleDocs.remove}
               />
+
+              {addError && <p className="text-[11px] font-medium text-destructive">{addError}</p>}
             </div>
 
           </div>
@@ -786,8 +546,8 @@ export function VehiclesPage() {
               className="rounded-lg"
               onClick={() => {
                 setIsAddVehicleOpen(false);
-                setNewVehicleDocs([]);
-                setShowAddDocType(false);
+                newVehicleDocs.reset();
+                setAddError(null);
               }}
             >
               Cancel
@@ -970,11 +730,11 @@ export function VehiclesPage() {
                     <div className="grid grid-cols-2 gap-3 p-3.5 rounded-lg border border-border bg-card text-xs">
                       <div>
                         <span className="text-muted-foreground block text-[10px]">Insurance Expiry</span>
-                        <ExpiryLabel date={selectedVehicle.insuranceExpiry} label="" />
+                        <ExpiryLabel date={selectedVehicle.insuranceExpiry} />
                       </div>
                       <div>
                         <span className="text-muted-foreground block text-[10px]">Registration Expiry</span>
-                        <ExpiryLabel date={selectedVehicle.registrationExpiry} label="" />
+                        <ExpiryLabel date={selectedVehicle.registrationExpiry} />
                       </div>
                     </div>
                   </div>
@@ -1147,44 +907,20 @@ export function VehiclesPage() {
               {/* ── TAB 3: VEHICLE DOCUMENTS & UPLOAD ── */}
               {drawerTab === 'edit' && (
                 <div className="space-y-5">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <div>
-                      <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
-                        <FileText className="h-4.5 w-4.5 text-primary" />
-                        Vehicle Compliance Documents
-                      </h4>
-                      <p className="type-caption text-muted-foreground mt-0.5">
-                        New document types apply to every future vehicle.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowAddDocType((prev) => !prev)}
-                      leadingIcon={<Plus className="h-3.5 w-3.5" />}
-                      className="text-xs font-semibold rounded-full shrink-0"
-                    >
-                      {showAddDocType ? 'Cancel' : 'Add Document Type'}
-                    </Button>
-                  </div>
+                  <h4 className="type-h4 flex items-center gap-2 font-semibold text-foreground">
+                    <FileText className="h-4.5 w-4.5 text-primary" />
+                    Vehicle Documents
+                  </h4>
 
-                  {/* Add document type box */}
-                  {showAddDocType && (
-                    <AddDocumentTypeBox
-                      labelValue={newDocTypeLabel}
-                      onLabelChange={setNewDocTypeLabel}
-                      required={newDocTypeRequired}
-                      onRequiredChange={setNewDocTypeRequired}
-                      onSave={handleAddDocumentType}
-                      placeholder="Document name (e.g. Weighbridge Certificate)"
-                    />
-                  )}
-
-                  {/* Document Type List — one compact row per type */}
-                  <DocumentTypeList
-                    types={vehicleDocTypes}
-                    docs={vehicleDocRows}
+                  {/* Re-filing the insurance here moves the truck's cover with
+                      it — the backend writes the certificate's dates and
+                      insurer onto the vehicle, so a renewal is one upload
+                      rather than an upload and three fields. */}
+                  <DocumentChecklist
+                    ownerType="VEHICLE"
+                    documents={vehicleDocRows}
+                    subject={selectedVehicle.plateNumber}
+                    busy={uploadDoc.isPending}
                     onUpload={handleUploadForType}
                     onView={setViewingDoc}
                     onDownload={handleDownloadVehicleDoc}
@@ -1328,7 +1064,7 @@ export function VehiclesPage() {
             label: 'Insurance',
             icon: FileText,
             width: 'w-[14%]',
-            cell: (vehicle) => <ExpiryLabel date={vehicle.insuranceExpiry} label="" />,
+            cell: (vehicle) => <ExpiryLabel date={vehicle.insuranceExpiry} />,
           },
           {
             key: 'status',

@@ -9,7 +9,6 @@ export {
   DriverProfileOverview,
   DriverProfileSheet,
   DriverStatusPill,
-  expiryState,
   type DriverProfileHeaderProps,
   type DriverProfileOverviewProps,
   type DriverProfileSheetProps,

@@ -1,18 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  createDocumentType,
   deleteDocument,
-  deleteDocumentType,
-  fetchDocumentTypes,
+  fetchDocumentBook,
   fetchDocuments,
   uploadDocument,
+  uploadDocuments,
   type DocumentOwnerType,
+  type UploadDocumentParams,
 } from './documentsService';
 
 export const documentQueryKeys = {
   list: (ownerType: DocumentOwnerType, ownerId: string) => ['documents', ownerType, ownerId] as const,
-  types: (ownerType: DocumentOwnerType) => ['document-types', ownerType] as const,
+  book: ['documents', 'book'] as const,
 };
+
+/** Every compliance paper on file — the Documents register reads this. */
+export function useDocumentBook() {
+  return useQuery({ queryKey: documentQueryKeys.book, queryFn: fetchDocumentBook });
+}
 
 export function useDocuments(ownerType: DocumentOwnerType, ownerId: string | undefined) {
   return useQuery({
@@ -22,11 +27,30 @@ export function useDocuments(ownerType: DocumentOwnerType, ownerId: string | und
   });
 }
 
+/** One paper, with the dates and the issuer the operator read off it. */
 export function useUploadDocument(ownerType: DocumentOwnerType, ownerId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (params: { category: string; file: File }) =>
+    mutationFn: (params: Omit<UploadDocumentParams, 'ownerType' | 'ownerId'>) =>
       uploadDocument({ ownerType, ownerId: ownerId as string, ...params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: documentQueryKeys.list(ownerType, ownerId ?? '') });
+    },
+  });
+}
+
+/**
+ * Several files under one category — the shape a proof arrives in.
+ *
+ * A vehicle's insurance is one certificate; a proof of delivery is a signed
+ * note plus whatever photographs the driver came back with. Both go through
+ * here, and the caller decides how many files it will accept.
+ */
+export function useUploadDocuments(ownerType: DocumentOwnerType, ownerId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: Omit<UploadDocumentParams, 'ownerType' | 'ownerId' | 'file'> & { files: File[] }) =>
+      uploadDocuments({ ownerType, ownerId: ownerId as string, ...params }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: documentQueryKeys.list(ownerType, ownerId ?? '') });
     },
@@ -39,34 +63,6 @@ export function useDeleteDocument(ownerType: DocumentOwnerType, ownerId: string 
     mutationFn: (id: string) => deleteDocument(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: documentQueryKeys.list(ownerType, ownerId ?? '') });
-    },
-  });
-}
-
-export function useDocumentTypes(ownerType: DocumentOwnerType) {
-  return useQuery({
-    queryKey: documentQueryKeys.types(ownerType),
-    queryFn: () => fetchDocumentTypes(ownerType),
-  });
-}
-
-export function useCreateDocumentType(ownerType: DocumentOwnerType) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (params: { label: string; required: boolean }) =>
-      createDocumentType(ownerType, params.label, params.required),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: documentQueryKeys.types(ownerType) });
-    },
-  });
-}
-
-export function useDeleteDocumentType(ownerType: DocumentOwnerType) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => deleteDocumentType(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: documentQueryKeys.types(ownerType) });
     },
   });
 }

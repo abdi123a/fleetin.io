@@ -34,7 +34,10 @@ export const EMPTY_RETURN_VIEWS: readonly EmptyReturnView[] = [
   },
   {
     key: 'cycles',
-    label: 'Cycles',
+    /* Kept in step with the sidebar's label on purpose — this list drives the
+       page header, and a nav item and the page it opens must not disagree
+       about what the page is called. */
+    label: 'Cycles / Chains',
     path: ROUTES.emptyReturnsCycles,
   },
   /* Still registered even though the sidebar has no link to it: this list

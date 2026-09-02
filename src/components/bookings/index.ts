@@ -6,7 +6,7 @@
 export {
   BookingDebriefDialog,
   DEBRIEF_SUBJECTS,
-  debriefSubjectFor,
+  debriefSubjectsFor,
   emptyDebrief,
   type BookingDebriefDialogProps,
   type DebriefDraft,

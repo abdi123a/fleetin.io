@@ -99,7 +99,10 @@ export const MissionStatusBadge: React.FC<MissionStatusBadgeProps> = ({
      phase on 2026-08-30; this is the shipment-level half of that change.
      What is *inside* the box is still carried here, by the container glyph and
      the tooltip sentence, which is where it does not collide with the phase. */
-  const intent = containerState ? statusBadgeIntentOf(status) : config.intent;
+  /* Scoped to the shipment, so the colour follows the same four-state rollup
+     the word does. Without it the badge could read "In Transit" in the red of
+     Unstuffing — the label rolled up and the colour did not. */
+  const intent = containerState ? statusBadgeIntentOf(status, 'shipment') : config.intent;
   // The icon and colour still track the precise rung of the ladder; only the
   // word is the shared plain-language one, so this badge and the booking
   // cards under a shipment can never disagree about what to call the same

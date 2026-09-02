@@ -138,7 +138,6 @@ export function ShipmentReportPanel({
   };
 
   const isShipmentScope = scope === 'shipment';
-  const ret = shipmentReport.containerReturn;
 
   /* The band's second line, and the rule it follows: it may only carry figures
      the title cannot. In shipment scope that is the shape of the consignment;
@@ -146,7 +145,10 @@ export function ShipmentReportPanel({
   const headline = isShipmentScope
     ? [
         `${shipmentReport.containers.total} container${shipmentReport.containers.total === 1 ? '' : 's'}`,
-        ret.withBox > 0 ? `${ret.returned} home · ${ret.out} out` : null,
+        /* No "N home · N out" here. The BOXES BACK tile directly below counts
+           exactly that, as `0/2` with a mark per container, so the line was
+           spending the band's one spare slot restating the tile underneath it.
+           Removed 2026-09-01. */
         shipmentReport.time.spanMs !== null
           ? formatDuration(shipmentReport.time.spanMs, { compact: true })
           : null,
@@ -160,8 +162,13 @@ export function ShipmentReportPanel({
         .filter(Boolean)
         .join(' · ');
 
+  /* The report answers to its OWN width, not the window's. The page it sits on
+     has a sidebar that collapses, so the same viewport can give this panel
+     900px or 1150px — and a viewport breakpoint spends that extra 250px on
+     empty space rather than on a column. Every layout switch inside this
+     section is a `/report` container query for that reason. */
   return (
-    <section className={cn('space-y-3', className)}>
+    <section className={cn('@container/report space-y-3', className)}>
       {/* ── The masthead ─────────────────────────────────────────────────
           Screen only. On paper the letterhead is the document's header, and
           printing a scope switcher would be printing a control. */}
@@ -170,10 +177,13 @@ export function ShipmentReportPanel({
         <div className="min-w-0 flex-1 basis-52">
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] opacity-75">Analytics</p>
           <h3 className="truncate text-base font-bold leading-tight sm:text-[17px]">
-            {isShipmentScope ? 'Whole Shipment' : `Booking ${selected?.reference ?? ''}`}
+            {isShipmentScope ? 'Shipment' : `Booking ${selected?.reference ?? ''}`}
           </h3>
+          {/* Two lines rather than an ellipsis: this line is nothing but
+              figures, and "7h 0…" is a clipped number. It only ever needs the
+              second line on a phone. */}
           {headline && (
-            <p className="mt-0.5 truncate font-mono text-[11.5px] tabular-nums opacity-85">
+            <p className="mt-0.5 line-clamp-2 font-mono text-[11.5px] leading-snug tabular-nums opacity-85">
               {headline}
             </p>
           )}
@@ -197,7 +207,7 @@ export function ShipmentReportPanel({
                   : 'text-primary-foreground/85 hover:bg-white/10',
               )}
             >
-              Whole shipment
+              Shipment
             </button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -213,7 +223,7 @@ export function ShipmentReportPanel({
                   )}
                 >
                   <span className="max-w-[13ch] truncate">
-                    {isShipmentScope ? 'One container' : (selected?.reference ?? 'One container')}
+                    {isShipmentScope ? 'Per Container' : (selected?.reference ?? 'Per Container')}
                   </span>
                   <ChevronDown className="size-3.5 shrink-0" />
                 </button>

@@ -1,3 +1,4 @@
+import { SheetHeading } from '@/components/common';
 import { useMemo, useState } from 'react';
 
 import { Button, Input, Sheet, SheetContent, SheetDescription, SheetTitle, Spinner, Textarea, useConfirm } from '@/design-system';
@@ -296,17 +297,17 @@ function ProfileSheet({
         side="right"
         className="flex h-full w-full flex-col gap-0 overflow-hidden border-l border-border bg-background p-0 sm:max-w-3xl"
       >
-        <div className="shrink-0 space-y-1 border-b border-border/40 px-6 pb-4 pt-6">
-          <SheetTitle className="flex items-center gap-2 text-xl font-extrabold tracking-tight text-foreground">
+        <SheetHeading
+          titleComponent={SheetTitle}
+          descriptionComponent={SheetDescription}
+          title={<>
             <ShieldCheck className="h-5 w-5 text-primary" />
             {profile ? profile.name : 'New Access Profile'}
-          </SheetTitle>
-          <SheetDescription className="text-xs text-muted-foreground">
-            {locked
-              ? 'A built-in profile. Shown so you can see exactly what it grants.'
-              : 'A named set of permissions that accounts can be assigned to.'}
-          </SheetDescription>
-        </div>
+          </>}
+          description={locked
+            ? 'A built-in profile. Shown so you can see exactly what it grants.'
+            : 'A named set of permissions that accounts can be assigned to.'}
+        />
 
         <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
           {!locked && (

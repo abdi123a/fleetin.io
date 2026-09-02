@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { addDays, format, parse, isValid } from 'date-fns';
 
-import { HelpHint } from '@/components/common';
+import { HelpHint, SheetHeading } from '@/components/common';
 
 /**
  * Free days on an empty before detention starts, and therefore how far out the
@@ -46,6 +46,8 @@ import {
 } from '@/design-system';
 import { useShippingLines } from '@/features/shipping-lines/shippingLines';
 import { ShippingLineManager } from './ShippingLineManager';
+import { LocationManager } from './LocationManager';
+import { loadLocations, resetLocations, saveLocations } from './locationCatalog';
 import { TransporterRecommendations } from './TransporterRecommendations';
 import { useShipmentStore } from '@/stores/shipment.store';
 import { ROUTES, buildPath } from '@/config/routes';
@@ -58,34 +60,17 @@ import { createCycle } from '@/features/empty-returns';
 import { normalizeContainerSize } from '@/data/emptyReturnData';
 import { EmptyContainerOpportunities } from './EmptyContainerOpportunities';
 import { useCreateProject, useProjects } from '@/features/finance';
-import { usdToDjf } from '@/features/transporter-bi/config';
 import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
 import { CrewPicker, CrewStack } from '@/components/crew';
 import { useTeam } from '@/features/team';
 import { useAuthStore } from '@/stores';
-import type { PartnerRecord } from '@/types/partner';
 import { cn } from '@/utils';
 import { IconChip } from '@/design-system';
 
-/**
- * A live estimate only — shown while the wizard is filled in, exactly as
- * before. The rate actually persisted comes back from `POST /shipments`,
- * computed server-side from the same partner pricing grid (BR-2.6): the
- * wizard has never had a rate input, and the browser must not be the one
- * setting the price that gets stored.
- */
-function resolvePartnerRateFDJ(partner: PartnerRecord | undefined, vehicleType: string): number {
-  const tiers = partner?.pricingGrid;
-  if (!tiers || tiers.length === 0) return 65000;
-  const needle = vehicleType.toLowerCase();
-  const match =
-    tiers.find(
-      (tier) => needle.includes(tier.vehicleType.toLowerCase()) || tier.vehicleType.toLowerCase().includes(needle),
-    ) ?? tiers[0];
-  if (!match) return 65000;
-  const amount = match.currency === 'USD' ? match.basePrice * usdToDjf() : match.basePrice;
-  return Math.round(amount);
-}
+/* `resolvePartnerRateFDJ` was removed on 2026-08-31 with the partner price
+   lists it read — server-side too, along with the `PricingTier` table. The
+   shipment's price is typed in step 4 and nothing derives it. */
+
 
 /**
  * One real `Booking` per container (or one, for bulk/machinery, which never
@@ -240,48 +225,10 @@ export const DROPOFF_LOCATION_OPTIONS = [
   { value: 'Djibouti Free Zone (DFZ)', label: 'Djibouti Free Zone (DFZ)' },
 ];
 
-// Custom pickup/drop-off locations the user adds are remembered locally, so a
-// location typed once shows up as a normal option on every later shipment.
-// Kept as two separate lists — pickup stays ports-only, drop-off stays
-// free-zones-only, matching the fixed option lists above.
-const CUSTOM_PICKUP_LOCATIONS_STORAGE_KEY = 'fleetin.customPickupLocations';
-const CUSTOM_DROPOFF_LOCATIONS_STORAGE_KEY = 'fleetin.customDropoffLocations';
-
-function loadCustomPickupLocations(): string[] {
-  try {
-    const raw = localStorage.getItem(CUSTOM_PICKUP_LOCATIONS_STORAGE_KEY);
-    const parsed: unknown = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveCustomPickupLocations(locations: string[]): void {
-  try {
-    localStorage.setItem(CUSTOM_PICKUP_LOCATIONS_STORAGE_KEY, JSON.stringify(locations));
-  } catch {
-    // Storage unavailable (private browsing, quota) — the session still works, it just won't persist.
-  }
-}
-
-function loadCustomDropoffLocations(): string[] {
-  try {
-    const raw = localStorage.getItem(CUSTOM_DROPOFF_LOCATIONS_STORAGE_KEY);
-    const parsed: unknown = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveCustomDropoffLocations(locations: string[]): void {
-  try {
-    localStorage.setItem(CUSTOM_DROPOFF_LOCATIONS_STORAGE_KEY, JSON.stringify(locations));
-  } catch {
-    // Storage unavailable (private browsing, quota) — the session still works, it just won't persist.
-  }
-}
+/* The corridor's own lists, as plain names — what a fresh account starts with
+   and what Reset puts back. See `locationCatalog`. */
+export const PICKUP_LOCATION_BUILT_INS = PICKUP_LOCATION_OPTIONS.map((o) => o.value);
+export const DROPOFF_LOCATION_BUILT_INS = DROPOFF_LOCATION_OPTIONS.map((o) => o.value);
 
 // Sentinel selected when the user picks "+ Add custom…" from a Combobox —
 // the entry field only reveals while the field's value equals this, the same
@@ -476,7 +423,6 @@ export function CreateShipmentModal() {
 
   const { data: partnersResponse } = usePartners();
   const partners = useMemo(() => partnersResponse?.items ?? [], [partnersResponse]);
-  const defaultTransporter = partners[0];
 
   const createShipmentMutation = useCreateShipment();
 
@@ -597,7 +543,7 @@ export function CreateShipmentModal() {
   ];
 
   // Cargo Specs (Weight) — stored canonically in kg; the unit toggle only affects display/entry.
-  const [totalWeightKg, setTotalWeightKg] = useState<number>(25000);
+  const [totalWeightKg, setTotalWeightKg] = useState<number>(0);
   const [weightUnit, setWeightUnit] = useState<'kg' | 't'>('kg');
   const displayWeight = weightUnit === 't' ? totalWeightKg / 1000 : totalWeightKg;
   const handleWeightChange = (raw: number) => {
@@ -605,7 +551,13 @@ export function CreateShipmentModal() {
   };
 
   // Route Locations (Dropdown values & Pickup Date/Time)
-  const [pickupLocation, setPickupLocation] = useState<string>(PICKUP_LOCATION_OPTIONS[0]?.value ?? 'Port of Djibouti');
+  /* Empty, like every other required field.
+     These were pre-filled with the first option in each list — Port of Djibouti
+     → UKAB Free Zone, 08:30, 25 tonnes, the first shipper, the first
+     transporter — which is a guess wearing the same clothes as a decision. It
+     reads as answered, so it does not get read, and a wrong corridor or a wrong
+     shipper leaves the wizard silently. A blank field asks the question. */
+  const [pickupLocation, setPickupLocation] = useState<string>('');
   const [pickupCity, setPickupCity] = useState<string>('Djibouti');
   /* Today, not a date hardcoded when this wizard was written. The stale
      literal was quietly fatal to the empty-container recommendation: a box is
@@ -613,22 +565,29 @@ export function CreateShipmentModal() {
      container that came free after 29 Jul failed that test against a pickup
      the operator never chose. */
   const [pickupDate, setPickupDate] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
-  const [pickupTime, setPickupTime] = useState<string>('08:30');
-  const [customPickupLocations, setCustomPickupLocations] = useState<string[]>(() => loadCustomPickupLocations());
-  const [newPickupLocationName, setNewPickupLocationName] = useState<string>('');
-  const pickupLocationOptions = [
-    ...PICKUP_LOCATION_OPTIONS,
-    ...customPickupLocations.map((l) => ({ value: l, label: l })),
-  ];
-  const [deliveryLocation, setDeliveryLocation] = useState<string>(DROPOFF_LOCATION_OPTIONS[0]?.value ?? 'UKAB Free Zone');
+  const [pickupTime, setPickupTime] = useState<string>('');
+  /* When the shipper expects the goods at the drop-off. Blank by default and
+     never derived from the pickup: on this corridor a port→free-zone run and a
+     cross-border one both leave the same morning, and only the shipper knows
+     which day they have cleared to receive. A guessed date reads as a
+     commitment, so an unknown one stays empty. */
+  const [deliveryDate, setDeliveryDate] = useState<string>('');
+  const [deliveryTime, setDeliveryTime] = useState<string>('');
+  /* The catalogue itself, not a list of additions to a frozen one — every row
+     can be renamed or removed. See `locationCatalog`. */
+  const [pickupLocations, setPickupLocations] = useState<string[]>(() =>
+    loadLocations('pickup', PICKUP_LOCATION_BUILT_INS),
+  );
+  const [managingPickupLocations, setManagingPickupLocations] = useState(false);
+  const pickupLocationOptions = pickupLocations.map((l) => ({ value: l, label: l }));
+  const [deliveryLocation, setDeliveryLocation] = useState<string>('');
   const [deliveryCity, setDeliveryCity] = useState<string>('Djibouti');
   const [estimatedDistanceKm, setEstimatedDistanceKm] = useState<number>(25);
-  const [customDropoffLocations, setCustomDropoffLocations] = useState<string[]>(() => loadCustomDropoffLocations());
-  const [newDropoffLocationName, setNewDropoffLocationName] = useState<string>('');
-  const dropoffLocationOptions = [
-    ...DROPOFF_LOCATION_OPTIONS,
-    ...customDropoffLocations.map((l) => ({ value: l, label: l })),
-  ];
+  const [dropoffLocations, setDropoffLocations] = useState<string[]>(() =>
+    loadLocations('dropoff', DROPOFF_LOCATION_BUILT_INS),
+  );
+  const [managingDropoffLocations, setManagingDropoffLocations] = useState(false);
+  const dropoffLocationOptions = dropoffLocations.map((l) => ({ value: l, label: l }));
 
   // Shipper — always a real, existing account; there is no "create a shipper
   // inline while creating a shipment" concept anywhere else in the product.
@@ -710,35 +669,37 @@ export function CreateShipmentModal() {
     { id: string; partnerId: string; vehicles: number; bookingIds: string[] }[]
   >([{ id: 'TA-1', partnerId: '', vehicles: 1, bookingIds: [] }]);
   const transporterIdCounter = useRef(1);
-  /** Once the operator types a vehicle count, the wizard stops guessing it. */
+  /** Set the moment the operator types a vehicle count, so the derived default
+      below stops overwriting a figure they chose on purpose. */
   const vehiclesTouched = useRef(false);
+  /* No shipper is chosen for the operator. It used to select the first in the
+     list, which on an eight-shipper account is a one-in-eight chance of being
+     right and a certainty of looking decided. */
 
-  // Both lists load asynchronously — seed the defaults once they arrive
-  // rather than baking a mock id into the initial state.
-  useEffect(() => {
-    const firstShipper = sampleShippers[0];
-    if (!selectedShipperId && firstShipper) {
-      setSelectedShipperId(firstShipper.id);
-    }
-  }, [sampleShippers, selectedShipperId]);
-
-  useEffect(() => {
-    if (defaultTransporter) {
-      setTransporterAssignments((prev) =>
-        prev.map((a, i) => (i === 0 && !a.partnerId ? { ...a, partnerId: defaultTransporter.id } : a)),
-      );
-    }
-  }, [defaultTransporter]);
+  /* Nor a transporter. Same reasoning: the first partner in the list is not a
+     recommendation, and on a container shipment the panel one step earlier is
+     the thing that actually has an argument for one. */
 
   // Pricing — the rate lives per transporter (set in the Fleet step); the total is derived.
   const [paymentStatus, setPaymentStatus] = useState<'Paid' | 'Pending'>('Pending');
   // Fleetin's house commission, for the payout split shown in the review step.
   // Read-only here: the wizard displays where the money lands, it never sets it.
-  // Normally empty — the price comes from the transporters' own price lists.
-  // Filled only when an operator explicitly overrides with a negotiated figure.
+  /**
+   * The price of ONE BOOKING, typed.
+   *
+   * A shipment is the group; a booking is one trip, one vehicle, one container.
+   * The negotiated figure on this corridor is quoted per trip — "45k a
+   * mission" — so that is what the operator has in hand, and the shipment
+   * total is the multiplication, not the other way round. Asking for the total
+   * made them do the arithmetic and then made the wizard undo it, because the
+   * money that actually moves is per booking.
+   *
+   * It used to be derived from the chosen transporter's price list, with a
+   * "negotiated price" override behind a link. Every real shipment here is
+   * negotiated, so that default was one nobody wanted and a stale list quietly
+   * billed the wrong number. Nothing computes it now.
+   */
   const [clientRateInput, setClientRateInput] = useState<string>('');
-  /** Off by default: the price list decides, so the wizard cannot leave a shipment unpriced. */
-  const [overridePrice, setOverridePrice] = useState(false);
   const resolveVehicleType = (groups: ContainerGroup[]): string => {
     const total = groups.reduce((sum, g) => sum + g.quantity, 0);
     const only = groups[0];
@@ -936,7 +897,13 @@ export function CreateShipmentModal() {
 
   const vehicleCount = transporterAssignments.reduce((sum, a) => sum + a.vehicles, 0);
   // One vehicle per container; bulk/machinery shipments default to a single dedicated vehicle.
-  const vehiclesNeeded = isContainer ? containerQuantity : 1;
+  /* One truck per container — but only where there ARE containers.
+     Bulk and machinery have no container count to derive from, and pinning
+     them to 1 made the wizard refuse the perfectly ordinary case of a grain
+     load that takes three tippers: it told the operator to "remove 2 extra
+     vehicle(s) — 1 container(s) need 1" on a shipment carrying no containers
+     at all. On those, the operator's own figure IS the requirement. */
+  const vehiclesNeeded = isContainer ? containerQuantity : vehicleCount;
   const vehicleDiff = vehicleCount - vehiclesNeeded;
 
   // Until the operator sets a count by hand, the single fleet row follows what
@@ -944,13 +911,15 @@ export function CreateShipmentModal() {
   // contradicted the 1 container it also opened on and flagged its own default
   // as "2 extra vehicles assigned".
   useEffect(() => {
-    if (vehiclesTouched.current) return;
+    /* Container shipments only — on bulk and machinery `vehiclesNeeded` IS the
+       operator's count, so writing it back would be an infinite echo. */
+    if (!isContainer || vehiclesTouched.current) return;
     setTransporterAssignments((prev) => {
       const only = prev[0];
       if (prev.length !== 1 || !only || only.vehicles === vehiclesNeeded) return prev;
       return [{ ...only, vehicles: vehiclesNeeded }];
     });
-  }, [vehiclesNeeded]);
+  }, [vehiclesNeeded, isContainer]);
   /**
    * Every reference on this shipment is typed, never minted — so the wizard
    * has to say exactly which one is missing. A booking number per vehicle,
@@ -978,14 +947,13 @@ export function CreateShipmentModal() {
   );
   const referenceFieldsMissing =
     shipmentReferenceMissing || bookingNumbersShort.length > 0 || bookingNumbersLong.length > 0;
-  // The shipment's price, and the whole of the pricing rule: containers times
-  // the per-mission price on the chosen transporter's own list. This is what
-  // the shipper is billed — Fleetin's commission is already inside it, and the
-  // transporters are paid this less that commission.
-  const totalCostFDJ = transporterAssignments.reduce((sum, a) => {
-    const partner = partners.find((p) => p.id === a.partnerId);
-    return sum + a.vehicles * resolvePartnerRateFDJ(partner, vehicleType);
-  }, 0);
+  /** One trip's price, as entered. */
+  const perBookingFDJ = Number(clientRateInput) || 0;
+  /* What the shipper is billed for the whole group: one trip's price times the
+     number of trips. Fleetin's commission is inside it and the transporters are
+     paid it less that commission — unchanged; the server divides it back across
+     the bookings, landing each on exactly `perBookingFDJ`. */
+  const totalCostFDJ = perBookingFDJ * vehicleCount;
 
   // Every reason "Confirm & Create" can't be pressed yet — shown together near
   // the submit button so a missing field is never a silent no-op click (the
@@ -1006,6 +974,22 @@ export function CreateShipmentModal() {
     blocker(1, isDpcsSource ? 'Enter the DPCS Shipment ID.' : 'Enter the shipment number.');
   }
   if (!activeShipper) blocker(1, 'Select a shipper.');
+  /* The route and the weight stopped being pre-filled, so "nobody chose one" is
+     a real state now and each has to be refused rather than sent as a blank. */
+  if (!pickupLocation) blocker(2, 'Choose a pickup location.');
+  if (!deliveryLocation) blocker(2, 'Choose a drop-off location.');
+  if (!pickupDate || !pickupTime) blocker(2, 'Set the pickup date and time.');
+  /* Optional, but if it is filled it has to be possible: a delivery cannot
+     land before the truck leaves. Only checked once both ends are known. */
+  if (deliveryDate && pickupDate) {
+    const leaves = new Date(`${pickupDate}T${pickupTime || '00:00'}:00`).getTime();
+    const lands = new Date(`${deliveryDate}T${deliveryTime || '23:59'}:00`).getTime();
+    if (lands < leaves) blocker(2, 'Delivery cannot be before the pickup.');
+  }
+  if (!isContainer && totalWeightKg <= 0) blocker(1, 'Enter the total weight.');
+  /* The price is typed now, so "nobody entered one" is a real state the wizard
+     has to refuse — the price list used to make that impossible. */
+  if (perBookingFDJ <= 0) blocker(STEPS.length, 'Enter the price for one booking.');
   if (isContainer) {
     if (containerQuantity === 0) {
       blocker(1, 'Set how many containers this shipment carries.');
@@ -1033,7 +1017,10 @@ export function CreateShipmentModal() {
   if (transporterAssignments.some((a) => !a.partnerId)) {
     blocker(3, 'Assign a transporter to every fleet row.');
   }
-  if (vehicleDiff !== 0) {
+  /* Only a container shipment can be out of balance: `vehiclesNeeded` follows
+     the operator's own count on bulk and machinery, so the difference is
+     always zero there and the check never fires. */
+  if (isContainer && vehicleDiff !== 0) {
     // Say where the target comes from: it is the container count from step 1,
     // not anything chosen on the transporter rows this sits next to.
     blocker(
@@ -1044,7 +1031,12 @@ export function CreateShipmentModal() {
     );
   }
   if (bookingNumbersShort.length > 0) {
-    blocker(3, 'Enter a booking number for every vehicle — one per container.');
+    blocker(
+      3,
+      isContainer
+        ? 'Enter a booking number for every vehicle — one per container.'
+        : 'Enter a booking number for every vehicle.',
+    );
   }
   if (bookingNumbersLong.length > 0) {
     blocker(3, 'Remove the extra booking number(s) — there is one per vehicle.');
@@ -1124,30 +1116,14 @@ export function CreateShipmentModal() {
     setNewMachineryTypeName('');
   };
 
-  const handleAddCustomPickupLocation = () => {
-    const trimmed = newPickupLocationName.trim();
-    if (!trimmed) return;
-    const alreadyKnown = pickupLocationOptions.some((o) => o.label.toLowerCase() === trimmed.toLowerCase());
-    if (!alreadyKnown) {
-      const next = [...customPickupLocations, trimmed];
-      setCustomPickupLocations(next);
-      saveCustomPickupLocations(next);
-    }
-    setPickupLocation(trimmed);
-    setNewPickupLocationName('');
+  const applyPickupLocations = (next: string[]) => {
+    setPickupLocations(next);
+    saveLocations('pickup', next);
   };
 
-  const handleAddCustomDropoffLocation = () => {
-    const trimmed = newDropoffLocationName.trim();
-    if (!trimmed) return;
-    const alreadyKnown = dropoffLocationOptions.some((o) => o.label.toLowerCase() === trimmed.toLowerCase());
-    if (!alreadyKnown) {
-      const next = [...customDropoffLocations, trimmed];
-      setCustomDropoffLocations(next);
-      saveCustomDropoffLocations(next);
-    }
-    setDeliveryLocation(trimmed);
-    setNewDropoffLocationName('');
+  const applyDropoffLocations = (next: string[]) => {
+    setDropoffLocations(next);
+    saveLocations('dropoff', next);
   };
 
   const handleNext = () => {
@@ -1210,6 +1186,11 @@ export function CreateShipmentModal() {
 
     const resolvedContainerNumber = isContainer ? containerNumbers.filter(Boolean).join(', ') : undefined;
     const scheduledPickupTimeIso = new Date(`${pickupDate}T${pickupTime}:00`).toISOString();
+    /* Date without a time means end of that day — the shipper said "by the
+       8th", not "at midnight on the 8th". */
+    const scheduledDeliveryTimeIso = deliveryDate
+      ? new Date(`${deliveryDate}T${deliveryTime || '23:59'}:00`).toISOString()
+      : undefined;
     const containerReturnDeadlineIso = isContainer
       ? new Date(`${returnDeadline}T${returnDeadlineTime}:00`).toISOString()
       : undefined;
@@ -1261,7 +1242,8 @@ export function CreateShipmentModal() {
         totalWeightKg: totalWeightKg,
         paymentStatus,
         scheduledPickupTime: scheduledPickupTimeIso,
-        clientRateMinorUnits: clientRateInput.trim() ? Number(clientRateInput) : undefined,
+        scheduledDeliveryTime: scheduledDeliveryTimeIso,
+        clientRateMinorUnits: totalCostFDJ > 0 ? totalCostFDJ : undefined,
         projectId: resolvedProjectId || undefined,
         /* The crew, in the same request as the shipment — a job created "for
            Nasra" that loses her because a follow-up call failed is worse than
@@ -1404,42 +1386,30 @@ export function CreateShipmentModal() {
         ) : (
           <>
             {/* ── STICKY HEADER ── */}
-            <div className="shrink-0 space-y-4 border-b border-border/40 px-6 pb-4 pt-6 sm:px-8 sm:pt-8">
-              <div className="space-y-1 pr-8">
-                {/* Only the heading shares its row with the crew. The step
-                    description had been sharing it too, and at the sheet's
-                    448px it wrapped to three lines and shoved the step rail
-                    down the screen — so the description keeps the full width
-                    underneath. */}
-                <div className="flex items-start justify-between gap-3">
-                <h2 className="min-w-0 text-xl font-extrabold tracking-tight text-foreground">
-                  {prefillData?.bookingId ? (
-                    <span className="flex flex-wrap items-center gap-2">
-                      Create Shipment
-                      <Badge variant="subtle" intent="info" size="sm">
-                        From #{prefillData.bookingId}
-                      </Badge>
-                    </span>
-                  ) : (
-                    <span className="flex flex-wrap items-center gap-2">
-                      Create New Shipment
-                      {isDpcsSource ? (
-                        <Badge variant="subtle" intent="info" size="sm">
-                          DPCS
-                        </Badge>
-                      ) : (
-                        <Badge variant="subtle" size="sm">
-                          Custom
-                        </Badge>
-                      )}
-                    </span>
-                  )}
-                </h2>
-                {/* Whose job this will be — beside the title, not inside a
-                    step, because it is true of the whole shipment rather than
-                    of any one screen of it. It opens showing you. `xs` and a
-                    low `max`: this sheet is 448px wide and a four-person crew
-                    at `sm` eats a quarter of the heading's line. */}
+            <SheetHeading
+              title={prefillData?.bookingId ? 'Create Shipment' : 'Create New Shipment'}
+              badge={
+                prefillData?.bookingId ? (
+                  <Badge variant="subtle" intent="info" size="sm">
+                    From #{prefillData.bookingId}
+                  </Badge>
+                ) : isDpcsSource ? (
+                  <Badge variant="subtle" intent="info" size="sm">
+                    DPCS
+                  </Badge>
+                ) : (
+                  <Badge variant="subtle" size="sm">
+                    Custom
+                  </Badge>
+                )
+              }
+              description={currentStepDef.description}
+              /* Whose job this will be — beside the title, not inside a step,
+                 because it is true of the whole shipment rather than of any one
+                 screen of it. It opens showing you. `xs` and a low `max`: this
+                 sheet is 448px wide and a four-person crew at `sm` eats a
+                 quarter of the heading's line. */
+              trailing={
                 <CrewPicker
                   value={crewIds}
                   leadUserId={crewLeadId}
@@ -1449,17 +1419,10 @@ export function CreateShipmentModal() {
                     setCrewLeadId(leadUserId);
                   }}
                 >
-                  <CrewStack
-                    crew={crewFaces}
-                    size="xs"
-                    max={3}
-                    interactive
-                    className="mt-1.5 shrink-0"
-                  />
+                  <CrewStack crew={crewFaces} size="xs" max={3} interactive />
                 </CrewPicker>
-                </div>
-                <p className="text-xs text-muted-foreground">{currentStepDef.description}</p>
-              </div>
+              }
+            >
 
               {/* ── STEP NAV ── */}
               <div className="flex items-center">
@@ -1508,7 +1471,7 @@ export function CreateShipmentModal() {
                   );
                 })}
               </div>
-            </div>
+            </SheetHeading>
 
             {/* ── SCROLLABLE BODY ── */}
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5 sm:px-8">
@@ -2149,38 +2112,32 @@ export function CreateShipmentModal() {
                         <label className="text-[11px] font-bold text-foreground block">Pickup Location *</label>
                         <Combobox
                           value={pickupLocation}
-                          options={[...pickupLocationOptions, { value: ADD_CUSTOM_OPTION, label: '+ Add custom location…' }]}
+                          options={[...pickupLocationOptions, { value: ADD_CUSTOM_OPTION, label: '+ Add or edit locations…' }]}
                           onChange={(val) => {
+                            if (val === ADD_CUSTOM_OPTION) {
+                              setManagingPickupLocations(true);
+                              return;
+                            }
                             setPickupLocation(val);
                             setPickupCity('Djibouti');
                           }}
                         />
-                        {pickupLocation === ADD_CUSTOM_OPTION && (
-                          <div className="flex items-center gap-2 pt-1">
-                            <Input
-                              autoFocus
-                              value={newPickupLocationName}
-                              onChange={(e) => setNewPickupLocationName(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  handleAddCustomPickupLocation();
-                                }
-                              }}
-                              placeholder="Type new location…"
-                              className="flex-1"
-                            />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={handleAddCustomPickupLocation}
-                              disabled={!newPickupLocationName.trim()}
-                              leadingIcon={<Plus className="w-3.5 h-3.5" />}
-                            >
-                              Add
-                            </Button>
-                          </div>
+                        {managingPickupLocations && (
+                          <LocationManager
+                            title="Pickup locations"
+                            locations={pickupLocations}
+                            inUse={pickupLocation}
+                            onChange={applyPickupLocations}
+                            onReset={() =>
+                              setPickupLocations(resetLocations('pickup', PICKUP_LOCATION_BUILT_INS))
+                            }
+                            onClose={() => setManagingPickupLocations(false)}
+                            onAdded={(name) => {
+                              setPickupLocation(name);
+                              setPickupCity('Djibouti');
+                            }}
+                            onRenamed={setPickupLocation}
+                          />
                         )}
                       </div>
 
@@ -2221,40 +2178,63 @@ export function CreateShipmentModal() {
                         <label className="text-[11px] font-bold text-foreground block">Drop-off Location *</label>
                         <Combobox
                           value={deliveryLocation}
-                          options={[...dropoffLocationOptions, { value: ADD_CUSTOM_OPTION, label: '+ Add custom location…' }]}
+                          options={[...dropoffLocationOptions, { value: ADD_CUSTOM_OPTION, label: '+ Add or edit locations…' }]}
                           onChange={(val) => {
+                            if (val === ADD_CUSTOM_OPTION) {
+                              setManagingDropoffLocations(true);
+                              return;
+                            }
                             setDeliveryLocation(val);
                             setDeliveryCity('Djibouti');
                             setEstimatedDistanceKm(distanceForDropoff(val));
                           }}
                         />
-                        {deliveryLocation === ADD_CUSTOM_OPTION && (
-                          <div className="flex items-center gap-2 pt-1">
-                            <Input
-                              autoFocus
-                              value={newDropoffLocationName}
-                              onChange={(e) => setNewDropoffLocationName(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  handleAddCustomDropoffLocation();
-                                }
-                              }}
-                              placeholder="Type new location…"
-                              className="flex-1"
-                            />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={handleAddCustomDropoffLocation}
-                              disabled={!newDropoffLocationName.trim()}
-                              leadingIcon={<Plus className="w-3.5 h-3.5" />}
-                            >
-                              Add
-                            </Button>
-                          </div>
+                        {managingDropoffLocations && (
+                          <LocationManager
+                            title="Drop-off locations"
+                            locations={dropoffLocations}
+                            inUse={deliveryLocation}
+                            onChange={applyDropoffLocations}
+                            onReset={() =>
+                              setDropoffLocations(resetLocations('dropoff', DROPOFF_LOCATION_BUILT_INS))
+                            }
+                            onClose={() => setManagingDropoffLocations(false)}
+                            onAdded={(name) => {
+                              setDeliveryLocation(name);
+                              setDeliveryCity('Djibouti');
+                              setEstimatedDistanceKm(distanceForDropoff(name));
+                            }}
+                            onRenamed={(name) => {
+                              setDeliveryLocation(name);
+                              if (name) setEstimatedDistanceKm(distanceForDropoff(name));
+                            }}
+                          />
                         )}
+                      </div>
+
+                      {/* When the shipper expects it. Sits under the drop-off
+                          because that is what it is a fact about — the pickup
+                          pair answers "when does it leave", this one answers
+                          "when does it land". Optional: plenty of jobs are
+                          taken before a date is agreed, and an inferred one
+                          would read as a promise nobody made. */}
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-foreground block">
+                          Delivery Date &amp; Time
+                        </label>
+                        <div className="flex items-stretch overflow-hidden rounded-md border border-input bg-surface transition-all focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
+                          <DatePicker
+                            value={deliveryDate}
+                            onChange={setDeliveryDate}
+                            className="min-w-0 flex-1 border-0 rounded-none hover:bg-transparent focus:border-0 focus:ring-0"
+                          />
+                          <div className="w-px shrink-0 bg-border" />
+                          <TimePicker
+                            value={to12Hour(deliveryTime)}
+                            onChange={(t) => setDeliveryTime(to24Hour(t))}
+                            className="min-w-0 flex-1 border-0 rounded-none hover:bg-transparent focus:border-0 focus:ring-0"
+                          />
+                        </div>
                       </div>
 
                       <div className="flex items-center justify-between p-2.5 rounded-md bg-background/90 border border-border/40 text-[11px] text-muted-foreground">
@@ -2292,19 +2272,27 @@ export function CreateShipmentModal() {
               {/* ─ STEP 3: Transporter & Fleet ─ */}
               {currentStep === 3 && (
                 <div className="space-y-5">
-                  {/* The recommendation leads, because on a shipment where a
-                      carrier is already holding the right empty box the answer
-                      is usually one of five and hunting for it in a list of
-                      forty is how that saving gets missed. The full picker is
-                      one click below and never goes away. */}
-                  {!manualTransporterPick ? (
+                  {/* CONTAINER SHIPMENTS ONLY.
+                      The recommendation leads on those, because when a carrier
+                      is already holding the right empty box the answer is
+                      usually one of five and hunting for it in a list of forty
+                      is how that saving gets missed.
+
+                      On a bulk or machinery shipment there is no empty to pair
+                      away, so the whole argument collapses to "who has trucks
+                      and what do they charge" — which is the manual picker,
+                      sorted. Ranking on that and calling it a recommendation
+                      dressed a price list up as an insight, and the panel had
+                      to open by explaining that its own reason for existing did
+                      not apply here. Non-container shipments go straight to the
+                      picker. */}
+                  {!manualTransporterPick && isContainer ? (
                     <TransporterRecommendations
                       partners={partners}
                       line={shippingLine}
                       sizes={compatibleEmptySizes}
                       pickupAt={scheduledPickupMs}
                       vehiclesNeeded={vehiclesNeeded}
-                      rateOf={(partner) => resolvePartnerRateFDJ(partner, vehicleType)}
                       considerEmpties={isContainer}
                       assignedPartnerIds={transporterAssignments
                         .map((a) => a.partnerId)
@@ -2320,14 +2308,17 @@ export function CreateShipmentModal() {
                     />
                   ) : (
                     <>
-                      <button
-                        type="button"
-                        onClick={() => setManualTransporterPick(false)}
-                        className="flex cursor-pointer items-center gap-1.5 text-[11px] font-bold text-primary hover:underline"
-                      >
-                        <Zap className="h-3.5 w-3.5" />
-                        Back to recommendations
-                      </button>
+                      {/* Only where there is something to go back to. */}
+                      {isContainer && (
+                        <button
+                          type="button"
+                          onClick={() => setManualTransporterPick(false)}
+                          className="flex cursor-pointer items-center gap-1.5 text-[11px] font-bold text-primary hover:underline"
+                        >
+                          <Zap className="h-3.5 w-3.5" />
+                          Back to recommendations
+                        </button>
+                      )}
                   {/* Transporters & Vehicles */}
                   <div className="space-y-3">
                     <div className="flex items-center justify-between gap-1.5">
@@ -2381,16 +2372,6 @@ export function CreateShipmentModal() {
                               />
                             </div>
                             {(() => {
-                              const partner = partners.find((p) => p.id === a.partnerId);
-                              const rate = resolvePartnerRateFDJ(partner, vehicleType);
-                              return (
-                                <p className="text-right text-[11px] text-muted-foreground">
-                                  {rate.toLocaleString()} FDJ/vehicle · Subtotal:{' '}
-                                  <span className="font-bold text-foreground">{(a.vehicles * rate).toLocaleString()} FDJ</span>
-                                </p>
-                              );
-                            })()}
-                            {(() => {
                               const entered = a.bookingIds.filter((b) => b.trim()).length;
                               return (
                                 <div className="space-y-1">
@@ -2417,8 +2398,9 @@ export function CreateShipmentModal() {
                                     }
                                   />
                                   <HelpHint label="Entering booking numbers">
-                                    One per vehicle — each is a booking, and they are matched to the
-                                    container numbers in the order entered.
+                                    {isContainer
+                                      ? 'One per vehicle — each is a booking, and they are matched to the container numbers in the order entered.'
+                                      : 'One per vehicle — each is a booking, in load order.'}
                                   </HelpHint>
                                 </div>
                               );
@@ -2427,7 +2409,12 @@ export function CreateShipmentModal() {
                         ))}
                       </div>
 
-                      {vehicleDiff !== 0 ? (
+                      {/* The balance banner belongs to container shipments: on
+                          bulk and machinery the count is whatever the operator
+                          says, so there is nothing to be out of balance with —
+                          and "1 container(s) need 1" on a grain load was the
+                          wizard arguing with a rule that did not apply. */}
+                      {!isContainer ? null : vehicleDiff !== 0 ? (
                         <div className="flex items-start gap-2 rounded-md bg-warning-subtle p-2.5 text-[11px] text-warning-subtle-foreground">
                           <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                           <span>
@@ -2528,65 +2515,66 @@ export function CreateShipmentModal() {
                         <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Vehicles</span>
                         <div className="text-sm font-bold text-foreground">{vehicleCount} vehicle(s)</div>
                       </div>
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Payment</span>
-                        <Badge variant="subtle" intent={paymentStatus === 'Paid' ? 'success' : 'warning'} size="sm">
-                          {paymentStatus}
-                        </Badge>
-                      </div>
+                      {/* No payment row. A shipment being created has never
+                          been paid for, so this printed "Pending" on every
+                          shipment that ever reached this step — a field whose
+                          value the reader could have told you before opening
+                          the wizard. It is still sent on create and still read
+                          in Finance, where it actually changes. */}
                     </div>
                   </div>
 
                   <div className="space-y-3 border-t border-border pt-5">
-                    <div className="space-y-1 rounded-lg border border-primary/15 bg-primary-subtle p-4">
-                      <span className="text-[10px] font-bold text-primary-subtle-foreground uppercase tracking-wider">
-                        Shipment Price — what the shipper is billed
-                      </span>
-                      <div className="text-2xl font-extrabold text-foreground">
-                        {totalCostFDJ.toLocaleString()} FDJ
-                      </div>
-                      <p className="text-[11px] text-muted-foreground">
-                        {vehicleCount} × per-mission price from {transporterAssignments.length === 1 ? "the transporter's" : "each transporter's"} own price
-                        list{transporterAssignments.length !== 1 ? ` · ${transporterAssignments.length} transporters` : ''}
-                      </p>
+                    {/* Typed, not derived. The field is the price — there is no
+                        computed figure beside it to agree or disagree with, and
+                        no "override" link to find first. A shipment cannot be
+                        created without one (see the `blocker` in
+                        `validationIssues`), so this can still never strand an
+                        unpriced shipment in Finance. */}
+                    <div className="space-y-1.5">
+                      <label
+                        htmlFor="shipment-price"
+                        className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground"
+                      >
+                        Price per booking *
+                        <HelpHint label="Why per booking">
+                          A booking is one trip — one vehicle, one container. The negotiated rate on
+                          this corridor is quoted per trip, so that is what goes here; the shipment
+                          total below is this figure times the number of trips.
+                        </HelpHint>
+                      </label>
+                      <Input
+                        id="shipment-price"
+                        type="number"
+                        min={0}
+                        value={clientRateInput}
+                        onChange={(e) => setClientRateInput(e.target.value)}
+                        placeholder="e.g. 45000"
+                        suffixText="FDJ"
+                        className="text-lg font-bold"
+                      />
                     </div>
 
-                    {/* An override, never a blank to fill in. The price is
-                        always resolved from the price list, so leaving this
-                        alone can no longer produce an unpriced shipment —
-                        which is what used to strand shipments in Finance. */}
-                    {overridePrice ? (
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-foreground block">Negotiated price for this shipment</label>
-                        <Input
-                          type="number"
-                          min={0}
-                          value={clientRateInput}
-                          onChange={(e) => setClientRateInput(e.target.value)}
-                          placeholder={String(totalCostFDJ)}
-                          suffixText="FDJ"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setOverridePrice(false);
-                            setClientRateInput('');
-                          }}
-                          className="text-[10px] font-bold text-primary underline-offset-2 hover:underline"
-                        >
-                          Use the price list instead
-                        </button>
+                    {totalCostFDJ > 0 && (
+                      <div className="space-y-1 rounded-lg border border-primary/15 bg-primary-subtle p-4">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-primary-subtle-foreground">
+                          Shipper is billed
+                        </span>
+                        <div className="text-2xl font-extrabold text-foreground">
+                          {totalCostFDJ.toLocaleString()} FDJ
+                        </div>
+                        {/* The arithmetic, shown. The operator typed one trip's
+                            price; this is the only place the group's total
+                            appears, so it says where it came from. */}
+                        <p className="text-[11px] text-muted-foreground">
+                          {perBookingFDJ.toLocaleString()} × {vehicleCount} booking
+                          {vehicleCount === 1 ? '' : 's'}
+                          {transporterAssignments.length !== 1
+                            ? ` · ${transporterAssignments.length} transporters`
+                            : ''}
+                        </p>
                       </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setOverridePrice(true)}
-                        className="text-[11px] font-bold text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-                      >
-                        Override with a negotiated price
-                      </button>
                     )}
-
                   </div>
                 </div>
               )}

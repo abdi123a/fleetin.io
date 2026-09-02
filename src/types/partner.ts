@@ -260,15 +260,15 @@ export function calculatePartnerCompletion(partner: Partial<PartnerRecord>): Par
       details: partner.primaryDispatcher?.phone,
     },
     {
-      id: 'greyCardDoc',
-      label: 'Grey Card (Carte Grise)',
-      description: 'Upload valid official Grey Card vehicle registration document',
-      isFilled: Boolean(
-        partner.uploadedDocuments?.some((d) => d.category === 'Grey Card' || d.category === 'Vehicle Registration'),
-      ),
-      details: partner.uploadedDocuments?.find(
-        (d) => d.category === 'Grey Card' || d.category === 'Vehicle Registration',
-      )?.name,
+      /* The transporter's own paper, and its only one. The grey card used to
+         be checked here, which asked a haulage COMPANY to prove a VEHICLE's
+         registration — so one file cleared a fleet of forty. Each truck carries
+         its own grey card and insurance now, and each driver their licence. */
+      id: 'businessLicenseDoc',
+      label: 'Business License',
+      description: 'Upload the company\u2019s valid business licence',
+      isFilled: Boolean(partner.uploadedDocuments?.some((d) => d.category === 'Business License')),
+      details: partner.uploadedDocuments?.find((d) => d.category === 'Business License')?.name,
     },
     {
       id: 'vehicles',

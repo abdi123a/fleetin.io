@@ -1,12 +1,13 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, Button, Badge, ShipmentCard, StatisticCard } from '@/design-system';
-import { Compass, Plus, Truck, Repeat } from '@/design-system/icons';
+import { CalendarDays, Compass, Package, Plus, Truck, Repeat } from '@/design-system/icons';
 import { BadgeCheck } from 'lucide-react';
-import { PageHeader, TablePager, usePagedRows } from '@/components';
+import { PageHeader, TablePager, ViewTabs, usePagedRows } from '@/components';
 import type { Mission, MissionFilterState } from '@/types/mission';
 import { MissionFilterToolbar } from './MissionFilterToolbar';
 import { MissionRowCard } from './MissionRowCard';
+import { isShipmentNew, readSeenShipments } from '@/features/shipments/seenShipments';
 import {
   displayShipmentStatus,
   shipmentProgress,
@@ -17,7 +18,6 @@ import { formatKm, shipmentDistance } from '@/lib/shipmentDistance';
 import { carriesContainer } from '@/lib/containerState';
 import { ROUTES, buildPath } from '@/config/routes';
 import { EmptyReturnCalendarPage } from '@/pages/empty-returns';
-import { cn } from '@/utils';
 import { useShipmentStore } from '@/stores/shipment.store';
 import { useAvailableEmpties, useCycles } from '@/features/empty-returns/api/queries';
 import { useShippers } from '@/features/shippers/api/queries';
@@ -40,12 +40,6 @@ export interface ShipmentsListViewProps {
  * component instead of a second, drifting implementation — only the
  * `missions` array passed in differs.
  */
-/** Two readings of one book: the list decides, the calendar looks ahead. */
-const SHIPMENT_TABS = [
-  { key: 'list', label: 'Shipments' },
-  { key: 'calendar', label: 'Calendar' },
-] as const;
-
 export function ShipmentsListView({ missions, canCreateShipment = true }: ShipmentsListViewProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -67,6 +61,19 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
 
   // State for view mode: 'rows' (long view) vs 'cards' (grid cards)
   const [viewMode, setViewMode] = useState<'rows' | 'cards'>('rows');
+
+  /* Read once per render pass rather than once per row.
+     
+     The slow tick is for OTHER TABS. Coming back from a shipment remounts this
+     view and re-reads on its own, so nothing here needs a timer to notice its
+     own navigation — but operators keep this list open beside the shipment they
+     are working in, and a row opened in the other tab should stop shouting NEW
+     within the minute rather than at the next reload. */
+  const [seen, setSeen] = useState(readSeenShipments);
+  useEffect(() => {
+    const timer = window.setInterval(() => setSeen(readSeenShipments()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
   /* Shipments and the empty-container calendar are two readings of one book:
      the list is every job dispatch-to-delivery, the calendar is the same work
      laid on dates. Moved here from the Empty Container module on 2026-08-29 —
@@ -144,6 +151,47 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
   const waitingEmptyReturn =
     (availableEmpties?.length ?? 0) +
     (emptyReturnCycles?.filter((c) => c.status !== 'completed').length ?? 0);
+
+  /* The filter options, read off the book itself.
+   *
+   * `MissionFilterToolbar` carried hardcoded defaults for every one of these —
+   * "Fleetin Express Ltd", "Red Sea Cargo Inc", plate "340D103", and a cargo
+   * list of "Bulk Cargo" / "Dry Bulk" / "Heavy Machinery". None of those
+   * strings exist in the data, and this page passed no options at all, so every
+   * control in that toolbar offered names no shipment could ever match and
+   * picking one emptied the list. Deriving them means the filter can only ever
+   * offer something that is actually there. */
+  const filterOptions = useMemo(() => {
+    const byId = <T,>(rows: (T & { id: string })[]) =>
+      [...new Map(rows.map((r) => [r.id, r])).values()];
+
+    return {
+      customers: byId(
+        missions
+          .filter((m) => m.customer?.id)
+          .map((m) => ({ id: m.customer.id, name: m.customer.company || m.customer.name })),
+      ).sort((a, b) => a.name.localeCompare(b.name)),
+      transporters: byId(
+        missions
+          .filter((m) => m.transporter?.id)
+          .map((m) => ({ id: m.transporter.id, name: m.transporter.company || m.transporter.name })),
+      ).sort((a, b) => a.name.localeCompare(b.name)),
+      drivers: byId(
+        missions
+          .filter((m) => m.driver?.id)
+          .map((m) => ({ id: m.driver!.id, name: m.driver!.name })),
+      ).sort((a, b) => a.name.localeCompare(b.name)),
+      vehicles: byId(
+        missions
+          .filter((m) => m.assignedTruck?.id)
+          .map((m) => ({
+            id: m.assignedTruck!.id,
+            registrationNumber: m.assignedTruck!.registrationNumber,
+          })),
+      ).sort((a, b) => a.registrationNumber.localeCompare(b.registrationNumber)),
+      cargoTypes: [...new Set(missions.map((m) => m.cargoType).filter(Boolean))].sort(),
+    };
+  }, [missions]);
 
   // Filtered and sorted dataset calculation
   const filteredMissions = useMemo(() => {
@@ -266,46 +314,34 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
   return (
     <div className="space-y-5 pb-12">
       {/* Page Header */}
-      <PageHeader
-        title="Shipments"
+      <PageHeader title="Shipments" />
+
+      {/* Title, then ONE band: the views on the left, the page's action on the
+          right. The switcher used to be a small pill on its own line under the
+          header with nothing beside it, while "New shipment" sat up in the
+          title row — two rows of chrome, and the control that changes what the
+          whole page shows was the one that looked incidental. */}
+      <ViewTabs
+        label="Shipments view"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { key: 'list' as const, label: 'Shipments', icon: Package },
+          { key: 'calendar' as const, label: 'Calendar', icon: CalendarDays },
+        ]}
         actions={
           canCreateShipment ? (
             <Button
               onClick={() => openCreateModal()}
+              size="sm"
               shape="pill"
               leadingIcon={<Plus className="h-4 w-4" />}
-              className="bg-primary hover:bg-primary-hover text-primary-foreground font-semibold px-4 py-2 text-xs shadow-xs"
             >
               New shipment
             </Button>
           ) : undefined
         }
       />
-
-      {/* The same segmented control the Control Tower and the planning calendar
-          use, so every switch in the app reads as one control language. */}
-      <div
-        className="inline-flex w-fit items-center gap-0.5 rounded-md border border-border bg-surface-sunken p-0.5"
-        role="group"
-        aria-label="Shipments view"
-      >
-        {SHIPMENT_TABS.map((option) => (
-          <button
-            key={option.key}
-            type="button"
-            aria-pressed={tab === option.key}
-            onClick={() => setTab(option.key)}
-            className={cn(
-              'h-7 cursor-pointer rounded-sm px-3.5 text-xs font-semibold transition-colors',
-              tab === option.key
-                ? 'bg-primary text-primary-foreground shadow-2xs'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
 
       {tab === 'calendar' ? (
         <EmptyReturnCalendarPage />
@@ -376,6 +412,11 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
         filters={filters}
         onFilterChange={handleFilterChange}
         onResetFilters={handleResetFilters}
+        customerOptions={filterOptions.customers}
+        transporterOptions={filterOptions.transporters}
+        driverOptions={filterOptions.drivers}
+        vehicleOptions={filterOptions.vehicles}
+        cargoTypeOptions={filterOptions.cargoTypes}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         counts={counts}
@@ -412,6 +453,13 @@ export function ShipmentsListView({ missions, canCreateShipment = true }: Shipme
                 key={mission.id}
                 mission={mission}
                 shipperLogoUrl={shipperLogoById.get(mission.customer.id)}
+                /* Unopened AND untouched. A shipment already moving has been
+                   dealt with by somebody — the mark is for work nobody has
+                   picked up, not for every row this browser has not visited. */
+                isNew={
+                  displayShipmentStatus(mission.status, 'shipment') === 'Created' &&
+                  isShipmentNew(mission.id, seen)
+                }
                 onClick={() => handleRowClick(mission)}
               />
             ))}

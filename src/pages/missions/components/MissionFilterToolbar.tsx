@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import type { MissionFilterState } from '@/types/mission';
-import { Avatar, Input, Badge } from '@/design-system';
-import { FilterMenu } from '@/components/common';
+import { Input } from '@/design-system';
+import { FilterTrigger } from '@/components/common';
 import { useTeam } from '@/features/team';
 import { useAuthStore } from '@/stores';
 import { cn } from '@/utils';
 import {
+  ChevronsUpDown,
+  ListChecks,
+  Package,
   Search,
-  SlidersHorizontal,
   X,
   Calendar,
   Building2,
@@ -77,13 +79,11 @@ export const MissionFilterToolbar: React.FC<MissionFilterToolbarProps> = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  /* Whose work. The list is filtered server-side on `assigneeId`, so "Mine" is
-     the same control as the Assigned-to select below — one writes your own id,
-     the other writes anybody's. */
+  /* Whose work. The "Mine" toggle that used to sit on the bar is gone — it was
+     a second way to write the same `assigneeId` the Assigned-to select below
+     writes, and that select already marks your own row "(me)". */
   const { data: team } = useTeam();
   const currentUserId = useAuthStore((state) => state.user?.id);
-  const me = (team ?? []).find((member) => member.id === currentUserId);
-  const showingMine = Boolean(currentUserId) && filters.assigneeId === currentUserId;
 
   const activeFilterCount = [
     filters.searchKeyword,
@@ -100,7 +100,6 @@ export const MissionFilterToolbar: React.FC<MissionFilterToolbarProps> = ({
     filters.assigneeId,
   ].filter(Boolean).length;
 
-  const currentStatusTab = (filters.status || 'all').toLowerCase();
 
   const statusTabs = [
     { id: 'all', label: 'All', count: counts.all ?? 6 },
@@ -111,206 +110,168 @@ export const MissionFilterToolbar: React.FC<MissionFilterToolbarProps> = ({
 
   return (
     <div className="space-y-3">
-      {/* Control Bar matching Partner and Shipper page design */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 sm:gap-3 rounded-lg border border-border bg-card p-2.5 sm:px-4 shadow-2xs">
-        {/* Left: Search & Inline Status Filter Tabs */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1 w-full md:w-auto">
-          {/* Search Input */}
-          <div className="relative w-full sm:w-auto sm:min-w-[180px] md:max-w-[240px]">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder="Search shipments..."
-              value={filters.searchKeyword}
-              onChange={(e) => onFilterChange({ searchKeyword: e.target.value })}
-              className="pl-8 pr-7 py-1 text-xs font-medium rounded-md border-border bg-background h-8 w-full"
-            />
-            {filters.searchKeyword && (
-              <button
-                type="button"
-                onClick={() => onFilterChange({ searchKeyword: '' })}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
-              >
-                <X className="h-3 w-3" />
-              </button>
+      {/*
+       * ONE line, and one button.
+       *
+       * This carried seven groups of controls side by side: search, four
+       * status chips, a Reset, a "Mine" toggle, a three-select filter pill, a
+       * view switcher and an advanced-filters toggle. Three of them were also
+       * duplicated in the panel below — Transporter, Cargo and Sort appeared
+       * twice, and "Mine" was a second way to say Assigned To → me.
+       *
+       * Now: the search, the view switcher, and a single **Filters** button
+       * carrying a count of what is on. Everything else lives in the one panel
+       * it opens, including the status bands — whose figures were the one real
+       * loss, and are not lost: the four KPI tiles directly above this bar
+       * already print Total, Started, Waiting and Completed.
+       */}
+      <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-card p-2.5 shadow-2xs sm:flex-row sm:items-center sm:gap-3 sm:px-3">
+        {/* `leadingIcon`, not an absolutely-positioned sibling. The DS `Input`
+            wraps itself in its own relative div, so an icon placed beside it
+            was painted over by the field's opaque background — visible in the
+            markup, invisible on screen. The component has a slot for it. */}
+        <div className="relative min-w-0 flex-1 sm:max-w-xs">
+          <Input
+            type="text"
+            placeholder="Search shipments…"
+            value={filters.searchKeyword}
+            leadingIcon={<Search className="size-3.5" />}
+            onChange={(e) => onFilterChange({ searchKeyword: e.target.value })}
+            className={cn(
+              'h-9 w-full rounded-md border-border bg-background text-xs font-medium',
+              filters.searchKeyword ? 'pr-8' : 'pr-3',
             )}
-          </div>
-
-          {/* Inline Status Filter Tabs */}
-          <div className="flex items-center gap-1 overflow-x-auto py-0.5 scrollbar-none w-full sm:w-auto">
-            {statusTabs.map((tab) => {
-              const isActive =
-                tab.id === 'all'
-                  ? !filters.status || filters.status === 'all'
-                  : currentStatusTab === tab.id ||
-                    (tab.id === 'available' && (currentStatusTab === 'assigned' || currentStatusTab === 'pending')) ||
-                    (tab.id === 'in transit' && (currentStatusTab === 'en route' || currentStatusTab === 'arrived')) ||
-                    (tab.id === 'completed' && (currentStatusTab === 'completed' || currentStatusTab === 'pod submitted'));
-
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => onFilterChange({ status: tab.id === 'all' ? '' : tab.id })}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap cursor-pointer ${
-                    isActive
-                      ? 'bg-primary text-primary-foreground shadow-2xs'
-                      : 'bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }`}
-                >
-                  <span>{tab.label}</span>
-                  <span
-                    className={`px-1 py-0.2 rounded-sm text-[10px] font-semibold ${
-                      isActive
-                        ? 'bg-primary-foreground/20 text-primary-foreground'
-                        : 'bg-background/80 text-muted-foreground border border-border/40'
-                    }`}
-                  >
-                    {tab.count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {activeFilterCount > 0 && (
+          />
+          {filters.searchKeyword && (
             <button
               type="button"
-              onClick={onResetFilters}
-              className="flex items-center gap-1 text-2xs font-medium text-muted-foreground hover:text-primary transition-colors shrink-0 cursor-pointer"
+              aria-label="Clear search"
+              onClick={() => onFilterChange({ searchKeyword: '' })}
+              className="absolute right-2 top-1/2 z-10 -translate-y-1/2 cursor-pointer text-muted-foreground hover:text-foreground"
             >
-              <RotateCcw className="h-3 w-3" />
-              <span>Reset</span>
+              <X className="h-3 w-3" />
             </button>
           )}
         </div>
 
-        {/* Right: Selects & View Switcher */}
-        <div className="flex items-center gap-1.5 sm:gap-2 w-full md:w-auto overflow-x-auto py-0.5 shrink-0 justify-between sm:justify-end">
-          {/* "Mine".
-              A toggle rather than one more entry in the Assigned-to select,
-              because it is the only value on that list anybody reaches for
-              daily — you open Shipments to see your own work, and hunting for
-              your own name among your colleagues' to do it is a strange way to
-              spend a click. Your own face is on the button, so it reads as
-              yours before the word does. Only shown to an account that can
-              actually be assigned: a portal login has no work of its own here
-              and the toggle would return nothing forever. */}
-          {me && (
+        <div className="flex shrink-0 items-center gap-2 sm:ml-auto">
+          {activeFilterCount > 0 && (
             <button
               type="button"
-              onClick={() => onFilterChange({ assigneeId: showingMine ? '' : me.id })}
-              aria-pressed={showingMine}
-              className={cn(
-                'flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-1.5 pr-2.5 text-2xs font-bold transition-colors',
-                showingMine
-                  ? 'border-primary/30 bg-primary/10 text-primary'
-                  : 'border-border bg-background text-muted-foreground hover:text-foreground',
-              )}
-              title={showingMine ? 'Showing your shipments' : 'Show only shipments assigned to you'}
+              onClick={onResetFilters}
+              className="flex shrink-0 cursor-pointer items-center gap-1 text-2xs font-medium text-muted-foreground transition-colors hover:text-primary"
             >
-              <Avatar size="xs" name={me.fullName} src={me.avatarUrl ?? undefined} className="size-5 text-[8px]" />
-              Mine
+              <RotateCcw className="h-3 w-3" />
+              Reset
             </button>
           )}
 
-          {/* The same menu every other list uses. This was three selects reading
-              "All Transporters", "All Cargo Types" and "Sort: Date (Newest)"
-              side by side — three unlabelled words competing for the same
-              corner, and on a narrow column they wrapped under the tabs. */}
-          <FilterMenu
-            groups={[
-              {
-                key: 'transporter',
-                label: 'Transporter',
-                value: filters.transporterId || 'all',
-                onChange: (value) =>
-                  onFilterChange({ transporterId: value === 'all' ? '' : value }),
-                options: [
-                  { value: 'all', label: 'All transporters' },
-                  ...transporterOptions.map((t) => ({ value: t.id, label: t.name })),
-                ],
-              },
-              {
-                key: 'cargo',
-                label: 'Cargo type',
-                value: filters.cargoType || 'all',
-                onChange: (value) =>
-                  onFilterChange({ cargoType: value === 'all' ? '' : value }),
-                options: [
-                  { value: 'all', label: 'All cargo types' },
-                  ...cargoTypeOptions.map((ct) => ({ value: ct, label: ct })),
-                ],
-              },
-              {
-                key: 'sort',
-                label: 'Sort by',
-                value: filters.sortBy || 'date-desc',
-                onChange: (value) => onFilterChange({ sortBy: value }),
-                options: [
-                  { value: 'date-desc', label: 'Date (newest)' },
-                  { value: 'booking-asc', label: 'Booking no.' },
-                  { value: 'plate-asc', label: 'Plate no.' },
-                  { value: 'customer-asc', label: 'Shipper' },
-                ],
-                defaultValue: 'date-desc',
-              },
-            ]}
+          {/* The one button — the same component every other list uses. */}
+          <FilterTrigger
+            count={activeFilterCount}
+            open={isExpanded}
+            onClick={() => setIsExpanded(!isExpanded)}
+            aria-expanded={isExpanded}
           />
 
+          {/* A display preference, not a filter — so it stays out. */}
           {onViewModeChange && (
-            <div className="flex items-center rounded-md border border-border bg-muted/40 p-0.5 shrink-0">
+            <div className="flex shrink-0 items-center rounded-md border border-border bg-muted/40 p-0.5">
               <button
                 type="button"
                 onClick={() => onViewModeChange('rows')}
-                title="List View"
-                className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors cursor-pointer ${
+                title="List view"
+                aria-pressed={viewMode === 'rows' || viewMode === 'list'}
+                className={cn(
+                  'flex h-7 w-7 cursor-pointer items-center justify-center rounded-md transition-colors',
                   viewMode === 'rows' || viewMode === 'list'
-                    ? 'bg-background text-primary shadow-2xs font-bold'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
+                    ? 'bg-background font-bold text-primary shadow-2xs'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
               >
                 <List className="h-3.5 w-3.5" />
               </button>
               <button
                 type="button"
                 onClick={() => onViewModeChange('cards')}
-                title="Grid View"
-                className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors cursor-pointer ${
+                title="Grid view"
+                aria-pressed={viewMode === 'cards' || viewMode === 'grid'}
+                className={cn(
+                  'flex h-7 w-7 cursor-pointer items-center justify-center rounded-md transition-colors',
                   viewMode === 'cards' || viewMode === 'grid'
-                    ? 'bg-background text-primary shadow-2xs font-bold'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
+                    ? 'bg-background font-bold text-primary shadow-2xs'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
               >
                 <LayoutGrid className="h-3.5 w-3.5" />
               </button>
             </div>
           )}
-
-          {/* Advanced Filters Toggle */}
-          <button
-            type="button"
-            onClick={() => setIsExpanded(!isExpanded)}
-            className={`p-1.5 rounded-md text-xs font-medium transition-all flex items-center gap-1 border border-border h-8 cursor-pointer shrink-0 ${
-              isExpanded || activeFilterCount > 0
-                ? 'bg-primary/10 text-primary border-primary/30'
-                : 'bg-background text-muted-foreground hover:text-foreground'
-            }`}
-            title="Advanced Filters"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5" />
-            {activeFilterCount > 0 && (
-              <Badge variant="solid" intent="primary" size="sm" className="ml-0.5 rounded-full px-1.5 py-0 text-[9px]">
-                {activeFilterCount}
-              </Badge>
-            )}
-          </button>
         </div>
       </div>
 
       {/* Expanded Multi-Filter Grid */}
       {isExpanded && (
         <div className="p-4 rounded-lg border border-border/80 bg-card shadow-2xs pt-3 border-t border-border/70 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 text-xs">
+          {/* Status — the four bands that used to sit inline as chips.
+                 A select, not chips, because in here it is one field among ten
+                 and a row of coloured pills would be the loudest thing in a
+                 panel of quiet ones. The counts come along so the choice still
+                 tells you what it will leave you with. */}
+          <div className="space-y-1">
+            <label className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+              <ListChecks className="h-3.5 w-3.5 text-primary" />
+              Status
+            </label>
+            <select
+              value={filters.status || ''}
+              onChange={(e) => onFilterChange({ status: e.target.value })}
+              className="h-9 w-full rounded-lg border border-border bg-background px-3 font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              {statusTabs.map((tab) => (
+                <option key={tab.id} value={tab.id === 'all' ? '' : tab.id}>
+                  {tab.label} ({tab.count})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Cargo type and Sort came off the inline `FilterMenu` pill, which
+                 duplicated three fields this panel already had. */}
+          <div className="space-y-1">
+            <label className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+              <Package className="h-3.5 w-3.5 text-primary" />
+              Cargo type
+            </label>
+            <select
+              value={filters.cargoType}
+              onChange={(e) => onFilterChange({ cargoType: e.target.value })}
+              className="h-9 w-full rounded-lg border border-border bg-background px-3 font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              <option value="">All cargo types</option>
+              {cargoTypeOptions.map((ct) => (
+                <option key={ct} value={ct}>{ct}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+              <ChevronsUpDown className="h-3.5 w-3.5 text-primary" />
+              Sort by
+            </label>
+            <select
+              value={filters.sortBy || 'date-desc'}
+              onChange={(e) => onFilterChange({ sortBy: e.target.value })}
+              className="h-9 w-full rounded-lg border border-border bg-background px-3 font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              <option value="date-desc">Date (newest)</option>
+              <option value="booking-asc">Booking no.</option>
+              <option value="plate-asc">Plate no.</option>
+              <option value="customer-asc">Shipper</option>
+            </select>
+          </div>
+
           {/* 0. Assigned to — whose work.
                  `unassigned` is the value that earns this control a place:
                  "which jobs has nobody picked up" is a question the operation

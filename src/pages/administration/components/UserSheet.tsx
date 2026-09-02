@@ -1,3 +1,4 @@
+import { SheetHeading } from '@/components/common';
 import { useEffect, useMemo, useState } from 'react';
 
 import {
@@ -178,16 +179,14 @@ export function UserSheet({
         side="right"
         className="flex h-full w-full flex-col gap-0 overflow-hidden border-l border-border bg-background p-0 sm:max-w-3xl"
       >
-        <div className="shrink-0 space-y-1 border-b border-border/40 px-6 pb-4 pt-6">
-          <SheetTitle className="text-xl font-extrabold tracking-tight text-foreground">
-            {isEdit ? `${user?.firstName} ${user?.lastName}` : 'New User'}
-          </SheetTitle>
-          <SheetDescription className="text-xs text-muted-foreground">
-            {isEdit
-              ? 'Change the profile details or the access this account carries.'
-              : 'Create the account, then decide exactly what it may reach.'}
-          </SheetDescription>
-        </div>
+        <SheetHeading
+          titleComponent={SheetTitle}
+          descriptionComponent={SheetDescription}
+          title={isEdit ? `${user?.firstName} ${user?.lastName}` : 'New User'}
+          description={isEdit
+            ? 'Change the profile details or the access this account carries.'
+            : 'Create the account, then decide exactly what it may reach.'}
+        />
 
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
           <section className="space-y-3">

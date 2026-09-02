@@ -1,6 +1,8 @@
 import { useCallback } from 'react';
 
 import { HOUR_MS } from '@/data/emptyReturnData';
+import { uploadDocuments } from '@/features/documents/api/documentsService';
+import { PROOF_OF_RETURN_REQUIREMENT } from '@/features/documents/proofRequirement';
 import { useEmptyReturnStore } from '@/stores/emptyReturn.store';
 import { errorMessage } from '@/utils/error';
 import type { EmptyReturnRecord, FullLoadMission } from '@/types/emptyReturn';
@@ -39,7 +41,14 @@ import {
 export interface EmptyContainerActions {
   confirmPairing: (record: EmptyReturnRecord, load: FullLoadMission) => Promise<boolean>;
   planReturn: (record: EmptyReturnRecord, plannedReturnAt?: number) => Promise<boolean>;
-  confirmReturn: (record: EmptyReturnRecord) => Promise<boolean>;
+  /**
+   * Closes the container, with the depot's receipt behind it.
+   *
+   * `proof` is not optional in practice — the backend refuses the close
+   * without it — but it is passed rather than gathered here, because the
+   * dialog that asks for the files is the caller's.
+   */
+  confirmReturn: (record: EmptyReturnRecord, proof: File[]) => Promise<boolean>;
   cancelPairing: (record: EmptyReturnRecord) => Promise<boolean>;
   /** Any write in flight — for disabling the buttons that would double-fire. */
   isBusy: boolean;
@@ -119,12 +128,26 @@ export function useEmptyContainerActions(): EmptyContainerActions {
   );
 
   const confirmReturn = useCallback(
-    async (record: EmptyReturnRecord) => {
+    async (record: EmptyReturnRecord, proof: File[]) => {
       if (!record.bookingId) {
         notify('This container is missing its booking link and cannot be closed.');
         return false;
       }
+      if (proof.length === 0) {
+        notify(PROOF_OF_RETURN_REQUIREMENT.missing);
+        return false;
+      }
       try {
+        /* The receipt lands before the close, because the close is refused
+           without it — see `hasProofOfReturn` on the backend. A file that
+           uploads under a close that then fails is still the depot's receipt
+           for this container, and the retry finds it already there. */
+        await uploadDocuments({
+          ownerType: 'BOOKING',
+          ownerId: record.bookingId,
+          category: PROOF_OF_RETURN_REQUIREMENT.category,
+          files: proof,
+        });
         await confirmReturnMutation.mutateAsync(record.bookingId);
         const late = Boolean(record.deadline && Date.now() > record.deadline);
         notify(

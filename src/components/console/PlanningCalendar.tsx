@@ -20,10 +20,8 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  CircleDashed,
   Clock,
   Link2,
-  PauseCircle,
   Package,
   PackageCheck,
   PackageOpen,
@@ -105,21 +103,7 @@ export type PlanningEventTone =
   | 'empty'
   | 'paired'
   | 'returning'
-  | 'returned'
-  /*
-   * Three more rungs of the SAME `--stage-*` scale the tones above already
-   * speak, added for hosts whose records sit on the open / working / blocked
-   * part of it rather than the container part.
-   *
-   * Named for the token, not for a module: `returned` and `paired` are
-   * Empty Container's words for stage rungs every module can use, and these
-   * three are the rungs nothing had claimed yet. A host that colours by its
-   * own status ladder should land on the colour that ladder already wears
-   * elsewhere in the app, not on a fourth palette invented for a grid.
-   */
-  | 'available'
-  | 'active'
-  | 'waiting';
+  | 'returned';
 
 export interface PlanningEvent {
   id: string;
@@ -336,37 +320,6 @@ const TONE: Record<PlanningEventTone, ToneStyle> = {
     icon: PackageCheck,
     label: 'Returned',
   },
-  /* Raised, nobody on it — the sky an available container wears. */
-  available: {
-    surface:
-      'border-stage-available-border bg-stage-available-subtle text-stage-available-subtle-foreground',
-    hover: 'hover:brightness-[0.98]',
-    bar: 'border-stage-available-border bg-stage-available-subtle text-stage-available-subtle-foreground',
-    mark: 'var(--stage-available)',
-    chipActive: 'border-stage-available-border bg-stage-available text-stage-available-foreground',
-    icon: CircleDashed,
-    label: 'Open',
-  },
-  /* Work is happening — the green the shipment ladder uses for transit. */
-  active: {
-    surface: 'border-stage-loaded-border bg-stage-loaded-subtle text-stage-loaded-subtle-foreground',
-    hover: 'hover:brightness-[0.98]',
-    bar: 'border-stage-loaded-border bg-stage-loaded-subtle text-stage-loaded-subtle-foreground',
-    mark: 'var(--stage-loaded)',
-    chipActive: 'border-stage-loaded-border bg-stage-loaded text-stage-loaded-foreground',
-    icon: Timer,
-    label: 'In progress',
-  },
-  /* Waiting on somebody else — the same amber a box owing a return wears. */
-  waiting: {
-    surface: 'border-warning bg-warning-subtle text-warning-subtle-foreground',
-    hover: 'hover:brightness-[0.98]',
-    bar: 'border-warning bg-warning-subtle text-warning-subtle-foreground',
-    mark: 'var(--warning)',
-    chipActive: 'border-warning bg-warning text-warning-foreground',
-    icon: PauseCircle,
-    label: 'Waiting',
-  },
 };
 
 /** Host wording per tone, taken from `legend` so a tooltip says the host's own status. */
@@ -508,9 +461,6 @@ export function PlanningCalendar({
       due: 0,
       full: 0,
       empty: 0,
-      available: 0,
-      active: 0,
-      waiting: 0,
       paired: 0,
       returning: 0,
       returned: 0,

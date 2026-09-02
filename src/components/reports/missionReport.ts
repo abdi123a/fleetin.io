@@ -713,8 +713,8 @@ function computeBreakdown(kpis: MissionKpis): {
     { key: 'loading', label: 'Loading', ms: kpis.loadingMs, tone: 'active', step: 1 },
     { key: 'transit', label: 'Transit', ms: kpis.transitMs, tone: 'active', step: 2 },
     { key: 'wait_dropoff', label: 'Drop-off waiting', ms: kpis.waitDropMs, tone: 'waiting', step: 1 },
-    { key: 'unloading', label: 'Depotage', ms: kpis.unloadingMs, tone: 'active', step: 3 },
-    { key: 'depotage', label: 'Dépotage (client)', ms: kpis.depotageMs, tone: 'active', step: 4 },
+    { key: 'unloading', label: 'Unstuffing', ms: kpis.unloadingMs, tone: 'active', step: 3 },
+    { key: 'depotage', label: 'Unstuffing (client)', ms: kpis.depotageMs, tone: 'active', step: 4 },
     { key: 'return_leg', label: 'Empty return', ms: kpis.returnLegMs, tone: 'active', step: 5 },
   ];
 

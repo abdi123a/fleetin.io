@@ -121,6 +121,22 @@
      fill (3.2:1 rather than 5.9:1); the user's call, made 2026-08-30. */
   --success-subtle-foreground: var(--fl-green-500);
 
+  /* The LATER rung of a two-rung phase. Same hue, one clear step along the
+     ramp — not a second colour.
+     
+     The booking ladder pairs its rungs: Picked Up then Delivered are both
+     "in transit", Empty Ready then Empty Picked Up are both "owes a return".
+     Painting each pair one flat colour made the two rungs in a phase
+     indistinguishable in the picker, so the menu could not show which of the
+     two a booking had reached. Deepening the second one says "further along"
+     without introducing a hue that would have to mean something new.
+     
+     Dark goes the other way — lighter, not deeper — for the same reason every
+     `-hover`/`-active` step in this file does: on a dark ground, distance from
+     the background is upward. */
+  --success-deep: var(--fl-green-700);
+  --success-deep-foreground: var(--fl-neutral-0); /* 6.4:1 on green-700 */
+
   /* Warning rides the same ramp as `--accent`. The system used to ship two
    * yellows — orange-500 #F9AC17 and amber-500 #FFB502 — that are 3.2° apart in
    * OKLCH hue and 0.023 apart in lightness, i.e. the same colour twice. The
@@ -135,6 +151,20 @@
   --warning-foreground: var(--fl-neutral-900); /* 9.3:1 — white would be 1.8:1 */
   --warning-subtle: var(--fl-orange-50);
   --warning-subtle-foreground: var(--fl-orange-800); /* 5.1:1 on orange-50 */
+
+  /* The later rung of an amber phase — see `--success-deep`.
+   *
+   * Went one step further down the ramp on 2026-09-01 and turned its ink white.
+   * It sat on orange-700 in the dark ink `--warning` uses, which measures
+   * 4.55:1 — not the 5.2:1 the old note here claimed, and against the 8.37:1
+   * of the plain `--warning` chip sitting next to it on the same card. Dark
+   * ink on a mid-dark amber is the one combination on this ramp that goes
+   * muddy, and it carries small bold uppercase pill text.
+   *
+   * orange-800 with white is 5.31:1 and reads as what it is: the same hue, one
+   * step deeper. Its green counterpart already worked this way. */
+  --warning-deep: var(--fl-orange-800);
+  --warning-deep-foreground: var(--fl-neutral-0); /* 5.31:1 on orange-800 */
 
   --destructive: var(--fl-red-500);
   --destructive-hover: var(--fl-red-600);
@@ -490,6 +520,28 @@
   --stage-overdue-subtle-foreground: var(--destructive-subtle-foreground);
   --stage-overdue-border: var(--destructive);
 
+  /* ── HOW AN EMPTY WENT HOME ──────────────────────────────────────────
+     Two ways, and the user picked both hues: an empty either went back welded
+     to a next full load (**matched** — the win, no empty leg driven) or it went
+     back on its own (**standalone**). Deliberately outside the `--stage-*`
+     scale: that scale is about where a box is in the decision, and these two
+     answer a question you can only ask once the box is already home.
+
+     The exact colours are the user's, in OKLCH. `-ink` is the same hue taken
+     down the lightness ramp so the word is legible on its own wash — the fills
+     at L≈0.67/0.70 carry neither white nor near-black at 4.5:1. */
+  --return-matched: oklch(66.7% 0.295 322.15);
+  --return-matched-ink: oklch(43% 0.24 322.15);
+  --return-matched-subtle: color-mix(in oklch, var(--return-matched) 13%, white);
+  /* Yellow, at the user's direction, and it is the brand's own — the same
+     `--accent` an empty container wears everywhere else, which is what this
+     mark is about. Its glyph is the DARK ink rather than white: white on this
+     amber measures 1.9:1 and the amber is not allowed to move (see
+     `--stage-returning-foreground`), so the sign flips instead. */
+  --return-standalone: var(--accent);
+  --return-standalone-ink: oklch(32% 0.08 76);
+  --return-standalone-subtle: var(--warning-subtle);
+
   /* Elevation — light theme uses the neutral-tinted shadow ramp */
   --elevation-card: 0 3px 3px 0 rgb(17 36 53 / 0.086);
   --elevation-xs: var(--fl-shadow-xs);
@@ -601,11 +653,17 @@
      badge have to be the same green in both themes. */
   --success-subtle-foreground: var(--fl-green-400);
 
+  /* Lighter, not deeper — see the light-theme note on `--success-deep`. */
+  --success-deep: var(--fl-green-200);
+  --success-deep-foreground: var(--fl-green-950);
+
   /* Same ramp as `--accent` — see the light-theme note on the yellow dedupe. */
   --warning: var(--fl-orange-400);
   --warning-hover: var(--fl-orange-300);
   --warning-active: var(--fl-orange-200);
   --warning-foreground: var(--fl-orange-950);
+  --warning-deep: var(--fl-orange-200);
+  --warning-deep-foreground: var(--fl-orange-950);
   --warning-subtle: color-mix(in srgb, var(--fl-orange-400) 14%, transparent);
   --warning-subtle-foreground: var(--fl-orange-300);
 
@@ -691,6 +749,15 @@
   --stage-loaded-subtle: color-mix(in srgb, var(--fl-green-400) 18%, transparent);
   --stage-loaded-subtle-foreground: var(--fl-green-200);
   --stage-loaded-border: var(--fl-green-500);
+
+  /* On dark the wash becomes a transparency over the card and the ink steps
+     UP the ramp — a 43% ink on a slate card is unreadable. */
+  --return-matched-ink: oklch(80% 0.19 322.15);
+  --return-matched-subtle: color-mix(in srgb, var(--return-matched) 20%, transparent);
+  /* The disc stays the bright brand amber on dark too, so its glyph stays the
+     dark ink — a white arrow on it would be the same 1.9:1 in either theme. */
+  --return-standalone-ink: oklch(30% 0.08 76);
+  --return-standalone-subtle: color-mix(in srgb, var(--return-standalone) 20%, transparent);
 
   --stage-paired: var(--fl-violet-400);
   --stage-paired-foreground: var(--fl-violet-950);

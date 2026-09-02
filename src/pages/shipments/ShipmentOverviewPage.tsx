@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { RotateCcw } from 'lucide-react';
 import {
+  ArrowLeftRight,
+  ArrowLeftToLine,
   FolderOpen,
   ChevronDown,
   ChevronLeft,
@@ -22,10 +24,19 @@ import {
   VerificationBadge,
 } from '@/design-system';
 import { ROUTES } from '@/config/routes';
+import { cn } from '@/utils';
 import { BookingPreviewSheet, type BookingPreviewItem, type EmptyReturnStage } from './components';
 import { CrewPicker, CrewStack } from '@/components/crew';
+import {
+  BookingDebriefDialog,
+  debriefSubjectsFor,
+  emptyDebrief,
+  type DebriefDraft,
+  type DebriefSubject,
+} from '@/components/bookings';
 import { RecordRaise } from '@/features/workspace';
 import { useSetShipmentCrew, useShipment, useShipmentRaw } from '@/features/shipments/api/queries';
+import { markShipmentSeen } from '@/features/shipments/seenShipments';
 import { useBookingsForShipment } from '@/features/bookings/api/queries';
 import { ShipmentReportPanel } from '@/components/reports';
 import { type BookingRecord } from '@/features/bookings/api/bookingsService';
@@ -35,6 +46,7 @@ import {
   statusBadgeIntentOf,
   statusCornerIntentOf,
   statusIntentOf,
+  statusPhaseOf,
 } from '@/lib/shipmentStatus';
 import { BookingStatusPicker } from './components/BookingStatusPicker';
 import {
@@ -85,13 +97,37 @@ function emptyReturnStageOf(booking: BookingRecord, cycle: EmptyReturnCycleRecor
   return 'waiting_match';
 }
 
-/** Compact label for the booking card's own row — the full sentence lives in the preview sheet's Empty Return card. */
-const EMPTY_RETURN_STAGE_LABEL: Record<EmptyReturnStage, string> = {
-  awaiting_empty: 'Not emptied yet',
-  waiting_match: 'Awaiting match',
-  matched: 'In progress',
-  returned: 'Returned',
-  standalone: 'Standalone',
+/**
+ * Compact mark for the booking card's own row — the full sentence lives in the
+ * preview sheet's Empty Return card.
+ *
+ * **A glyph appears once the return has been decided, and not before.** Paired
+ * with an inbound load, or going back on its own: both are decisions somebody
+ * made, and both are worth seeing without reading. "No return booked" stays
+ * bare, because nothing has happened to draw.
+ *
+ * `ArrowLeftRight` is not a fresh choice — it is the mark the Empty Container
+ * module already uses for a pairing, on the flow diagram's PAIRED connector and
+ * on the "Open in Matching" button. Confirming a pairing should leave the same
+ * mark on the booking it was confirmed for, or the two screens are describing
+ * one decision with two vocabularies.
+ */
+const EMPTY_RETURN_STAGE_MARK: Record<
+  EmptyReturnStage,
+  { label: string; icon?: typeof ArrowLeftRight }
+> = {
+  awaiting_empty: { label: 'Still loaded' },
+  waiting_match: { label: 'No return booked' },
+  /* Was "In progress", which said nothing: everything on this page is in
+     progress. The fact worth printing is that the box has a ride home — it is
+     paired with an inbound full load and travelling to the depot. "Return
+     booked" is the Empty Container module's own words for the same state on
+     its calendar legend, so the two read alike. */
+  matched: { label: 'Heading back', icon: ArrowLeftRight },
+  returned: { label: 'Returned', icon: PackageCheck },
+  /* Not the pairing arrow: this box is going back on its own, which is the
+     one outcome the module exists to avoid. */
+  standalone: { label: 'Returning alone', icon: RotateCcw },
 };
 
 /** One card per real `Booking` (one per container/trip) — no more single-tier Shipment-as-one-card synthesis now that Bookings are real (Phase 2). */
@@ -119,6 +155,15 @@ function bookingToPreviewItem(booking: BookingRecord, cycle: EmptyReturnCycleRec
     status: booking.status,
     statusIntent: statusIntentOf(booking.status),
     emptyReturnStage: emptyReturnStageOf(booking, cycle),
+    emptyReturnMatched: Boolean(cycle?.nextBookingId),
+    /* The empty return's own crew. Undefined — not the delivery pair — when
+       nobody has been named: the card has to be able to say "the same driver
+       went back for it" and "nobody has said yet" differently, and copying the
+       delivery pair in here would erase that difference. */
+    returnDriverId: booking.returnDriverId ?? undefined,
+    returnVehicleId: booking.returnVehicleId ?? undefined,
+    returnDriverName: booking.returnDriver?.fullName,
+    returnVehicleNumber: booking.returnVehicle?.plateNumber,
     emptyReadyAt: booking.emptyReadyAt ?? undefined,
     emptyReturnCycleReference: cycle?.reference,
     driverRating: booking.driverRating,
@@ -210,6 +255,12 @@ export function ShipmentOverviewPage() {
   const crewIds = crew.map((member) => member.id);
   const crewLeadId = crew.find((member) => member.isLead)?.id;
 
+  /* Opened — so the list can stop calling it new. Keyed by the route's own id
+     so a deep link marks the same row the directory does. */
+  useEffect(() => {
+    if (id) markShipmentSeen(id);
+  }, [id]);
+
   useEffect(() => {
     if (bookingRecords) {
       setBookings(bookingRecords.map((b) => bookingToPreviewItem(b, cyclesByBookingId.get(b.id))));
@@ -226,6 +277,56 @@ export function ShipmentOverviewPage() {
       current ? (bookings.find((row) => row.id === current.id) ?? current) : current,
     );
   }, [bookings]);
+
+  /**
+   * "How did it go?" — asked off the data, not off the click.
+   *
+   * It used to hang on whichever control the operator happened to use: the
+   * card's status picker asked, the sheet's asked, and the empty-return
+   * matching popup — which is how most containers actually get marked home —
+   * asked nobody, because it completes the booking from another module without
+   * going near either control. A closed container's ratings were therefore a
+   * lottery on the route taken to close it.
+   *
+   * Watching the rows instead catches every one of those paths, and catches
+   * them exactly once: the move itself is the gate. The first pass only records
+   * where each booking already is, so nothing is asked about a container that
+   * was already home when the page opened, and `Completed` is the last rung —
+   * a booking cannot arrive at it twice.
+   */
+  const [debrief, setDebrief] = useState<DebriefDraft | null>(null);
+  const [debriefQueue, setDebriefQueue] = useState<DebriefSubject[]>([]);
+  /* How many the closing owes in all, so the dialog can say which one this is
+     — two drivers asked back to back look like one dialog that lost its data. */
+  const [debriefTotal, setDebriefTotal] = useState(0);
+  const [debriefBooking, setDebriefBooking] = useState<BookingPreviewItem | null>(null);
+  const debriefSeen = useRef<Map<string, string> | null>(null);
+
+  useEffect(() => {
+    if (bookings.length === 0) return;
+    /* Hold the previous statuses while a dialog is up, so a second container
+       closing behind this one is still asked about when this one is done. */
+    if (debrief) return;
+
+    const before = debriefSeen.current;
+    debriefSeen.current = new Map(bookings.map((row) => [row.id, row.status]));
+    if (!before) return;
+
+    for (const row of bookings) {
+      const was = before.get(row.id);
+      if (!was || was === row.status) continue;
+      const [first, ...rest] = debriefSubjectsFor(row.status, {
+        /* Two people, two answers — see `debriefSubjectsFor`. */
+        separateReturnDriver: Boolean(row.returnDriverId && row.returnDriverId !== row.driverId),
+      });
+      if (!first) continue;
+      setDebriefBooking(row);
+      setDebrief(emptyDebrief(first));
+      setDebriefQueue(rest);
+      setDebriefTotal(1 + rest.length);
+      break;
+    }
+  }, [bookings, debrief]);
 
   // Deep link from Empty Return's cycle detail ("open this container's own
   // booking") — `?openBooking=<id>` opens the matching card's preview sheet
@@ -289,10 +390,13 @@ export function ShipmentOverviewPage() {
    */
   const bookingColumnsClass =
     pagedBookings.length === 4
-      ? 'lg:grid-cols-2'
+      ? '@[52rem]/page:grid-cols-2'
       : pagedBookings.length === 2
-        ? 'lg:grid-cols-2'
-        : 'lg:grid-cols-3';
+        ? '@[52rem]/page:grid-cols-2'
+        /* Three across only once a third of the grid is a readable card. At
+           ~180px it clipped the corner badge to "Booking No. 4…", and the
+           reference is the one thing on that card that identifies it. */
+        : '@[52rem]/page:grid-cols-2 @[62rem]/page:grid-cols-3';
 
   const handleBookingClick = (booking: BookingPreviewItem) => {
     setSelectedBooking(booking);
@@ -345,20 +449,36 @@ export function ShipmentOverviewPage() {
 
   /**
    * The masthead speaks the same ladder phase as the booking cards below it and
-   * the shipment cards in the directory — teal booked, **green in transit**,
-   * grey once every box is home.
+   * the shipment cards in the directory — teal booked, green in transit,
+   * **brand yellow while a box owes a return**, grey once every box is home.
    *
    * The slab itself carries it, not just the chip: a shipment is either not
-   * started, running or history, and that is the first thing worth knowing on
-   * opening the page. White ink throughout, so nothing inside the header
-   * changes with it.
+   * started, running, owing a return or history, and that is the first thing
+   * worth knowing on opening the page.
+   *
+   * The yellow arm was added on 2026-09-01. Empty Return had been drawn as a
+   * yellow chip on a teal slab — the chip said one thing and the whole page
+   * behind it said another, and teal is the app's *loaded* colour, so the
+   * masthead of a shipment whose boxes were all stripped was painted the
+   * colour of a full container. Yellow is `--container-empty`, the same fill
+   * the EMPTY tag and the empty-return module use everywhere else.
+   *
+   * Ink is NOT white throughout any more, and cannot be: brand yellow takes
+   * white at 1.8:1. Each arm names its own foreground, and the yellow one uses
+   * the near-black `--container-empty-foreground` that the EMPTY tag already
+   * pairs with the same fill.
    *
    * The done arm is checked first and reads the boxes rather than the rung,
    * because "finished" here means every container is back — a fact about the
    * bookings, which is what `containerSplit` counts.
+   *
+   * `statusPhaseOf`, not `statusIntentOf`: the ladder distinguishes the two
+   * rungs inside green and inside amber, and this wants the phase.
    */
+  const slabPhase = statusPhaseOf(mission.status);
   const slab = containerSplit.done
     ? {
+        key: 'done' as const,
         bg: 'bg-tile-done',
         fg: 'text-tile-done-foreground',
         fgMuted: 'text-tile-done-foreground/80',
@@ -369,30 +489,66 @@ export function ShipmentOverviewPage() {
            cannot see which one it is sitting on — so the tile says. */
         crewTone: 'tile-done' as const,
       }
-    : /* In transit — every box still loaded and the job under way. The slab
-         goes green, the same green the booking cards below it and the shipment
-         cards in the directory already wear for these rungs. It used to stay
-         teal, so a shipment that had not left yet and one halfway through
-         opened on the identical masthead. */
-      statusIntentOf(mission.status) === 'green'
+    : /* Unstuffing, and only Unstuffing — the rung that carries the ladder's
+         one red. A booking on it wears a red badge and a red corner tab, and a
+         shipment whose boxes are all there has to agree: one status, one
+         colour, or the card and the page it opens disagree about the same
+         word. */
+      slabPhase === 'red'
       ? {
-          bg: 'bg-success',
-          fg: 'text-success-foreground',
-          fgMuted: 'text-success-foreground/80',
-          fgSoft: 'text-success-foreground/85',
-          rule: 'bg-success-foreground/30',
-          ink: 'text-success',
-          crewTone: 'tile-success' as const,
+          key: 'red' as const,
+          bg: 'bg-destructive',
+          fg: 'text-destructive-foreground',
+          fgMuted: 'text-destructive-foreground/80',
+          fgSoft: 'text-destructive-foreground/85',
+          rule: 'bg-destructive-foreground/30',
+          ink: 'text-destructive',
+          crewTone: 'tile-destructive' as const,
         }
-      : {
-          bg: 'bg-tile-teal',
-          fg: 'text-tile-teal-foreground',
-          fgMuted: 'text-tile-teal-foreground/80',
-          fgSoft: 'text-tile-teal-foreground/85',
-          rule: 'bg-tile-teal-foreground/30',
-          ink: 'text-tile-teal',
-          crewTone: 'tile-teal' as const,
-        };
+      : /* Owing a return — the boxes are stripped and the empties have to get
+           back to the depot. The one arm that does not take white ink. */
+        slabPhase === 'orange'
+        ? {
+            key: 'empty' as const,
+            bg: 'bg-container-empty',
+            fg: 'text-container-empty-foreground',
+            fgMuted: 'text-container-empty-foreground/75',
+            fgSoft: 'text-container-empty-foreground/80',
+            rule: 'bg-container-empty-foreground/30',
+            /* `ink` is this slab's colour used as TEXT on a white plate — the
+               Empty Returns button, the Raise chip. `--container-empty` is
+               orange-500 and lands at 2.2:1 there, so the white plates take the
+               ramp's dark step instead. Every other arm can use its own fill
+               because every other fill is dark enough to read on white. */
+            ink: 'text-container-empty-subtle-foreground',
+            crewTone: 'tile-empty' as const,
+          }
+        : /* In transit — every box still loaded and the job under way. The slab
+             goes green, the same green the booking cards below it and the
+             shipment cards in the directory already wear for these rungs. It
+             used to stay teal, so a shipment that had not left yet and one
+             halfway through opened on the identical masthead. */
+          slabPhase === 'green'
+          ? {
+              key: 'green' as const,
+              bg: 'bg-success',
+              fg: 'text-success-foreground',
+              fgMuted: 'text-success-foreground/80',
+              fgSoft: 'text-success-foreground/85',
+              rule: 'bg-success-foreground/30',
+              ink: 'text-success',
+              crewTone: 'tile-success' as const,
+            }
+          : {
+              key: 'teal' as const,
+              bg: 'bg-tile-teal',
+              fg: 'text-tile-teal-foreground',
+              fgMuted: 'text-tile-teal-foreground/80',
+              fgSoft: 'text-tile-teal-foreground/85',
+              rule: 'bg-tile-teal-foreground/30',
+              ink: 'text-tile-teal',
+              crewTone: 'tile-teal' as const,
+            };
 
   /**
    * The status chip, coloured on the slab rather than on a card.
@@ -415,7 +571,12 @@ export function ShipmentOverviewPage() {
         : null;
   const headerChipClass =
     shipmentState === 'empty'
-      ? 'bg-container-empty text-container-empty-foreground'
+      ? /* Yellow on yellow is not a chip. On the empty slab it inverts to the
+           dark plate, exactly as the returned chip does on the ink slab; on any
+           other slab the fill contrasts and stays as it is. */
+        slab.key === 'empty'
+        ? 'bg-container-empty-foreground text-container-empty'
+        : 'bg-container-empty text-container-empty-foreground'
       : shipmentState === 'returned'
         ? /* On the ink slab the chip inverts, the way the live states do on
              teal — a black chip on a black masthead would disappear. */
@@ -428,7 +589,7 @@ export function ShipmentOverviewPage() {
     /* `report-host`: printing the Shipment Report prints the report, not the page
        around it — the print stylesheet hides every child of this element that
        does not contain the report sheet. */
-    <div className="report-host space-y-4 sm:space-y-6 pb-12 px-0">
+    <div className="@container/page report-host space-y-4 px-0 pb-12 sm:space-y-6">
 
       {/*
        * ── MASTHEAD ──
@@ -441,8 +602,22 @@ export function ShipmentOverviewPage() {
        * below is about, and the status is a labelled chip, never colour alone.
        */}
       <header className={`rounded-card ${slab.bg} ${slab.fg} shadow-sm transition-colors`}>
-        <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:p-5">
-          <div className="flex min-w-0 items-center gap-3.5">
+        {/* Side by side once THIS BAND is wide enough — a container query, not
+            a viewport one, because the deciding width is the content column and
+            that changes when the sidebar collapses. On a viewport breakpoint
+            the masthead stayed stacked at 1150px of content and left half the
+            band empty.
+            62rem is measured, not chosen: the crew stack and the three actions
+            are ~550px and `shrink-0`, and the identity block needs ~400px for
+            its route line. Below that the two stack and each gets the full
+            width — which at `sm` left the route 79px and at `lg` 234px, for a
+            route that is 322. */}
+        <div className="flex flex-col gap-4 p-4 sm:p-5 @[62rem]/page:flex-row @[62rem]/page:items-center @[62rem]/page:justify-between @[62rem]/page:gap-6">
+          {/* `flex-1`, because the actions opposite are `shrink-0`: without it
+              this block sizes to its own wrapped content and settles at ~230px
+              on a 930px masthead, which is how the route line ended up 99px
+              wide with a 322px route in it. */}
+          <div className="flex min-w-0 flex-1 items-center gap-3.5">
             <IconChip
               icon={containerSplit.done ? PackageCheck : Package}
               tint="on-teal"
@@ -478,7 +653,18 @@ export function ShipmentOverviewPage() {
               </div>
 
               <div className={`mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] ${slab.fgSoft}`}>
-                <span className="inline-flex min-w-0 items-center gap-1.5">
+                {/* `flex-1` so the route SHRINKS rather than shoving what
+                    follows onto its own line. A wrapping flex row wraps before
+                    it shrinks, so without this a long route pushed the
+                    transporter marks down a line — and the hairline rule went
+                    with them, leaving a stray `|` floating at the start of a
+                    line with a logo after it. */}
+                <span
+                  className="inline-flex min-w-0 flex-1 items-center gap-1.5"
+                  /* On a phone this line has to truncate — it is a 320px screen
+                     and a 322px route. The whole thing stays reachable. */
+                  title={`${mission.pickupLocation.name} → ${mission.deliveryLocation.name}`}
+                >
                   <Route className="w-3.5 h-3.5 shrink-0" aria-hidden />
                   <span className="truncate">
                     {mission.pickupLocation.name} → {mission.deliveryLocation.name}
@@ -492,7 +678,7 @@ export function ShipmentOverviewPage() {
                     on hover. */}
                 {shipmentTransporters.length > 0 && (
                   <>
-                    <span aria-hidden className={`h-3 w-px ${slab.rule}`} />
+                    <span aria-hidden className={`hidden h-3 w-px sm:inline-block ${slab.rule}`} />
                     <Tooltip
                       content={
                         shipmentTransporters.length === 1
@@ -526,7 +712,7 @@ export function ShipmentOverviewPage() {
                 )}
                 {linkedProject && (
                   <>
-                    <span aria-hidden className={`h-3 w-px ${slab.rule}`} />
+                    <span aria-hidden className={`hidden h-3 w-px sm:inline-block ${slab.rule}`} />
                     <span className="inline-flex min-w-0 items-center gap-1.5">
                       <FolderOpen className="w-3.5 h-3.5 shrink-0" aria-hidden />
                       <span className="truncate font-semibold">{linkedProject.name}</span>
@@ -585,16 +771,12 @@ export function ShipmentOverviewPage() {
               tone="slab"
               slabInk={slab.ink}
             />
-
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => navigate(ROUTES.emptyReturns)}
-              leadingIcon={<RotateCcw />}
-              className={`cursor-pointer bg-white ${slab.ink} shadow-xs hover:bg-white/90 active:bg-white/80`}
-            >
-              Empty Returns
-            </Button>
+            {/* No "Empty Returns" button. It sent the reader to the module's
+                whole board rather than to anything about THIS shipment, and
+                every container that owes a return already carries its own way
+                in — the stage mark on the booking card, and the Empty Return
+                card in its preview sheet, both of which open the container
+                rather than the backlog. Removed 2026-09-01. */}
           </div>
         </div>
       </header>
@@ -634,7 +816,7 @@ export function ShipmentOverviewPage() {
         </div>
 
         {/* Booking Items */}
-        <div className={`grid grid-cols-1 gap-2.5 sm:grid-cols-2 ${bookingColumnsClass}`}>
+        <div className={`grid grid-cols-1 gap-2.5 @[34rem]/page:grid-cols-2 ${bookingColumnsClass}`}>
           {pagedBookings.map(item => {
             /* Teal while the box is full, brand yellow once it is empty — the
                app-wide container rule (`@/lib/containerState`). It is the whole
@@ -653,6 +835,29 @@ export function ShipmentOverviewPage() {
                transit printed the teal of a loaded box instead of the green of
                work in progress. */
             const getBadgeIntent = () => statusBadgeIntentOf(item.status);
+
+            /* Who is on the box RIGHT NOW.
+               A different truck often comes back for the empty, and the card
+               kept naming the delivery crew all the way to Completed — so a
+               container marked "Heading back" was credited to a driver who had
+               finished with it days earlier, and the sheet beside it disagreed.
+               The rows swap over once the empty leg starts, and say so: the
+               label is what tells the two crews apart. */
+            const onReturnLeg = ['Empty Ready', 'Empty Picked Up', 'Completed'].includes(
+              item.status,
+            );
+            /* Each row asks its own question, because a transporter can send
+               the same driver back in a different truck. And "the same person
+               went back for it" is not news: naming that driver "Return driver"
+               would put a second title on one fact. */
+            const returnedByOther =
+              onReturnLeg && Boolean(item.returnDriverId) && item.returnDriverId !== item.driverId;
+            const returnedInOther =
+              onReturnLeg &&
+              Boolean(item.returnVehicleId) &&
+              item.returnVehicleId !== item.vehicleId;
+            const crewName = returnedByOther ? item.returnDriverName : item.driverName;
+            const crewPlate = returnedInOther ? item.returnVehicleNumber : item.vehicleNumber;
 
             return (
               <div
@@ -674,7 +879,10 @@ export function ShipmentOverviewPage() {
                   * bled into the card's corner, which is the whole point of a
                   * corner badge.
                   */}
-                <div className="-ml-3 -mt-3 mb-2.5 flex items-start gap-2">
+                {/* Wraps, so the status pill drops to its own line rather
+                    than squeezing the reference tab into "Booking No. 46…" on
+                    a narrow card. */}
+                <div className="-ml-3 -mt-3 mb-2.5 flex flex-wrap items-start gap-2">
                   <CornerBadge
                     label={`Booking No. ${item.bookingNumber}`}
                     /* The phase, like the status badge opposite it — see
@@ -685,6 +893,58 @@ export function ShipmentOverviewPage() {
                     position="top"
                     className="min-w-0 [&>span]:truncate"
                   />
+
+                  {/* How the empty went home — a filled disc in the gap beside
+                   * the reference tab.
+                   *
+                   * It reads on the container line too, next to the tag it
+                   * qualifies, and that is where it was built first; the user
+                   * put it here instead and confirmed it after trying both.
+                   * The strip is empty on every card and the container line is
+                   * ~160px at three-up, so this is the placement that costs
+                   * nothing.
+                   *
+                   * Filled, not stroked: a 2px line glyph has no weight beside
+                   * a solid black tab, so the colour is the disc and the arrow
+                   * is cut out of it. `mt-2` lines it up with the status pill
+                   * opposite — the tab is pulled out of the card's padding with
+                   * `-mt-3`, so nothing in this row sits on its own baseline. */}
+                  {containerState === 'returned' && (
+                    <Tooltip
+                      content={
+                        item.emptyReturnMatched
+                          ? 'Matched — this empty went back under another full load, so no empty leg was driven for it.'
+                          : 'Standalone — this empty was driven back to the depot on its own.'
+                      }
+                    >
+                      <span
+                        className={cn(
+                          'mt-2 inline-flex size-[18px] shrink-0 cursor-default items-center justify-center rounded-full',
+                          item.emptyReturnMatched
+                            /* White on the magenta, dark ink on the amber: the
+                               two fills sit at different lightnesses, so the
+                               glyph flips rather than either colour being
+                               nudged to suit one rule. */
+                            ? 'bg-return-matched text-white'
+                            : 'bg-return-standalone text-return-standalone-ink',
+                        )}
+                      >
+                        {item.emptyReturnMatched ? (
+                          <ArrowLeftRight className="size-2.5 stroke-[3]" aria-hidden />
+                        ) : (
+                          <ArrowLeftToLine className="size-2.5 stroke-[3]" aria-hidden />
+                        )}
+                        {/* The word itself, for a screen reader and for anyone
+                            who never hovers — the tooltip is the explanation,
+                            not the label. */}
+                        <span className="sr-only">
+                          {item.emptyReturnMatched ? 'Matched' : 'Standalone'}
+                        </span>
+                      </span>
+                    </Tooltip>
+                  )}
+
+
 
                   {/* Status badge, and the control. Changing a rung is the most
                       frequent action in the app and it used to cost three clicks
@@ -744,44 +1004,55 @@ export function ShipmentOverviewPage() {
                             three times — the status badge, this tag, and an
                             "Empty Return" row underneath — and a reader had to
                             work out which of the three was the news. The tag
-                            supplies the noun, so this only has to add the verb. */}
-                        {/* `returned` is dropped as well as `awaiting_empty`: the
-                            tag beside it already reads RETURNED, and the card was
-                            printing the same word twice on the same line. What
-                            survives here is only what the tag cannot say — which
-                            *stage of the return* an empty box is in. */}
+                            supplies the noun, so this only has to add the verb.
+
+                            Dropped once the box is home: the tag beside it
+                            reads RETURNED and the glyph above says how it got
+                            there, so the word would be the third telling. */}
                         {item.emptyReturnStage &&
                           item.emptyReturnStage !== 'awaiting_empty' &&
-                          item.emptyReturnStage !== 'returned' && (
-                          <span
-                            className="shrink-0 whitespace-nowrap text-[11px] font-semibold text-warning-subtle-foreground"
-                            title={`Empty return — ${EMPTY_RETURN_STAGE_LABEL[item.emptyReturnStage]}`}
-                          >
-                            · {EMPTY_RETURN_STAGE_LABEL[item.emptyReturnStage]}
-                          </span>
-                        )}
+                          item.emptyReturnStage !== 'returned' &&
+                          containerState !== 'returned' &&
+                          (() => {
+                            const mark = EMPTY_RETURN_STAGE_MARK[item.emptyReturnStage];
+                            const Glyph = mark.icon;
+                            return (
+                              <span
+                                className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px] font-semibold text-warning-subtle-foreground"
+                                title={`Empty return — ${mark.label}`}
+                              >
+                                {/* The glyph stands in for the separator rather
+                                    than sitting next to it — a dot AND an arrow
+                                    is two marks doing one job. */}
+                                {Glyph ? <Glyph className="size-3 shrink-0" aria-hidden /> : <span aria-hidden>·</span>}
+                                {mark.label}
+                              </span>
+                            );
+                          })()}
                       </div>
                     </BookingField>
                   )}
 
-                  <BookingField label="Driver">
+                  <BookingField label={returnedByOther ? 'Return driver' : 'Driver'}>
                     <div className="flex min-w-0 items-center gap-1">
                       <span className="truncate font-semibold text-foreground transition-colors group-hover:text-primary">
-                        {item.driverName}
+                        {crewName}
                       </span>
-                      {item.driverVerified && <VerificationBadge state="verified" size="sm" />}
+                      {!returnedByOther && item.driverVerified && (
+                        <VerificationBadge state="verified" size="sm" />
+                      )}
                     </div>
                   </BookingField>
 
-                  <BookingField label="Vehicle No.">
+                  <BookingField label={returnedInOther ? 'Return vehicle' : 'Vehicle No.'}>
                     {/* `min-w-0` + `truncate`: a plate is one token, so a
                         narrow card broke "DT-2238-DJ" across two lines at the
                         hyphen and pushed the verified tick onto a third. */}
                     <div className="flex min-w-0 items-center gap-1">
-                      <span className="truncate font-semibold text-foreground" title={item.vehicleNumber}>
-                        {item.vehicleNumber}
+                      <span className="truncate font-semibold text-foreground" title={crewPlate}>
+                        {crewPlate}
                       </span>
-                      {item.vehicleVerified && (
+                      {!returnedInOther && item.vehicleVerified && (
                         <VerificationBadge state="verified" size="sm" />
                       )}
                     </div>
@@ -853,11 +1124,36 @@ export function ShipmentOverviewPage() {
 
       {/* BOOKING PREVIEW SIDE SHEET */}
       <BookingPreviewSheet
-        shipperCompany={shipmentRaw?.customerCompany}
+        shipmentRef={id ?? mission.id}
         open={isBookingSheetOpen}
         booking={selectedBooking}
         onClose={() => setIsBookingSheetOpen(false)}
         onUpdateBooking={handleUpdateBooking}
+      />
+
+      {/* ── HOW DID IT GO? ──
+          One dialog for the whole page: the card pickers and the sheet no
+          longer carry their own, so a booking that closes is asked about once
+          however it got closed. */}
+      <BookingDebriefDialog
+        draft={debrief}
+        bookingId={debriefBooking?.id ?? ''}
+        driverName={debriefBooking?.driverName}
+        returnDriverName={debriefBooking?.returnDriverName}
+        step={debriefTotal - debriefQueue.length}
+        total={debriefTotal}
+        onChange={setDebrief}
+        /* Saved or skipped, the next subject opens — a skipped question is
+           still answered, with "nothing to say". */
+        onClose={() => {
+          const [next, ...rest] = debriefQueue;
+          setDebriefQueue(rest);
+          setDebrief(next ? emptyDebrief(next) : null);
+          if (!next) {
+            setDebriefBooking(null);
+            setDebriefTotal(0);
+          }
+        }}
       />
     </div>
   );

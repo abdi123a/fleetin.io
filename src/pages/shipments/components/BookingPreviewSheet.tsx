@@ -2,24 +2,19 @@ import type { StatusIntent } from '@/design-system/primitives/Layout/statusInten
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  BookingDebriefDialog,
-  debriefSubjectFor,
-  emptyDebrief,
-  type DebriefDraft,
-} from '@/components/bookings';
-import {
   User,
   Truck,
-  Phone,
+  ArrowLeftRight,
   CheckCircle2,
   Clock,
-  ShieldCheck,
   Check,
   Building2,
   Calendar,
   ArrowRight,
   Pencil,
+  Phone,
   RotateCcw,
+  ShieldCheck,
   AlertTriangle,
   Package,
   ContainerIcon,
@@ -43,6 +38,11 @@ import {
 import { ROUTES } from '@/config/routes';
 import { BOOKING_LADDER } from '@/features/bookings/api/bookingsService';
 import { RecordRaise } from '@/features/workspace';
+import { BookingProofPanel } from '@/features/documents/components/BookingProofPanel';
+import { ProofFileField } from '@/features/documents/components/ProofFileField';
+import { proofsRequiredForWalk, type ProofRequirement } from '@/features/documents/proofRequirement';
+import { uploadDocuments } from '@/features/documents/api/documentsService';
+import { useDocuments } from '@/features/documents/api/queries';
 import { displayShipmentStatus, shipmentStepsFor, statusIntentOf, stepRungFor } from '@/lib/shipmentStatus';
 import {
   CONTAINER_STATE_BADGE_CLASS,
@@ -95,6 +95,26 @@ export interface BookingPreviewItem {
   finishDate?: string;
   finishTime?: string;
   emptyReturnStage?: EmptyReturnStage;
+  /**
+   * How the empty went home: welded to a next full load, or on its own.
+   *
+   * Read off the cycle's `nextBookingId` — a cycle with one is a match, the
+   * win the whole Empty Container module exists to find; a cycle without one
+   * is a lone return that burned a leg. Only meaningful once the box is back,
+   * which is the only place it is drawn.
+   */
+  emptyReturnMatched?: boolean;
+  /**
+   * The empty return's own crew, when it is not the crew that delivered.
+   *
+   * Recorded on the `Empty Picked Up` rung and carried here so the card can
+   * name it and the closing debrief can ask about the right person. Undefined
+   * means the delivery crew took the box back.
+   */
+  returnDriverId?: string;
+  returnVehicleId?: string;
+  returnDriverName?: string;
+  returnVehicleNumber?: string;
   /** When the box was emptied — recorded on the "Empty Ready" rung, and what the return counts from. */
   emptyReadyAt?: string;
   /** The matched cycle's own reference (`CYC-2026-#####`) — set whenever `emptyReturnStage` is `matched` or `returned`, so the card can jump straight to it. */
@@ -115,7 +135,8 @@ interface BookingPreviewSheetProps {
   onClose: () => void;
   onUpdateBooking: (updatedBooking: BookingPreviewItem) => void;
   /** The shipper this container belongs to — who the closing debrief asks about. */
-  shipperCompany?: string;
+  /** The shipment this booking belongs to — carried into Matching as the way back. */
+  shipmentRef?: string;
 }
 
 /** The three axes the debrief asks for, in the order `BookingStatusPicker` asks them. */
@@ -128,7 +149,7 @@ const DEBRIEF_READOUT = [
 export function BookingPreviewSheet({
   open,
   booking,
-  shipperCompany,
+  shipmentRef,
   onClose,
   onUpdateBooking,
 }: BookingPreviewSheetProps) {
@@ -146,11 +167,29 @@ export function BookingPreviewSheet({
   const [pendingStatus, setPendingStatus] = useState<{ bookingId: string; target: string } | null>(null);
   const [occurredDate, setOccurredDate] = useState('');
   const [occurredTime, setOccurredTime] = useState('');
+
+  /**
+   * The evidence the chosen rung owes, asked for beside the moment.
+   *
+   * The same rule as the card-side picker (`BookingStatusPicker`), because it
+   * is the same act: the two controls write the same rungs to the same
+   * backend, and the backend refuses `Arrived` without a delivery note and
+   * `Completed` without a depot receipt. Without the field here, choosing
+   * "Delivered" from this sheet produced a refusal with nothing on screen able
+   * to satisfy it.
+   */
+  const [proofFiles, setProofFiles] = useState<Record<string, File[]>>({});
+  const [uploadingProof, setUploadingProof] = useState(false);
+  /* `booking` is null while the sheet is closed; the hook is disabled without
+     an id, so this is a no-op read rather than a conditional hook. */
+  const { data: bookingDocuments = [] } = useDocuments('BOOKING', booking?.id);
   const [isEditingPartner, setIsEditingPartner] = useState(false);
   const [isEditingVehicle, setIsEditingVehicle] = useState(false);
   const [isEditingDriver, setIsEditingDriver] = useState(false);
+  /* One state for the pair: a return driver and the truck they came in are one
+     answer, and two separate editors implied they could be recorded apart. */
+  const [isEditingReturnCrew, setIsEditingReturnCrew] = useState(false);
   const [isEditingSchedule, setIsEditingSchedule] = useState(false);
-  const [debrief, setDebrief] = useState<DebriefDraft | null>(null);
   const updateBookingStatus = useUpdateBookingStatus();
   const settle = useSettleBookingStatus();
   const updateBooking = useUpdateBooking();
@@ -180,6 +219,22 @@ export function BookingPreviewSheet({
    * failed jobs are closed too — the record of what happened, not a form.
    */
   const isClosed = ['Completed', 'Cancelled', 'Failed'].includes(booking.status);
+
+  /**
+   * The delivery crew is settled once the load has arrived.
+   *
+   * Not at `Completed` — by then the box has also been fetched, and leaving the
+   * pair editable through the whole empty-return leg is what let somebody
+   * record the RETURN driver by overwriting the one who delivered. From
+   * `Arrived` on, who brought the load is a fact about something that already
+   * happened; correcting a genuine mistake is a job for whoever can edit the
+   * booking's history, not a pencil sitting beside it for days.
+   *
+   * The empty-return row below stays editable on purpose — it is the one thing
+   * here that is normally learned at or after the closing rung.
+   */
+  const deliveryLocked =
+    isClosed || BOOKING_LADDER.indexOf(booking.status) >= BOOKING_LADDER.indexOf('Arrived');
 
   // A real fleet has expired paperwork in it more often than not — hiding
   // those trucks/drivers made the whole picker read as "empty" for any
@@ -255,6 +310,53 @@ export function BookingPreviewSheet({
             statusIntent: statusIntentOf(updated.status),
           });
           setIsEditingVehicle(false);
+        },
+      },
+    );
+  };
+
+  /**
+   * The empty return's crew, set here and only here.
+   *
+   * Neither picker closes the editor. The rows above are one field each, so
+   * choosing shuts them; this one is a driver AND a truck, and closing on the
+   * first pick sent you back to the pencil to name the vehicle. Both save on
+   * selection — "Done" only puts the editor away.
+   *
+   * It was briefly asked inside the status dialog on `Delivered` — one more
+   * question on a rung that already asks two, and answered days before anybody
+   * knows who is actually coming. It belongs on the record instead: the sheet
+   * shows both crews side by side, and whoever learns who is fetching the box
+   * writes it down when they learn it.
+   *
+   * `null` clears the pair back to "the delivery crew took it back", which is
+   * what an empty selection means and what every row said before this existed.
+   */
+  const handleAssignReturnDriver = (driverId: string) => {
+    updateBooking.mutate(
+      { id: booking.id, payload: { returnDriverId: driverId || null } },
+      {
+        onSuccess: (updated) => {
+          onUpdateBooking({
+            ...booking,
+            returnDriverId: updated.returnDriverId ?? undefined,
+            returnDriverName: updated.returnDriver?.fullName,
+          });
+        },
+      },
+    );
+  };
+
+  const handleAssignReturnVehicle = (vehicleId: string) => {
+    updateBooking.mutate(
+      { id: booking.id, payload: { returnVehicleId: vehicleId || null } },
+      {
+        onSuccess: (updated) => {
+          onUpdateBooking({
+            ...booking,
+            returnVehicleId: updated.returnVehicleId ?? undefined,
+            returnVehicleNumber: updated.returnVehicle?.plateNumber,
+          });
         },
       },
     );
@@ -390,12 +492,8 @@ export function BookingPreviewSheet({
       }
       setStatusSuccessMsg(`Status set to "${target}"`);
       setTimeout(() => setStatusSuccessMsg(''), 3000);
-      /* The same debrief the cards' status picker asks, on the same rungs.
-         Moving a booking from this sheet used to skip it entirely, so whether
-         anybody was asked how the job went depended on which of the two status
-         controls the operator happened to reach for. */
-      const subject = debriefSubjectFor(target, reached);
-      if (subject) setDebrief(emptyDebrief(subject));
+      /* No debrief from here — the page asks, off the row itself, so the
+         question survives a booking closed from anywhere else. */
     } catch (error) {
       setStatusErrorMsg(error instanceof Error ? error.message : 'The status could not be updated.');
     } finally {
@@ -434,10 +532,20 @@ export function BookingPreviewSheet({
     const pad = (value: number) => String(value).padStart(2, '0');
     setOccurredDate(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`);
     setOccurredTime(`${pad(now.getHours())}:${pad(now.getMinutes())}`);
+    setProofFiles({});
     setPendingStatus({ bookingId: booking.id, target });
   };
 
-  const confirmStatusChange = () => {
+  /* Over the whole walk, and minus whatever is already filed — one click can
+     pass through both gated rungs, and a booking being re-recorded must not be
+     asked for its delivery note twice. */
+  const outstandingProofs: ProofRequirement[] = pendingStatus
+    ? proofsRequiredForWalk(ladderPathTo(pendingStatus.target), Boolean(booking.containerNumber)).filter(
+        (proof) => !bookingDocuments.some((document) => document.category === proof.category),
+      )
+    : [];
+
+  const confirmStatusChange = async () => {
     if (!pendingStatus || !occurredDate || !occurredTime) return;
     const target = pendingStatus.target;
     const occurredAt = new Date(`${occurredDate}T${occurredTime}`);
@@ -447,6 +555,33 @@ export function BookingPreviewSheet({
       setStatusErrorMsg('That moment has not happened yet — pick a date and time in the past.');
       return;
     }
+
+    const unproven = outstandingProofs.find((proof) => (proofFiles[proof.category] ?? []).length === 0);
+    if (unproven) {
+      setStatusErrorMsg(unproven.missing);
+      return;
+    }
+
+    /* Files first: the rung is refused until the document exists. */
+    if (outstandingProofs.length > 0) {
+      setUploadingProof(true);
+      try {
+        for (const proof of outstandingProofs) {
+          await uploadDocuments({
+            ownerType: 'BOOKING',
+            ownerId: booking.id,
+            category: proof.category,
+            files: proofFiles[proof.category] ?? [],
+          });
+        }
+      } catch (error) {
+        setStatusErrorMsg(error instanceof Error ? error.message : 'The document could not be filed.');
+        setUploadingProof(false);
+        return;
+      }
+      setUploadingProof(false);
+    }
+
     setPendingStatus(null);
     void applyStatus(target, occurredAt.toISOString());
   };
@@ -588,7 +723,14 @@ export function BookingPreviewSheet({
         </div>
 
         {/* ── SCROLLABLE BODY CONTENT ── */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/*
+         * `flex flex-col` rather than a plain block, purely so one section can
+         * be lifted by `order` — see the Empty Return card near the bottom.
+         * `gap-4` replaces `space-y-4`, which does not survive reordering: it
+         * puts the margin on "every child but the first" in DOM order, so a
+         * reordered first child keeps a margin it should not have.
+         */}
+        <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
 
           {/* 1. STATUS — where the booking is, and the control that moves it.
               First thing in the sheet because it is why the sheet gets opened:
@@ -645,6 +787,18 @@ export function BookingPreviewSheet({
               </Select>
             )}
           </div>
+
+          {/* ── THE EVIDENCE ──
+              The delivery note and the depot receipt, where the booking is
+              read. They are captured in the dialog that records the moment —
+              the only point at which somebody is holding the paper — but a
+              proof that cannot be opened afterwards is a filing exercise, and
+              this sheet is where one booking gets examined. */}
+          <BookingProofPanel
+            bookingId={booking.id}
+            hasContainer={Boolean(booking.containerNumber)}
+            status={booking.status}
+          />
 
           {/* ── THE DELIVERY DEBRIEF ──
               What the operator said when they marked this delivered. Read here
@@ -739,7 +893,10 @@ export function BookingPreviewSheet({
           {/* Why a status change did not take — the backend's own sentence.
               Rejections used to fail silently, so a blocked click read as the
               control simply not working. */}
-          {statusErrorMsg && (
+          {/* Not while the dialog is up: it prints the same sentence over the
+              control that can act on it, and the banner behind the overlay was
+              the sheet saying it a second time. */}
+          {statusErrorMsg && !pendingStatus && (
             <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive-subtle p-3 text-xs font-semibold text-destructive-subtle-foreground animate-in fade-in slide-in-from-top-1">
               <AlertTriangle className="mt-px h-4 w-4 shrink-0" />
               <span>{statusErrorMsg}</span>
@@ -847,12 +1004,26 @@ export function BookingPreviewSheet({
             </Card>
           </div>
 
-          {/* 2. PARTNER, DRIVER & TRUCK INFO CARDS */}
+          {/* 2. PARTNER, DRIVER & TRUCK INFO CARDS
+           *
+           * One frame, four rows. They were four detached cards with identical
+           * borders and a gap between each — four separate objects, when they
+           * are four lines of one answer: who carried this booking. Grouping
+           * them says that without touching a single row's own layout.
+           *
+           * The delivery crew is a record of what happened, not a setting: once
+           * the container is off the truck, "Edit" here would rewrite history
+           * rather than plan anything. So from `Arrived` onward these three
+           * cards drop their buttons and their footer lines and just state the
+           * fact — and the empty-return card below, which is the only thing
+           * still undecided at that point, is the one that stays editable. */}
           <div className="space-y-2">
             <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Transporter & Fleet</h3>
 
+            <Card className="divide-y divide-border overflow-hidden rounded-lg border border-border/80 bg-card p-0">
+
             {/* PARTNER CARD */}
-            <Card className="p-3 rounded-lg border border-border/80 bg-card space-y-2">
+            <div className="p-3 space-y-2">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
                   <IconChip icon={Building2} tint="amber" size={36} />
@@ -864,7 +1035,7 @@ export function BookingPreviewSheet({
                 {booking.partnerName && !isEditingPartner && (
                   <Badge variant="subtle" intent="info" size="sm" className="text-[10px]">Transporter</Badge>
                 )}
-                {!isEditingPartner && !isClosed && (
+                {!isEditingPartner && !deliveryLocked && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -904,11 +1075,19 @@ export function BookingPreviewSheet({
                   </div>
                 </div>
               )}
-            </Card>
+            </div>
 
-            {/* DRIVER CARD */}
-            <Card className="p-3 rounded-lg border border-border/80 bg-card space-y-2">
-              <div className="flex items-start justify-between">
+            {/* THE CREW, ONE ROW ONCE THE TRIP IS OVER
+             *
+             * Before delivery these are two cards because they are two
+             * decisions — who drives, what they drive — each with its own
+             * picker. After it they are one fact, and two full cards to say
+             * "Ali drove it in MS-1126-DJ" cost more of a closed booking's
+             * sheet than the return leg that is still live below them. So the
+             * locked pair collapses into the same shape as the return row: the
+             * person on the line, the plate on the footer. */}
+            {deliveryLocked ? (
+              <div className="p-3 space-y-2">
                 <div className="flex items-center gap-3">
                   <span className="relative shrink-0">
                     <IconChip icon={User} size={36} />
@@ -916,153 +1095,300 @@ export function BookingPreviewSheet({
                       <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-success rounded-full ring-2 ring-card" />
                     )}
                   </span>
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <h4 className="font-bold text-foreground text-sm">{booking.driverName}</h4>
+                      <h4 className="truncate font-bold text-foreground text-sm">{booking.driverName}</h4>
                       {booking.driverVerified && <VerificationBadge state="verified" size="sm" />}
                     </div>
-                    <span className="text-xs text-muted-foreground">Assigned driver</span>
-                  </div>
-                </div>
-                {!isEditingDriver && !isClosed && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-[11px]"
-                    leadingIcon={<Pencil className="size-3" />}
-                    onClick={() => setIsEditingDriver(true)}
-                  >
-                    Edit
-                  </Button>
-                )}
-              </div>
-
-              {hasDriver && !isEditingDriver && (
-                <div className="pt-1.5 border-t border-border/60 flex items-center justify-between text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1.5">
-                    <Phone className="w-3.5 h-3.5 text-muted-foreground" />
-                    {booking.driverPhone ?? 'No phone on file'}
-                  </span>
-                  {booking.driverVerified && (
-                    <span className="flex items-center gap-1 text-success-subtle-foreground font-medium">
-                      <ShieldCheck className="w-3.5 h-3.5" />
-                      License current
+                    <span className="text-xs text-muted-foreground">
+                      {['Drove the delivery', booking.driverPhone].filter(Boolean).join(' · ')}
                     </span>
-                  )}
-                </div>
-              )}
-
-              {isEditingDriver && (
-                <div className="pt-1.5 border-t border-border/60 space-y-1.5">
-                  {booking.partnerId ? (
-                    <>
-                      <Combobox
-                        value={booking.driverId ?? ''}
-                        onChange={handleAssignDriver}
-                        disabled={updateBooking.isPending}
-                        options={[
-                          { value: '', label: 'Unassigned' },
-                          ...assignableDrivers.map((driver) => ({
-                            value: driver.id,
-                            label: isDriverVerified(driver)
-                              ? `${driver.fullName} · ${driver.phone}`
-                              : `${driver.fullName} · ${driver.phone} · License expired`,
-                            icon: <Avatar name={driver.fullName} size="xs" shape="circle" />,
-                          })),
-                        ]}
-                      />
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-[10px] text-muted-foreground">
-                          {booking.partnerName}'s own fleet.
-                        </p>
-                        <button
-                          type="button"
-                          className="shrink-0 text-[10px] font-semibold text-muted-foreground hover:text-foreground"
-                          onClick={() => setIsEditingDriver(false)}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-[11px] text-muted-foreground">Assign a transporter first to pick from their drivers.</p>
-                  )}
-                </div>
-              )}
-            </Card>
-
-            {/* TRUCK / VEHICLE CARD */}
-            <Card className="p-3 rounded-lg border border-border/80 bg-card space-y-2">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <IconChip icon={Truck} tint="neutral" size={36} />
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <h4 className="font-mono font-bold text-foreground text-sm tracking-wide">{booking.vehicleNumber}</h4>
-                      {booking.vehicleVerified && <VerificationBadge state="verified" size="sm" />}
-                    </div>
-                    <span className="text-xs text-muted-foreground">{booking.vehicleType ?? 'No vehicle assigned'}</span>
                   </div>
                 </div>
-                {!isEditingVehicle && !isClosed && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-[11px]"
-                    leadingIcon={<Pencil className="size-3" />}
-                    onClick={() => setIsEditingVehicle(true)}
-                  >
-                    Edit
-                  </Button>
+
+                <div className="pt-1.5 border-t border-border/60 flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Vehicle Plate Number</span>
+                  <span className="font-mono font-semibold tracking-wide text-foreground">
+                    {booking.vehicleNumber}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <>
+              {/* DRIVER CARD */}
+              <div className="p-3 space-y-2">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="relative shrink-0">
+                      <IconChip icon={User} size={36} />
+                      {hasDriver && (
+                        <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-success rounded-full ring-2 ring-card" />
+                      )}
+                    </span>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <h4 className="font-bold text-foreground text-sm">{booking.driverName}</h4>
+                        {booking.driverVerified && <VerificationBadge state="verified" size="sm" />}
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {deliveryLocked ? 'Drove the delivery' : 'Assigned driver'}
+                        {deliveryLocked && booking.driverPhone ? ` · ${booking.driverPhone}` : ''}
+                      </span>
+                    </div>
+                  </div>
+                  {!isEditingDriver && !deliveryLocked && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-[11px]"
+                      leadingIcon={<Pencil className="size-3" />}
+                      onClick={() => setIsEditingDriver(true)}
+                    >
+                      Edit
+                    </Button>
+                  )}
+                </div>
+
+                {hasDriver && !isEditingDriver && !deliveryLocked && (
+                  <div className="pt-1.5 border-t border-border/60 flex items-center justify-between text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1.5">
+                      <Phone className="w-3.5 h-3.5 text-muted-foreground" />
+                      {booking.driverPhone ?? 'No phone on file'}
+                    </span>
+                    {booking.driverVerified && (
+                      <span className="flex items-center gap-1 text-success-subtle-foreground font-medium">
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        License current
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {isEditingDriver && (
+                  <div className="pt-1.5 border-t border-border/60 space-y-1.5">
+                    {booking.partnerId ? (
+                      <>
+                        <Combobox
+                          value={booking.driverId ?? ''}
+                          onChange={handleAssignDriver}
+                          disabled={updateBooking.isPending}
+                          options={[
+                            { value: '', label: 'Unassigned' },
+                            ...assignableDrivers.map((driver) => ({
+                              value: driver.id,
+                              label: isDriverVerified(driver)
+                                ? `${driver.fullName} · ${driver.phone}`
+                                : `${driver.fullName} · ${driver.phone} · License expired`,
+                              icon: <Avatar name={driver.fullName} size="xs" shape="circle" />,
+                            })),
+                          ]}
+                        />
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[10px] text-muted-foreground">
+                            {booking.partnerName}'s own fleet.
+                          </p>
+                          <button
+                            type="button"
+                            className="shrink-0 text-[10px] font-semibold text-muted-foreground hover:text-foreground"
+                            onClick={() => setIsEditingDriver(false)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground">Assign a transporter first to pick from their drivers.</p>
+                    )}
+                  </div>
                 )}
               </div>
 
-              {hasVehicle && !isEditingVehicle && (
-                <div className="pt-1.5 border-t border-border/60 flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Vehicle Status</span>
-                  <span className="font-semibold text-foreground">
-                    {booking.vehicleVerified ? 'Documents current' : 'Documents need review'}
-                  </span>
-                </div>
-              )}
-
-              {isEditingVehicle && (
-                <div className="pt-1.5 border-t border-border/60 space-y-1.5">
-                  {booking.partnerId ? (
-                    <>
-                      <Combobox
-                        value={booking.vehicleId ?? ''}
-                        onChange={handleAssignVehicle}
-                        disabled={updateBooking.isPending}
-                        options={[
-                          { value: '', label: 'Unassigned' },
-                          ...assignableVehicles.map((vehicle) => ({
-                            value: vehicle.id,
-                            label: isVehicleVerified(vehicle)
-                              ? `${vehicle.plateNumber} · ${vehicle.truckType}`
-                              : `${vehicle.plateNumber} · ${vehicle.truckType} · Documents expired`,
-                            icon: <Truck className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />,
-                          })),
-                        ]}
-                      />
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-[10px] text-muted-foreground">
-                          {booking.partnerName}'s own fleet.
-                        </p>
-                        <button
-                          type="button"
-                          className="shrink-0 text-[10px] font-semibold text-muted-foreground hover:text-foreground"
-                          onClick={() => setIsEditingVehicle(false)}
-                        >
-                          Cancel
-                        </button>
+              {/* TRUCK / VEHICLE CARD */}
+              <div className="p-3 space-y-2">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <IconChip icon={Truck} tint="neutral" size={36} />
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <h4 className="font-mono font-bold text-foreground text-sm tracking-wide">{booking.vehicleNumber}</h4>
+                        {booking.vehicleVerified && <VerificationBadge state="verified" size="sm" />}
                       </div>
-                    </>
-                  ) : (
-                    <p className="text-[11px] text-muted-foreground">Assign a transporter first to pick from their fleet.</p>
+                      <span className="text-xs text-muted-foreground">{booking.vehicleType ?? 'No vehicle assigned'}</span>
+                    </div>
+                  </div>
+                  {!isEditingVehicle && !deliveryLocked && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-[11px]"
+                      leadingIcon={<Pencil className="size-3" />}
+                      onClick={() => setIsEditingVehicle(true)}
+                    >
+                      Edit
+                    </Button>
                   )}
                 </div>
-              )}
+
+                {hasVehicle && !isEditingVehicle && !deliveryLocked && (
+                  <div className="pt-1.5 border-t border-border/60 flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Vehicle Status</span>
+                    <span className="font-semibold text-foreground">
+                      {booking.vehicleVerified ? 'Documents current' : 'Documents need review'}
+                    </span>
+                  </div>
+                )}
+
+                {isEditingVehicle && (
+                  <div className="pt-1.5 border-t border-border/60 space-y-1.5">
+                    {booking.partnerId ? (
+                      <>
+                        <Combobox
+                          value={booking.vehicleId ?? ''}
+                          onChange={handleAssignVehicle}
+                          disabled={updateBooking.isPending}
+                          options={[
+                            { value: '', label: 'Unassigned' },
+                            ...assignableVehicles.map((vehicle) => ({
+                              value: vehicle.id,
+                              label: isVehicleVerified(vehicle)
+                                ? `${vehicle.plateNumber} · ${vehicle.truckType}`
+                                : `${vehicle.plateNumber} · ${vehicle.truckType} · Documents expired`,
+                              icon: <Truck className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />,
+                            })),
+                          ]}
+                        />
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[10px] text-muted-foreground">
+                            {booking.partnerName}'s own fleet.
+                          </p>
+                          <button
+                            type="button"
+                            className="shrink-0 text-[10px] font-semibold text-muted-foreground hover:text-foreground"
+                            onClick={() => setIsEditingVehicle(false)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground">Assign a transporter first to pick from their fleet.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+              </>
+            )}
+
+            {/* EMPTY RETURN CREW CARD
+             *
+             * The one card here that outlives the delivery. The transporter
+             * often sends a different truck back for the box, and nobody knows
+             * which until it happens — so this is picked the same way as the
+             * two above, stays open after the others lock, and is what decides
+             * whether the closing debrief asks about one driver or two.
+             *
+             * Its window is `Arrived` to the depot gate. Once the box is home
+             * this row is history like the rest of them — and rewriting who
+             * fetched it after the debrief has already asked that person how it
+             * went would move the answer onto somebody else's name.
+             *
+             * It appears at `Arrived` and not before. Until the load is off the
+             * truck there is no return leg to crew, and the card had nothing of
+             * its own to show — it echoed the delivery driver and plate back as
+             * "same crew as delivery", which read as a decision already taken
+             * about a trip nobody had thought about yet. */}
+            {booking.containerNumber && deliveryLocked && (
+              <div className="p-3 space-y-2">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <IconChip icon={RotateCcw} size={36} />
+                    <div>
+                      <h4 className="font-bold text-foreground text-sm">
+                        {booking.returnDriverName ?? booking.driverName ?? 'Not recorded'}
+                      </h4>
+                      <span className="text-xs text-muted-foreground">
+                        {booking.returnDriverName ? 'Took the empty back' : 'Same crew as delivery'}
+                      </span>
+                    </div>
+                  </div>
+                  {!isEditingReturnCrew && !isClosed && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-[11px]"
+                      leadingIcon={<Pencil className="size-3" />}
+                      onClick={() => setIsEditingReturnCrew(true)}
+                    >
+                      Edit
+                    </Button>
+                  )}
+                </div>
+
+                {(!isEditingReturnCrew || isClosed) && (
+                  <div className="pt-1.5 border-t border-border/60 flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Vehicle Plate Number</span>
+                    <span className="font-mono font-semibold tracking-wide text-foreground">
+                      {booking.returnVehicleNumber ?? booking.vehicleNumber ?? 'Not recorded'}
+                    </span>
+                  </div>
+                )}
+
+                {isEditingReturnCrew && !isClosed && (
+                  <div className="pt-1.5 border-t border-border/60 space-y-1.5">
+                    {booking.partnerId ? (
+                      <>
+                        <Combobox
+                          value={booking.returnDriverId ?? ''}
+                          onChange={handleAssignReturnDriver}
+                          disabled={updateBooking.isPending}
+                          options={[
+                            { value: '', label: 'Same as delivery' },
+                            ...assignableDrivers.map((driver) => ({
+                              value: driver.id,
+                              label:
+                                driver.id === booking.driverId
+                                  ? `${driver.fullName} · delivered this`
+                                  : `${driver.fullName} · ${driver.phone}`,
+                              icon: <Avatar name={driver.fullName} size="xs" shape="circle" />,
+                            })),
+                          ]}
+                        />
+                        <Combobox
+                          value={booking.returnVehicleId ?? ''}
+                          onChange={handleAssignReturnVehicle}
+                          disabled={updateBooking.isPending}
+                          options={[
+                            { value: '', label: 'Same as delivery' },
+                            ...assignableVehicles.map((vehicle) => ({
+                              value: vehicle.id,
+                              label:
+                                vehicle.id === booking.vehicleId
+                                  ? `${vehicle.plateNumber} · delivered this`
+                                  : `${vehicle.plateNumber} · ${vehicle.truckType}`,
+                              icon: <Truck className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />,
+                            })),
+                          ]}
+                        />
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[10px] text-muted-foreground">
+                            Leave as delivery if the same crew went back for it.
+                          </p>
+                          <button
+                            type="button"
+                            className="shrink-0 text-[10px] font-semibold text-primary hover:underline"
+                            onClick={() => setIsEditingReturnCrew(false)}
+                          >
+                            Done
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground">Assign a transporter first to pick from their fleet.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             </Card>
           </div>
 
@@ -1100,14 +1426,14 @@ export function BookingPreviewSheet({
               awaiting_empty: {
                 icon: Package,
                 tint: 'blue',
-                label: 'Not emptied yet',
+                label: 'Still loaded',
                 description:
                   'The return opens when the box is stripped — set the status to "Empty Ready" and record when that happened.',
               },
               waiting_match: {
                 icon: Clock,
                 tint: 'amber',
-                label: 'Awaiting match',
+                label: 'No return booked',
                 description: `${booking.containerNumber ?? 'This container'} has no full load matched yet.`,
                 action: {
                   label: 'Find a full load',
@@ -1115,17 +1441,33 @@ export function BookingPreviewSheet({
                      the record id over there is the booking reference. If the
                      container is not in the pool yet, the popup opens on the
                      whole board instead. */
+                  /* `from=` is the trail home. Matching is a full page, so
+                     confirming a pairing used to leave the operator on the
+                     Empty Container board with no way back to the shipment
+                     they came from — they had opened this sheet to solve one
+                     container's problem, not to start browsing the backlog. */
                   onClick: () =>
                     navigate(
-                      `${ROUTES.emptyReturns}?match=${encodeURIComponent(booking.bookingNumber)}`,
+                      `${ROUTES.emptyReturns}?match=${encodeURIComponent(booking.bookingNumber)}`
+                      + (shipmentRef ? `&from=${encodeURIComponent(shipmentRef)}` : ''),
                     ),
                 },
               },
               matched: {
-                icon: RotateCcw,
+                /* The pairing mark, the same one the Empty Container module
+                   puts on its PAIRED connector and its Matching button — this
+                   used to be `RotateCcw`, which is the *return* glyph and is
+                   what `standalone` deserves rather than this. A confirmed
+                   pairing should be recognisable as a pairing wherever it is
+                   drawn. */
+                icon: ArrowLeftRight,
                 tint: 'blue',
-                label: 'In progress',
-                description: 'Matched to a full load, heading back to the depot.',
+                /* Was "In progress", which said nothing — everything on this
+                   sheet is in progress. The fact worth printing is that the box
+                   has a ride home: paired with an inbound full load and
+                   travelling to the depot. */
+                label: 'Heading back',
+                description: 'Paired with a full load and on its way to the depot.',
                 action: openCycle ? { label: 'Open the container', onClick: openCycle } : undefined,
               },
               returned: {
@@ -1138,7 +1480,7 @@ export function BookingPreviewSheet({
               standalone: {
                 icon: AlertTriangle,
                 tint: 'amber',
-                label: 'Standalone Return',
+                label: 'Returning alone',
                 description: 'Returning on its own, outside matching. Confirm on arrival.',
                 action: {
                   label: 'Confirm returned',
@@ -1158,8 +1500,25 @@ export function BookingPreviewSheet({
             };
             const info = meta[booking.emptyReturnStage];
 
+            /*
+             * From the moment the box is stripped until it is logged back at
+             * the depot, the return IS the job — nobody opens this sheet on an
+             * "Empty Ready" booking to re-read the schedule. So it leads while
+             * it is live, and once the container is home it drops back to
+             * where it belongs, below the fleet: a record of what happened
+             * rather than a thing to act on.
+             *
+             * `-order-1` rather than moving the JSX, so the block keeps its one
+             * definition and the reading order of the file still matches the
+             * lifecycle it describes.
+             */
+            const leads =
+              booking.emptyReturnStage === 'waiting_match'
+              || booking.emptyReturnStage === 'matched'
+              || booking.emptyReturnStage === 'standalone';
+
             return (
-              <div className="space-y-2">
+              <div className={cn('space-y-2', leads && '-order-1')}>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Empty Return</h3>
                 <Card className="p-3 rounded-lg border border-border/80 bg-card space-y-2.5">
                   <div className="flex items-start gap-3">
@@ -1221,7 +1580,7 @@ export function BookingPreviewSheet({
             typed it tells you about the office, not the run. */}
         {pendingStatus?.bookingId === booking.id && (
           <div className="absolute inset-0 z-modal flex items-center justify-center bg-overlay/70 p-4 backdrop-blur-[2px]">
-            <Card className="w-full max-w-xs space-y-3 rounded-lg border border-border bg-card p-4 shadow-lg">
+            <Card className="max-h-full w-full max-w-xs space-y-3 overflow-y-auto rounded-lg border border-border bg-card p-4 shadow-lg">
               <div className="flex items-start gap-3">
                 <IconChip
                   icon={
@@ -1266,12 +1625,39 @@ export function BookingPreviewSheet({
                 />
               </div>
 
+              {/* ── AND WHAT PROVES IT? ──
+                  The delivery note at one end of the job, the depot receipt at
+                  the other. Asked here rather than on a screen nobody
+                  revisits: the operator recording the moment is the one
+                  holding the paper. */}
+              {outstandingProofs.map((proof) => (
+                <div key={proof.category} className="space-y-1.5 border-t border-border/60 pt-3">
+                  <div>
+                    <p className="text-xs font-bold leading-tight text-foreground">{proof.title}</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">{proof.hint}</p>
+                  </div>
+                  <ProofFileField
+                    files={proofFiles[proof.category] ?? []}
+                    disabled={uploadingProof || updateBookingStatus.isPending}
+                    onChange={(files) => {
+                      setProofFiles((held) => ({ ...held, [proof.category]: files }));
+                      setStatusErrorMsg('');
+                    }}
+                  />
+                </div>
+              ))}
+
+              {statusErrorMsg && (
+                <p className="text-[11px] font-medium text-destructive">{statusErrorMsg}</p>
+              )}
+
               <div className="flex items-center justify-end gap-2">
                 <Button
                   type="button"
                   size="sm"
                   variant="outline"
                   className="h-8 text-xs"
+                  disabled={uploadingProof}
                   onClick={() => setPendingStatus(null)}
                 >
                   Cancel
@@ -1280,16 +1666,18 @@ export function BookingPreviewSheet({
                   type="button"
                   size="sm"
                   className="h-8 text-xs"
-                  disabled={!occurredDate || !occurredTime || updateBookingStatus.isPending}
-                  onClick={confirmStatusChange}
+                  disabled={!occurredDate || !occurredTime || updateBookingStatus.isPending || uploadingProof}
+                  onClick={() => void confirmStatusChange()}
                 >
-                  {pendingStatus.target === 'Empty Ready'
-                    ? 'Start empty return'
-                    : pendingStatus.target === 'Completed'
-                      ? booking.containerNumber
-                        ? 'Confirm returned'
-                        : 'Confirm delivered'
-                      : 'Save'}
+                  {uploadingProof
+                    ? 'Filing…'
+                    : pendingStatus.target === 'Empty Ready'
+                      ? 'Start empty return'
+                      : pendingStatus.target === 'Completed'
+                        ? booking.containerNumber
+                          ? 'Confirm returned'
+                          : 'Confirm delivered'
+                        : 'Save'}
                 </Button>
               </div>
             </Card>
@@ -1303,14 +1691,6 @@ export function BookingPreviewSheet({
           </Button>
         </div>
 
-      <BookingDebriefDialog
-        draft={debrief}
-        bookingId={booking.id}
-        driverName={booking.driverName}
-        shipperCompany={shipperCompany}
-        onChange={setDebrief}
-        onClose={() => setDebrief(null)}
-      />
       </SheetContent>
     </Sheet>
     </>

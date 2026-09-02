@@ -41,10 +41,15 @@ export const RECOMMENDATION_WEIGHTS = {
   scheduled: 20,
   /** Of the pairable empties, those whose deadline this pickup genuinely beats. */
   urgency: 15,
-  /** Trucks. A carrier who cannot field them is not an answer. */
-  fleet: 12,
-  /** Price, relative to the others in the running. */
-  price: 8,
+  /**
+   * Trucks. A carrier who cannot field them is not an answer.
+   *
+   * Took the 8 points that were `price` when partner price lists were removed
+   * on 2026-08-31 — there is no per-carrier rate left to compare, the shipment's
+   * price is entered by the operator, and a dimension scoring every carrier
+   * identically is the "everyone gets 56%" bug with extra steps.
+   */
+  fleet: 16,
   /**
    * How they have actually performed — the derived star rating.
    *
@@ -126,7 +131,6 @@ export interface TransporterScore {
   /** False when this carrier cannot field every truck the shipment needs. */
   coversFleet: boolean;
   vehiclesNeeded: number;
-  ratePerVehicle: number;
 }
 
 export interface RecommendationInput {
@@ -139,7 +143,6 @@ export interface RecommendationInput {
   pickupAt: number;
   vehiclesNeeded: number;
   /** Per-vehicle price for this shipment's vehicle type, by partner. */
-  rateOf: (partner: PartnerRecord) => number;
   /**
    * Their derived star rating, 1–5, or null when they have no record yet.
    *
@@ -174,7 +177,6 @@ export function recommendTransporters({
   sizes,
   pickupAt,
   vehiclesNeeded,
-  rateOf,
   ratingOf,
   considerEmpties,
   scheduledByName,
@@ -196,11 +198,6 @@ export function recommendTransporters({
       emptiesByPartner.set(partnerId, bucket);
     }
   }
-
-  const rates = partners.map(rateOf).filter((rate) => rate > 0);
-  const cheapest = rates.length > 0 ? Math.min(...rates) : 0;
-  const dearest = rates.length > 0 ? Math.max(...rates) : 0;
-  const spread = dearest - cheapest;
 
   /**
    * The most any carrier could score on THIS shipment.
@@ -227,7 +224,6 @@ export function recommendTransporters({
   const anyRated = partners.some((partner) => (ratingOf?.(partner) ?? null) !== null);
   const achievable =
     RECOMMENDATION_WEIGHTS.fleet +
-    RECOMMENDATION_WEIGHTS.price +
     (anyRated ? RECOMMENDATION_WEIGHTS.rating : 0) +
     (anyEmpties ? RECOMMENDATION_WEIGHTS.empties + RECOMMENDATION_WEIGHTS.urgency : 0) +
     (anyScheduled ? RECOMMENDATION_WEIGHTS.scheduled : 0);
@@ -240,7 +236,6 @@ export function recommendTransporters({
       const pairable = Math.min(held.total, needed);
       const urgent = Math.min(held.urgent, pairable);
       const vehicles = partner.vehicles?.length ?? 0;
-      const rate = rateOf(partner);
 
       /* Straight off their Empty Return calendar. One scheduled return in the
          window earns most of the weight — they are already going — and a second
@@ -277,11 +272,6 @@ export function recommendTransporters({
           : 0;
       const fleetPts = (coverage * 0.75 + headroom * 0.25) * RECOMMENDATION_WEIGHTS.fleet;
 
-      const pricePts =
-        rate <= 0 || spread <= 0
-          ? RECOMMENDATION_WEIGHTS.price
-          : (1 - (rate - cheapest) / spread) * RECOMMENDATION_WEIGHTS.price;
-
       /* Stars, scored across the 1–5 band rather than from zero: a carrier at
          3.0 has not earned 60% of this dimension, they have earned half of the
          range anyone can actually occupy. An unrated carrier scores nothing
@@ -307,7 +297,7 @@ export function recommendTransporters({
            beside every carrier — a number that reads as "all of these are
            bad" when it actually meant "this dimension does not apply today". */
         score: Math.round(
-          ((emptiesPts + scheduledPts + urgencyPts + fleetPts + pricePts + ratingPts) /
+          ((emptiesPts + scheduledPts + urgencyPts + fleetPts + ratingPts) /
             achievable) *
             100,
         ),
@@ -319,7 +309,6 @@ export function recommendTransporters({
         rating,
         coversFleet: vehicles >= needed,
         vehiclesNeeded: needed,
-        ratePerVehicle: rate,
       };
     })
     /* Score first; ties go to the carrier holding more boxes, then the cheaper
@@ -329,8 +318,7 @@ export function recommendTransporters({
         b.score - a.score ||
         b.emptiesHeld - a.emptiesHeld ||
         (b.rating ?? 0) - (a.rating ?? 0) ||
-        b.scheduledReturns - a.scheduledReturns ||
-        a.ratePerVehicle - b.ratePerVehicle,
+        b.scheduledReturns - a.scheduledReturns,
     );
 
   return {

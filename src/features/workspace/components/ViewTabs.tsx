@@ -1,27 +1,26 @@
-import { NavLink } from 'react-router-dom';
-
-import { CalendarDays, Columns3, List as ListIcon, Repeat, Users } from '@/design-system/icons';
-import { ROUTES } from '@/config/routes';
+import { Button } from '@/design-system';
+import { Columns3, List as ListIcon, Plus, Users } from '@/design-system/icons';
 import { cn } from '@/utils';
 
-export const TASK_VIEWS = ['list', 'board', 'calendar', 'workload'] as const;
+export const TASK_VIEWS = ['list', 'board', 'workload'] as const;
 export type TaskView = (typeof TASK_VIEWS)[number];
 
 const VIEW: Record<TaskView, { label: string; icon: typeof ListIcon }> = {
   list: { label: 'List', icon: ListIcon },
   board: { label: 'Board', icon: Columns3 },
-  calendar: { label: 'Calendar', icon: CalendarDays },
   workload: { label: 'Workload', icon: Users },
 };
 
 export interface ViewTabsProps {
   value: TaskView;
   onChange: (next: TaskView) => void;
+  /** Raise lives here now, not in the module masthead — see the note below. */
+  onRaise?: () => void;
   className?: string;
 }
 
 /**
- * The four views, as a tab strip across the top of the screen.
+ * The three views, as a tab strip across the top of the screen.
  *
  * A strip rather than the segmented pill this replaced, because a view is not
  * a *setting* on the page — it is which page you are looking at, and the
@@ -32,17 +31,13 @@ export interface ViewTabsProps {
  * Each tab carries a glyph. Four words of similar length are hard to re-find
  * after looking away; the shape is what the eye actually returns to — the same
  * reason `DataTable`'s column headings carry one.
- *
- * "Recurring & Templates" rides on the end, separated by a rule and pushed to
- * the far side. It is a real destination, but it describes work that does not
- * exist yet, so it is not one of the four ways of looking at work that does.
  */
-export function ViewTabs({ value, onChange, className }: ViewTabsProps) {
+export function ViewTabs({ value, onChange, onRaise, className }: ViewTabsProps) {
   return (
     <div
       role="tablist"
       aria-label="Task view"
-      className={cn('flex min-w-0 items-center gap-1 overflow-x-auto border-b border-border', className)}
+      className={cn('flex min-w-0 items-center gap-1 border-b border-border', className)}
     >
       {TASK_VIEWS.map((key) => {
         const { label, icon: Icon } = VIEW[key];
@@ -66,19 +61,14 @@ export function ViewTabs({ value, onChange, className }: ViewTabsProps) {
         );
       })}
 
-      <NavLink
-        to={ROUTES.workspaceAutomation}
-        className={({ isActive }) =>
-          cn(
-            'ml-auto flex shrink-0 items-center gap-1.5 border-l border-border py-2 pl-3 text-sm font-medium transition-colors duration-fast',
-            isActive ? 'text-primary-bold' : 'text-muted-foreground hover:text-foreground',
-          )
-        }
-      >
-        <Repeat className="size-4" aria-hidden />
-        <span className="hidden sm:inline">Recurring &amp; Templates</span>
-        <span className="sm:hidden">Recurring</span>
-      </NavLink>
+      {/* Raise sits on the screen that lists tasks, not in the module masthead
+          where it appeared above a task you were already reading, above a
+          channel, above the rules. */}
+      {onRaise ? (
+        <Button size="sm" shape="pill" className="ml-auto shrink-0" onClick={onRaise} leadingIcon={<Plus className="h-4 w-4" />}>
+          Raise a task
+        </Button>
+      ) : null}
     </div>
   );
 }

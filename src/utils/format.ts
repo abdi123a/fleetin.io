@@ -43,6 +43,17 @@ export function formatDate(
  * formatted display string — this is a normalisation, not a display formatter.
  */
 export function toDateOnly(value: DateInput): string | undefined {
+  /* A bare `YYYY-MM-DD` is returned untouched, because the round trip loses a
+     day west of UTC and gains one east of it: `parseISO` reads a date-only
+     string as LOCAL midnight, and `toISOString` then reports it in UTC. In
+     Africa/Djibouti (UTC+3) `toDateOnly('2027-03-23')` came back as
+     '2027-03-22'. Callers pass both shapes — the services normalise the
+     backend's ISO datetimes, and components re-normalise the bare dates those
+     produce — so the second pass was quietly shifting the date a day earlier
+     every time it ran. Found 2026-09-01 while grading insurance expiry. */
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    return value.trim();
+  }
   const date = toDate(value);
   if (!date) return undefined;
   return date.toISOString().slice(0, 10);

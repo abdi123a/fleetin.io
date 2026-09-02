@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
-import { ROUTES, buildPath } from '@/config/routes';
+import { ROUTES } from '@/config/routes';
 import {
   Button,
   Card,
@@ -11,14 +11,12 @@ import {
   Dialog,
   DialogBody,
   DialogContent,
-  DialogFooter,
   DialogHeader,
 } from '@/design-system';
 import {
   AlertTriangle,
   ArrowLeftRight,
   CheckCircle2,
-  ExternalLink,
   Info,
   RotateCcw,
   Undo2,
@@ -29,7 +27,9 @@ import {
   formatDetention,
   riskTextClass,
 } from '@/data/emptyReturnData';
-import { suggestLoadsFor, useEmptyContainerActions, useEmptyContainers } from '@/features/empty-returns';
+import { suggestLoadsFor, useEmptyContainerActions,
+  useReturnProofPrompt, useEmptyContainers } from '@/features/empty-returns';
+import { useShippingLines } from '@/features/shipping-lines/shippingLines';
 import { StarRating } from '@/components/performance';
 import { usePartners } from '@/features/partners/api/queries';
 import { useBookings } from '@/features/bookings/api/queries';
@@ -49,7 +49,7 @@ import { cn } from '@/utils';
 import { OperationFlow } from './OperationFlow';
 import { IdentityFact, IdentityStrip, PartyName } from '@/components/common';
 
-import { Mono, RecordStateTag, SectionLabel, StageChip } from './marks';
+import { ContainerSizeTag, Mono, RecordStateTag, SectionLabel } from './marks';
 
 /**
  * One container — its history, and one door into the module's one decision
@@ -79,7 +79,17 @@ export function ContainerDetailDialog() {
   const navigate = useNavigate();
   const { byId, loads, now } = useEmptyContainers();
   const actions = useEmptyContainerActions();
+  const returnProof = useReturnProofPrompt();
   const record = byId(openRecordId);
+
+  /* Publishes every carrier's mark into the company registry, which is what
+     lets `PartyName` draw the line's logo below. Called here rather than on a
+     view, because this dialog is hosted by the module chrome and opens from all
+     five of them — the Control Tower's queue mounts the same hook for its rows,
+     so a line opened from Cycles or the Calendar would otherwise have shown
+     initials where the Control Tower showed a logo. One call: the dialog is a
+     singleton, so this is not the forty-rows problem the queue table avoids. */
+  useShippingLines();
 
   const rejectedIds = useMemo(
     () => (record ? rejectedLoadsFor(rejected, record.id) : []),
@@ -114,12 +124,13 @@ export function ContainerDetailDialog() {
           close();
           navigate(intent === 'return' ? `${ROUTES.emptyReturnsMatching}?plan=${record.id}` : ROUTES.emptyReturnsMatching);
         }}
-        onConfirmReturn={async () => {
-          const ok = await actions.confirmReturn(record);
-          if (ok) close();
-        }}
+        /* The depot's receipt is asked for first — the close is refused
+           without it, and the dossier is where somebody is already looking at
+           this container. `returnProof.dialog` is rendered below. */
+        onConfirmReturn={() => returnProof.prompt(record)}
         onCancelPairing={() => actions.cancelPairing(record)}
       />
+      {returnProof.dialog}
     </Dialog>
   );
 }
@@ -156,17 +167,19 @@ function DetailStep({
   const detention = overdue ? detentionFor(now - (record.deadline ?? now)) : 0;
   const best = suggestions[0];
 
-  /** One operational line, never a mix of lifecycle labels. */
+  /**
+   * One operational line, never a mix of lifecycle labels.
+   *
+   * **Null once the record closes.** It used to read "Returned on time" here,
+   * directly above a banner reading "Returned — 7d 8h before the return
+   * deadline · no detention", under a title already wearing a grey RETURNED
+   * tag. Three statements of one fact, and the one this replaced was the only
+   * one of the three carrying no number — which is exactly the line the house
+   * rule drops.
+   */
   const headline =
     record.stage === 'closed'
-      ? record.outcome === 'paired'
-        ? { text: 'Paired — the empty return was avoided', tone: 'text-primary-subtle-foreground' }
-        : record.outcome === 'returned_late'
-          ? {
-              text: `Returned late — ${formatSpan((record.returnedAt ?? now) - (record.deadline ?? now))} after the deadline`,
-              tone: 'text-destructive',
-            }
-          : { text: 'Returned on time', tone: 'text-success-subtle-foreground' }
+      ? null
       : overdue
         ? {
             text: `Return overdue — ${formatSpan(now - (record.deadline ?? now))}`,
@@ -220,13 +233,22 @@ function DetailStep({
           <span className="flex flex-wrap items-center gap-2.5">
             <Mono className="text-lg font-bold">{record.container || record.bookingReference}</Mono>
             <RecordStateTag record={record} />
-            <span className="text-sm font-normal text-muted-foreground">
-              {record.size} · {record.line}
-            </span>
+            {/* The size stays and the shipping line goes. Only one of the two
+                decides anything: `incompatibilityReasons` gates a pairing on
+                size and nothing else, while the line stopped vetoing on
+                2026-08-30 — a container can be paired with a load on a
+                different line. Sitting them side by side as `40' · CMA CGM`
+                gave equal billing to a hard constraint and to a fact about
+                ownership; the line is a party to the job, so it moved down to
+                the identity strip where the other parties are named, with its
+                own mark. */}
+            <ContainerSizeTag size={record.size} />
           </span>
         }
       >
-        <div className={cn('text-sm font-semibold', headline.tone)}>{headline.text}</div>
+        {headline && (
+          <div className={cn('text-sm font-semibold', headline.tone)}>{headline.text}</div>
+        )}
       </DialogHeader>
 
       <DialogBody className="space-y-4">
@@ -455,27 +477,24 @@ function DetailStep({
           {/* The parties, in the app's identity strip rather than a run-on
               line of 10px grey — every part of that line weighed the same, so
               the two names anyone actually reads had to be hunted out of it. */}
+          {/* Three companies and the truck. The shipping line joins the two
+              parties it has always belonged beside: it owns the box, the depot
+              the box goes back to is theirs, and the detention this dialog
+              counts is owed to them — so it is a party to the job, not a
+              specification of the equipment.
+
+              The Shipment link left this strip. It named `375792` roughly forty
+              pixels below the flow card already naming `375792`, and only one
+              of the two could be clicked; now the flow card is the one that
+              can, which is also where a reader looking for "which load did this
+              empty come off?" already is. */}
           <IdentityStrip className="mt-3">
             <PartyName label="Shipper" name={record.client} />
             <PartyName label="Transporter" name={record.transporter}>
               <TransporterRating name={record.transporter} />
             </PartyName>
-            {record.truck && <IdentityFact label="Truck" value={record.truck} mono />}
-            {record.shipmentId && (
-              <IdentityFact
-                label="Shipment"
-                value={
-                  <Link
-                    to={buildPath(ROUTES.shipmentOverview, { id: record.shipmentId })}
-                    className="inline-flex items-center gap-1 text-primary hover:underline"
-                  >
-                    {record.shipmentReference ?? 'Open the shipment'}
-                    <ExternalLink className="size-3 shrink-0" aria-hidden />
-                  </Link>
-                }
-                mono={Boolean(record.shipmentReference)}
-              />
-            )}
+            <PartyName label="Shipping line" name={record.line} />
+            {record.truck && <IdentityFact label="Vehicle Plate Number" value={record.truck} mono />}
           </IdentityStrip>
         </section>
 
@@ -496,11 +515,14 @@ function DetailStep({
           </CollapsibleContent>
         </Collapsible>
 
+        {/* No footer. It held a lone `StageChip`, and the chip restated
+            something the body had already said in every one of the four
+            stages: "Returned" under a RETURNED tag and a Returned banner,
+            "Empty" under an EMPTY tag, "Paired" under the full-width
+            "Paired — no action required" panel, "Return planned" under the
+            button offering to confirm the return. A whole bar for a fifth
+            copy. */}
       </DialogBody>
-
-      <DialogFooter>
-        <StageChip record={record} />
-      </DialogFooter>
     </DialogContent>
   );
 }

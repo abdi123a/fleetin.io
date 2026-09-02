@@ -14,6 +14,7 @@ import { FilterMenu } from '@/components/common';
 import {
   EMPTY_RETURN_EVENT_META,
   EMPTY_RETURN_RISK_FILTER_OPTIONS,
+  formatContainerSize,
 } from '@/data/emptyReturnData';
 import {
   buildEmptyReturnEvents,
@@ -218,7 +219,7 @@ function toPlanningEvents(
       const meta = overdue
         ? `${formatSpan(now - record.deadline)} over`
         : `${formatSpan(record.deadline - now)} left`;
-      const subtitle = `${record.line} · ${record.size} · back to ${record.returnDepot}`;
+      const subtitle = `${record.line} · ${formatContainerSize(record.size)} · back to ${record.returnDepot}`;
 
       /* The clock starts when the box was stripped. Without that stamp there is
          no window to draw, only the date it is due — so it stays a moment. */
@@ -272,7 +273,7 @@ function toPlanningEvents(
         id: event.key,
         at: event.at,
         title: event.title,
-        subtitle: `${meta.label} · ${event.line} · ${event.size}`,
+        subtitle: `${meta.label} · ${event.line} · ${formatContainerSize(event.size)}`,
         tone: 'full',
         icon: meta.icon,
         kindLabel: meta.label,
@@ -290,7 +291,7 @@ function toPlanningEvents(
         id: event.key,
         at: event.at,
         title: event.title,
-        subtitle: `${meta.label} · ${event.line} · ${event.size}`,
+        subtitle: `${meta.label} · ${event.line} · ${formatContainerSize(event.size)}`,
         tone: event.type === 'return_planned' ? 'returning' : 'empty',
         icon: meta.icon,
         kindLabel: meta.label,
@@ -355,7 +356,7 @@ function EventDialog({
                   </span>
                 </Row>
                 <Row label="Shipping line">{record.line}</Row>
-                <Row label="Size">{record.size}</Row>
+                <Row label="Size">{formatContainerSize(record.size)}</Row>
                 <Row label="Currently at">
                   <LocationLine>{record.locationName}</LocationLine>
                 </Row>
@@ -408,7 +409,7 @@ function EventDialog({
                   </span>
                 </Row>
                 <Row label="Shipping line">{load.line}</Row>
-                <Row label="Size">{load.size}</Row>
+                <Row label="Size">{formatContainerSize(load.size)}</Row>
                 <Row label="Collected from">
                   <LocationLine>{load.pickupHub}</LocationLine>
                 </Row>

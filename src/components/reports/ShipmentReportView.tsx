@@ -82,7 +82,7 @@ export function ShipmentReportView({ report, className }: ShipmentReportViewProp
           full/empty/home colours — you see *which* boxes are where, at a
           glance, at any fleet size a shipment actually has. */}
       <div className="report-block overflow-hidden rounded-lg border border-border/80">
-        <div className="flex flex-col lg:flex-row">
+        <div className="flex flex-col @[52rem]/report:flex-row">
           <div
             className={cn(
               'flex shrink-0 flex-col justify-center gap-2 px-6 py-6 lg:w-[17.5rem]',
@@ -107,10 +107,13 @@ export function ShipmentReportView({ report, className }: ShipmentReportViewProp
               the colour block — the band read as "a green thing, then nothing".
               A sunken ground makes both halves surfaces, and a hairline between
               cells gives the four figures a rhythm to scan along. */}
-          {/* Two-up until `lg`, not `sm`. Four 30px figures in a 760px band
-              gave each cell ~190px and truncated "2,700 USD" mid-figure — the
-              one number on this card that must never be half-read. */}
-          <div className="grid flex-1 grid-cols-2 bg-surface-sunken lg:grid-cols-4">
+          {/* Two-up until `xl`, not `sm` and no longer `lg`. Four 30px figures
+              share whatever the green block leaves of the band: at `lg` that is
+              ~150px each, which truncated "2,700 USD" mid-figure and clipped
+              "Clear" to "Cle…" — the two numbers on this card that must never
+              be half-read. Two-up costs a row of height and reads at every
+              width. */}
+          <div className="grid flex-1 grid-cols-2 bg-surface-sunken @[62rem]/report:grid-cols-4">
             <Metric
               label="Containers"
               value={String(containers.total)}
@@ -166,7 +169,7 @@ export function ShipmentReportView({ report, className }: ShipmentReportViewProp
         {stages.length === 0 && custody.segments.length === 0 ? (
           <ReportEmpty>Nothing has been measured on this shipment yet.</ReportEmpty>
         ) : (
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+          <div className="grid gap-3 @[52rem]/report:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
             {/* The document's one chart. Stage shares are the only figures here
                 that are a composition of a whole worth drawing. */}
             <Panel caption="By stage" total={formatDuration(time.workedMs, { compact: true })}>
@@ -208,7 +211,7 @@ export function ShipmentReportView({ report, className }: ShipmentReportViewProp
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2.5 @[34rem]/report:grid-cols-4">
           <Cell
             label="Average per container"
             value={formatDuration(time.avgMissionMs, { compact: true })}
@@ -255,7 +258,9 @@ export function ShipmentReportView({ report, className }: ShipmentReportViewProp
             )
           }
         >
-          <div className="grid grid-cols-3 gap-2.5">
+          {/* Three across is three ~100px cells on a phone, which clipped
+              every one of their labels ("STILL LOA…"). */}
+          <div className="grid grid-cols-1 gap-2.5 @[34rem]/report:grid-cols-3">
             <StatePanel
               label="Still loaded"
               value={ret.stillFull}
@@ -273,7 +278,7 @@ export function ShipmentReportView({ report, className }: ShipmentReportViewProp
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-2.5 @[34rem]/report:grid-cols-3">
             <Cell
               label="Past deadline"
               value={String(ret.late)}
@@ -301,7 +306,7 @@ export function ShipmentReportView({ report, className }: ShipmentReportViewProp
       {/* ══ 4. Who moved it ═════════════════════════════════════════════ */}
       {report.transporters.length > 0 && (
         <ReportCard icon={Truck} title="Transporters">
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2.5 @[34rem]/report:grid-cols-4">
             {report.transporters.map((transporter) => (
               <Cell
                 key={transporter.name}
@@ -318,7 +323,7 @@ export function ShipmentReportView({ report, className }: ShipmentReportViewProp
       {/* ══ 5. Issues ═══════════════════════════════════════════════════ */}
       {report.exceptions.length > 0 && (
         <ReportCard icon={AlertTriangle} tint="red" title="Issues Raised">
-          <div className="grid gap-2.5 sm:grid-cols-2">
+          <div className="grid gap-2.5 @[34rem]/report:grid-cols-2">
             {report.exceptions.map((row) => (
               <div
                 key={row.code}
@@ -387,22 +392,29 @@ function Metric({
   return (
     <div
       className={cn(
-        'flex min-w-0 flex-col justify-center px-5 py-5',
-        divided && 'border-border/70 lg:border-l',
+        'flex min-w-0 flex-col justify-center px-4 py-5 @[34rem]/report:px-5',
+        divided && 'border-border/70 @[62rem]/report:border-l',
       )}
     >
-      <p className="truncate text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
+      {/* Labels wrap, figures do not. A clipped label ("SLOWEST CONTAIN…") is
+          a word the reader has to guess at; a clipped figure is a wrong number.
+          So the label takes two lines when it needs them and the number keeps
+          its ellipsis as a last resort. */}
+      <p className="text-[10px] font-bold uppercase leading-tight tracking-[0.1em] text-muted-foreground">
         {label}
       </p>
       <p
         className={cn(
-          'mt-2.5 truncate font-mono text-[30px] font-extrabold tabular-nums leading-none tracking-tight',
+          'mt-2.5 truncate font-mono text-[26px] font-extrabold tabular-nums leading-none tracking-tight @[34rem]/report:text-[30px]',
           tone === 'bad' ? 'text-destructive' : tone === 'good' ? 'text-success' : 'text-foreground',
         )}
       >
         {value}
       </p>
-      {children ?? (note && <p className="mt-2.5 truncate text-[11px] text-muted-foreground">{note}</p>)}
+      {children ??
+        (note && (
+          <p className="mt-2.5 line-clamp-2 text-[11px] leading-snug text-muted-foreground">{note}</p>
+        ))}
     </div>
   );
 }
@@ -475,13 +487,16 @@ function Cell({
 }) {
   return (
     <div className="min-w-0 rounded-lg border border-border/70 bg-card px-3.5 py-3">
-      <p className="truncate text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
+      <p className="text-[10px] font-bold uppercase leading-tight tracking-[0.1em] text-muted-foreground">
         {label}
       </p>
       <p
         className={cn(
           'mt-1.5 truncate font-mono font-extrabold tabular-nums leading-none tracking-tight',
-          size === 'md' ? 'text-[23px]' : 'text-[18px]',
+          /* A step down on the narrowest screens. These cells sit two-up on a
+             phone, and at 23px "17 Sep 2026" is wider than the cell — a date
+             clipped to "17 Sep …" has lost the year. */
+          size === 'md' ? 'text-[20px] @[34rem]/report:text-[23px]' : 'text-[16px] @[34rem]/report:text-[18px]',
           tone === 'bad'
             ? 'text-destructive'
             : tone === 'warn'
@@ -493,7 +508,9 @@ function Cell({
       >
         {value}
       </p>
-      {note && <p className="mt-1.5 truncate text-[10.5px] text-muted-foreground">{note}</p>}
+      {note && (
+        <p className="mt-1.5 line-clamp-2 text-[10.5px] leading-snug text-muted-foreground">{note}</p>
+      )}
     </div>
   );
 }
@@ -513,7 +530,7 @@ function StatePanel({
       <p className="font-mono text-[26px] font-extrabold tabular-nums leading-none tracking-tight">
         {value}
       </p>
-      <p className="mt-2 truncate text-[10px] font-bold uppercase tracking-[0.1em] opacity-80">
+      <p className="mt-2 text-[10px] font-bold uppercase leading-tight tracking-[0.1em] opacity-80">
         {label}
       </p>
     </div>

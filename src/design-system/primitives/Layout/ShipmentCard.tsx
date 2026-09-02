@@ -149,6 +149,9 @@ export const ShipmentCard = forwardRef<HTMLDivElement, ShipmentCardProps>(
       teal: 'bg-primary text-primary-foreground',
       orange: 'bg-warning text-white',
       green: 'bg-success text-white',
+      /* The second rung of a phase — see `StatusIntent`. */
+      'green-deep': 'bg-success-deep text-success-deep-foreground',
+      'orange-deep': 'bg-warning-deep text-warning-deep-foreground',
       blue: 'bg-info text-white',
       slate: 'bg-secondary text-secondary-foreground',
       red: 'bg-destructive text-destructive-foreground',

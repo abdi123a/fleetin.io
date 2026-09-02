@@ -108,6 +108,8 @@
   --color-success-foreground: var(--success-foreground);
   --color-success-subtle: var(--success-subtle);
   --color-success-subtle-foreground: var(--success-subtle-foreground);
+  --color-success-deep: var(--success-deep);
+  --color-success-deep-foreground: var(--success-deep-foreground);
 
   --color-warning: var(--warning);
   --color-warning-hover: var(--warning-hover);
@@ -115,6 +117,8 @@
   --color-warning-foreground: var(--warning-foreground);
   --color-warning-subtle: var(--warning-subtle);
   --color-warning-subtle-foreground: var(--warning-subtle-foreground);
+  --color-warning-deep: var(--warning-deep);
+  --color-warning-deep-foreground: var(--warning-deep-foreground);
 
   --color-destructive: var(--destructive);
   --color-destructive-hover: var(--destructive-hover);
@@ -207,6 +211,12 @@
   /* Empty-container lifecycle stage — see tokens.semantic.css. Two axes:
      --container-* is what is inside the box, --stage-* is what is happening
      to it. A box can be EMPTY and PAIRED at once, hence both scales. */
+  --color-return-matched: var(--return-matched);
+  --color-return-matched-ink: var(--return-matched-ink);
+  --color-return-matched-subtle: var(--return-matched-subtle);
+  --color-return-standalone: var(--return-standalone);
+  --color-return-standalone-ink: var(--return-standalone-ink);
+  --color-return-standalone-subtle: var(--return-standalone-subtle);
   --color-stage-loaded: var(--stage-loaded);
   --color-stage-loaded-foreground: var(--stage-loaded-foreground);
   --color-stage-loaded-subtle: var(--stage-loaded-subtle);

@@ -115,8 +115,6 @@ export const taskSchema = z.object({
 /* ── Phase 3 ─────────────────────────────────────────────────────────────── */
 
 export const RECURRENCE_FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY'] as const;
-export const recurrenceFrequencySchema = z.enum(RECURRENCE_FREQUENCIES);
-
 export const checklistItemSchema = z.object({
   id: z.string(),
   taskId: z.string(),
@@ -131,39 +129,6 @@ export const followerSchema = z.object({
   id: z.string(),
   userId: z.string(),
   user: personSchema,
-});
-
-export const templateItemSchema = z.object({
-  id: z.string(),
-  text: z.string(),
-  position: z.number(),
-});
-
-export const templateSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  title: z.string(),
-  description: z.string().nullable(),
-  priority: taskPrioritySchema,
-  dueInDays: z.number().nullable(),
-  items: z.array(templateItemSchema).default([]),
-});
-
-export const recurrenceSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  description: z.string().nullable(),
-  frequency: recurrenceFrequencySchema,
-  interval: z.number(),
-  weekday: z.number().nullable(),
-  dayOfMonth: z.number().nullable(),
-  priority: taskPrioritySchema,
-  enabled: z.boolean(),
-  nextRunOn: z.string(),
-  lastRunOn: z.string().nullable(),
-  assignee: personSchema.nullable(),
-  template: z.object({ id: z.string(), name: z.string() }).nullable().optional(),
-  _count: z.object({ occurrences: z.number() }).optional(),
 });
 
 export const workloadSchema = z.object({
@@ -182,12 +147,6 @@ export const taskDetailSchema = taskSchema.extend({
   events: z.array(taskEventSchema).default([]),
   checklist: z.array(checklistItemSchema).default([]),
   followers: z.array(followerSchema).default([]),
-  /* Present only on a task a rule generated — one row, by the `taskId @unique`
-     on the occurrence. Its absence is the answer for every hand-raised task. */
-  occurrence: z
-    .object({ occurrenceOn: z.string(), recurrence: recurrenceSchema })
-    .nullable()
-    .optional(),
 });
 
 export const taskPageSchema = z.object({
@@ -307,38 +266,8 @@ export type WorkspaceNotification = z.infer<typeof notificationSchema>;
 export type WorkspaceInbox = z.infer<typeof inboxSchema>;
 export type ChecklistItem = z.infer<typeof checklistItemSchema>;
 export type TaskFollower = z.infer<typeof followerSchema>;
-export type TaskTemplate = z.infer<typeof templateSchema>;
-export type TaskRecurrence = z.infer<typeof recurrenceSchema>;
-export type RecurrenceFrequency = z.infer<typeof recurrenceFrequencySchema>;
 export type Workload = z.infer<typeof workloadSchema>;
 
-export const RECURRENCE_FREQUENCY_LABEL: Record<RecurrenceFrequency, string> = {
-  DAILY: 'Daily',
-  WEEKLY: 'Weekly',
-  MONTHLY: 'Monthly',
-};
-
-/** "Every 2 weeks on Monday" — how a rule reads on screen. */
-export function describeRecurrence(rule: Pick<TaskRecurrence, 'frequency' | 'interval' | 'weekday' | 'dayOfMonth'>): string {
-  const every = rule.interval > 1 ? `Every ${rule.interval} ` : 'Every ';
-  const unit = rule.frequency === 'DAILY'
-    ? (rule.interval > 1 ? 'days' : 'day')
-    : rule.frequency === 'WEEKLY'
-      ? (rule.interval > 1 ? 'weeks' : 'week')
-      : (rule.interval > 1 ? 'months' : 'month');
-
-  if (rule.frequency === 'WEEKLY' && rule.weekday != null) {
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    return `${every}${unit} on ${days[rule.weekday]}`;
-  }
-  if (rule.frequency === 'MONTHLY' && rule.dayOfMonth != null) {
-    /* Says what actually happens in February, rather than letting somebody
-       discover the clamp on the 28th. */
-    const clamps = rule.dayOfMonth > 28 ? ', or the last day in a shorter month' : '';
-    return `${every}${unit} on day ${rule.dayOfMonth}${clamps}`;
-  }
-  return `${every}${unit}`;
-}
 export type ChannelKind = z.infer<typeof channelKindSchema>;
 export type Conversation = z.infer<typeof conversationSchema>;
 export type WorkspaceChannel = z.infer<typeof channelSchema>;

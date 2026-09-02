@@ -1,6 +1,5 @@
 import {
   ArrowLeftRight,
-  Inbox,
   ListChecks,
   MessageSquare,
   BarChart3,
@@ -67,12 +66,6 @@ export const NAVIGATION: NavSection[] = [
     label: 'Workspace',
     items: [
       {
-        id: 'workspace-inbox',
-        label: 'Inbox',
-        path: ROUTES.workspaceInbox,
-        icon: Inbox,
-      },
-      {
         /*
          * One row, not a tree of four.
          *
@@ -92,7 +85,9 @@ export const NAVIGATION: NavSection[] = [
       },
       {
         id: 'workspace-messages',
-        label: 'Messages',
+        /* The team's own word for it. Not an integration — this is Workspace's
+           own channels and DMs, and nothing here talks to Slack the product. */
+        label: 'Slack',
         path: ROUTES.workspaceMessages,
         icon: MessageSquare,
         /* Every conversation lives under this one row. */
@@ -145,7 +140,12 @@ export const NAVIGATION: NavSection[] = [
           },
           {
             id: 'empty-return-cycles',
-            label: 'Cycles',
+            /* "Cycles / Chains", not "Cycles". The page shows both and the
+               operator asks for it by either word: a cycle is one box's trip,
+               a chain is the run of cycles a carrier strung together. Naming
+               only the smaller of the two sent people looking for "chains"
+               through the other three pages first. */
+            label: 'Cycles / Chains',
             path: ROUTES.emptyReturnsCycles,
             icon: Link2,
           },
@@ -188,6 +188,16 @@ export const NAVIGATION: NavSection[] = [
             path: ROUTES.drivers,
             icon: UserRound,
             matchNested: true,
+          },
+          {
+            /* The register that reads across all four dossiers: what is
+               expired, what is expiring, and what was never filed. Sits under
+               Partners because three of the four papers it watches belong to a
+               transporter, its trucks or its drivers. */
+            id: 'documents',
+            label: 'Documents',
+            path: ROUTES.documents,
+            icon: FileText,
           },
         ],
       },

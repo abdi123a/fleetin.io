@@ -17,7 +17,7 @@ import { SHIPMENT_STEPS, shipmentStepsFor } from '@/lib/shipmentStatus';
  * subtraction of two timestamps rather than a figure somebody typed. Dépotage
  * is deliberately not a rung of its own: it is the interval between the
  * container being delivered and the empty being ready, which is why
- * `EMPTY_READY` carries `intervalLabel: 'Dépotage'` — the gap into that row
+ * `EMPTY_READY` carries `intervalLabel: 'Unstuffing'` — the gap into that row
  * *is* the client's dépotage time.
  *
  * The operational ladder the system actually runs on is the booking's status
@@ -104,10 +104,10 @@ export const MISSION_STAGES: readonly MissionStageDefinition[] = [
   {
     key: 'empty_ready',
     label: 'Empty Ready',
-    note: 'dépotage completed',
+    note: 'unstuffing completed',
     responsible: 'Client / Shipper',
     phase: 'container',
-    intervalLabel: 'Dépotage',
+    intervalLabel: 'Unstuffing',
     containerOnly: true,
   },
   {
@@ -342,7 +342,7 @@ const JOURNEY_BY_RUNG: Record<
     stage: 'empty_ready',
     caption: 'box stripped — the detention clock is running',
     responsible: 'Client / Shipper',
-    intervalLabel: 'Dépotage',
+    intervalLabel: 'Unstuffing',
     containerOnly: true,
   },
   'Empty Picked Up': {

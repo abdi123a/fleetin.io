@@ -2,9 +2,7 @@ import { apiClient } from '@/services/api.client';
 import { useAuthStore } from '@/stores/auth.store';
 
 import type {
-  ChecklistItem, Conversation, MessagePage, MessageThread, RecordSummary, RecordType,
-  RecurrenceFrequency, TaskFollower, TaskPage, TaskPriority, TaskRecurrence, TaskStatus,
-  TaskTemplate, Workload, WorkspaceChannel, WorkspaceInbox, WorkspaceMessage,
+  ChecklistItem, Conversation, MessagePage, MessageThread, RecordSummary, RecordType, TaskFollower, TaskPage, TaskPriority, TaskStatus, Workload, WorkspaceChannel, WorkspaceInbox, WorkspaceMessage,
   WorkspaceNotification, WorkspaceTaskDetail,
 } from '../contracts';
 
@@ -183,8 +181,15 @@ export async function fetchInbox(): Promise<WorkspaceInbox> {
   return res.data;
 }
 
-export async function fetchUnread(): Promise<{ unread: number }> {
-  const res = await apiClient.get<{ unread: number }>('/workspace/unread', token());
+/**
+ * Two numbers, and they mean different things.
+ *
+ * `unread` is events you have not looked at — it clears when you open the
+ * bell. `assigned` is comments somebody handed you that you have not resolved
+ * — reading does not discharge it, only resolving does.
+ */
+export async function fetchUnread(): Promise<{ unread: number; assigned: number }> {
+  const res = await apiClient.get<{ unread: number; assigned: number }>('/workspace/unread', token());
   return res.data;
 }
 
@@ -328,82 +333,8 @@ export async function setOwnFollow(taskRef: string, follow: boolean): Promise<Ta
   return res.data;
 }
 
-export async function fetchTemplates(): Promise<TaskTemplate[]> {
-  const res = await apiClient.get<TaskTemplate[]>('/workspace/templates', token());
-  return res.data;
-}
-
-export interface CreateTemplatePayload {
-  name: string;
-  title: string;
-  description?: string;
-  priority?: TaskPriority;
-  dueInDays?: number;
-  items?: { text: string }[];
-}
-
-export async function createTemplate(payload: CreateTemplatePayload): Promise<TaskTemplate> {
-  const res = await apiClient.post<TaskTemplate>('/workspace/templates', payload, token());
-  return res.data;
-}
-
-export async function archiveTemplate(id: string): Promise<TaskTemplate> {
-  const res = await apiClient.delete<TaskTemplate>(`/workspace/templates/${id}`, token());
-  return res.data;
-}
-
-export interface UseTemplatePayload {
-  assigneeId?: string;
-  recordType?: RecordType;
-  recordId?: string;
-}
-
-/* `applyTemplate`, not `useTemplate`: a plain function whose name starts with
-   "use" is read as a React hook by the rules-of-hooks lint, which then refuses
-   the `mutationFn` that calls it. */
-export async function applyTemplate(id: string, payload: UseTemplatePayload = {}): Promise<WorkspaceTaskDetail> {
-  const res = await apiClient.post<WorkspaceTaskDetail>(`/workspace/templates/${id}/use`, payload, token());
-  return res.data;
-}
-
-export async function fetchRecurrences(): Promise<TaskRecurrence[]> {
-  const res = await apiClient.get<TaskRecurrence[]>('/workspace/recurrences', token());
-  return res.data;
-}
-
-export interface RecurrencePayload {
-  title: string;
-  description?: string;
-  templateId?: string;
-  frequency: RecurrenceFrequency;
-  interval?: number;
-  weekday?: number;
-  dayOfMonth?: number;
-  priority?: TaskPriority;
-  assigneeId?: string;
-  startOn?: string;
-  enabled?: boolean;
-}
-
-export async function createRecurrence(payload: RecurrencePayload): Promise<TaskRecurrence> {
-  const res = await apiClient.post<TaskRecurrence>('/workspace/recurrences', payload, token());
-  return res.data;
-}
-
-export async function updateRecurrence(id: string, patch: Partial<RecurrencePayload>): Promise<TaskRecurrence> {
-  const res = await apiClient.patch<TaskRecurrence>(`/workspace/recurrences/${id}`, patch, token());
-  return res.data;
-}
-
-export async function deleteRecurrence(id: string): Promise<void> {
-  await apiClient.delete(`/workspace/recurrences/${id}`, token());
-}
-
-/** Safe to call twice — the occurrence index refuses a duplicate. */
-export async function runRecurrences(): Promise<{ generated: number; skipped: number }> {
-  const res = await apiClient.post<{ generated: number; skipped: number }>('/workspace/recurrences/run', {}, token());
-  return res.data;
-}
+/* Templates were removed on 2026-08-31 — see `WorkspaceAutomationPage`.
+   The backend module and its tables are left in place; nothing calls them. */
 
 export interface BulkPayload {
   taskIds: string[];

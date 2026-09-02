@@ -4,15 +4,12 @@ import {
   ArrowLeft,
   Building2,
   CheckCircle2,
-  Download,
   ExternalLink,
-  Eye,
   FileText,
   MapPin,
   Pencil,
   Trash2,
   Truck,
-  Upload,
   X,
   Phone,
   Mail,
@@ -31,7 +28,7 @@ import {
   Users,
 } from 'lucide-react';
 import { PageHeader, TablePager, usePagedRows } from '@/components';
-import { IconChip, useConfirm } from '@/design-system';
+import { useConfirm } from '@/design-system';
 import {
   Badge,
   Button,
@@ -46,12 +43,11 @@ import {
   VerificationBadge,
 } from '@/design-system';
 import { ROUTES, buildPath } from '@/config/routes';
-import { isDriverVerified, isVehicleVerified } from '@/utils';
+import { cn, isDriverVerified, isVehicleVerified } from '@/utils';
 import {
   type PartnerDriver,
   type PartnerVehicle,
   type PartnerDocument,
-  type PartnerDocumentCategory,
   type OperationalStatus,
   type TruckType,
   computeComplianceScore,
@@ -59,9 +55,7 @@ import {
 } from '@/types/partner';
 import { AddPartnerForm, type PartnerFormData } from './AddPartnerForm';
 import {
-  useAddPricingTier,
   usePartner,
-  useRemovePricingTier,
   useUpdatePartner,
   useUploadPartnerLogo,
 } from '@/features/partners/api/queries';
@@ -73,10 +67,21 @@ import {
   useUploadDocument,
 } from '@/features/documents/api/queries';
 import { downloadDocument, toDisplayDocument } from '@/features/documents/api/documentsService';
+import { DocumentChecklist } from '@/features/documents/components/DocumentChecklist';
+import type { DocumentCapture } from '@/features/documents/components/DocumentCaptureDialog';
+import type { DocumentTypeSpec } from '@/features/documents/catalog';
 import { useBreadcrumbLabel } from '@/hooks/useBreadcrumbLabel';
 import { useBookings } from '@/features/bookings/api/queries';
 import type { BookingRecord } from '@/features/bookings/api/bookingsService';
 import { DriverRatingRow, PerformancePanel, RatingTrendChart } from '@/components/performance';
+import { useDocumentBook } from '@/features/documents/api/queries';
+import {
+  DOCUMENT_STATE_LABEL,
+  byUrgency,
+  complianceFindings,
+  tallyFindings,
+  type ComplianceOwner,
+} from '@/features/documents';
 import { DriverProfileSheet } from '@/components/drivers';
 import { UNRATED, fleetRatingTrend, summariseFleet, summarisePerformance } from '@/lib/rating';
 import { displayShipmentStatus, statusIntentOf } from '@/lib/shipmentStatus';
@@ -85,14 +90,6 @@ import { containerStateOf } from '@/lib/containerState';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type WorkspaceTab = 'overview' | 'fleet_compliance' | 'shipments';
-
-const DOC_CATEGORY_OPTIONS: { value: PartnerDocumentCategory; label: string }[] = [
-  { value: 'Grey Card', label: 'Grey Card (Carte Grise)' },
-  { value: 'Vehicle Registration', label: 'Vehicle Registration' },
-  { value: 'Contract', label: 'Contract' },
-  { value: 'Driver License', label: 'Driver License' },
-  { value: 'Other', label: 'Other' },
-];
 
 const TRUCK_TYPE_OPTIONS: { value: TruckType; label: string }[] = [
   { value: 'Flatbed', label: 'Flatbed' },
@@ -147,6 +144,31 @@ function StatusPill({ status }: { status: OperationalStatus }) {
 
 // ─── Page Component ───────────────────────────────────────────────────────────
 
+/**
+ * One number under one word — the shape the fleet counts already use.
+ *
+ * A zero is always muted, whatever the figure means. "0 expired" in red is an
+ * alarm about the absence of an alarm, and a row of four coloured zeros is the
+ * clearest possible way to make a clean carrier look like a problem.
+ */
+function ComplianceFigure({ label, value, tone }: { label: string; value: number; tone: string }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-border/70 bg-secondary/30 px-3 py-2">
+      <p
+        className={cn(
+          'font-mono text-lg font-bold leading-none tabular-nums',
+          value === 0 ? 'text-muted-foreground' : tone,
+        )}
+      >
+        {value}
+      </p>
+      <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </p>
+    </div>
+  );
+}
+
 export function PartnerDetailPage() {
   const navigate = useNavigate();
   const { id: partnerId } = useParams<{ id: string }>();
@@ -163,8 +185,6 @@ export function PartnerDetailPage() {
   const deleteDriverMutation = useDeleteDriver();
   const createVehicleMutation = useCreateVehicle();
   const deleteVehicleMutation = useDeleteVehicle();
-  const addPricingTierMutation = useAddPricingTier();
-  const removePricingTierMutation = useRemovePricingTier();
 
   const { data: rawDocuments = [] } = useDocuments('PARTNER', partnerId);
   const documents = useMemo(() => rawDocuments.map(toDisplayDocument) as PartnerDocument[], [rawDocuments]);
@@ -188,23 +208,13 @@ export function PartnerDetailPage() {
   const [newVehicle, setNewVehicle] = useState<Partial<PartnerVehicle>>({ truckType: '40ft Container', ownershipType: 'Owned', operationalStatus: 'Available', hasGPS: false });
 
   // ── Document form ──
-  const [showAddDoc, setShowAddDoc] = useState(false);
-  const [newDocFile, setNewDocFile] = useState<File | null>(null);
-  const [newDocCategory, setNewDocCategory] = useState<PartnerDocumentCategory>('Grey Card');
   const [viewingDoc, setViewingDoc] = useState<DocumentToView | null>(null);
-
-  // ── Pricing Rate form ──
-  const [showAddPrice, setShowAddPrice] = useState(false);
-  const [newRoute, setNewRoute] = useState('');
-  const [newPriceVehicle, setNewPriceVehicle] = useState('40ft Container');
-  const [newBasePrice, setNewBasePrice] = useState('');
 
   // ── Shipments search & filter ──
   /* Each dossier tab pages independently — a partner with sixty trucks should
      not make the fleet tab a scroll, and its shipment history even less so. */
   const [driversPageSize, setDriversPageSize] = useState(12);
   const [vehiclesPageSize, setVehiclesPageSize] = useState(12);
-  const [documentsPageSize, setDocumentsPageSize] = useState(12);
   const [shipmentsPageSize, setShipmentsPageSize] = useState(12);
 
   const [shipmentSearch, setShipmentSearch] = useState('');
@@ -215,33 +225,7 @@ export function PartnerDetailPage() {
     setTimeout(() => setSuccessNotice(null), 5000);
   };
 
-  const handleAddPriceRate = () => {
-    if (!newRoute.trim() || !newBasePrice || !partner) return;
-    const route = newRoute.trim();
-    addPricingTierMutation.mutate(
-      { partnerId: partner.id, payload: { route, vehicleType: newPriceVehicle, basePrice: parseFloat(newBasePrice) || 0, currency: 'USD' } },
-      { onSuccess: () => showSuccess(`Rate tier "${route}" added.`) },
-    );
-    setNewRoute('');
-    setNewBasePrice('');
-    setShowAddPrice(false);
-  };
-
   const { confirm, confirmDialog } = useConfirm();
-
-  const handleDeletePriceRate = async (tierId: string) => {
-    if (!partner) return;
-    const ok = await confirm({
-      title: 'Remove this rate tier?',
-      description: 'New bookings will no longer be priced from it. Bookings already priced keep their rate.',
-      confirmLabel: 'Remove',
-    });
-    if (!ok) return;
-    removePricingTierMutation.mutate(
-      { partnerId: partner.id, tierId },
-      { onSuccess: () => showSuccess('Rate tier removed.') },
-    );
-  };
 
   const complianceScore = partner ? computeComplianceScore({ ...partner, drivers, vehicles, uploadedDocuments: documents }) : 0;
   const complianceAlerts = partner ? deriveComplianceAlerts({ ...partner, drivers, vehicles, uploadedDocuments: documents }) : [];
@@ -355,14 +339,17 @@ export function PartnerDetailPage() {
     deleteVehicleMutation.mutate(vehId, { onSuccess: () => showSuccess('Vehicle removed.') });
   };
 
-  const handleAddDoc = () => {
-    if (!newDocFile) return;
+  const handleAddDoc = (spec: DocumentTypeSpec, capture: DocumentCapture) => {
     uploadDocumentMutation.mutate(
-      { category: newDocCategory, file: newDocFile },
-      { onSuccess: () => showSuccess('Document uploaded.') },
+      {
+        category: spec.label,
+        file: capture.file,
+        issueDate: capture.issueDate,
+        expiryDate: capture.expiryDate,
+        issuer: capture.issuer,
+      },
+      { onSuccess: () => showSuccess('Document filed.') },
     );
-    setNewDocFile(null);
-    setShowAddDoc(false);
   };
 
   const handleDeleteDoc = async (docId: string) => {
@@ -429,6 +416,37 @@ export function PartnerDetailPage() {
   /* The carrier's own star is its drivers' marks — see `summariseFleet`.
      Its mission figures still count every booking, driver or not. */
   const partnerPerformance = useMemo(() => summariseFleet(partnerBookings), [partnerBookings]);
+
+  /**
+   * The carrier's whole paper trail — its licence, its trucks' two papers each,
+   * its drivers' one each — read once from the document book.
+   *
+   * The chase list is capped at eight. A haulier onboarded without any papers
+   * owes one row per truck per document, and forty of those is not a list
+   * somebody works, it is a wall that hides the two that lapse this week.
+   */
+  const { data: documentBook } = useDocumentBook();
+  const compliance = useMemo(() => {
+    const owners: ComplianceOwner[] = [
+      { ownerType: 'PARTNER', ownerId: partner?.id ?? '', ownerLabel: partner?.companyLegalName ?? '' },
+      ...vehicles.map((vehicle) => ({
+        ownerType: 'VEHICLE' as const,
+        ownerId: vehicle.id,
+        ownerLabel: vehicle.plateNumber,
+      })),
+      ...drivers.map((driver) => ({
+        ownerType: 'DRIVER' as const,
+        ownerId: driver.id,
+        ownerLabel: driver.fullName,
+      })),
+    ];
+    const findings = complianceFindings(owners, documentBook ?? [], Date.now());
+    return {
+      tally: tallyFindings(findings),
+      chase: findings.filter((f) => f.state !== 'valid').sort(byUrgency).slice(0, 8),
+      moreToChase: Math.max(0, findings.filter((f) => f.state !== 'valid').length - 8),
+    };
+  }, [partner?.id, partner?.companyLegalName, vehicles, drivers, documentBook]);
   const partnerTrend = useMemo(() => fleetRatingTrend(partnerBookings), [partnerBookings]);
   const driverPerformance = useMemo(() => {
     const byDriver = new Map<string, BookingRecord[]>();
@@ -495,7 +513,6 @@ export function PartnerDetailPage() {
     [drivers, openDriverId],
   );
   const pagedVehicles = usePagedRows(vehicles, { pageSize: vehiclesPageSize });
-  const pagedDocuments = usePagedRows(documents, { pageSize: documentsPageSize });
   const pagedShipments = usePagedRows(filteredShipments, {
     pageSize: shipmentsPageSize,
     resetKey: `${shipmentFilter}|${shipmentSearch}`,
@@ -692,11 +709,17 @@ export function PartnerDetailPage() {
         </div>
 
         {/* RIGHT MAIN PANEL */}
-        <div className="min-w-0 space-y-6">
+        {/* Everything in here is measured against THIS column, not the
+            window. The panel sits beside a 260–300px sidebar, so at a 1024px
+            viewport it is only ~660px wide — and every `lg:` inside it was
+            firing as though it had the whole screen. That is how a four-card
+            strip ended up at ~150px a card: "8 / 13" broke across two lines
+            and "FDJ 9,801,600" ran off the right edge. */}
+        <div className="@container/panel min-w-0 space-y-6">
           {activeTab === 'overview' && (
             <div className="space-y-6 animate-in fade-in">
               {/* Performance — the carrier's own record, before its capabilities. */}
-              <Card className="p-4 sm:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
+              <Card className="p-4 @[40rem]/panel:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
                 <div className="border-b border-border/60 pb-3">
                   <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
                     <Star className="h-4.5 w-4.5 text-warning fill-warning" />
@@ -722,8 +745,101 @@ export function PartnerDetailPage() {
                 </div>
               </Card>
 
+              {/* Documents — what this carrier owes, and what lapses next.
+                  Above capabilities because a truck that cannot legally leave
+                  the yard makes the equipment list beside the point. */}
+              <Card className="p-4 @[40rem]/panel:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
+                  <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
+                    <FileText className="h-4.5 w-4.5 text-primary" />
+                    Documents
+                  </h4>
+                  <span className="text-xs text-muted-foreground">
+                    {compliance.tally.required} required · {vehicles.length} vehicles ·{' '}
+                    {drivers.length} drivers
+                  </span>
+                </div>
+
+                {/* Four figures and the bar. The denominators matter: three gaps
+                    on a forty-paper book and three on a four-paper one are not
+                    the same carrier. */}
+                <div className="grid grid-cols-2 gap-3 @[34rem]/panel:grid-cols-4">
+                  <ComplianceFigure label="Held" value={compliance.tally.valid} tone="text-success" />
+                  <ComplianceFigure
+                    label="Expiring"
+                    value={compliance.tally.expiring}
+                    tone="text-warning-subtle-foreground"
+                  />
+                  <ComplianceFigure
+                    label="Expired"
+                    value={compliance.tally.expired}
+                    tone="text-destructive"
+                  />
+                  <ComplianceFigure
+                    label="Missing"
+                    value={compliance.tally.missing}
+                    tone="text-foreground"
+                  />
+                </div>
+
+                {compliance.chase.length > 0 ? (
+                  <ul className="divide-y divide-border/60 rounded-lg border border-border/70">
+                    {compliance.chase.map((finding) => (
+                      <li
+                        key={`${finding.ownerType}-${finding.ownerId}-${finding.category}`}
+                        className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-2"
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="truncate text-xs font-semibold text-foreground">
+                            {finding.ownerLabel}
+                          </span>
+                          <span className="truncate text-[11px] text-muted-foreground">
+                            {finding.category}
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-2">
+                          {/* The date says how urgent; the word says what kind
+                              of problem it is. A missing paper has no date, and
+                              that absence is the point. */}
+                          {finding.daysToExpiry !== null && (
+                            <span className="text-[11px] tabular-nums text-muted-foreground">
+                              {finding.daysToExpiry < 0
+                                ? `${Math.abs(finding.daysToExpiry)}d ago`
+                                : `in ${finding.daysToExpiry}d`}
+                            </span>
+                          )}
+                          <Badge
+                            intent={
+                              finding.state === 'expired'
+                                ? 'destructive'
+                                : finding.state === 'expiring'
+                                  ? 'warning'
+                                  : 'default'
+                            }
+                            variant="subtle"
+                            size="sm"
+                            className="text-[10px]"
+                          >
+                            {DOCUMENT_STATE_LABEL[finding.state]}
+                          </Badge>
+                        </span>
+                      </li>
+                    ))}
+                    {compliance.moreToChase > 0 && (
+                      <li className="px-3 py-2 text-[11px] text-muted-foreground">
+                        and {compliance.moreToChase} more
+                      </li>
+                    )}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Every required paper is on file and in date.
+                  </p>
+                )}
+              </Card>
+
               {/* Card 1: Fleet Capabilities */}
-              <Card className="p-4 sm:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-4">
+              <Card className="p-4 @[40rem]/panel:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-4">
                 <div className="border-b border-border/60 pb-3">
                   <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
                     <Compass className="h-4.5 w-4.5 text-primary" />
@@ -731,7 +847,7 @@ export function PartnerDetailPage() {
                   </h4>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-5 text-xs">
+                <div className="grid grid-cols-1 gap-5 text-xs @[46rem]/panel:grid-cols-3">
                   <div>
                     <span className="text-muted-foreground font-medium block mb-1.5">Operating Cross-Border Regions</span>
                     <div className="flex flex-wrap gap-1.5">
@@ -767,96 +883,18 @@ export function PartnerDetailPage() {
                 </div>
               </Card>
 
-              {/* Card 2 (Top 2): Contracted Freight Rates & Pricing */}
-              <Card className="p-4 sm:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-4">
-                <div className="flex items-center justify-between border-b border-border/60 pb-3">
-                  <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
-                    <DollarSign className="h-4.5 w-4.5 text-primary" />
-                    Contracted Rates
-                  </h4>
-                  <Button
-                    size="sm"
-                    onClick={() => setShowAddPrice((prev) => !prev)}
-                    leadingIcon={<Plus className="h-3.5 w-3.5" />}
-                    className="bg-primary text-primary-foreground text-xs font-semibold rounded-full shrink-0"
-                  >
-                    {showAddPrice ? 'Cancel' : 'Add rate'}
-                  </Button>
-                </div>
+              {/* The contracted-rates card is gone. A transporter no longer
+                  carries a price list: every shipment on this corridor is
+                  negotiated, so the wizard asks for the figure directly and
+                  nothing derives it — see `CreateShipmentModal`. A stored
+                  rate that nothing reads is a number that goes stale and
+                  then gets believed. Removed 2026-08-31 at the user's
+                  direction; the backend tiers and their mutations still
+                  exist, unused, if per-carrier pricing ever returns. */}
 
-                {/* Add Price Rate Inline Subform */}
-                {showAddPrice && (
-                  <div className="p-3.5 rounded-lg border border-primary/30 bg-primary/5 space-y-2.5 animate-in fade-in">
-                    <h5 className="text-xs font-bold text-primary">New Route Rate</h5>
-                    <div className="space-y-2 text-xs">
-                      <Input
-                        placeholder="Route (e.g. Djibouti → Dire Dawa)"
-                        value={newRoute}
-                        onChange={(e) => setNewRoute(e.target.value)}
-                      />
-                      <div className="grid grid-cols-2 gap-2">
-                        <Input
-                          placeholder="Base Price ($)"
-                          type="number"
-                          value={newBasePrice}
-                          onChange={(e) => setNewBasePrice(e.target.value)}
-                        />
-                        <Select
-                          value={newPriceVehicle}
-                          options={TRUCK_TYPE_OPTIONS}
-                          onChange={(e) => setNewPriceVehicle(e.target.value)}
-                        />
-                      </div>
-                      <div className="flex justify-end pt-1">
-                        <Button size="sm" onClick={handleAddPriceRate} className="bg-primary text-primary-foreground text-xs rounded-full px-4">
-                          Save rate
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* `md:grid-cols-3` asked the *window* whether three tiles fit,
-                    when the question was about this card — which the sidebar
-                    leaves around 590px, so each tile got ~180px and every route
-                    name broke across four lines. auto-fit asks the container,
-                    and the tile stacks its price under the route instead of
-                    fighting it for the same row. */}
-                <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr))]">
-                  {partner.pricingGrid && partner.pricingGrid.length > 0 ? (
-                    partner.pricingGrid.map((tier) => (
-                      <div
-                        key={tier.id}
-                        className="flex flex-col gap-2 rounded-lg border border-border/60 bg-muted/20 p-3.5 text-xs transition-colors hover:border-primary/40"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <span className="block font-bold leading-snug text-foreground">{tier.route}</span>
-                            <span className="text-[11px] text-muted-foreground">{tier.vehicleType}</span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleDeletePriceRate(tier.id)}
-                            className="-m-1 shrink-0 rounded-sm p-1 text-muted-foreground transition-colors hover:text-destructive"
-                            aria-label={`Delete the ${tier.vehicleType} rate for ${tier.route}`}
-                            title="Delete rate"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                        <span className="whitespace-nowrap border-t border-border/50 pt-2 font-mono text-sm font-black text-foreground">
-                          ${tier.basePrice.toLocaleString()} {tier.currency}
-                        </span>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="col-span-full text-xs text-muted-foreground">No rate tiers yet.</p>
-                  )}
-                </div>
-              </Card>
 
               {/* Drivers Roster Card */}
-              <Card className="p-4 sm:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
+              <Card className="p-4 @[40rem]/panel:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
                 <div className="flex items-center justify-between flex-wrap gap-3 border-b border-border/60 pb-3">
                   <div>
                     <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
@@ -878,7 +916,7 @@ export function PartnerDetailPage() {
                 {showAddDriver && (
                   <div className="p-4 rounded-lg border border-primary/30 bg-primary/5 space-y-3 animate-in fade-in">
                     <h5 className="text-xs font-bold text-primary">New Driver</h5>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 gap-3 @[28rem]/panel:grid-cols-2 @[46rem]/panel:grid-cols-3">
                       <Input
                         placeholder="Full Name (e.g. Abdi Yusuf)"
                         value={newDriver.fullName || ''}
@@ -996,7 +1034,7 @@ export function PartnerDetailPage() {
             <div className="space-y-6 animate-in fade-in">
               
               {/* Professional Color-Branded Compliance & Fleet Metrics Strip */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 gap-4 @[20rem]/panel:grid-cols-2 @[52rem]/panel:grid-cols-4">
                 {/* Card 1: Compliance Health Score */}
                 <Card className="p-4 border border-border/80 bg-card rounded-lg shadow-2xs space-y-2">
                   <div className="flex items-center justify-between text-muted-foreground">
@@ -1005,7 +1043,7 @@ export function PartnerDetailPage() {
                       <BadgeCheck className="w-4 h-4" />
                     </div>
                   </div>
-                  <span className="text-2xl sm:text-3xl font-black text-success-subtle-foreground tabular-nums block">
+                  <span className="text-2xl font-black text-success-subtle-foreground tabular-nums block">
                     {complianceScore}%
                   </span>
                   <span className="text-[10px] text-muted-foreground font-medium block">Verified fleet compliance</span>
@@ -1019,7 +1057,7 @@ export function PartnerDetailPage() {
                       <Truck className="w-4 h-4" />
                     </div>
                   </div>
-                  <span className="text-2xl sm:text-3xl font-black text-foreground tabular-nums block">
+                  <span className="text-2xl font-black text-foreground tabular-nums block">
                     {vehicles.length} / {partner.fleetSize}
                   </span>
                   <span className="text-[10px] text-muted-foreground font-medium block">Vehicles in registry</span>
@@ -1033,7 +1071,7 @@ export function PartnerDetailPage() {
                       <FileText className="w-4 h-4" />
                     </div>
                   </div>
-                  <span className="text-2xl sm:text-3xl font-black text-foreground tabular-nums block">
+                  <span className="text-2xl font-black text-foreground tabular-nums block">
                     {documents.filter((d) => d.status === 'Verified').length}
                   </span>
                   <span className="text-[10px] text-muted-foreground font-medium block">Verified documents</span>
@@ -1047,7 +1085,7 @@ export function PartnerDetailPage() {
                       <AlertTriangle className="w-4 h-4" />
                     </div>
                   </div>
-                  <span className="text-2xl sm:text-3xl font-black text-warning-subtle-foreground tabular-nums block">
+                  <span className="text-2xl font-black text-warning-subtle-foreground tabular-nums block">
                     {complianceAlerts.length}
                   </span>
                   <span className="text-[10px] text-muted-foreground font-medium block">Open items</span>
@@ -1055,7 +1093,7 @@ export function PartnerDetailPage() {
               </div>
 
               {/* Vehicles Registry Card */}
-              <Card className="p-4 sm:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
+              <Card className="p-4 @[40rem]/panel:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
                 <div className="flex items-center justify-between flex-wrap gap-3 border-b border-border/60 pb-3">
                   <div>
                     <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
@@ -1080,7 +1118,7 @@ export function PartnerDetailPage() {
                 {showAddVehicle && (
                   <div className="p-4 rounded-lg border border-primary/30 bg-primary/5 space-y-3 animate-in fade-in">
                     <h5 className="text-xs font-bold text-primary">New Vehicle</h5>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 gap-3 @[28rem]/panel:grid-cols-2 @[46rem]/panel:grid-cols-3">
                       <Input
                         placeholder="Plate Number (e.g. DJ-ABJ-9922)"
                         value={newVehicle.plateNumber || ''}
@@ -1106,32 +1144,41 @@ export function PartnerDetailPage() {
                 )}
 
                 {/* Vehicles Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 gap-4 @[28rem]/panel:grid-cols-2 @[46rem]/panel:grid-cols-3">
                   {pagedVehicles.rows.map((veh) => (
-                    <div key={veh.id} className="p-4 rounded-lg border border-border/80 bg-muted/20 space-y-3 text-xs">
-                      <div className="flex items-center justify-between gap-2">
+                    <div key={veh.id} className="@container/veh p-4 rounded-lg border border-border/80 bg-muted/20 space-y-3 text-xs">
+                      {/* The plate keeps its line; the pill drops below it.
+                          Side by side these fought: nothing was `shrink-0`, so
+                          a 170px card squeezed "DT-2238-DJ" into three stacked
+                          characters while "Available" sat on top of it. The
+                          plate is the identifier and is never broken, so it
+                          gets the full width and the pill takes the next row
+                          until the card is wide enough for both. */}
+                      <div className="flex flex-col gap-2 @[15rem]/veh:flex-row @[15rem]/veh:items-start @[15rem]/veh:justify-between">
                         <div className="min-w-0">
                           <div className="flex items-center gap-1">
-                            <span className="font-extrabold text-foreground text-sm block font-mono">{veh.plateNumber}</span>
+                            <span className="block truncate font-mono text-sm font-extrabold text-foreground">{veh.plateNumber}</span>
                             <VerificationBadge state={isVehicleVerified(veh) ? 'verified' : 'unverified'} size="sm" />
                           </div>
                           <span className="text-[11px] text-muted-foreground block">{veh.truckType}</span>
                         </div>
-                        <StatusPill status={veh.operationalStatus} />
+                        <div className="shrink-0">
+                          <StatusPill status={veh.operationalStatus} />
+                        </div>
                       </div>
 
                       <div className="pt-2 border-t border-border/40 space-y-1 text-[11px]">
                         {veh.containerCapacity && (
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Capacity:</span>
-                            <span className="font-semibold text-foreground">{veh.containerCapacity}</span>
+                          <div className="flex justify-between gap-2">
+                            <span className="shrink-0 text-muted-foreground">Capacity:</span>
+                            <span className="text-right font-semibold text-foreground">{veh.containerCapacity}</span>
                           </div>
                         )}
                         {/* Trips, not a standing driver. A truck is driven by
                             whoever the booking names; what the fleet card can
                             honestly say is how much work this one has done. */}
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Trips:</span>
+                        <div className="flex justify-between gap-2">
+                          <span className="shrink-0 text-muted-foreground">Trips:</span>
                           <span className="font-bold text-primary">
                             {(veh.trips ?? 0).toLocaleString()}
                           </span>
@@ -1163,115 +1210,33 @@ export function PartnerDetailPage() {
                 ) : null}
               </Card>
 
-              {/* Compliance Documents & Grey Card Vault Card */}
-              <Card className="p-4 sm:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
-                <div className="flex items-center justify-between flex-wrap gap-3 border-b border-border/60 pb-3">
-                  <div>
-                    <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
-                      <FileText className="h-4.5 w-4.5 text-primary" />
-                      Compliance Documents
-                    </h4>
-                    <p className="type-caption text-muted-foreground mt-0.5">
-                      Grey Card and vehicle registration documents.
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={() => setShowAddDoc((prev) => !prev)}
-                    leadingIcon={<Upload className="h-4 w-4" />}
-                    className="bg-primary text-primary-foreground text-xs font-semibold rounded-full shrink-0"
-                  >
-                    {showAddDoc ? 'Cancel' : 'Upload document'}
-                  </Button>
+              {/* THE COMPANY'S PAPER
+               *
+               * One row, from the closed catalog: a transporter's own
+               * compliance is its licence to trade. Its trucks' grey cards and
+               * insurance live on the trucks and its drivers' licences on the
+               * drivers — where each can be renewed by the person who holds
+               * it. The free-form category picker this replaced let any of the
+               * four be filed against the company, which is how a forty-truck
+               * fleet came to prove its registration with one grey card. */}
+              <Card className="space-y-5 rounded-lg border border-border/80 bg-card p-4 shadow-2xs @[40rem]/panel:p-6">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
+                  <h4 className="type-h4 flex items-center gap-2 font-semibold text-foreground">
+                    <FileText className="h-4.5 w-4.5 text-primary" />
+                    Compliance Documents
+                  </h4>
                 </div>
 
-                {/* Add Doc Form */}
-                {showAddDoc && (
-                  <div className="p-4 rounded-lg border border-primary/30 bg-primary/5 space-y-3 animate-in fade-in">
-                    <h5 className="text-xs font-bold text-primary">New Document</h5>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <label className="flex items-center gap-1.5 px-3 py-2 rounded-md border border-dashed border-primary/40 bg-primary/5 text-primary text-xs font-semibold hover:bg-primary/10 transition-colors cursor-pointer">
-                        <Upload className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate">{newDocFile ? newDocFile.name : 'Choose a file…'}</span>
-                        <input
-                          type="file"
-                          accept=".pdf,.png,.jpg,.jpeg"
-                          className="hidden"
-                          onChange={(e) => setNewDocFile(e.target.files?.[0] ?? null)}
-                        />
-                      </label>
-                      <Select
-                        value={newDocCategory}
-                        options={DOC_CATEGORY_OPTIONS}
-                        onChange={(e) => setNewDocCategory(e.target.value as PartnerDocumentCategory)}
-                      />
-                    </div>
-                    <div className="flex justify-end pt-1">
-                      <Button size="sm" onClick={handleAddDoc} disabled={!newDocFile} className="bg-primary text-primary-foreground font-semibold text-xs rounded-full px-4">
-                        Save document
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Documents Cards Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {pagedDocuments.rows.map((doc) => (
-                    <div key={doc.id} className="flex items-center justify-between p-4 rounded-lg border border-border/60 bg-muted/20 hover:border-primary/40 transition-colors">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <IconChip icon={FileText} size={36} />
-                        <div className="flex flex-col min-w-0">
-                          <span className="font-bold text-foreground text-xs truncate" title={doc.name}>
-                            {doc.name}
-                          </span>
-                          <span className="text-[11px] text-muted-foreground">
-                            {doc.category} · {doc.fileSize} · {doc.uploadDate}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1 shrink-0">
-                        <Badge intent={doc.status === 'Verified' ? 'success' : 'warning'} size="sm">
-                          {doc.status}
-                        </Badge>
-                        <button
-                          type="button"
-                          onClick={() => setViewingDoc(doc)}
-                          className="p-1.5 rounded-md text-muted-foreground hover:text-primary transition-colors ml-1"
-                          title="View Document"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void downloadDocument(doc.id, doc.name)}
-                          className="p-1.5 rounded-md text-muted-foreground hover:text-primary transition-colors"
-                          title="Download document"
-                        >
-                          <Download className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteDoc(doc.id)}
-                          className="p-1.5 rounded-md text-muted-foreground hover:text-destructive transition-colors"
-                          title="Delete document"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {documents.length > 0 ? (
-                  <TablePager
-                    paged={pagedDocuments}
-                    noun="documents"
-                    pageSize={documentsPageSize}
-                    onPageSizeChange={setDocumentsPageSize}
-                    pageSizeOptions={[12, 24, 48, 96]}
-                  />
-                ) : null}
+                <DocumentChecklist
+                  ownerType="PARTNER"
+                  documents={documents}
+                  subject={partner.companyLegalName}
+                  busy={uploadDocumentMutation.isPending}
+                  onUpload={handleAddDoc}
+                  onView={setViewingDoc}
+                  onDownload={(doc) => void downloadDocument(doc.id, doc.name)}
+                  onRemove={handleDeleteDoc}
+                />
               </Card>
 
             </div>
@@ -1283,7 +1248,7 @@ export function PartnerDetailPage() {
           {activeTab === 'shipments' && (
             <div className="space-y-6 animate-in fade-in">
               {/* Shipments Executive Metric Cards Strip */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 gap-4 @[20rem]/panel:grid-cols-2 @[52rem]/panel:grid-cols-4">
                 <Card className="p-4 border border-border/80 bg-card rounded-lg shadow-2xs space-y-2">
                   <div className="flex items-center justify-between text-muted-foreground">
                     <span className="text-[11px] font-bold uppercase tracking-wider">Total Bookings</span>
@@ -1291,7 +1256,7 @@ export function PartnerDetailPage() {
                       <Package className="w-4 h-4" />
                     </div>
                   </div>
-                  <span className="text-2xl sm:text-3xl font-black text-foreground tabular-nums block">
+                  <span className="text-2xl font-black text-foreground tabular-nums block">
                     {shipmentStats.total}
                   </span>
                   <span className="text-[10px] text-muted-foreground font-medium block">All operational bookings</span>
@@ -1304,7 +1269,7 @@ export function PartnerDetailPage() {
                       <Truck className="w-4 h-4" />
                     </div>
                   </div>
-                  <span className="text-2xl sm:text-3xl font-black text-warning-subtle-foreground tabular-nums block">
+                  <span className="text-2xl font-black text-warning-subtle-foreground tabular-nums block">
                     {shipmentStats.inTransit}
                   </span>
                   <span className="text-[10px] text-muted-foreground font-medium block">Currently moving</span>
@@ -1317,7 +1282,7 @@ export function PartnerDetailPage() {
                       <CheckCircle2 className="w-4 h-4" />
                     </div>
                   </div>
-                  <span className="text-2xl sm:text-3xl font-black text-success-subtle-foreground tabular-nums block">
+                  <span className="text-2xl font-black text-success-subtle-foreground tabular-nums block">
                     {shipmentStats.delivered}
                   </span>
                   <span className="text-[10px] text-muted-foreground font-medium block">Completed</span>
@@ -1330,7 +1295,7 @@ export function PartnerDetailPage() {
                       <DollarSign className="w-4 h-4" />
                     </div>
                   </div>
-                  <span className="text-2xl sm:text-3xl font-black text-foreground tabular-nums block">
+                  <span className="text-2xl font-black text-foreground tabular-nums block">
                     FDJ {shipmentStats.totalFdj.toLocaleString()}
                   </span>
                   <span className="text-[10px] text-muted-foreground font-medium block">Gross revenue</span>
@@ -1338,8 +1303,8 @@ export function PartnerDetailPage() {
               </div>
 
               {/* Shipments List Controls & Cards */}
-              <Card className="p-4 sm:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/60 pb-4">
+              <Card className="p-4 @[40rem]/panel:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
+                <div className="flex flex-col justify-between gap-4 border-b border-border/60 pb-4 @[36rem]/panel:flex-row @[36rem]/panel:items-center">
                   <div>
                     <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
                       <Package className="h-4.5 w-4.5 text-primary" />
@@ -1422,7 +1387,10 @@ export function PartnerDetailPage() {
                          do on the shipments list. */
                       statusIntent={(() => {
                         const state = containerStateOf(shp.rawStatus, Boolean(shp.containerNumber));
-                        return state ? (`container-${state}` as const) : statusIntentOf(shp.rawStatus);
+                        /* `'shipment'`, matching the label two lines above — a row
+                           whose word rolled up and whose colour did not would be
+                           two opinions about one job. */
+                        return state ? (`container-${state}` as const) : statusIntentOf(shp.rawStatus, 'shipment');
                       })()}
                       verified={true}
                       clickable

@@ -154,7 +154,7 @@ export function MonthlyReportView({
           variant="amber"
           icon={<AlertTriangle />}
           value={formatDuration(containers.avgDepotageMs, { compact: true })}
-          title="Dépotage"
+          title="Unstuffing"
           subtitle={
             totalCycleMs > 0 && containers.avgDepotageMs
               ? `${Math.round((containers.avgDepotageMs / totalCycleMs) * 100)}% of the cycle`

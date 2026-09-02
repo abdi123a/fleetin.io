@@ -31,6 +31,8 @@ import type {
  *    pairing at all. A load with no transporter yet fails this too: confirming
  *    against one would book a trip nobody is committed to running.
  * 2. **Same container size.** A 40HC chassis is not a 20′ chassis. Physics.
+ *    Since 2026-08-30 this is the *only* hard gate on equipment — see
+ *    `incompatibilityReasons` for why the shipping line stopped being one.
  *
  * Everything else is a **friction** — real cost, named on the card, priced into
  * the score, and left for the operator to accept or refuse:
@@ -205,27 +207,27 @@ export function incompatibilityReasons(
 ): string[] {
   const issues: string[] = [];
 
-  /* ── The v19 gates, adopted 2026-08-29 ────────────────────────────────────
+  /* ── One gate: size ───────────────────────────────────────────────────────
    *
-   * The user replaced this module with the v19 design and chose its rule
-   * explicitly: **same shipping line, same size**. Transporter is no longer a
-   * gate at all — the line owns the equipment, and dispatch can re-assign a
-   * truck, so who drives it is not what constrains a return.
+   * **The shipping line stopped being a gate on 2026-08-30, at the user's
+   * direction.** v19 had made it one the day before, on the argument that the
+   * line owns the equipment; the yard's answer is that a pairing across two
+   * lines is still a pairing, and refusing it costs a trip that did not need
+   * driving. The line is not silent — `pairingReasons` names it as a note when
+   * it differs, so nobody discovers it on the paperwork — it just cannot veto.
    *
-   * This inverts the rule that stood here from 2026-08-27 ("same transporter,
-   * line never vetoes"). Both cannot be true; the newer decision wins, and the
-   * old one is described in the file header for the reasoning it still carries.
+   * That restores the rule of 2026-08-27 ("line never vetoes"), which the file
+   * header still describes. What is NOT restored is the transporter gate that
+   * came with it: transporter has not gated since v19 and still does not.
    *
-   * Kept byte-identical to the backend's `empty-return-matching.util.ts`,
-   * which now serves the same engine over `/empty-returns/**\/suggestions`.
-   * If these two ever disagree the board offers pairings the API refuses. */
-  if (!record.line || !load.line || record.line !== load.line) {
-    issues.push(
-      record.line && load.line
-        ? `Different shipping line (${record.line} → ${load.line})`
-        : 'Shipping line not recorded on one side',
-    );
-  }
+   * Size stays, and it is the only thing here that is physics: a 40HC chassis
+   * is not a 20′ chassis.
+   *
+   * Kept byte-identical in behaviour to the backend's
+   * `empty-return-matching.util.ts`, which serves the same engine over
+   * `/empty-returns/**\/suggestions`. If these two ever disagree the board
+   * offers pairings the API refuses — so this change was made on both sides in
+   * the same edit. */
   if (record.size !== load.size) issues.push('Different container size');
 
   /* The pickup has to beat the deadline. Measured from `effectivePickup`, not

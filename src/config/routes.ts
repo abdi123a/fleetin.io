@@ -79,7 +79,6 @@ export const ROUTES = {
    * a trap for whoever adds the fourth view.
    */
   workspace: '/workspace',
-  workspaceInbox: '/workspace/inbox',
   /*
    * ONE tasks route. Whose work you are looking at is `?scope=`, and which of
    * the four views draws it is `?view=` — both are parameters of one screen,
@@ -102,9 +101,6 @@ export const ROUTES = {
    * tab strip either. Channels and DMs are sections of the rail, as they are
    * in every tool that gets this right.
    */
-  /* Templates and recurring rules — the standing arrangements, kept off the
-     task screens because they describe work that does not exist yet. */
-  workspaceAutomation: '/workspace/automation',
   workspaceMessages: '/workspace/messages',
   workspaceChannel: '/workspace/messages/:channelId',
   /**

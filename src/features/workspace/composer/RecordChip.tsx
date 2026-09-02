@@ -36,7 +36,9 @@ const TYPE_ICON: Record<RecordType, typeof Package> = {
 const STATUS_TONE: Record<RecordStatusIntent, string> = {
   primary: 'bg-primary text-primary-foreground',
   success: 'bg-success text-success-foreground',
+  'success-deep': 'bg-success-deep text-success-deep-foreground',
   warning: 'bg-warning text-warning-foreground',
+  'warning-deep': 'bg-warning-deep text-warning-deep-foreground',
   destructive: 'bg-destructive text-destructive-foreground',
   info: 'bg-info text-info-foreground',
   default: 'bg-secondary text-secondary-foreground',

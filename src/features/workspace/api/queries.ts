@@ -8,14 +8,8 @@ import {
   fetchRecordCounts, fetchTask, fetchTasks, fetchTaskSummary, fetchUnread, markNotificationsRead, postMessage,
   searchRecords, setMessageResolved, setTaskLinks, updateTask, withdrawMessage,
   createChannel, fetchChannel, fetchChannelMessages, fetchConversations, fetchThread,
-  markChannelRead, openDirectMessage, searchMessages, setChannelMembers, updateChannel,
-  archiveTemplate, bulkUpdateTasks, createRecurrence, createTemplate, deleteRecurrence,
-  fetchRecurrences, fetchTemplates, fetchWorkload, runRecurrences, setChecklist,
-  applyTemplate, setFollowers, setOwnFollow, toggleChecklistItem, updateRecurrence,
-  type BulkPayload, type ChecklistDraft, type CreateChannelPayload, type CreateTaskPayload,
-  type CreateTemplatePayload, type MessageSearchFilters, type PostMessagePayload,
-  type RecurrencePayload, type TaskFilters, type UseTemplatePayload,
-} from './workspaceService';
+  markChannelRead, openDirectMessage, searchMessages, setChannelMembers, updateChannel, bulkUpdateTasks, fetchWorkload, setChecklist,
+  setFollowers, setOwnFollow, toggleChecklistItem, type BulkPayload, type ChecklistDraft, type CreateChannelPayload, type CreateTaskPayload, type MessageSearchFilters, type PostMessagePayload, type TaskFilters } from './workspaceService';
 
 export const workspaceQueryKeys = {
   all: ['workspace'] as const,
@@ -93,10 +87,11 @@ export function useRecordTaskCounts(recordType: RecordType, recordIds: string[])
   });
 }
 
-export function useWorkspaceInbox() {
+export function useWorkspaceInbox(enabled = true) {
   return useQuery({
     queryKey: workspaceQueryKeys.inbox(),
     queryFn: fetchInbox,
+    enabled,
     refetchInterval: POLL_LIST,
   });
 }
@@ -336,13 +331,7 @@ export function useMarkChannelReadOnView(channelId: string | undefined, newestMe
 
 // ── Productivity (Phase 3) ──────────────────────────────────────────────────
 
-export function useTemplates() {
-  return useQuery({ queryKey: workspaceQueryKeys.templates(), queryFn: fetchTemplates, staleTime: 5 * 60_000 });
-}
 
-export function useRecurrences() {
-  return useQuery({ queryKey: workspaceQueryKeys.recurrences(), queryFn: fetchRecurrences });
-}
 
 export function useWorkload() {
   return useQuery({
@@ -384,46 +373,12 @@ export function useSetOwnFollow() {
   });
 }
 
-export function useCreateTemplate() {
-  const invalidate = useInvalidateWorkspace();
-  return useMutation({ mutationFn: (p: CreateTemplatePayload) => createTemplate(p), onSuccess: invalidate });
-}
 
-export function useArchiveTemplate() {
-  const invalidate = useInvalidateWorkspace();
-  return useMutation({ mutationFn: (id: string) => archiveTemplate(id), onSuccess: invalidate });
-}
 
-export function useUseTemplate() {
-  const invalidate = useInvalidateWorkspace();
-  return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload?: UseTemplatePayload }) => applyTemplate(id, payload),
-    onSuccess: invalidate,
-  });
-}
 
-export function useCreateRecurrence() {
-  const invalidate = useInvalidateWorkspace();
-  return useMutation({ mutationFn: (p: RecurrencePayload) => createRecurrence(p), onSuccess: invalidate });
-}
 
-export function useUpdateRecurrence() {
-  const invalidate = useInvalidateWorkspace();
-  return useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: Partial<RecurrencePayload> }) => updateRecurrence(id, patch),
-    onSuccess: invalidate,
-  });
-}
 
-export function useDeleteRecurrence() {
-  const invalidate = useInvalidateWorkspace();
-  return useMutation({ mutationFn: (id: string) => deleteRecurrence(id), onSuccess: invalidate });
-}
 
-export function useRunRecurrences() {
-  const invalidate = useInvalidateWorkspace();
-  return useMutation({ mutationFn: () => runRecurrences(), onSuccess: invalidate });
-}
 
 export function useBulkUpdateTasks() {
   const invalidate = useInvalidateWorkspace();

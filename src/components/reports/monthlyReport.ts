@@ -149,8 +149,8 @@ export const STAGE_ROWS: ReadonlyArray<{
   { key: 'loading', label: 'Loading', of: (r) => r.kpis.loadingMs },
   { key: 'transit', label: 'Transit', of: (r) => r.kpis.transitMs },
   { key: 'wait_dropoff', label: 'Drop-off Waiting', of: (r) => r.kpis.waitDropMs },
-  { key: 'unloading', label: 'Depotage', of: (r) => r.kpis.unloadingMs },
-  { key: 'depotage', label: 'Dépotage', of: (r) => r.kpis.depotageMs },
+  { key: 'unloading', label: 'Unstuffing', of: (r) => r.kpis.unloadingMs },
+  { key: 'depotage', label: 'Unstuffing (client)', of: (r) => r.kpis.depotageMs },
   { key: 'empty_return', label: 'Empty Return', of: (r) => r.kpis.returnLegMs },
 ];
 

@@ -3,8 +3,8 @@ import { Star } from '@/design-system/icons';
 import { useUpdateBooking } from '@/features/bookings/api/queries';
 import { cn } from '@/utils';
 
-/** Who a debrief is about. Same three axes, different person answering for. */
-export type DebriefSubject = 'driver' | 'shipper';
+/** Who a debrief is about. Same three axes, a different trip each time. */
+export type DebriefSubject = 'driver' | 'returnDriver';
 
 export interface DebriefDraft {
   subject: DebriefSubject;
@@ -20,22 +20,41 @@ const DEBRIEF_AXES: readonly DebriefAxis[] = ['reliability', 'punctuality', 'pro
 /**
  * The two debriefs, and why there are two.
  *
- * A container's round trip has two counterparties and they answer for different
- * halves of it. The carrier owns the road: whether the truck came, whether it
- * came on time, how the load was handled. The shipper owns the yard: how fast
- * the box was stripped and released, which is the half that actually runs the
- * detention clock and which the carrier is otherwise blamed for.
+ * A container's round trip is driven twice: the driver who brought the load,
+ * and the driver who came back for the empty, who is frequently not the same
+ * person and until now inherited the first one's stars.
  *
- * So the axes keep their names — `@/lib/rating` averages both kinds on one
- * scale and must not care who was asked — and only the questions change.
+ * Only drivers are rated. The shipper used to be a third question here — how
+ * fast the box was stripped and released — and it was dropped on 2026-09-01:
+ * stars are a measure of how somebody drove, and a shipper does not drive. The
+ * detention clock that question was reaching for is already recorded as
+ * timestamps on the return leg, where it is a fact rather than an opinion.
+ *
+ * The axes keep their names — `@/lib/rating` averages both legs on one scale
+ * and must not care which trip was asked about — and only the questions change.
  */
 export const DEBRIEF_SUBJECTS: Record<
   DebriefSubject,
-  { title: string; rung: string; axes: Record<DebriefAxis, { label: string; hint: string }>; placeholder: string }
+  {
+    title: string;
+    /** Which part of the round trip this asks about — shown only when more
+        than one question is queued, where "how did it go?" twice in a row is
+        otherwise indistinguishable from the first answer not having saved. */
+    leg: string;
+    rung: string;
+    axes: Record<DebriefAxis, { label: string; hint: string }>;
+    placeholder: string;
+  }
 > = {
   driver: {
     title: 'How did it go?',
-    rung: 'Arrived',
+    leg: 'Delivery',
+    /* Asked when the box is HOME, not when the load arrived. A container's job
+       is not over at delivery — the same carrier still owes the empty leg — and
+       asking at `Arrived` meant the operator was interrupted twice for one
+       booking, days apart, for two halves of the same carrier's work. Both
+       drivers are now debriefed in one sitting at the end. */
+    rung: 'Completed',
     placeholder: 'Anything worth recording about this delivery',
     axes: {
       reliability: { label: 'Reliability', hint: 'Did the job get done as planned?' },
@@ -43,14 +62,19 @@ export const DEBRIEF_SUBJECTS: Record<
       professionalism: { label: 'Professionalism', hint: 'How was it handled and left?' },
     },
   },
-  shipper: {
-    title: 'How was the shipper?',
+  /* The return leg, asked when the box is home. Same axes, and deliberately the
+     same words as the delivery driver's — it is the same question about the
+     same kind of job, and rewording it would make two answers about one carrier
+     incomparable. Only the placeholder names which trip is being rated. */
+  returnDriver: {
+    title: 'How was the empty return?',
+    leg: 'Empty return',
     rung: 'Completed',
-    placeholder: 'Anything worth recording about this shipper',
+    placeholder: 'Anything worth recording about the empty return',
     axes: {
-      reliability: { label: 'Reliability', hint: 'Was the cargo and paperwork as agreed?' },
-      punctuality: { label: 'Punctuality', hint: 'Did they strip and release the box promptly?' },
-      professionalism: { label: 'Professionalism', hint: 'How were they to deal with?' },
+      reliability: { label: 'Reliability', hint: 'Did the job get done as planned?' },
+      punctuality: { label: 'Punctuality', hint: 'Was the box fetched on time?' },
+      professionalism: { label: 'Professionalism', hint: 'How was it handled and left?' },
     },
   },
 };
@@ -76,17 +100,38 @@ const debriefHasAnswer = (draft: DebriefDraft) =>
  * box is genuinely home however many rungs it took to get there. Shared by both
  * status controls so the two cannot drift into asking on different rungs.
  */
-export function debriefSubjectFor(target: string, reached: string): DebriefSubject | null {
-  if (target === DEBRIEF_SUBJECTS.driver.rung) return 'driver';
-  if (reached === DEBRIEF_SUBJECTS.shipper.rung) return 'shipper';
-  return null;
+/**
+ * Who to ask about, in the order they are asked, once the box is home.
+ *
+ * Everything is asked at the END, on `Completed`, and nothing before it. The
+ * delivery driver used to be debriefed at `Arrived`, which split one booking's
+ * verdicts across two days and two interruptions — and asked about the delivery
+ * while the return that the same carrier still owed had not happened yet. At
+ * the close, the whole round trip is known and both answers are given in one
+ * sitting: the driver who brought it, and the driver who fetched it.
+ *
+ * `separateReturnDriver` is the caller's read of whether a second person is
+ * even involved: when the same driver ran both legs there is one person and one
+ * answer, and it belongs on the delivery columns where the rest of that
+ * driver's trips already are.
+ */
+export function debriefSubjectsFor(
+  reached: string,
+  options: { separateReturnDriver?: boolean } = {},
+): DebriefSubject[] {
+  if (reached !== DEBRIEF_SUBJECTS.driver.rung) return [];
+  return options.separateReturnDriver ? ['driver', 'returnDriver'] : ['driver'];
 }
 
 export interface BookingDebriefDialogProps {
   draft: DebriefDraft | null;
   bookingId: string;
   driverName?: string | null;
-  shipperCompany?: string | null;
+  /** Who fetched the empty, when that was somebody else. */
+  returnDriverName?: string | null;
+  /** Which question this is, and how many the closing owes in all. */
+  step?: number;
+  total?: number;
   onChange: (draft: DebriefDraft) => void;
   onClose: () => void;
 }
@@ -103,7 +148,9 @@ export function BookingDebriefDialog({
   draft,
   bookingId,
   driverName,
-  shipperCompany,
+  returnDriverName,
+  step,
+  total,
   onChange,
   onClose,
 }: BookingDebriefDialogProps) {
@@ -116,13 +163,49 @@ export function BookingDebriefDialog({
      record they land on at a glance, and that was previously an 11px grey
      sentence under the title. Unnamed, the question takes the headline back
      rather than a placeholder standing in for a person. */
-  const who = (debrief.subject === 'shipper' ? shipperCompany : driverName)?.trim();
+  const who = (
+    debrief.subject === 'returnDriver' ? returnDriverName : driverName
+  )?.trim();
   return (
       <div
         className="fixed inset-0 z-modal flex items-center justify-center bg-overlay/70 p-4 backdrop-blur-[2px]"
         onClick={(event) => event.stopPropagation()}
       >
         <Card className="w-full max-w-md space-y-4 rounded-card border border-border bg-card p-5 shadow-lg">
+          {/* ── WHICH ONE OF THESE AM I ON ──
+              A closing that owes two drivers asks twice, back to back, with the
+              same three axes and the same layout. Without this the second
+              dialog reads as the first one having thrown the answer away rather
+              than as a different person's trip, and the honest reaction is to
+              re-enter what was just typed. The leg names it; the pips say how
+              much of the closing is left. */}
+          {total && total > 1 ? (
+            <div className="-mt-1 flex items-center justify-between gap-3 border-b border-border-subtle pb-3">
+              <p className="truncate text-[10px] font-bold uppercase tracking-[0.09em] text-muted-foreground">
+                {subject.leg}
+              </p>
+              <div
+                className="flex shrink-0 items-center gap-1"
+                role="img"
+                aria-label={`Question ${step ?? 1} of ${total}`}
+              >
+                {Array.from({ length: total }, (_, index) => (
+                  <span
+                    key={index}
+                    className={cn(
+                      'h-1.5 rounded-full transition-all',
+                      index === (step ?? 1) - 1
+                        ? 'w-4 bg-warning'
+                        : index < (step ?? 1) - 1
+                          ? 'w-1.5 bg-warning/50'
+                          : 'w-1.5 bg-border',
+                    )}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <div className="flex items-center gap-3">
             {/* Amber, because it is the same mark the operator is about to
                 award. A teal chip sitting over three rows of gold stars reads
@@ -225,19 +308,23 @@ export function BookingDebriefDialog({
                     ? Math.round(scored.reduce((total, n) => total + n, 0) / scored.length)
                     : undefined;
                 const note = debrief.note.trim() || undefined;
-                /* Two counterparties, two sets of columns. Written out rather
-                   than built from a string prefix so the payload stays typed
-                   and a renamed field fails the build instead of the save. */
+                /* Two legs, two sets of columns. Written out rather than built
+                   from a string prefix so the payload stays typed and a renamed
+                   field fails the build instead of the save. */
                 const payload =
-                  debrief.subject === 'shipper'
+                  debrief.subject === 'returnDriver'
                     ? {
-                        ...(debrief.reliability > 0 ? { shipperRatingReliability: debrief.reliability } : {}),
-                        ...(debrief.punctuality > 0 ? { shipperRatingPunctuality: debrief.punctuality } : {}),
-                        ...(debrief.professionalism > 0
-                          ? { shipperRatingProfessionalism: debrief.professionalism }
+                        ...(debrief.reliability > 0
+                          ? { returnDriverRatingReliability: debrief.reliability }
                           : {}),
-                        ...(overall !== undefined ? { shipperRating: overall } : {}),
-                        ...(note ? { shipperNote: note } : {}),
+                        ...(debrief.punctuality > 0
+                          ? { returnDriverRatingPunctuality: debrief.punctuality }
+                          : {}),
+                        ...(debrief.professionalism > 0
+                          ? { returnDriverRatingProfessionalism: debrief.professionalism }
+                          : {}),
+                        ...(overall !== undefined ? { returnDriverRating: overall } : {}),
+                        ...(note ? { returnDriverNote: note } : {}),
                       }
                     : {
                         ...(debrief.reliability > 0 ? { driverRatingReliability: debrief.reliability } : {}),

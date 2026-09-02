@@ -7,9 +7,7 @@ import {
 import { useTeam } from '@/features/team';
 import { cn } from '@/utils';
 
-import { ListChecks } from '@/design-system/icons';
-
-import { useCreateTask, useTemplates, useUseTemplate } from '../api/queries';
+import { useCreateTask } from '../api/queries';
 import { Composer } from '../composer/Composer';
 import { RecordChip } from '../composer/RecordChip';
 import type { RecordType, TaskPriority, TaskStatus } from '../contracts';
@@ -36,9 +34,7 @@ export interface RaiseTaskDialogProps {
  */
 export function RaiseTaskDialog({ open, onOpenChange, record, status, onCreated }: RaiseTaskDialogProps) {
   const { data: team = [] } = useTeam();
-  const { data: templates = [] } = useTemplates();
   const create = useCreateTask();
-  const fromTemplate = useUseTemplate();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -104,47 +100,6 @@ export function RaiseTaskDialog({ open, onOpenChange, record, status, onCreated 
                 reference={record.recordRef}
                 label={record.label}
               />
-            </div>
-          ) : null}
-
-          {/* Templates lead, because a template is the whole form: picking
-              one files the task with its checklist and closes the dialog. Only
-              shown when the desk has actually made some — an empty rail of
-              buttons is a feature advertising itself. */}
-          {templates.length > 0 ? (
-            <div className="space-y-1.5">
-              <span className="block text-xs font-medium text-foreground">Start from a template</span>
-              <div className="flex flex-wrap gap-1.5">
-                {templates.map((template) => (
-                  <button
-                    key={template.id}
-                    type="button"
-                    disabled={fromTemplate.isPending}
-                    onClick={() =>
-                      fromTemplate.mutate(
-                        {
-                          id: template.id,
-                          payload: {
-                            assigneeId,
-                            recordType: record?.recordType,
-                            recordId: record?.recordId,
-                          },
-                        },
-                        {
-                          onSuccess: (task) => { onOpenChange(false); onCreated?.(task.reference); },
-                        },
-                      )
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary-subtle px-2.5 py-1 text-xs font-medium text-primary-subtle-foreground transition-colors duration-fast hover:bg-primary/15 disabled:opacity-60"
-                  >
-                    <ListChecks className="size-3.5" aria-hidden />
-                    {template.name}
-                    {template.items.length > 0 ? (
-                      <span className="tabular-nums opacity-70">{template.items.length}</span>
-                    ) : null}
-                  </button>
-                ))}
-              </div>
             </div>
           ) : null}
 

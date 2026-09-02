@@ -21,10 +21,23 @@ const badgeVariants = cva(
         teal: 'bg-primary text-primary-foreground border-b border-r border-primary-strong/20',
         /** Accent orange — secondary Shipment tag stacked under a Booking tag */
         orange: 'bg-accent text-accent-foreground border-b border-r border-accent-strong/20',
-        /** Green — completed state tag */
+        /** Green — the container is loaded and moving */
         green: 'bg-success text-success-foreground border-b border-r border-success-strong/20',
+        /**
+         * The later rung of a phase — see `--success-deep` / `--warning-deep`.
+         *
+         * The tab used to fold these onto their phase, so a card at "Delivered"
+         * and a card at "Picked Up" wore the same tab while the picker inside
+         * each drew them a step apart. The ramp is the point: hue says the
+         * phase, depth says how far into it, and a mark that drops the depth is
+         * a mark that only tells half of what it knows.
+         */
+        'green-deep': 'bg-success-deep text-success-deep-foreground border-b border-r border-success-deep/20',
+        'orange-deep': 'bg-warning-deep text-warning-deep-foreground border-b border-r border-warning-deep/20',
         /** Blue — info tag */
         blue: 'bg-info text-info-foreground border-b border-r border-info-strong/20',
+        /** Red — the rung that needs watching (Unstuffing). */
+        red: 'bg-destructive text-destructive-foreground border-b border-r border-destructive/20',
         /** Neutral — de-emphasised tag */
         neutral: 'bg-secondary text-secondary-foreground border-b border-r border-border',
         /**
@@ -64,6 +77,16 @@ const badgeVariants = cva(
 export interface CornerBadgeProps
   extends HTMLAttributes<HTMLDivElement>,
     VariantProps<typeof badgeVariants> {
+  /**
+   * The tab's text — one fact, the reference this card is looked up by.
+   *
+   * `string`, deliberately. This was widened to `ReactNode` so the shipment row
+   * could stack its cargo type under the reference in one tab; that put the
+   * page's smallest, faintest text inside its heaviest element and pushed the
+   * card body down to clear the second line. The type belongs with the card's
+   * other facts, not in its identifier. Kept narrow so the next caller cannot
+   * quietly reintroduce a two-fact tab.
+   */
   label: string;
   icon?: ReactNode;
 }

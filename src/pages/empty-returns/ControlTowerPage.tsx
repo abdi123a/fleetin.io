@@ -70,7 +70,13 @@ export function ControlTowerPage() {
     const value = searchParams.get('match');
     if (!value) return;
     if (value !== '1') selectEmpty(value);
-    navigate(ROUTES.emptyReturnsMatching, { replace: true });
+    /* `from=` rides along — it is the shipment the operator left, and Matching
+       draws a way back to it. Dropping it here was why there was none. */
+    const from = searchParams.get('from');
+    navigate(
+      from ? `${ROUTES.emptyReturnsMatching}?from=${encodeURIComponent(from)}` : ROUTES.emptyReturnsMatching,
+      { replace: true },
+    );
   }, [searchParams, navigate, selectEmpty]);
 
   /**

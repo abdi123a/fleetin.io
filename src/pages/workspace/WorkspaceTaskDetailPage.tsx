@@ -3,13 +3,13 @@ import { Link, useParams } from 'react-router-dom';
 
 import { CrewPicker, CrewStack } from '@/components/crew';
 import { Button, DatePicker, Input, Spinner } from '@/design-system';
-import { ArrowLeft, Check, Pencil, RefreshCw, TriangleAlert } from '@/design-system/icons';
+import { ArrowLeft, Check, Pencil, TriangleAlert } from '@/design-system/icons';
 import { ROUTES } from '@/config/routes';
 import { useTeam } from '@/features/team';
 import {
-  DueMark, MessageBody, PriorityMark, PrioritySelect, RecordChip, RecurrenceDialog,
+  DueMark, MessageBody, PriorityMark, PrioritySelect, RecordChip,
   TaskChecklist, TaskFollowers, TaskStatusBadge, TaskStatusSelect, Thread,
-  describeRecurrence, isOverdue, TASK_PRIORITY_LABEL, TASK_STATUS_LABEL,
+  isOverdue, TASK_PRIORITY_LABEL, TASK_STATUS_LABEL,
   useTask, useUpdateTask, type TaskPriority, type TaskStatus,
 } from '@/features/workspace';
 import { cn, formatRelativeTime } from '@/utils';
@@ -60,7 +60,6 @@ export function WorkspaceTaskDetailPage() {
 
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
-  const [repeatOpen, setRepeatOpen] = useState(false);
 
   useEffect(() => {
     if (task) setTitleDraft(task.title);
@@ -116,17 +115,6 @@ export function WorkspaceTaskDetailPage() {
                 {TASK_PRIORITY_LABEL[task.priority]}
               </span>
             ) : null}
-            {task.occurrence ? (
-              /* Says WHICH rule, not just "recurring": on a desk where three
-                 rules file similar work, the name is the useful half. */
-              <span
-                title={`${task.occurrence.recurrence.title} — ${describeRecurrence(task.occurrence.recurrence)}`}
-                className={cn('inline-flex items-center gap-1 rounded-full border border-current px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide', slab.soft)}
-              >
-                <RefreshCw className="size-3" aria-hidden />
-                {describeRecurrence(task.occurrence.recurrence)}
-              </span>
-            ) : null}
             {overdue ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-destructive px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-destructive-foreground">
                 <TriangleAlert className="size-3" aria-hidden /> Overdue
@@ -175,25 +163,6 @@ export function WorkspaceTaskDetailPage() {
                 >
                   <Pencil className="size-4" aria-hidden />
                 </button>
-                {/* Make this a standing job. Seeded from the task rather than
-                    opening an empty form: somebody clicking Repeat has already
-                    written the thing they want repeated. Hidden on a task a
-                    rule already filed — that rule is edited on its own screen,
-                    and a second one would file the same work twice. */}
-                {!task.occurrence ? (
-                  <button
-                    type="button"
-                    onClick={() => setRepeatOpen(true)}
-                    aria-label="Repeat this task on a schedule"
-                    className={cn(
-                      'mt-1 rounded-sm p-1 opacity-0 transition-opacity duration-fast',
-                      'focus-visible:opacity-100 group-hover/title:opacity-100',
-                      slab.soft,
-                    )}
-                  >
-                    <RefreshCw className="size-4" aria-hidden />
-                  </button>
-                ) : null}
               </>
             )}
           </div>
@@ -323,11 +292,6 @@ export function WorkspaceTaskDetailPage() {
         <Thread messages={task.messages} events={task.events} taskId={task.id} className="min-h-0 flex-1" />
       </aside>
 
-      <RecurrenceDialog
-        open={repeatOpen}
-        onOpenChange={setRepeatOpen}
-        seed={{ title: task.title, priority: task.priority, assigneeId: task.assignee?.id }}
-      />
     </div>
   );
 }

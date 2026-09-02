@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { phaseOfIntent } from '@/lib/shipmentStatus';
 import { ApexChart } from '@/features/shipper-bi/charts/ApexChart';
 import { baseChartOptions, donutOptions } from '@/features/shipper-bi/charts/apexChartTheme';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -112,8 +113,8 @@ function DeliveryPerformanceCard({ bookings }: { bookings: BookingPreviewItem[] 
   const inView = useInView(ref as React.RefObject<Element>);
   const total = bookings.length || 1;
 
-  const onTime = bookings.filter(b => b.statusIntent === 'green').length;
-  const delayed = bookings.filter(b => b.statusIntent === 'orange').length;
+  const onTime = bookings.filter(b => phaseOfIntent(b.statusIntent) === 'green').length;
+  const delayed = bookings.filter(b => phaseOfIntent(b.statusIntent) === 'orange').length;
   const inTransit = bookings.filter(b => b.statusIntent === 'blue').length;
   const onTimePct = Math.round((onTime / total) * 100);
 
@@ -419,7 +420,7 @@ function FinancialSummaryCard({ bookings }: { bookings: BookingPreviewItem[] }) 
   const inView = useInView(ref as React.RefObject<Element>);
 
   const total = bookings.length;
-  const completedCount = bookings.filter(b => b.statusIntent === 'green').length;
+  const completedCount = bookings.filter(b => phaseOfIntent(b.statusIntent) === 'green').length;
   const onTimePct = Math.round((completedCount / (total || 1)) * 100);
   const minutesSaved = total * 20;
   const hoursSaved = Math.round(minutesSaved / 60);
@@ -496,7 +497,7 @@ function ExceptionSummaryCard({ bookings }: { bookings: BookingPreviewItem[] }) 
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
   const total = bookings.length || 1;
 
-  const delayed = bookings.filter(b => b.statusIntent === 'orange' && !b.status.toLowerCase().includes('pending')).length;
+  const delayed = bookings.filter(b => phaseOfIntent(b.statusIntent) === 'orange' && !b.status.toLowerCase().includes('pending')).length;
   const cancelled = bookings.filter(b => b.status.toLowerCase().includes('cancelled')).length;
   const pendingReturn = bookings.filter(b => b.status.toLowerCase().includes('pending')).length;
   const unverifiedDrivers = bookings.filter(b => !b.driverVerified).length;
@@ -825,7 +826,7 @@ function OperationalEfficiencyRadarCard({ bookings }: { bookings: BookingPreview
   const inView = useInView(ref as React.RefObject<Element>);
   const total = bookings.length || 1;
 
-  const completed = bookings.filter(b => b.statusIntent === 'green').length;
+  const completed = bookings.filter(b => phaseOfIntent(b.statusIntent) === 'green').length;
   const drivers = bookings.filter(b => b.driverVerified).length;
 
   const radarData = [

@@ -9,6 +9,7 @@ import {
   RETURN_RISK_META,
   companyInitials,
   detentionFor,
+  formatContainerSize,
   formatDetention,
   getEmptyReturnCompanyLogo,
   riskTextClass,
@@ -114,6 +115,47 @@ export function RecordStateTag({
   ...props
 }: ContainerTagProps & { record: EmptyReturnRecord }) {
   return record.stage === 'closed' ? <ReturnedTag {...props} /> : <EmptyTag {...props} />;
+}
+
+/* ---------------------------------------------------------------------------
+ * ContainerSizeTag
+ * ------------------------------------------------------------------------- */
+
+export interface ContainerSizeTagProps {
+  size: string;
+  className?: string;
+}
+
+/**
+ * The box's size — and the only thing a pairing is gated on.
+ *
+ * It used to sit in the container dialog's header as `40' · CMA CGM`: two facts
+ * of completely different kinds, run together in one line of 12px grey with a
+ * middot between them. The reader's question was "what is that 40?", which is
+ * the right question to ask of a number wearing no unit and no label.
+ *
+ * Given an edge and spelled out, it reads as a specification. It earns that
+ * because `incompatibilityReasons` refuses a pairing on size and on nothing
+ * else — the line stopped vetoing on 2026-08-30 and the transporter has not
+ * gated since v19 — so this is the one attribute on the header that decides
+ * what this container can and cannot be paired with.
+ *
+ * Deliberately colourless. Hue in this module belongs to state and urgency (see
+ * the colour law at the top of this file), and a fourth saturated mark in the
+ * header would take a colour off something that needs it more.
+ */
+export function ContainerSizeTag({ size, className }: ContainerSizeTagProps) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center whitespace-nowrap rounded-md border border-border-strong px-1.5 py-0.5 text-2xs font-semibold tabular-nums text-muted-foreground',
+        className,
+      )}
+      title="Container size — the only thing a pairing is matched on"
+    >
+      {formatContainerSize(size)}
+    </span>
+  );
 }
 
 /* ---------------------------------------------------------------------------

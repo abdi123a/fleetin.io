@@ -21,8 +21,6 @@ export {
   usePostMessage, useEditMessage, useWithdrawMessage,
   useAssignMessage, useResolveMessage, useMarkNotificationsRead,
   // Phase 3
-  useTemplates, useCreateTemplate, useArchiveTemplate, useUseTemplate,
-  useRecurrences, useCreateRecurrence, useUpdateRecurrence, useDeleteRecurrence, useRunRecurrences,
   useSetChecklist, useToggleChecklistItem, useSetFollowers, useSetOwnFollow,
   useBulkUpdateTasks, useWorkload,
 } from './api/queries';
@@ -54,10 +52,6 @@ export { PersonAvatar } from './components/PersonAvatar';
 export { TaskChecklist } from './components/TaskChecklist';
 export { TaskFollowers } from './components/TaskFollowers';
 export { BulkActionBar } from './components/BulkActionBar';
-export { describeRecurrence } from './components/recurrenceLabel';
-export { RecurrenceDialog } from './components/RecurrenceDialog';
-export { TemplateDialog } from './components/TemplateDialog';
 export { TaskBoard } from './views/TaskBoard';
-export { TaskCalendar } from './views/TaskCalendar';
 export { TaskWorkload } from './views/TaskWorkload';
 export { taskUrgency } from './components/taskUrgency';

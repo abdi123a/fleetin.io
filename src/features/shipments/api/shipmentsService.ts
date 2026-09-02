@@ -78,6 +78,9 @@ export interface ShipmentRecord {
   requiredDocuments: string[] | null;
 
   scheduledPickupTime: string;
+  /** When the shipper expects delivery. Null on everything created before
+      2026-09-01, and on any shipment taken without a date agreed. */
+  scheduledDeliveryTime: string | null;
   completedAt: string | null;
 
   rateMinorUnits: string;
@@ -401,6 +404,9 @@ export interface CreateShipmentPayload {
   requiredDocuments?: string[];
   paymentStatus?: string;
   scheduledPickupTime: string;
+  /** When the shipper expects delivery. Optional — not every booking is taken
+      with a date agreed, and a guessed one reads as a commitment. */
+  scheduledDeliveryTime?: string;
   /** What the shipper is billed — optional, the wizard doesn't always collect it. */
   clientRateMinorUnits?: number;
   projectId?: string;

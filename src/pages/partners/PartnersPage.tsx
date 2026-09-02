@@ -5,6 +5,7 @@ import {
   Building2,
   CheckCircle2,
   ExternalLink,
+  FileText,
   MoreVertical,
   Package,
   Pencil,
@@ -31,6 +32,13 @@ import { PanelHeader } from '@/components/panels';
 import { RecordRaise } from '@/features/workspace';
 import { StarRating } from '@/components/performance';
 import { useBookings } from '@/features/bookings/api/queries';
+import { useDocumentBook } from '@/features/documents/api/queries';
+import {
+  ComplianceCell,
+  complianceFindings,
+  tallyFindings,
+  type ComplianceOwner,
+} from '@/features/documents';
 import type { BookingRecord } from '@/features/bookings/api/bookingsService';
 import { UNRATED, summariseFleet } from '@/lib/rating';
 import { cn } from '@/utils';
@@ -250,6 +258,44 @@ export function PartnersPage() {
    *
    * Free: the same booking rows the rating already needed.
    */
+  /**
+   * Every carrier's paperwork, in one pass over the whole document book.
+   *
+   * A transporter's compliance is not its own row in a table — it is its
+   * licence plus two papers for every truck it owns and one for every driver,
+   * which is why this could not be a field on the partner and why the column
+   * was left out the first two times the list was designed. Read per row it
+   * would be one request per truck; read from the book it is one join.
+   *
+   * The user asked for it here on 2026-09-01 — "how many docs are missing from
+   * this transporter's vehicles and drivers, in one screen" — which is the
+   * question a dispatcher actually opens this list with, and the earlier note
+   * that compliance is "a dossier detail" was answering a different one.
+   */
+  const { data: documentBook } = useDocumentBook();
+  const complianceByPartner = useMemo(() => {
+    const docs = documentBook ?? [];
+    const now = Date.now();
+    const byPartner = new Map<string, ReturnType<typeof tallyFindings>>();
+    for (const partner of partners) {
+      const owners: ComplianceOwner[] = [
+        { ownerType: 'PARTNER', ownerId: partner.id, ownerLabel: partner.companyLegalName },
+        ...(partner.vehicles ?? []).map((vehicle) => ({
+          ownerType: 'VEHICLE' as const,
+          ownerId: vehicle.id,
+          ownerLabel: vehicle.plateNumber,
+        })),
+        ...(partner.drivers ?? []).map((driver) => ({
+          ownerType: 'DRIVER' as const,
+          ownerId: driver.id,
+          ownerLabel: driver.fullName,
+        })),
+      ];
+      byPartner.set(partner.id, tallyFindings(complianceFindings(owners, docs, now)));
+    }
+    return byPartner;
+  }, [partners, documentBook]);
+
   const workloadByPartner = useMemo(() => {
     const now = Date.now();
     const byPartner = new Map<string, { running: number; overdue: number }>();
@@ -416,11 +462,19 @@ export function PartnersPage() {
        it. The profile is already saved by this point, so a failure here is
        partial, and the message says which part. */
     const failed: string[] = [];
-    for (const [category, file] of Object.entries(formData.stagedFiles)) {
+    for (const staged of formData.stagedDocuments) {
       try {
-        await uploadDocument({ ownerType: 'PARTNER', ownerId: partner.id, category, file });
+        await uploadDocument({
+          ownerType: 'PARTNER',
+          ownerId: partner.id,
+          category: staged.category,
+          file: staged.capture.file,
+          issueDate: staged.capture.issueDate,
+          expiryDate: staged.capture.expiryDate,
+          issuer: staged.capture.issuer,
+        });
       } catch {
-        failed.push(category);
+        failed.push(staged.category);
       }
     }
     await queryClient.invalidateQueries({
@@ -720,7 +774,7 @@ export function PartnersPage() {
             key: 'transporter',
             label: 'Transporter',
             icon: Building2,
-            width: 'w-[34%]',
+            width: 'w-[30%]',
             card: 'identity',
             cell: (partner) => (
               <div className="flex min-w-0 items-center gap-2.5">
@@ -749,7 +803,7 @@ export function PartnersPage() {
             key: 'fleet',
             label: 'Fleet',
             icon: Truck,
-            width: 'w-[14%]',
+            width: 'w-[12%]',
             cardLabel: 'Fleet / drivers',
             /* Two counts of the same kind, set the same way. The vehicles
                figure was mono and bold while the drivers figure was plain 11px
@@ -816,10 +870,33 @@ export function PartnersPage() {
             },
           },
           {
+            key: 'documents',
+            label: 'Documents',
+            icon: FileText,
+            width: 'w-[18%]',
+            cardLabel: 'Documents',
+            cell: (partner) => (
+              <ComplianceCell
+                tally={
+                  complianceByPartner.get(partner.id) ?? {
+                    required: 0,
+                    valid: 0,
+                    expiring: 0,
+                    expired: 0,
+                    missing: 0,
+                    attention: 0,
+                  }
+                }
+                vehicles={partner.vehicles?.length ?? 0}
+                drivers={partner.drivers?.length ?? 0}
+              />
+            ),
+          },
+          {
             key: 'rating',
             label: 'Rating',
             icon: Star,
-            width: 'w-[18%]',
+            width: 'w-[14%]',
             cardLabel: 'Rating',
             cell: (partner) => {
               const summary = performanceByPartner.get(partner.id) ?? UNRATED;

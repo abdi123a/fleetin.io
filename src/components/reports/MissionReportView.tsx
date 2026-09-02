@@ -227,7 +227,7 @@ export function MissionReportView({ report, className }: MissionReportViewProps)
               whoever happened to touch it first. */}
           <TimeRail segments={segments} rampDirection="reverse" />
 
-          <div className="grid grid-cols-2 gap-x-5 gap-y-3 border-t border-border/60 pt-3.5 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-x-5 gap-y-3 border-t border-border/60 pt-3.5 @[34rem]/report:grid-cols-4">
             <ReportStat
               label="Longest single hold"
               value={custody.longest ? formatDuration(custody.longest.ms, { compact: true }) : '—'}
@@ -249,7 +249,7 @@ export function MissionReportView({ report, className }: MissionReportViewProps)
               tone={(kpis.waitTotalMs ?? 0) > 0 ? 'accent' : 'neutral'}
             />
             <ReportStat
-              label="Dépotage (client)"
+              label="Unstuffing (client)"
               value={formatDuration(kpis.depotageMs, { compact: true })}
               caption="delivered → empty ready"
             />
@@ -355,7 +355,7 @@ export function MissionReportView({ report, className }: MissionReportViewProps)
             </Badge>
           }
         >
-          <div className="grid gap-x-5 gap-y-3 sm:grid-cols-[170px_170px_minmax(0,1fr)]">
+          <div className="grid gap-x-5 gap-y-3 @[34rem]/report:grid-cols-[170px_170px_minmax(0,1fr)]">
             <ReportStat
               label="Responsible party"
               value={

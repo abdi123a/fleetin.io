@@ -96,11 +96,9 @@ const EmptyReturnModuleChrome = lazyWithRetry(
   'EmptyReturnModuleChrome',
 );
 const WorkspaceModuleChrome = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceModuleChrome');
-const WorkspaceInboxPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceInboxPage');
 const WorkspaceTasksPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceTasksPage');
 const WorkspaceTaskDetailPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceTaskDetailPage');
 const WorkspaceMessagesPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceMessagesPage');
-const WorkspaceAutomationPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceAutomationPage');
 const EmptyReturnControlTowerPage = lazyWithRetry(
   () => import('@/pages/empty-returns'),
   'ControlTowerPage',
@@ -262,8 +260,10 @@ export const routes: RouteObject[] = [
       {
         element: <WorkspaceModuleChrome />,
         children: [
-          { path: ROUTES.workspace, element: <Navigate to={ROUTES.workspaceInbox} replace /> },
-          { path: ROUTES.workspaceInbox, element: <WorkspaceInboxPage /> },
+          { path: ROUTES.workspace, element: <Navigate to={ROUTES.workspaceTasks} replace /> },
+          /* The Inbox was removed 2026-08-31 — the bell in the header carries
+             the same notifications, including assigned comments. */
+          { path: '/workspace/inbox', element: <Navigate to={ROUTES.workspaceTasks} replace /> },
           { path: ROUTES.workspaceTasks, element: <WorkspaceTasksPage /> },
           /* The three paths this screen replaced. Kept as redirects that carry
              the scope across, so a link somebody already wrote down still
@@ -272,7 +272,9 @@ export const routes: RouteObject[] = [
           { path: ROUTES.workspaceAssignedByMe, element: <Navigate to={`${ROUTES.workspaceTasks}?scope=raised`} replace /> },
           { path: ROUTES.workspaceAllTasks, element: <Navigate to={ROUTES.workspaceTasks} replace /> },
           { path: ROUTES.workspaceTaskDetail, element: <WorkspaceTaskDetailPage /> },
-          { path: ROUTES.workspaceAutomation, element: <WorkspaceAutomationPage /> },
+          /* Recurring tasks were removed 2026-08-31 — one rule ever existed and
+             it was a test one. The old path still lands somewhere real. */
+          { path: '/workspace/automation', element: <Navigate to={ROUTES.workspaceTasks} replace /> },
           { path: ROUTES.workspaceMessages, element: <WorkspaceMessagesPage /> },
           { path: ROUTES.workspaceChannel, element: <WorkspaceMessagesPage /> },
         ],

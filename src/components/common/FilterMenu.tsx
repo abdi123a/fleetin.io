@@ -1,7 +1,6 @@
-import { useMemo } from 'react';
+import { forwardRef, useMemo, type ButtonHTMLAttributes } from 'react';
 
 import {
-  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuLabel,
@@ -10,8 +9,63 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/design-system';
-import { ChevronDown, RotateCcw } from '@/design-system/icons';
+import { ChevronDown, RotateCcw, SlidersHorizontal } from '@/design-system/icons';
 import { cn } from '@/utils';
+
+export interface FilterTriggerProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  /** How many choices are away from their default. */
+  count?: number;
+  /** Whether the surface it opens is currently showing. */
+  open?: boolean;
+  label?: string;
+  className?: string;
+}
+
+/**
+ * THE filter button. One look, every list in the app.
+ *
+ * Exported on its own because not every filter surface is a dropdown: the
+ * Shipments toolbar opens a twelve-field grid, which is not something to put
+ * in a menu. That page had grown its own bordered "Filters" button while the
+ * ten surfaces using `FilterMenu` had a teal "Filter By:" pill — the same
+ * control with two faces, which is the thing this component was written to
+ * stop. Whatever opens, the button is this.
+ *
+ * Bordered and quiet by default, tinted once something is on. It used to be a
+ * filled teal pill, which made the *filter* the loudest object on a page whose
+ * subject is the list below it.
+ */
+export const FilterTrigger = forwardRef<HTMLButtonElement, FilterTriggerProps>(
+  function FilterTrigger({ count = 0, open = false, label = 'Filters', className, ...rest }, ref) {
+    return (
+      <button
+        ref={ref}
+        type="button"
+        aria-label={count > 0 ? `${label}, ${count} active` : label}
+        className={cn(
+          'flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-3 text-xs font-semibold transition-colors duration-fast',
+          open || count > 0
+            ? 'border-primary/30 bg-primary/10 text-primary'
+            : 'border-border bg-surface text-muted-foreground hover:text-foreground',
+          className,
+        )}
+        {...rest}
+      >
+        <SlidersHorizontal className="size-3.5" aria-hidden />
+        {label}
+        {count > 0 && (
+          <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-bold leading-5 text-primary">
+            {count}
+          </span>
+        )}
+        <ChevronDown
+          aria-hidden
+          className={cn('size-3.5 transition-transform duration-fast', open && 'rotate-180')}
+        />
+      </button>
+    );
+  },
+);
 
 /* ---------------------------------------------------------------------------
  * FilterMenu
@@ -90,7 +144,7 @@ const defaultOf = (group: FilterMenuGroup): string =>
 
 export function FilterMenu({
   groups,
-  label = 'Filter By:',
+  label = 'Filters',
   onReset,
   resetActive = false,
   className,
@@ -111,31 +165,7 @@ export function FilterMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          variant="primary"
-          size="sm"
-          className={cn('h-9 shrink-0 gap-2 rounded-full pl-4 pr-1.5', className)}
-          aria-label={`${label} ${changed.length} active`}
-        >
-          {/* Not `type-label`: that utility is uppercase by definition, for
-             field labels and table headers. This is a button, and it sits
-             beside a search field at the same text size. */}
-          <span className="text-xs font-semibold">{label}</span>
-          {changed.length > 0 && (
-            /* On a filled teal surface the count cannot be a coloured chip —
-               it borrows the foreground at low opacity instead, the same way
-               the FilterBar tabs tint their counts. */
-            <span className="rounded-full bg-primary-foreground/20 px-1.5 text-[10px] font-semibold leading-5">
-              {changed.length}
-            </span>
-          )}
-          <span
-            aria-hidden
-            className="flex size-6 items-center justify-center rounded-full bg-primary-foreground/20"
-          >
-            <ChevronDown className="size-3.5" />
-          </span>
-        </Button>
+        <FilterTrigger count={changed.length} label={label} className={className} />
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="end" className="w-56">

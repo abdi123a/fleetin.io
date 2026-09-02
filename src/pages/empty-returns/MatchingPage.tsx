@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { format, parse } from 'date-fns';
+
+import { buildPath, ROUTES } from '@/config/routes';
 
 import {
   Button,
@@ -18,11 +20,17 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowLeftRight,
+  ArrowRight,
   CheckCircle2,
   RotateCcw,
   X,
 } from '@/design-system/icons';
-import { detentionFor, formatDetention, riskTextClass } from '@/data/emptyReturnData';
+import {
+  detentionFor,
+  formatContainerSize,
+  formatDetention,
+  riskTextClass,
+} from '@/data/emptyReturnData';
 import {
   defaultPlannedReturn,
   incompatibleLoadsFor,
@@ -155,8 +163,27 @@ export function MatchingPage() {
     }
   };
 
+  /*
+   * Where the operator came from, if they came from a shipment.
+   *
+   * Matching became a full page on 2026-08-29, and a page has no "close" — so
+   * somebody who opened it from a booking to solve one container's problem
+   * confirmed the pairing and was left standing on the Empty Container board
+   * with no way back to the job they were doing. This is that way back.
+   */
+  const cameFrom = searchParams.get('from');
+
   return (
     <div className="flex w-full min-w-0 flex-col gap-4">
+      {cameFrom && (
+        <Link
+          to={buildPath(ROUTES.shipmentOverview, { id: cameFrom })}
+          className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors duration-fast hover:text-foreground"
+        >
+          <ArrowLeft className="size-3.5" aria-hidden />
+          Back to shipment <Mono className="font-semibold">{cameFrom}</Mono>
+        </Link>
+      )}
       {/* v19's confirmation banner. It draws the two containers rather than
           naming them in prose, because "which box went out under which" is the
           one fact an operator re-checks after committing. */}
@@ -165,6 +192,17 @@ export function MatchingPage() {
           <div className="flex items-center gap-2">
             <CheckCircle2 className="size-4 shrink-0" aria-hidden />
             <b>Pairing confirmed</b>
+            {cameFrom && (
+              /* The moment the job is done is the moment somebody wants to
+                 leave — so the way out sits in the banner that says it. */
+              <Link
+                to={buildPath(ROUTES.shipmentOverview, { id: cameFrom })}
+                className="ml-2 inline-flex items-center gap-1 font-semibold underline-offset-2 hover:underline"
+              >
+                Back to {cameFrom}
+                <ArrowRight className="size-3.5" aria-hidden />
+              </Link>
+            )}
             <button
               type="button"
               onClick={() => setLastPairing(null)}
@@ -274,7 +312,7 @@ export function MatchingPage() {
                     calibrated for a white page; on this ground it reads as text
                     that landed on the card by accident. */}
                 <div className="mt-1 truncate text-[11px] font-medium text-container-empty-subtle-foreground">
-                  {record.line} · {record.size} · {record.locationName}
+                  {record.line} · {formatContainerSize(record.size)} · {record.locationName}
                 </div>
                 <div className={cn('font-mono text-[11px] font-bold', riskTextClass(risk))}>
                   {record.deadline === null
@@ -435,7 +473,7 @@ export function MatchingPage() {
                         {load.shipmentReference ?? load.id}
                       </Mono>
                       <span className="text-[11px] text-muted-foreground">
-                        {load.line} · {load.size}
+                        {load.line} · {formatContainerSize(load.size)}
                       </span>
                     </div>
                     <div className="mt-1 text-[10px] text-destructive">
@@ -514,7 +552,7 @@ function PlanReturnDialog({
               {record.container || record.bookingReference}
             </Mono>
             <span>
-              {record.line} · {record.size}
+              {record.line} · {formatContainerSize(record.size)}
             </span>
           </div>
         </DialogHeader>
@@ -587,11 +625,33 @@ function PlanReturnDialog({
  * One opportunity
  * ------------------------------------------------------------------------- */
 
-/** v19's compatibility checklist — the three facts the gate actually turned on. */
+/**
+ * The compatibility checklist — what this particular pairing turns on.
+ *
+ * The shipping line is **read**, not asserted. It used to be hardcoded to
+ * `Same shipping line ✓`, which was safe only while the line was a gate: once
+ * it stopped being one (2026-08-30, see `incompatibilityReasons`) a cross-line
+ * pairing started reaching this card, and a hardcoded tick would have printed
+ * a claim about the paperwork that was simply false. It now says which case it
+ * is — and when the lines differ that is a *note*, not a warning, because
+ * nothing is wrong: the tone stays with the passing items and only the wording
+ * changes.
+ *
+ * Size and the deadline are still the gates, so those two can be asserted:
+ * nothing incompatible on either reaches a suggestion at all.
+ */
 function CompatChecklist({ suggestion }: { suggestion: PairingSuggestion }) {
   const tight = suggestion.tight;
+  const { line: emptyLine } = suggestion.record;
+  const { line: loadLine } = suggestion.load;
+  const sameLine = Boolean(emptyLine) && emptyLine === loadLine;
   const items: { ok: boolean; label: string }[] = [
-    { ok: true, label: 'Same shipping line' },
+    {
+      ok: true,
+      label: sameLine
+        ? 'Same shipping line'
+        : `Across lines — ${emptyLine ?? 'unrecorded'} → ${loadLine ?? 'unrecorded'}`,
+    },
     { ok: true, label: 'Same container size' },
     { ok: !tight, label: tight ? 'Tight window — under 6h of margin' : 'Pickup beats the deadline' },
   ];
@@ -712,7 +772,7 @@ function SuggestionCard({
             {load.shipmentReference ?? load.id}
           </Mono>
           <span className="truncate text-xs text-muted-foreground">
-            {load.line} · {load.size}
+            {load.line} · {formatContainerSize(load.size)}
           </span>
         </div>
         <span className="shrink-0 rounded-full border border-stage-paired-border bg-stage-paired-subtle px-2 py-0.5 text-[10px] font-bold text-stage-paired-subtle-foreground">

@@ -1,3 +1,4 @@
+import { SheetHeading } from '@/components/common';
 import { useState, type FormEvent } from 'react';
 
 import { ChevronDown, ChevronRight, Landmark, Plus, TrendingUp } from '@/design-system/icons';
@@ -136,14 +137,14 @@ export function FinanceFundingPage() {
 
       <Sheet open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <SheetContent side="right" className="flex h-full w-full flex-col gap-0 overflow-hidden border-l border-border bg-background p-0 sm:max-w-md">
-          <div className="shrink-0 space-y-1 border-b border-border/40 px-6 pb-4 pt-6 sm:px-8 sm:pt-8">
-            <SheetTitle className="flex items-center gap-2 text-xl font-extrabold tracking-tight text-foreground">
+          <SheetHeading
+            titleComponent={SheetTitle}
+            descriptionComponent={SheetDescription}
+            title={<>
               <Landmark className="h-5 w-5 text-primary" /> New Facility
-            </SheetTitle>
-            <SheetDescription className="text-xs text-muted-foreground">
-              A revolving line or fixed facility to draw from before a shipper settles.
-            </SheetDescription>
-          </div>
+            </>}
+            description="A revolving line or fixed facility to draw from before a shipper settles."
+          />
 
           <form onSubmit={handleCreate} className="flex min-h-0 flex-1 flex-col">
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5 sm:px-8">

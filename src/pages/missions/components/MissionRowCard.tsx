@@ -18,6 +18,9 @@ import {
   ChevronRight,
   MapPin,
   ArrowRight,
+  ContainerIcon,
+  Package,
+  Wrench,
 } from '@/design-system/icons';
 import { useNavigate } from 'react-router-dom';
 import { ROUTES, buildPath } from '@/config/routes';
@@ -36,6 +39,36 @@ interface MissionRowCardProps {
    * shipper who has no logo on file.
    */
   shipperLogoUrl?: string;
+  /** Nobody has opened this one yet — see `@/features/shipments/seenShipments`. */
+  isNew?: boolean;
+}
+
+/**
+ * What kind of load this is, in one word.
+ *
+ * The category is the honest source — `cargoType` is a sentence written for the
+ * booking ("Containerized (40ft HC Sugar)") and its first word is only
+ * incidentally the type. Falls back to that first word for a shipment recorded
+ * before the category existed, and to "Shipment" for one that has neither.
+ */
+type ShipmentType = { label: string; Icon: typeof ContainerIcon };
+
+const SHIPMENT_TYPE: Record<string, ShipmentType> = {
+  container_20: { label: 'Containerized', Icon: ContainerIcon },
+  container_40: { label: 'Containerized', Icon: ContainerIcon },
+  container_40hc: { label: 'Containerized', Icon: ContainerIcon },
+  containerized: { label: 'Containerized', Icon: ContainerIcon },
+  bulk: { label: 'Bulk', Icon: Package },
+  bulky_goods: { label: 'Bulky goods', Icon: Package },
+  machinery: { label: 'Machinery', Icon: Wrench },
+  special: { label: 'Special', Icon: Package },
+};
+
+function shipmentType(mission: Mission): ShipmentType {
+  const fromCategory = mission.shipmentCategory && SHIPMENT_TYPE[mission.shipmentCategory];
+  if (fromCategory) return fromCategory;
+  const firstWord = mission.cargoType?.trim().split(/[\s(]/)[0];
+  return { label: firstWord || 'Shipment', Icon: Package };
 }
 
 export const MissionRowCard: React.FC<MissionRowCardProps> = ({
@@ -43,6 +76,7 @@ export const MissionRowCard: React.FC<MissionRowCardProps> = ({
   onClick,
   showPartnerInfo = true,
   shipperLogoUrl,
+  isNew = false,
 }) => {
   const navigate = useNavigate();
 
@@ -64,6 +98,7 @@ export const MissionRowCard: React.FC<MissionRowCardProps> = ({
       ? mission.transporters
       : [{ id: mission.transporter.id, name: mission.transporter.company }];
 
+  const cargo = shipmentType(mission);
   const hasContainer = carriesContainer(mission);
   const containerState = containerStateOf(mission.status, hasContainer);
   const progress = shipmentProgress(mission.status, hasContainer);
@@ -82,19 +117,78 @@ export const MissionRowCard: React.FC<MissionRowCardProps> = ({
       className="relative overflow-hidden rounded-lg border border-border/80 bg-card text-foreground shadow-2xs hover:shadow-md hover:border-primary/40 transition duration-200 cursor-pointer group"
     >
       {/* ── CORNER BADGE ── */}
-      <div className="absolute top-0 left-0 z-10 select-none">
-        {/* The shipment's own reference. This used to print `bookingId`, a
-            field holding a `Date.now()`-derived `BKG-#####` that matched no
-            booking anywhere — so the number on this card identified nothing. */}
-        <CornerBadge
-          label={`Shipment# ${mission.id}`}
-          intent={statusCornerIntentOf(mission.status)}
-          position="top"
-        />
+      {/* A column, not a row: the reference on top and the type beneath it. */}
+      <div className="absolute top-0 left-0 z-10 flex select-none flex-col items-start gap-1">
+        <div className="flex items-center gap-1.5">
+        {/* The reference, and nothing else.
+         *
+         * This has been five shapes, and the last one stacked the cargo type
+         * under the reference inside the tab. Two unlike facts in one block: a
+         * reference is the key you look a row up by, a cargo type is a facet
+         * you scan and filter by, and pairing them cost both. The type ended up
+         * at 9.5px and 85% opacity — the smallest, faintest text on the page —
+         * inside the card's heaviest element, and the second line pushed the
+         * whole body down 44px to clear it.
+         *
+         * So the tab holds the identifier at the size and caps it always had,
+         * and the type moved to the meta row, where the rest of the load's
+         * facts already live and where it is full-size and full-strength.
+         *
+         * This used to print `bookingId`, a `Date.now()`-derived `BKG-#####`
+         * that matched no booking anywhere — so the number identified nothing.
+         */}
+          <CornerBadge
+            label={`Shipment# ${mission.id}`}
+            /* `'shipment'` — this card IS a shipment, so its tab wears the
+               four-state rollup, not a container's seven-step rung. */
+            intent={statusCornerIntentOf(mission.status, 'shipment')}
+            position="top"
+          />
+
+          {isNew && (
+            <span
+              title="Nobody has opened this shipment yet"
+              className="shrink-0 rounded-full bg-success px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-widest text-success-foreground"
+            >
+              New
+            </span>
+          )}
+        </div>
+
+        {/* What kind of load, as its own object.
+         *
+         * It sat inside the tab as a 9.5px dimmed sub-line and read as an
+         * afterthought stuck to the reference. It belongs at the top — it is
+         * the fact that decides what the rest of the row means, since a
+         * containerized job owes an empty back and a bulk one is finished at
+         * the drop-off — but it is a facet, not an identifier, so it gets its
+         * own shape under the tab rather than a second line inside it.
+         *
+         * `ml-4` puts its left edge on the card's content column, so it lines
+         * up with the shipper's mark, the route bar and the meta row below it
+         * rather than hanging off the card's own edge the way the tab does.
+         *
+         * Neutral fill, brand glyph. The tab and the status chip already carry
+         * the ladder's colour on this card, so a third coloured thing would be
+         * read as a third status; the icon and the pill's own edge are what
+         * make it carry, not a hue. The glyph is `primary-bold` rather than
+         * `primary` — the brand teal lands at 2.97:1 on this fill, just under
+         * the 3:1 a non-text graphic needs, and the brand colour itself never
+         * moves down the ramp to solve contrast. */}
+        <span className="ml-4 inline-flex shrink-0 items-center gap-1 rounded-full border border-border-strong bg-secondary px-2 py-0.5 shadow-2xs">
+          <cargo.Icon className="size-3 shrink-0 text-primary-bold" />
+          <span className="text-[10px] font-bold uppercase tracking-wide text-foreground">
+            {cargo.label}
+          </span>
+        </span>
+
       </div>
 
       {/* ── CARD BODY — 3 lines: header, route, meta+actions ── */}
-      <div className="pt-9 px-4 pb-3 space-y-2">
+      {/* `pt-15`: a 27px tab, a 4px gap and a 21px chip stacked under it — 52px
+          — plus the ~8px of air the card has always kept between the corner
+          block and the shipper's row. */}
+      <div className="pt-15 px-4 pb-3 space-y-2">
 
         {/* ── LINE 1: Shipper + DPCS + Status ── */}
         <div className="flex items-center justify-between gap-3">
@@ -152,13 +246,19 @@ export const MissionRowCard: React.FC<MissionRowCardProps> = ({
           <span className="font-semibold text-foreground truncate">{mission.deliveryLocation.name}</span>
         </div>
 
-        {/* ── LINE 3: Meta (cargo · transporter · distance) + actions ── */}
+        {/* ── LINE 3: Meta (date · transporter · distance) + actions ── */}
         <div className="flex items-center justify-between gap-3 pt-1.5 border-t border-border/60">
           <div className="flex items-center gap-1.5 min-w-0 text-[11px] text-muted-foreground truncate">
-            <span className="font-bold text-foreground">{mission.scheduledPickupTime}</span>
+            <span className="font-bold text-foreground" title="Created">
+              {mission.createdAt}
+            </span>
             <span>·</span>
-            <span className="font-mono font-bold text-primary">
-              {(mission.totalWeightKg / 1000).toFixed(0)}t {mission.cargoType}
+            {/* How many trucks this shipment puts on the road. One booking per
+                container is what the wizard mints, so this is also the box
+                count — and it is the number that makes the kilometres at the
+                end of the row make sense. */}
+            <span className="shrink-0 font-bold text-foreground">
+              {drive.containers} {drive.containers === 1 ? 'booking' : 'bookings'}
             </span>
             {showPartnerInfo && transporters.length > 0 && (
               <>

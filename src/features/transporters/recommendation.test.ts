@@ -30,7 +30,7 @@ const empty = (partnerId: string, over: Partial<EmptyReturnBookingRecord> = {}) 
 const run = (
   partners: PartnerRecord[],
   available: EmptyReturnBookingRecord[],
-  rate: (partner: PartnerRecord) => number = () => 65_000,
+  ratingOf?: (partner: PartnerRecord) => number | null,
 ) =>
   recommendTransporters({
     partners,
@@ -39,8 +39,8 @@ const run = (
     sizes: ["40'"],
     pickupAt: NOW + 12 * H,
     vehiclesNeeded: 1,
-    rateOf: rate,
     considerEmpties: true,
+    ratingOf,
   });
 
 /** ranked[i] under `noUncheckedIndexedAccess` — a missing row fails the test, loudly. */
@@ -111,12 +111,15 @@ describe('transporter recommendation — the score has to mean something', () =>
     expect(at(ranked, 0).emptiesHeld).toBe(0);
   });
 
-  it('prefers the cheaper carrier when everything else is equal', () => {
-    const { ranked } = run(
-      [partner('DEAR', 5), partner('CHEAP', 5)],
-      [],
-      (p) => (p.companyLegalName === 'CHEAP' ? 50_000 : 90_000),
+  /* Price was a dimension until 2026-08-31, when partner price lists were
+     removed: there is no per-carrier rate left to compare and the shipment's
+     price is entered by the operator. The tie-break that replaced it is the
+     carrier's own record, which is the only thing left that separates two
+     carriers with the same fleet. */
+  it('prefers the better-rated carrier when everything else is equal', () => {
+    const { ranked } = run([partner('POOR', 5), partner('GOOD', 5)], [], (p) =>
+      p.companyLegalName === 'GOOD' ? 4.8 : 2.1,
     );
-    expect(at(ranked, 0).name).toBe('CHEAP');
+    expect(at(ranked, 0).name).toBe('GOOD');
   });
 });

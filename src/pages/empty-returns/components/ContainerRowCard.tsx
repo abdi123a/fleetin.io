@@ -8,8 +8,13 @@ import {
   Package,
   RotateCcw,
 } from '@/design-system/icons';
-import { detentionFor, formatDetention, riskTextClass } from '@/data/emptyReturnData';
-import { useEmptyContainerActions } from '@/features/empty-returns';
+import {
+  detentionFor,
+  formatContainerSize,
+  formatDetention,
+  riskTextClass,
+} from '@/data/emptyReturnData';
+import { useEmptyContainerActions, useReturnProofPrompt } from '@/features/empty-returns';
 import {
   achievedMarginOf,
   formatSpan,
@@ -88,7 +93,7 @@ export function ContainerRowCard({ record, now, onOpen }: ContainerRowCardProps)
             />
             <RecordStateTag record={record} small className="shrink-0" />
             <span className="shrink-0 whitespace-nowrap text-[11px] text-muted-foreground">
-              {record.size} · {record.line}
+              {formatContainerSize(record.size)} · {record.line}
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
@@ -257,24 +262,31 @@ function NextAction({
   onOpen: ContainerRowCardProps['onOpen'];
 }) {
   const actions = useEmptyContainerActions();
+  const returnProof = useReturnProofPrompt();
   const risk = riskOf(record, now);
 
   if (record.stage === 'closed' || record.stage === 'paired') return null;
 
   if (record.stage === 'return_planned') {
     return (
-      <Button
-        variant="primary"
-        size="sm"
-        onClick={(event) => {
-          event.stopPropagation();
-          void actions.confirmReturn(record);
-        }}
-        disabled={actions.isBusy}
-        className="h-7 shrink-0 gap-1 rounded-lg px-2.5 text-xs"
-      >
-        <CheckCircle2 className="size-3" /> Confirm return
-      </Button>
+      <>
+        <Button
+          variant="primary"
+          size="sm"
+          /* Asks for the depot receipt first — see `useReturnProofPrompt`. The
+             dialog is a sibling of the button so a row can raise it without
+             the queue owning any of this. */
+          onClick={(event) => {
+            event.stopPropagation();
+            returnProof.prompt(record);
+          }}
+          disabled={returnProof.busy}
+          className="h-7 shrink-0 gap-1 rounded-lg px-2.5 text-xs"
+        >
+          <CheckCircle2 className="size-3" /> Confirm return
+        </Button>
+        {returnProof.dialog}
+      </>
     );
   }
 

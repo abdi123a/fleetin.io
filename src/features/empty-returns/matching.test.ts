@@ -43,19 +43,25 @@ const load = (over: Partial<FullLoadMission> = {}) =>
     ...over,
   }) as FullLoadMission;
 
-/* The v19 gates, adopted 2026-08-29 — same line, same size, pickup inside the
-   deadline. This REPLACES the 2026-08-27 rule (same transporter, line never
-   vetoes); both cannot hold, and the newer decision is the user's. These tests
-   are the mirror of `empty-return-matching.util.spec.ts` in the backend, which
-   now serves the same engine — they must not be allowed to drift. */
+/* The gates as they stand: same size, pickup inside the deadline. Line was a
+   gate for one day (v19, 2026-08-29) and the user removed it on 2026-08-30 —
+   a pairing across two lines is still a pairing. Transporter has not gated
+   since v19. These tests are the mirror of `empty-return-matching.util.spec.ts`
+   in the backend, which serves the same engine — they must not be allowed to
+   drift. */
 describe('compatibility gates', () => {
   it('accepts a pairing that matches on line, size and beats the deadline', () => {
     expect(incompatibilityReasons(record(), load(), NOW)).toEqual([]);
   });
 
-  it('refuses a different shipping line — the line owns the equipment', () => {
-    const issues = incompatibilityReasons(record({ line: 'MSC' }), load({ line: 'CMA CGM' }), NOW);
-    expect(issues.join(' ')).toContain('Different shipping line');
+  it('allows a different shipping line — it is a note on the pairing, not a veto', () => {
+    expect(incompatibilityReasons(record({ line: 'MSC' }), load({ line: 'CMA CGM' }), NOW)).toEqual(
+      [],
+    );
+  });
+
+  it('allows a pairing even when one side has no line recorded', () => {
+    expect(incompatibilityReasons(record({ line: undefined }), load(), NOW)).toEqual([]);
   });
 
   it('no longer cares who the transporter is — dispatch can re-assign a truck', () => {
@@ -128,10 +134,9 @@ describe('arrangeable frictions', () => {
     expect(frictionsFor(empty, load(), NOW).map((f) => f.kind)).toEqual(['no-deadline']);
   });
 
-  it('still refuses the two things nobody can arrange', () => {
-    expect(incompatibilityReasons(record(), load({ line: 'CMA CGM' }), NOW).join(' ')).toContain(
-      'Different shipping line',
-    );
+  it('still refuses the one thing nobody can arrange', () => {
+    /* Size is physics — a 40HC box does not go on a 20' chassis, and no phone
+       call changes that. It is the only gate left on equipment. */
     expect(incompatibilityReasons(record(), load({ size: "20'" }), NOW)).toEqual([
       'Different container size',
     ]);
@@ -210,7 +215,7 @@ describe('the ladder a load walks', () => {
       'Created',
       'Picked Up',
       'Delivered',
-      'Depotage',
+      'Unstuffing',
       'Empty Ready',
       'Empty Picked Up',
       'Empty Returned',

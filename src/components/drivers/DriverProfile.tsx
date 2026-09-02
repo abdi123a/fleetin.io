@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { AlertTriangle, Building2 } from 'lucide-react';
+import { Building2 } from 'lucide-react';
 import { ContainerIcon, ExternalLink, Phone, Star, User } from '@/design-system/icons';
 import {
   Button,
@@ -10,12 +10,12 @@ import {
   SheetDescription,
   SheetTitle,
 } from '@/design-system';
+import { ExpiryLabel } from '@/components/common';
 import { PerformancePanel } from '@/components/performance';
 import { PanelHeader } from '@/components/panels';
 import type { PerformanceSummary } from '@/lib/rating';
 import type { OperationalStatus, PartnerDriver } from '@/types/partner';
 import { cn, isDriverVerified } from '@/utils';
-import { toDateOnly } from '@/utils/format';
 
 /**
  * One driver's read-only profile — the same body wherever it is opened.
@@ -50,39 +50,12 @@ export function DriverStatusPill({ status }: { status: OperationalStatus }) {
   );
 }
 
-/** Expired, or expiring inside a month — the two states worth a colour. */
-export function expiryState(dateStr?: string): 'expired' | 'soon' | 'ok' {
-  if (!dateStr) return 'ok';
-  const date = new Date(dateStr);
-  const now = new Date();
-  if (date < now) return 'expired';
-  return (date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24) <= 30 ? 'soon' : 'ok';
-}
-
-export function DriverExpiryLabel({ date, label }: { date?: string; label: string }) {
-  if (!date) return null;
-  const state = expiryState(date);
-  /* The drivers endpoint trims its dates; the partners endpoint hands the same
-     field over as a full ISO datetime. Trim here so the label reads the same
-     whichever list the driver was picked out of. */
-  const shown = toDateOnly(date) ?? date;
-  return (
-    <div className="text-2xs">
-      {label && <span className="block text-[10px] text-muted-foreground">{label}</span>}
-      <span
-        className={cn(
-          'flex items-center gap-1',
-          state === 'expired' && 'font-semibold text-destructive-subtle-foreground',
-          state === 'soon' && 'font-semibold text-warning-subtle-foreground',
-          state === 'ok' && 'text-foreground',
-        )}
-      >
-        {state !== 'ok' && <AlertTriangle className="h-3 w-3 shrink-0" />}
-        {shown}
-      </span>
-    </div>
-  );
-}
+/**
+ * Kept as a name, not as a component: `@/components/drivers` has exported this
+ * since the driver panel was built, and a licence expiry is the same fact as a
+ * truck's insurance expiry — one grading, in `ExpiryLabel`.
+ */
+export const DriverExpiryLabel = ExpiryLabel;
 
 export interface DriverProfileHeaderProps {
   driver: PartnerDriver;
@@ -205,7 +178,7 @@ export function DriverProfileOverview({
           </div>
           <div className="min-w-0">
             <span className="block text-[10px] text-muted-foreground">License Expiry</span>
-            <DriverExpiryLabel date={driver.licenseExpiry} label="" />
+            <DriverExpiryLabel date={driver.licenseExpiry} />
           </div>
         </div>
       </section>

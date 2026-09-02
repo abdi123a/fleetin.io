@@ -56,7 +56,7 @@ export const DELAY_REASONS = [
 export type DelayReason = (typeof DELAY_REASONS)[number];
 
 export const DELAY_REASON_LABELS: Record<DelayReason, string> = {
-  late_depotage: 'Late dépotage',
+  late_depotage: 'Late unstuffing',
   container_not_ready: 'Container not ready',
   truck_unavailable: 'Truck unavailable',
   driver_delay: 'Driver delay',

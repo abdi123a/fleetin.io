@@ -34,8 +34,8 @@ const DISPLAY_STATUS_GROUP: Record<string, string> = {
   Loaded: 'Picked Up',
   'En Route': 'Delivered',
   Arrived: 'Delivered',
-  Unloading: 'Depotage',
-  'POD Submitted': 'Depotage',
+  Unloading: 'Unstuffing',
+  'POD Submitted': 'Unstuffing',
   'Empty Ready': 'Empty Ready',
   'Empty Picked Up': 'Empty Picked Up',
   Completed: 'Empty Returned',
@@ -60,7 +60,7 @@ export const SHIPMENT_STEPS: readonly { rung: string; label: string }[] = [
   { rung: 'Pending', label: 'Created' },
   { rung: 'Loaded', label: 'Picked Up' },
   { rung: 'Arrived', label: 'Delivered' },
-  { rung: 'POD Submitted', label: 'Depotage' },
+  { rung: 'POD Submitted', label: 'Unstuffing' },
   { rung: 'Empty Ready', label: 'Empty Ready' },
   { rung: 'Empty Picked Up', label: 'Empty Picked Up' },
   { rung: 'Completed', label: 'Empty Returned' },
@@ -178,13 +178,51 @@ export function stepRungFor(status: string): string {
  * home and the job is over. Reading "Empty Returned" on a four-container
  * shipment invited the question "which empty?".
  */
+/**
+ * The four words a WHOLE SHIPMENT is described by — the user's ruling,
+ * 2026-09-01.
+ *
+ * A shipment is many containers. The seven-step ladder is the right grain for
+ * one of them — a booking genuinely is at Unstuffing rather than at Delivered
+ * — but rolled up over a job with four boxes on it, that precision is noise:
+ * you want to know whether the job is starting, running, coming home or done.
+ *
+ * So the shipment speaks four:
+ *
+ * | Shipment says | Because its containers are at |
+ * |---|---|
+ * | **Created** | Created |
+ * | **In Transit** | Picked Up · Delivered · Unstuffing |
+ * | **Empty Return** | Empty Ready · Empty Picked Up |
+ * | **Completed** | Empty Returned |
+ *
+ * The BOOKING ladder is deliberately untouched — the user was explicit. A
+ * container keeps all seven steps, its own colours, and its own picker; only
+ * the badge over the shipment gets coarser.
+ *
+ * Note what this costs, on purpose: Unstuffing's red — the one rung the user
+ * once asked to be visible across the room, because it starts the detention
+ * clock — is not a shipment-level state any more, and reads as In Transit
+ * green there. It is still red on the booking, which is the thing that
+ * actually owes the clock.
+ */
+const SHIPMENT_DISPLAY_GROUP: Record<string, string> = {
+  Created: 'Created',
+  'Picked Up': 'In Transit',
+  Delivered: 'In Transit',
+  Unstuffing: 'In Transit',
+  'Empty Ready': 'Empty Return',
+  'Empty Picked Up': 'Empty Return',
+  'Empty Returned': 'Completed',
+};
+
 export function displayShipmentStatus(
   status: string,
   scope: 'booking' | 'shipment' = 'booking',
 ): string {
   const label = DISPLAY_STATUS_GROUP[status] ?? status;
-  if (scope === 'shipment' && label === 'Empty Returned') return 'Completed';
-  return label;
+  if (scope !== 'shipment') return label;
+  return SHIPMENT_DISPLAY_GROUP[label] ?? label;
 }
 
 /** Every status of the pickup leg — the truck is working, but the container hasn't left yet. */
@@ -219,23 +257,86 @@ export const PICKUP_LEG_STATUSES: readonly string[] = [
  *   *owes a return*, which is the same amber the container-state scale uses for
  *   an empty box; the two systems agree here on purpose.
  * - **Empty Returned** — slate. Home, closed, nothing owed.
+ *
+ * ## Two rungs to a phase, two steps to a colour (2026-09-01)
+ *
+ * Green and amber each cover two rungs, and one flat colour across a pair left
+ * the picker unable to say which of the two a booking had reached — Picked Up
+ * and Delivered were the same dot, and so were Empty Ready and Empty Picked Up.
+ * The later rung of each pair now takes the `-deep` step of the same ramp.
+ *
+ * A step, not a hue. The four phases still read as four colours from across a
+ * desk; the depth answers "how far into this one" on the second look. Anything
+ * that speaks in phases — the `Badge`, the card's corner tab — folds the deep
+ * variants back onto their phase below, because a within-phase step is not
+ * something those primitives are for.
  */
 const STEP_INTENT: Record<string, StatusIntent> = {
   Created: 'teal',
   'Picked Up': 'green',
-  Delivered: 'green',
-  Depotage: 'green',
+  Delivered: 'green-deep',
+  /* Red, and alone in it. Unstuffing is the client's own step and the one that
+     starts the detention clock, so the user asked for it to be visible from
+     across the room — the booking's badge, its corner tab and its rung in the
+     picker all take this. Every other rung keeps its phase. */
+  Unstuffing: 'red',
   'Empty Ready': 'orange',
-  'Empty Picked Up': 'orange',
+  'Empty Picked Up': 'orange-deep',
   'Empty Returned': 'slate',
 };
 
-export function statusIntentOf(status: string): StatusIntent {
-  const step = STEP_INTENT[displayShipmentStatus(status)];
+/**
+ * The four general states, in the same colour language as the seven.
+ *
+ * Not a new palette — each takes the colour its own group already wore:
+ * teal starting, green running, amber owing a return, slate closed.
+ */
+const SHIPMENT_STEP_INTENT: Record<string, StatusIntent> = {
+  Created: 'teal',
+  'In Transit': 'green',
+  'Empty Return': 'orange',
+  Completed: 'slate',
+};
+
+export function statusIntentOf(
+  status: string,
+  scope: 'booking' | 'shipment' = 'booking',
+): StatusIntent {
+  const label = displayShipmentStatus(status, scope);
+  const step = scope === 'shipment' ? SHIPMENT_STEP_INTENT[label] : STEP_INTENT[label];
   if (step) return step;
   // Off the ladder entirely — `Payment Pending` still reads as money waiting.
   if (status === 'Payment Pending') return 'orange';
   return 'slate';
+}
+
+/**
+ * The status's PHASE, with the within-phase step folded away.
+ *
+ * `statusIntentOf` distinguishes the two rungs inside green and inside amber
+ * (`green-deep`, `orange-deep`) so the picker can show which of the two a
+ * booking has reached. Most callers do not want that distinction — they are
+ * asking "is this in transit?" or "does this owe a return?" — and an equality
+ * test against `'green'` silently stopped matching Delivered the day those
+ * steps were added. Three did: the shipment masthead's slab and two counts on
+ * the reports panel, all of which went quietly wrong rather than failing.
+ *
+ * Ask this when you mean the phase. Ask `statusIntentOf` when you mean the
+ * exact rung's colour.
+ */
+export type StatusPhase = 'teal' | 'orange' | 'green' | 'blue' | 'red' | 'slate';
+
+export function phaseOfIntent(intent: StatusIntent): StatusPhase {
+  if (intent === 'green-deep') return 'green';
+  if (intent === 'orange-deep') return 'orange';
+  return intent;
+}
+
+export function statusPhaseOf(
+  status: string,
+  scope: 'booking' | 'shipment' = 'booking',
+): StatusPhase {
+  return phaseOfIntent(statusIntentOf(status, scope));
 }
 
 /**
@@ -250,16 +351,39 @@ export function statusIntentOf(status: string): StatusIntent {
  */
 export function statusBadgeIntentOf(
   status: string,
-): 'primary' | 'success' | 'warning' | 'info' | 'default' {
-  switch (statusIntentOf(status)) {
+  scope: 'booking' | 'shipment' = 'booking',
+):
+  | 'primary'
+  | 'success'
+  | 'success-deep'
+  | 'warning'
+  | 'warning-deep'
+  | 'info'
+  | 'destructive'
+  | 'default' {
+  /* The deep step is CARRIED, not folded away.
+   *
+   * It used to fold back onto its phase, on the reasoning that a within-phase
+   * step was something only the picker drew. That left one rung wearing two
+   * colours on one screen: a card badged "Empty Picked Up" in mid amber, with
+   * the picker hanging off that very badge drawing the same rung a step
+   * deeper. Hue says the phase and depth says how far into it — a badge that
+   * keeps the hue and drops the depth is telling half of what it knows. */
+  switch (statusIntentOf(status, scope)) {
     case 'teal':
       return 'primary';
     case 'green':
       return 'success';
+    case 'green-deep':
+      return 'success-deep';
     case 'orange':
       return 'warning';
+    case 'orange-deep':
+      return 'warning-deep';
     case 'blue':
       return 'info';
+    case 'red':
+      return 'destructive';
     default:
       return 'default';
   }
@@ -277,14 +401,23 @@ export function statusBadgeIntentOf(
  */
 export function statusCornerIntentOf(
   status: string,
-): 'teal' | 'green' | 'orange' | 'blue' | 'ink' {
-  switch (statusIntentOf(status)) {
+  scope: 'booking' | 'shipment' = 'booking',
+): 'teal' | 'green' | 'green-deep' | 'orange' | 'orange-deep' | 'blue' | 'red' | 'ink' {
+  /* Same ramp as the badge — the tab and the badge on one card must not
+     disagree about how far along the phase the booking is. */
+  switch (statusIntentOf(status, scope)) {
     case 'green':
       return 'green';
+    case 'green-deep':
+      return 'green-deep';
     case 'orange':
       return 'orange';
+    case 'orange-deep':
+      return 'orange-deep';
     case 'blue':
       return 'blue';
+    case 'red':
+      return 'red';
     case 'slate':
       return 'ink';
     default:

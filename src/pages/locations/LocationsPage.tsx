@@ -1,3 +1,4 @@
+import { SheetHeading } from '@/components/common';
 import { useState } from 'react';
 import { CheckCircle2, Plus, X } from '@/design-system/icons';
 import { PageHeader, TablePager, usePagedRows } from '@/components';
@@ -142,14 +143,12 @@ export function LocationsPage() {
           side="right"
           className="flex h-full w-full flex-col gap-0 overflow-hidden border-l border-border bg-background p-0 sm:max-w-md"
         >
-          <div className="shrink-0 space-y-1 border-b border-border/40 px-6 pb-4 pt-6 sm:px-8 sm:pt-8">
-            <SheetTitle className="text-xl font-extrabold tracking-tight text-foreground">
-              Add Location
-            </SheetTitle>
-            <SheetDescription className="text-xs text-muted-foreground">
-              Fill in city and street address details, then set geographic coordinates on the interactive map.
-            </SheetDescription>
-          </div>
+          <SheetHeading
+            titleComponent={SheetTitle}
+            descriptionComponent={SheetDescription}
+            title="Add Location"
+            description="Fill in city and street address details, then set geographic coordinates on the interactive map."
+          />
 
           <AddLocationForm
             onSuccess={handleCreateLocationSuccess}

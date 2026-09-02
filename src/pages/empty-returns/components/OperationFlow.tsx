@@ -1,9 +1,12 @@
 import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 
+import { ROUTES, buildPath } from '@/config/routes';
 import {
   ArrowLeftRight,
   ArrowRight,
   CheckCircle2,
+  ExternalLink,
   Package,
   PackageOpen,
   RotateCcw,
@@ -23,8 +26,8 @@ import { Mono } from './marks';
  * described. Read left to right:
  *
  * ```
- *   FULL  MSKU7070707  ──unloaded──▶  EMPTY  MSKU7070707  ──paired──▶  FULL  CMAU8110034
- *   (the same physical box, changing state)      (a different box, on a different shipment)
+ *   FULL  375792      ──unloaded──▶  EMPTY  UKAB Free Zone  ──paired──▶  FULL  CMAU8110034
+ *   (which shipment)                 (where it sits now)                 (a DIFFERENT box)
  * ```
  *
  * The first arrow is thin and neutral: same container, new state. The second is
@@ -36,6 +39,19 @@ import { Mono } from './marks';
  * The right-hand card is whichever branch the container took — a paired full
  * load, a planned or completed return, or the open question when nobody has
  * decided yet.
+ *
+ * ## Each card leads with what makes it different from its neighbours
+ *
+ * All three used to lead with the container number, which on a strip about ONE
+ * box meant printing `ECMU8855525` three times under a dialog already titled
+ * `ECMU8855525` — four times on screen, and the reader had to go down to the
+ * small grey line under each to find out what the card was actually saying.
+ *
+ * So the bold line is now the fact that distinguishes the moment: which
+ * shipment produced the empty, where the box is sitting, which depot it went
+ * back to. The one card that still leads with a container number is the paired
+ * full load, because that one IS a different box — it is the entire reason the
+ * pairing arrow exists.
  */
 
 interface FlowCardProps {
@@ -123,26 +139,48 @@ export function OperationFlow({ record, now, className }: OperationFlowProps) {
       <FlowCard label="Delivered full load" tone="full">
         <div className="flex items-center gap-1.5">
           <Package className="size-3 shrink-0" aria-hidden />
-          <Mono className="truncate text-sm font-bold">{record.container || '—'}</Mono>
+          {/* The shipment is the exit this dialog used to keep in the identity
+              strip at the bottom, next to a second copy of this same reference.
+              One reference, and it is the one you can click. Inherits the
+              slab's own foreground — `text-primary` on teal is unreadable.
+
+              Keyed by the REFERENCE, not `record.shipmentId`. The strip's
+              version passed the uuid, and `/shipments/<uuid>` renders a live
+              page titled `53efcf7d-26b9-…` — the overview resolves by
+              reference, which is what every other link to it in the app
+              passes. It failed quietly, so it looked like it worked. */}
+          {record.shipmentReference ? (
+            <Link
+              to={buildPath(ROUTES.shipmentOverview, { id: record.shipmentReference })}
+              className="inline-flex min-w-0 items-center gap-1 underline underline-offset-2 transition-opacity duration-fast hover:opacity-80"
+            >
+              <Mono className="truncate text-sm font-bold">{record.shipmentReference}</Mono>
+              <ExternalLink className="size-3 shrink-0" aria-hidden />
+            </Link>
+          ) : (
+            <Mono className="truncate text-sm font-bold">
+              {record.shipmentReference ?? record.prevLoad}
+            </Mono>
+          )}
         </div>
-        <div className="mt-0.5 text-2xs opacity-80">
-          <Mono>{record.shipmentReference ?? record.prevLoad}</Mono>
-        </div>
-        <div className="text-2xs opacity-70">Collected {formatStamp(record.fullPickupAt)}</div>
+        <div className="mt-0.5 text-2xs opacity-70">Collected {formatStamp(record.fullPickupAt)}</div>
       </FlowCard>
 
       <UnloadArrow />
 
       {/* NOW — the same box, empty */}
       <FlowCard label={record.stage === 'closed' ? 'Empty' : 'Current'} tone="empty">
-        <div className="flex items-center gap-1.5 text-container-empty-subtle-foreground">
-          <PackageOpen className="size-3 shrink-0" aria-hidden />
-          <Mono className="truncate text-sm font-bold text-foreground">
-            {record.container || '—'}
-          </Mono>
+        {/* Wraps rather than truncates. A place name is the card's headline now,
+            and "Damerjog Industrial …" in a 160px column is the same non-answer
+            the container number was. `items-start` so the glyph stays with the
+            first line when it takes two. */}
+        <div className="flex items-start gap-1.5 text-container-empty-subtle-foreground">
+          <PackageOpen className="mt-1 size-3 shrink-0" aria-hidden />
+          <span className="min-w-0 text-sm font-bold leading-tight text-foreground">
+            {record.locationName}
+          </span>
         </div>
-        <div className="mt-0.5 truncate text-2xs text-muted-foreground">{record.locationName}</div>
-        <div className="text-2xs text-muted-foreground">
+        <div className="mt-0.5 text-2xs text-muted-foreground">
           {record.stage === 'closed' || record.matchedAt || record.plannedReturnAt
             ? `Empty for ${formatSpan(dwell)} before the decision`
             : `Empty for ${formatSpan(now - (record.emptyReadyAt ?? now))}`}
@@ -170,16 +208,15 @@ export function OperationFlow({ record, now, className }: OperationFlowProps) {
           label={record.stage === 'closed' ? 'Returned' : CONTAINER_STAGE_META.return_planned.label}
           tone={record.stage === 'closed' ? 'done' : 'return'}
         >
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-start gap-1.5">
             {record.stage === 'closed' ? (
-              <CheckCircle2 className="size-3 shrink-0" aria-hidden />
+              <CheckCircle2 className="mt-1 size-3 shrink-0" aria-hidden />
             ) : (
-              <RotateCcw className="size-3 shrink-0" aria-hidden />
+              <RotateCcw className="mt-1 size-3 shrink-0" aria-hidden />
             )}
-            <Mono className="truncate text-sm font-bold">{record.container || '—'}</Mono>
+            <span className="min-w-0 text-sm font-bold leading-tight">{record.returnDepot}</span>
           </div>
-          <div className="mt-0.5 truncate text-2xs text-muted-foreground">{record.returnDepot}</div>
-          <div className="text-2xs text-muted-foreground">
+          <div className="mt-0.5 text-2xs text-muted-foreground">
             {record.stage === 'closed'
               ? `Returned ${formatStamp(record.returnedAt)}`
               : record.plannedReturnAt

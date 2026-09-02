@@ -39,10 +39,12 @@ import { cn } from '@/utils';
  *
  * ## What "compatible" means, and why it is the same rule
  *
- * Same shipping line, same container size, the box is free before the truck is
- * needed, and this load is collected before the box's own return deadline.
- * Identical to the rule the Matching engine applies — a shipment created here
- * must not produce a pairing that Matching would have called impossible.
+ * Same container size, the box is free before the truck is needed, and this
+ * load is collected before the box's own return deadline. Identical to the rule
+ * the Matching engine applies — a shipment created here must not produce a
+ * pairing that Matching would have called impossible, nor hide one it would
+ * have allowed. The shipping line was part of this until 2026-08-30 and is not
+ * any more; it is shown on each card, but two lines no longer refuse a pair.
  */
 
 export interface CompatibleEmpty {
@@ -68,17 +70,23 @@ export interface TransporterOpportunity {
   empties: CompatibleEmpty[];
 }
 
-/** Compatible = same line, same size, free before pickup, collected before the deadline. */
+/** Compatible = same size, free before pickup, collected before the deadline. */
 function compatible(
   booking: EmptyReturnBookingRecord,
-  params: { line: string; sizes: string[]; pickupAt: number },
+  params: { sizes: string[]; pickupAt: number },
 ): boolean {
   if (!booking.containerNumber) return false;
   if (!booking.partnerId) return false;
   // A box already flagged for its own return has been decided against; offering
   // it here would quietly overturn somebody else's call.
   if (booking.emptyReturnException) return false;
-  if ((booking.shippingLine ?? '') !== params.line) return false;
+  /* The shipping line is deliberately NOT tested — it stopped gating on
+     2026-08-30 (`incompatibilityReasons` in `@/features/empty-returns/matching`
+     carries the reasoning). This function's whole contract is that it agrees
+     with that engine: a shipment created here must not offer a pairing Matching
+     would refuse, and must not hide one Matching would allow. Leaving the test
+     in would have done the second. The box's own line still rides on the card
+     so the operator can see it. */
 
   const size = resolveContainerSize(booking.shipmentCategory, booking.cargoType);
   if (!params.sizes.includes(size)) return false;
@@ -123,7 +131,7 @@ export function EmptyContainerOpportunities({
   const { data: available = [], isLoading } = useAvailableEmpties();
 
   const opportunities = useMemo<TransporterOpportunity[]>(() => {
-    const matches = available.filter((booking) => compatible(booking, { line, sizes, pickupAt }));
+    const matches = available.filter((booking) => compatible(booking, { sizes, pickupAt }));
 
     const byPartner = new Map<string, TransporterOpportunity>();
     for (const booking of matches) {

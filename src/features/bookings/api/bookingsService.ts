@@ -71,10 +71,10 @@ export interface BookingRecord {
   driverRatingPunctuality?: number | null;
   driverRatingProfessionalism?: number | null;
   driverNote?: string | null;
-  /* The closing debrief — the shipper's half of the round trip. Asked when the
-     box is actually home, because that is the moment their part of it is over:
-     how fast they stripped and released it is what ran the detention clock, and
-     it is otherwise charged to the carrier who only fetched it. */
+  /* Retired 2026-09-01. Only drivers are rated — stars measure how somebody
+     drove, and a shipper does not drive. Nothing writes these any more and no
+     screen reads them; they stay declared only because the columns still hold
+     the answers given before the question was dropped. */
   shipperRating?: number | null;
   shipperRatingReliability?: number | null;
   shipperRatingPunctuality?: number | null;
@@ -83,6 +83,25 @@ export interface BookingRecord {
   /** Who wrote the debrief and when — stamped server-side from the token. */
   driverRatedByName?: string | null;
   driverRatedAt?: string | null;
+
+  /**
+   * The empty return's own crew, when it is not the crew that delivered.
+   *
+   * A container's round trip is two jobs: a truck brings the load, and days
+   * later — after the consignee has stripped the box — a truck fetches the
+   * empty. Often a different driver and a different truck. Null means the
+   * delivery crew took it back, which is what every row said before the leg was
+   * recorded at all.
+   */
+  returnDriverId?: string | null;
+  returnVehicleId?: string | null;
+  returnDriverRating?: number | null;
+  returnDriverRatingReliability?: number | null;
+  returnDriverRatingPunctuality?: number | null;
+  returnDriverRatingProfessionalism?: number | null;
+  returnDriverNote?: string | null;
+  returnDriverRatedByName?: string | null;
+  returnDriverRatedAt?: string | null;
 
   /** When this booking's container was emptied — set on the "Empty Ready" rung, and what the empty return counts from. */
   emptyReadyAt?: string | null;
@@ -101,6 +120,9 @@ export interface BookingRecord {
   partner?: BookingPartnerSummary | null;
   vehicle?: BookingVehicleSummary | null;
   driver?: BookingDriverSummary | null;
+  /** The return leg's crew, joined the same way. */
+  returnVehicle?: BookingVehicleSummary | null;
+  returnDriver?: BookingDriverSummary | null;
   /** Only populated on `POST .../bookings` and `GET /bookings/:id`. */
   timeline?: ShipmentTimelineStepRecord[];
 }
@@ -209,15 +231,19 @@ export interface UpdateBookingPayload {
   driverRatingPunctuality?: number;
   driverRatingProfessionalism?: number;
   driverNote?: string;
-  shipperRating?: number;
-  shipperRatingReliability?: number;
-  shipperRatingPunctuality?: number;
-  shipperRatingProfessionalism?: number;
-  shipperNote?: string;
+  /** The return driver's own debrief — a different person, a separate answer. */
+  returnDriverRating?: number;
+  returnDriverRatingReliability?: number;
+  returnDriverRatingPunctuality?: number;
+  returnDriverRatingProfessionalism?: number;
+  returnDriverNote?: string;
   partnerId?: string;
   /** `null` clears the assignment — the backend only skips fields that are `undefined`. */
   vehicleId?: string | null;
   driverId?: string | null;
+  /** Who is taking the empty back — recorded on the `Empty Picked Up` rung. */
+  returnVehicleId?: string | null;
+  returnDriverId?: string | null;
   containerNumber?: string;
   shippingLine?: string;
   containerReturnDepot?: string;

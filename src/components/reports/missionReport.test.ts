@@ -127,7 +127,7 @@ describe('mission timeline (§3)', () => {
     const report = computeMissionReport({ booking: booking(), cycle: cycle(), now: NOW });
     const emptyReady = report.timeline.find((row) => row.key === 'empty_ready');
 
-    expect(emptyReady?.intervalLabel).toBe('Dépotage');
+    expect(emptyReady?.intervalLabel).toBe('Unstuffing');
     expect(emptyReady?.isLongest).toBe(true);
     expect(formatDuration(emptyReady?.durationMs)).toBe('1d 19h 10m');
   });

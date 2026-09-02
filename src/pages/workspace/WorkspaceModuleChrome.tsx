@@ -1,42 +1,34 @@
-import { useState } from 'react';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 
 import { PageHeader } from '@/components/common/PageHeader';
-import { Button } from '@/design-system';
-import { Plus } from '@/design-system/icons';
-import { buildPath, ROUTES } from '@/config/routes';
-import { RaiseTaskDialog } from '@/features/workspace';
-import { usePermissions } from '@/hooks/usePermissions';
+import { ROUTES } from '@/config/routes';
 import { cn } from '@/utils';
 
 /**
- * The layout route the four Workspace views share.
+ * The layout route the Workspace screens share.
  *
- * It owns the two things no single view can without duplicating: the module
- * title, and the one "Raise" entry point. Deliberately *not* a tab strip — the
- * sidebar already lists Inbox and the three task views, and repeating them
- * under the page title is the same navigation twice. Empty Container made that
- * call first and it holds here for the same reason.
+ * It owns one thing no single screen can without duplicating: the module
+ * title. Deliberately *not* a tab strip — the sidebar lists the screens, and
+ * repeating them under the page title is the same navigation twice. Empty
+ * Container made that call first and it holds here for the same reason.
+ *
+ * It used to own a "Raise a task" button too, on every screen — see the note
+ * where the header is rendered.
  */
 const VIEW_LABEL: Record<string, string> = {
-  [ROUTES.workspaceInbox]: 'Inbox',
   /* One entry, because there is now one tasks screen. Which view is open and
      whose work it shows are said by the tab strip and the scope control on
      the page itself — repeating either here would be the same word twice. */
   [ROUTES.workspaceTasks]: 'Tasks',
-  [ROUTES.workspaceAutomation]: 'Recurring & Templates',
-  [ROUTES.workspaceMessages]: 'Messages',
+  [ROUTES.workspaceMessages]: 'Slack',
 };
 
 export function WorkspaceModuleChrome() {
   const location = useLocation();
-  const navigate = useNavigate();
-  const { can } = usePermissions();
-  const [raising, setRaising] = useState(false);
 
   const label = VIEW_LABEL[location.pathname]
     ?? (location.pathname.startsWith('/workspace/task/') ? 'Task' : undefined)
-    ?? (location.pathname.startsWith('/workspace/messages') ? 'Messages' : undefined);
+    ?? (location.pathname.startsWith('/workspace/messages') ? 'Slack' : undefined);
 
   /*
    * Messages is a full-height, self-scrolling screen — three panes that each
@@ -53,17 +45,17 @@ export function WorkspaceModuleChrome() {
         isMessages ? 'h-[calc(100vh-var(--fl-header-height)-2rem)] gap-3 pb-3' : 'gap-5 pb-12',
       )}
     >
-      <PageHeader
-        title="Workspace"
-        description={label}
-        actions={
-          can('workspace.create') ? (
-            <Button size="sm" shape="pill" onClick={() => setRaising(true)} leadingIcon={<Plus className="h-4 w-4" />}>
-              Raise a task
-            </Button>
-          ) : undefined
-        }
-      />
+      {/*
+       * No action in the masthead.
+       *
+       * "Raise a task" sat here on EVERY Workspace screen, which put a create
+       * button above a task you were already reading, above a channel, and
+       * above the recurring rules — three places where the answer to "what do
+       * I do here" is not "make another task". The button belongs on the
+       * screen that lists tasks, and it is there; the board also raises
+       * straight into a column, and every record page has its own Raise.
+       */}
+      <PageHeader title="Workspace" description={label} />
 
       {isMessages ? (
         <div className="relative flex min-h-0 flex-1 flex-col">
@@ -73,11 +65,6 @@ export function WorkspaceModuleChrome() {
         <Outlet />
       )}
 
-      <RaiseTaskDialog
-        open={raising}
-        onOpenChange={setRaising}
-        onCreated={(reference) => navigate(buildPath(ROUTES.workspaceTaskDetail, { reference }))}
-      />
     </div>
   );
 }

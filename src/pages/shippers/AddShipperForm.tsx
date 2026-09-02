@@ -1,3 +1,4 @@
+import { SheetHeading } from '@/components/common';
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   Building2,
@@ -6,17 +7,15 @@ import {
   FileText,
   Upload,
   Paperclip,
-  Trash2,
-  Plus,
-  Eye,
-  Download,
 } from '@/design-system/icons';
 import { DocumentViewerModal, type DocumentToView } from '@/components/DocumentViewerModal';
-import { triggerDocumentDownload } from '@/components/documentDownload';
 import { Check } from 'lucide-react';
-import { Badge, Button, Checkbox, Input, Select } from '@/design-system';
+import { Button, Input, Select } from '@/design-system';
 import { SHIPPER_STATUS_OPTIONS } from '@/components/common';
-import { useCreateDocumentType, useDocumentTypes } from '@/features/documents/api/queries';
+import { DocumentChecklist } from '@/features/documents/components/DocumentChecklist';
+import type { DocumentCapture } from '@/features/documents/components/DocumentCaptureDialog';
+import { documentCatalogFor, type DocumentTypeSpec } from '@/features/documents/catalog';
+import { useStagedDocuments, type StagedDocument } from '@/features/documents/stagedDocuments';
 
 import { getCountryOptions } from '@/data/geoData';
 import type {
@@ -46,7 +45,9 @@ export interface ShipperFormData {
   // Compliance Documents Vault
   uploadedDocuments: ShipperDocument[];
   /** Real file bytes for any not-yet-persisted upload, keyed by document category — uploaded to the backend after the shipper record exists. */
-  stagedFiles: Record<string, File>;
+  /** The licence filed during registration, with its dates — written once the
+   *  shipper has an id. See `useStagedDocuments`. */
+  stagedDocuments: StagedDocument[];
   logo: File | null;
   logoUrl?: string;
 }
@@ -118,20 +119,21 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
     primaryContactPhone: initialData?.primaryContactPhone || '',
 
     uploadedDocuments: initialData?.uploadedDocuments || [],
-    stagedFiles: {},
+    stagedDocuments: [],
 
     logo: initialData?.logo || null,
     logoUrl: initialData?.logoUrl,
   });
 
-  // Document-type catalog — shared across every shipper registration via the
-  // backend, not just this form instance.
-  const { data: docTypes = [] } = useDocumentTypes('SHIPPER');
-  const createDocType = useCreateDocumentType('SHIPPER');
-
-  const [showAddDocType, setShowAddDocType] = useState(false);
-  const [newDocTypeLabel, setNewDocTypeLabel] = useState('');
-  const [newDocTypeRequired, setNewDocTypeRequired] = useState(true);
+  /**
+   * One paper, and it is the only one asked for.
+   *
+   * A shipper is a client, not a fleet: the business licence proves the
+   * company is real and there is nothing else Fleetin needs to hold on it. The
+   * catalog is closed (`documentCatalogFor`), so this step cannot grow by
+   * somebody inventing a document type mid-registration.
+   */
+  const docs = useStagedDocuments();
 
   const [logoPreview, setLogoPreview] = useState<string | null>(initialData?.logoUrl || null);
   const [logoName, setLogoName] = useState<string | null>(null);
@@ -171,61 +173,23 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
     }
   };
 
-  /** Defines a new document type — saved to the catalog, so it shows up as
-   *  an upload slot for every shipper registered after this one. */
-  const handleAddDocumentType = () => {
-    if (!newDocTypeLabel.trim()) return;
-    createDocType.mutate({ label: newDocTypeLabel, required: newDocTypeRequired });
-    setNewDocTypeLabel('');
-    setNewDocTypeRequired(true);
-    setShowAddDocType(false);
-  };
-
-  // The document-type catalog is backend-driven and open-ended (an admin can
-  // add any label), while ShipperDocument['category'] is still typed as a
-  // closed union from the mock-data era — treat it as the open string it
-  // actually is at runtime, same as the rest of the codebase already does.
-  const handleUploadForType = (category: string, file: File) => {
-    const newDoc: ShipperDocument = {
-      id: `staged-${Date.now()}`,
-      name: file.name,
-      category: category as ShipperDocument['category'],
-      uploadDate: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
-      fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-      status: 'Pending Review',
-    };
-
-    setFormData((prev) => ({
-      ...prev,
-      uploadedDocuments: [...prev.uploadedDocuments.filter((d) => d.category !== category), newDoc],
-      stagedFiles: { ...prev.stagedFiles, [category]: file },
-    }));
+  const handleUploadForType = (spec: DocumentTypeSpec, capture: DocumentCapture) => {
+    docs.stage(spec, capture);
     if (errors.documents) {
       setErrors((prev) => ({ ...prev, documents: undefined }));
     }
   };
 
-  const handleRemoveDocument = (docId: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      uploadedDocuments: prev.uploadedDocuments.filter((d) => d.id !== docId),
-    }));
-  };
-
-  /** A staged (not-yet-persisted) upload has no backend document id to download from — use the local File directly. */
-  const handleDownloadDocument = (doc: ShipperDocument) => {
-    const stagedFile = formData.stagedFiles[doc.category];
-    if (stagedFile) {
-      const url = URL.createObjectURL(stagedFile);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = doc.name;
-      link.click();
-      URL.revokeObjectURL(url);
-      return;
-    }
-    void triggerDocumentDownload(doc.id, doc.name);
-  };
+  /* What is already on file, with anything staged this session on top of it. */
+  const documentRows = useMemo(
+    () => [
+      ...formData.uploadedDocuments.filter(
+        (doc) => !docs.rows.some((staged) => staged.category === doc.category),
+      ),
+      ...docs.rows,
+    ],
+    [formData.uploadedDocuments, docs.rows],
+  );
 
   const validateStep = (stepNumber: number): boolean => {
     const newErrors: { companyLegalName?: string; documents?: string } = {};
@@ -237,8 +201,8 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
     }
 
     if (stepNumber === 2) {
-      const missing = docTypes.filter(
-        (type) => type.required && !formData.uploadedDocuments.some((d) => d.category === type.label),
+      const missing = documentCatalogFor('SHIPPER').filter(
+        (type) => type.required && !documentRows.some((d) => d.category === type.label),
       );
       if (missing.length > 0) {
         newErrors.documents = `Missing required document${missing.length > 1 ? 's' : ''}: ${missing
@@ -288,7 +252,7 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
     setIsSubmitting(true);
     setTimeout(() => {
       setIsSubmitting(false);
-      onSuccess?.(formData);
+      onSuccess?.({ ...formData, stagedDocuments: docs.staged });
     }, 500);
   };
 
@@ -298,15 +262,10 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
   return (
     <form onSubmit={handleSubmit} className="flex h-full min-h-0 flex-col">
       {/* Sticky Header */}
-      <div className="shrink-0 space-y-4 border-b border-border/40 px-6 pb-4 pt-6 sm:px-8 sm:pt-8">
-        <div className="space-y-1 pr-8">
-          <h2 className="text-xl font-extrabold tracking-tight text-foreground">
-            {isEdit ? 'Edit Shipper Profile' : 'New Shipper Onboarding'}
-          </h2>
-          <p className="text-xs text-muted-foreground">
-            {currentStepDef.description}
-          </p>
-        </div>
+      <SheetHeading
+        title={isEdit ? 'Edit Shipper Profile' : 'New Shipper Onboarding'}
+        description={currentStepDef.description}
+      >
 
         {/* Step Nav */}
         <div className="flex items-center">
@@ -355,7 +314,7 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
             );
           })}
         </div>
-      </div>
+      </SheetHeading>
 
       {/* Scrollable Body */}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5 sm:px-8">
@@ -566,154 +525,24 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
           </div>
         )}
 
-        {/* STEP 2: COMPLIANCE DOCUMENTS */}
+        {/* STEP 2: THE COMPANY'S ONE PAPER */}
         {currentStep === 2 && (
           <div className="space-y-5">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div>
-                <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
-                  <FileText className="h-4.5 w-4.5 text-primary" />
-                  Shipper Compliance Documents
-                </h4>
-                <p className="type-caption text-muted-foreground mt-0.5">
-                  One document per type; new types are reused.
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setShowAddDocType((prev) => !prev)}
-                leadingIcon={<Plus className="h-3.5 w-3.5" />}
-                className="text-xs font-semibold rounded-full shrink-0"
-              >
-                {showAddDocType ? 'Cancel' : 'Add document type'}
-              </Button>
-            </div>
+            <h4 className="type-h4 flex items-center gap-2 font-semibold text-foreground">
+              <FileText className="h-4.5 w-4.5 text-primary" />
+              Business License
+            </h4>
 
-            {errors.documents && (
-              <p className="type-caption text-destructive">{errors.documents}</p>
-            )}
+            {errors.documents && <p className="type-caption text-destructive">{errors.documents}</p>}
 
-            {/* Add document type box */}
-            {showAddDocType && (
-              <div className="p-4 rounded-lg border border-primary/30 bg-primary/5 space-y-3 animate-in fade-in">
-                <h5 className="text-xs font-bold text-primary">New Document Type</h5>
-                <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 sm:items-center">
-                  <Input
-                    placeholder="Document name (e.g. Import/Export License)"
-                    value={newDocTypeLabel}
-                    onChange={(e) => setNewDocTypeLabel(e.target.value)}
-                  />
-                  <Checkbox
-                    label="Required document"
-                    checked={newDocTypeRequired}
-                    onChange={(e) => setNewDocTypeRequired(e.target.checked)}
-                  />
-                </div>
-                <div className="flex justify-end pt-1">
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={handleAddDocumentType}
-                    disabled={!newDocTypeLabel.trim()}
-                    className="bg-primary text-primary-foreground font-semibold text-xs rounded-full px-4"
-                  >
-                    Save document type
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* Document Type List — one compact row per type */}
-            <div className="space-y-1.5">
-              {docTypes.map((type) => {
-                const existing = formData.uploadedDocuments.find((d) => d.category === type.label);
-                return (
-                  <div
-                    key={type.id}
-                    className={cn(
-                      'flex items-center gap-3 rounded-lg border px-3.5 py-2.5 transition-colors',
-                      existing ? 'border-success/30 bg-success-subtle/40' : 'border-border/70 bg-card hover:border-primary/40'
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
-                        existing ? 'border-success bg-success text-success-foreground' : 'border-border-strong text-transparent'
-                      )}
-                      aria-hidden
-                    >
-                      <Check className="h-3 w-3 stroke-[3]" />
-                    </span>
-
-                    <div className="min-w-0 flex-1 flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-bold text-foreground truncate">{type.label}</span>
-                      {existing ? (
-                        <span className="text-2xs text-muted-foreground truncate">
-                          {existing.name} · {existing.fileSize}
-                        </span>
-                      ) : (
-                        <Badge intent={type.required ? 'warning' : 'default'} size="sm">
-                          {type.required ? 'Required' : 'Optional'}
-                        </Badge>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-1 shrink-0">
-                      {existing ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => setViewingDoc(existing)}
-                            className="p-1 rounded-md text-muted-foreground hover:text-primary transition-colors"
-                            title="View document"
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDownloadDocument(existing)}
-                            className="p-1 rounded-md text-muted-foreground hover:text-primary transition-colors"
-                            title="Download document"
-                          >
-                            <Download className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveDocument(existing.id)}
-                            className="p-1 rounded-md text-muted-foreground hover:text-destructive transition-colors shrink-0"
-                            title="Remove document"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </>
-                      ) : (
-                        <label className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-dashed border-primary/40 bg-primary/5 text-primary text-2xs font-semibold hover:bg-primary/10 transition-colors cursor-pointer shrink-0">
-                          <input
-                            type="file"
-                            accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) handleUploadForType(type.label, file);
-                            }}
-                          />
-                          <Upload className="h-3 w-3" />
-                          <span>Upload</span>
-                        </label>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-
-              {docTypes.length === 0 && (
-                <div className="p-6 rounded-lg border border-dashed border-border/80 text-center text-xs text-muted-foreground">
-                  No document types yet.
-                </div>
-              )}
-            </div>
+            <DocumentChecklist
+              ownerType="SHIPPER"
+              documents={documentRows}
+              subject={formData.companyLegalName || undefined}
+              onUpload={handleUploadForType}
+              onRemove={docs.remove}
+              onView={(doc) => setViewingDoc(doc as ShipperDocument)}
+            />
           </div>
         )}
 

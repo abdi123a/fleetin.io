@@ -51,6 +51,19 @@ import { defineConfig } from 'vitest/config';
  * are pure TypeScript for exactly that reason. The `*View` components in the
  * same folder are not tested here — that would need jsdom, which stays
  * unconfigured.
+ *
+ * `src/components/common` is included for `ExpiryLabel.ts`'s grading, and only
+ * that: how many days of cover a certificate has left, and which of the four
+ * bands that puts it in. Pure date arithmetic over a string, no DOM — and the
+ * boundaries are the whole point of the feature, since a truck whose insurance
+ * lapses tomorrow must not be painted the same green as one covered to 2027.
+ *
+ * `src/features/shipments` is included for `seenShipments.ts` — the rule behind
+ * the NEW mark on a shipment row. It is pure TypeScript over `localStorage`
+ * (Node's own global, as above), and it earns a test because its bug was
+ * invisible from the screen: opening any shipment silently erased the record
+ * of every one read more than ten minutes earlier, so rows the reader had
+ * already dealt with went back to shouting NEW and stayed there.
  */
 export default defineConfig({
   resolve: {
@@ -63,10 +76,15 @@ export default defineConfig({
       'src/lib/**/*.test.ts',
       'src/stores/**/*.test.ts',
       'src/components/reports/**/*.test.ts',
+      'src/components/bookings/**/*.test.ts',
+      'src/components/common/**/*.test.ts',
+      'src/components/shipments/**/*.test.ts',
+      'src/features/documents/**/*.test.ts',
       'src/features/empty-returns/**/*.test.ts',
       'src/features/workspace/**/*.test.ts',
       'src/features/transporters/**/*.test.ts',
       'src/features/bookings/**/*.test.ts',
+      'src/features/shipments/**/*.test.ts',
     ],
     environment: 'node',
   },

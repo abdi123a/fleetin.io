@@ -478,6 +478,28 @@ export function resolveContainerSize(
   return fromCargo !== 'Unspecified' ? fromCargo : fromCategory;
 }
 
+/**
+ * `"40'"` -> `"40 ft"`. The size as somebody says it out loud.
+ *
+ * The prime mark is the yard's own shorthand and it does not survive being set
+ * at 12px next to a carrier name: the reader sees `40`, reads the apostrophe as
+ * punctuation, and asks "forty what?". Spelled out it cannot be misread, and it
+ * is still short enough for the pill it lives in.
+ *
+ * Unknown sizes pass straight through. `size` is a free string — see
+ * `resolveContainerSize`, which falls back to a cargo description when neither
+ * field named a size — and appending "ft" to `Unspecified` would invent a
+ * measurement nobody recorded.
+ */
+export function formatContainerSize(size: string | null | undefined): string {
+  const raw = (size ?? '').trim();
+  if (!raw) return '—';
+  if (raw === "20'") return '20 ft';
+  if (raw === "40'") return '40 ft';
+  if (raw === '40HC') return '40 ft HC';
+  return raw;
+}
+
 /* ---------------------------------------------------------------------------
  * Company identity
  * ------------------------------------------------------------------------- */

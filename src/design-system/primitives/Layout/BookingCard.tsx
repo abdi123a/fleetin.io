@@ -56,7 +56,13 @@ export const BookingCard = forwardRef<HTMLDivElement, BookingCardProps>(
         teal: 'bg-primary text-primary-foreground',
         green: 'bg-success text-white dark:bg-success',
         orange: 'bg-warning text-white dark:bg-warning',
+        /* The second rung of a phase, one step along the same ramp — see
+           `StatusIntent`. Not a new colour: Delivered has to be tellable from
+           Picked Up without either of them stopping being green. */
+        'green-deep': 'bg-success-deep text-success-deep-foreground',
+        'orange-deep': 'bg-warning-deep text-warning-deep-foreground',
         blue: 'bg-info text-white dark:bg-info',
+        red: 'bg-destructive text-destructive-foreground',
         slate: 'bg-secondary text-secondary-foreground',
       };
 

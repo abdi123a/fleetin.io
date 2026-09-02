@@ -93,7 +93,7 @@ export type DelayOwner = z.infer<typeof delayOwnerSchema>;
 
 export const DELAY_OWNER_LABELS: Record<DelayOwner, string> = {
   shipper_documentation: 'Shipper — Documentation',
-  shipper_depotage: 'Shipper — Depotage',
+  shipper_depotage: 'Shipper — Unstuffing',
   shipper_communication: 'Shipper — Communication',
   transporter: 'Transporter',
   customs: 'Customs',

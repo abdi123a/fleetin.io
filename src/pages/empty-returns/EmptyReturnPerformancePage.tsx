@@ -12,6 +12,7 @@ import {
 import {
   detentionRatePerDay,
   PERFORMANCE_PERIOD_OPTIONS,
+  formatContainerSize,
   formatDetention,
   normalizeContainerSize,
 } from '@/data/emptyReturnData';
@@ -298,7 +299,7 @@ export function EmptyReturnPerformancePage() {
                   </Mono>
                 </div>
                 <div className="text-2xs text-muted-foreground">
-                  {record.line} · {record.size}
+                  {record.line} · {formatContainerSize(record.size)}
                 </div>
                 <CompanyName name={record.transporter} className="text-2xs text-muted-foreground" />
               </div>

@@ -3,45 +3,75 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { DataTable, type DataColumn } from '@/components/common/DataTable';
 import { FilterBar } from '@/components/common/FilterBar';
+import { FilterMenu } from '@/components/common/FilterMenu';
 import { TablePager } from '@/components/common/TablePager';
 import { Avatar, Checkbox, Spinner } from '@/design-system';
 import { CalendarDays, ListChecks, TriangleAlert, UserRound } from '@/design-system/icons';
 import { buildPath, ROUTES } from '@/config/routes';
 import { resolveAssetUrl } from '@/services/api.client';
+import { usePermissions } from '@/hooks/usePermissions';
 import { useAuthStore } from '@/stores';
 import { cn } from '@/utils';
 
-import { Select } from '@/design-system';
 
 import { useTaskSummary, useTasks, useUpdateTask } from '../api/queries';
 import { TASK_VIEWS, ViewTabs, type TaskView } from './ViewTabs';
 import { TaskBoard } from '../views/TaskBoard';
-import { TaskCalendar } from '../views/TaskCalendar';
 import { TaskWorkload } from '../views/TaskWorkload';
 import { BulkActionBar } from './BulkActionBar';
+import { RaiseTaskDialog } from './RaiseTaskDialog';
 import type { TaskFilters } from '../api/workspaceService';
 import { RecordChip } from '../composer/RecordChip';
-import type { TaskStatus, WorkspaceTask } from '../contracts';
+import {
+  TASK_PRIORITIES, TASK_PRIORITY_LABEL,
+  type TaskPriority, type TaskStatus, type WorkspaceTask,
+} from '../contracts';
 import { DueMark, PriorityMark, TaskStatusBadge } from './TaskMarks';
 
 /**
- * Every cut of the list, in ONE band.
+ * The three cuts worth a permanent seat.
  *
- * This started as four scope tabs with a row of quick-filter chips beneath
- * them — two controls, stacked, asking the same kind of question, and the
- * reader had to work out which of the two was live. Overdue and Unassigned
- * appeared in both. One row: pick a cut, and the count beside it is real.
+ * This row was seven, and only two of them were status — the other five were a
+ * due date, a priority, an owner and your own watch list, four different
+ * questions flattened into one radio that looked like a status ladder. Being a
+ * radio, it could only answer one at a time: "which urgent tasks are overdue",
+ * the question somebody actually asks on a Monday, could not be expressed at
+ * all, because picking Urgent silently dropped Overdue.
+ *
+ * What stays is what a reader clicks without thinking: the work in hand, the
+ * work that is late, and everything. The rest moved into the Filters menu as
+ * independent fields that NARROW whichever band is live — so band and filter
+ * compose instead of competing, and the Monday question has an answer.
  */
 const SCOPES = [
   { key: 'open' as const, label: 'Open' },
   { key: 'overdue' as const, label: 'Overdue' },
-  { key: 'today' as const, label: 'Due today' },
-  { key: 'unassigned' as const, label: 'Unassigned' },
-  { key: 'urgent' as const, label: 'Urgent' },
-  { key: 'following' as const, label: 'Following' },
   { key: 'all' as const, label: 'All' },
 ];
 type Scope = (typeof SCOPES)[number]['key'];
+
+/** The narrowing filters, each independent of the band and of each other. */
+const DUE_CHOICES = [
+  { value: 'any', label: 'Any date' },
+  { value: 'today', label: 'Due today' },
+  { value: 'week', label: 'Due this week' },
+  { value: 'none', label: 'No due date' },
+];
+
+const PRIORITY_CHOICES = [
+  { value: 'any', label: 'Any priority' },
+  ...TASK_PRIORITIES.map((p) => ({ value: p, label: TASK_PRIORITY_LABEL[p] })),
+];
+
+const OWNER_CHOICES = [
+  { value: 'any', label: 'Anyone' },
+  { value: 'unassigned', label: 'Unassigned' },
+];
+
+const WATCH_CHOICES = [
+  { value: 'any', label: 'Everything' },
+  { value: 'following', label: "Only what I follow" },
+];
 
 const OPEN_STATUSES: TaskStatus[] = ['OPEN', 'IN_PROGRESS', 'WAITING'];
 
@@ -78,11 +108,13 @@ export interface TaskListProps {
 export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }: TaskListProps) {
   const navigate = useNavigate();
   const me = useAuthStore((state) => state.user?.id);
+  const { can } = usePermissions();
+  const canCreate = can('workspace.create');
   const [searchParams, setSearchParams] = useSearchParams();
-  const [scope, setScope] = useState<Scope>('open');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<string[]>([]);
+  const [raising, setRaising] = useState(false);
   const updateTask = useUpdateTask();
 
   /* The view lives in the URL so a filtered board can be pasted into a
@@ -92,8 +124,22 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
   const whoParam = searchParams.get('scope') as Who | null;
   const who: Who = SCOPES_WHO.some((s) => s.key === whoParam) ? (whoParam as Who) : 'all';
 
+  /* The band, and the narrowing filters. All in the URL, so a colleague can be
+     sent "the urgent ones that are late" as a link — which is the whole reason
+     these compose. The band was local state while everything around it was a
+     parameter, so the one cut a reader is most likely to want to share was the
+     one that reset on reload. */
+  const bandParam = searchParams.get('band') as Scope | null;
+  const scope: Scope = SCOPES.some((s) => s.key === bandParam) ? (bandParam as Scope) : 'open';
+  const setScope = (next: Scope) => setParam('band', next, 'open');
+
+  const due = searchParams.get('due') ?? 'any';
+  const priority = searchParams.get('priority') ?? 'any';
+  const owner = searchParams.get('owner') ?? 'any';
+  const watch = searchParams.get('watch') ?? 'any';
+
   /** Both live in the URL, so a filtered board can be pasted into a message. */
-  const setParam = (key: 'view' | 'scope', value: string, fallback: string) =>
+  const setParam = (key: 'view' | 'band' | 'scope' | 'due' | 'priority' | 'owner' | 'watch', value: string, fallback: string) =>
     setSearchParams(
       (params) => {
         if (value === fallback) params.delete(key);
@@ -110,29 +156,31 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
     if (who === 'mine' && me && !next.assigneeId) next.assigneeId = me;
     if (who === 'raised' && me && !next.createdById) next.createdById = me;
     if (search.trim()) next.q = search.trim();
+    /* The band first — it is the coarse cut. */
     if (scope === 'open') next.status = OPEN_STATUSES;
-    if (scope === 'overdue') next.due = 'overdue';
-    /* `unassigned` is the point of the assignee filter, not an afterthought:
-       it is the only way to see work nobody has picked up. */
-    if (scope === 'unassigned') { next.assigneeId = 'unassigned'; next.status = OPEN_STATUSES; }
-    /* The three narrow cuts all imply open work: "Urgent" meaning "urgent, and
-       also the twelve urgent things we finished last month" would be useless. */
-    if (scope === 'today') { next.due = 'today'; next.status = OPEN_STATUSES; }
-    if (scope === 'urgent') { next.priority = ['URGENT']; next.status = OPEN_STATUSES; }
-    if (scope === 'following' && me) { next.followerId = me; next.status = OPEN_STATUSES; }
+    if (scope === 'overdue') { next.due = 'overdue'; next.status = OPEN_STATUSES; }
 
-    /* Board and calendar draw every column at once, so a 25-row page would
-       show a third of the work and call it the board. 100 is the server's own
-       ceiling (`QueryTasksDto`), not a number chosen here — asking for more is
-       a 400, and the banner below says so when a board is actually clipped. */
-    if (view === 'board' || view === 'calendar') {
+    /* Then the filters narrow it. Each is independent, so "Overdue" + "Urgent"
+       + "Unassigned" is one question and gets one answer — which the old
+       seven-band radio could not do. A `due` filter is ignored on the Overdue
+       band, where the band has already said which dates it means. */
+    if (due !== 'any' && scope !== 'overdue') next.due = due as TaskFilters['due'];
+    if (priority !== 'any') next.priority = [priority as TaskPriority];
+    if (owner === 'unassigned') next.assigneeId = 'unassigned';
+    if (watch === 'following' && me) next.followerId = me;
+
+    /* The board draws every column at once, so a 25-row page would show a
+       third of the work and call it the board. 100 is the server's own ceiling
+       (`QueryTasksDto`), not a number chosen here — asking for more is a 400,
+       and the banner below says so when the board is actually clipped. */
+    if (view === 'board') {
       next.pageSize = BOARD_PAGE_SIZE;
       next.page = 1;
       if (view === 'board' && scope === 'open') delete next.status;
     }
     return next;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(baseFilters), scope, search, page, view, who, me]);
+  }, [JSON.stringify(baseFilters), scope, search, page, view, who, due, priority, owner, watch, me]);
 
   const { data, isLoading, isError, error, refetch } = useTasks(filters);
   /* Scope totals come from their own endpoint: the list is paginated, so it
@@ -295,21 +343,12 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
       <ViewTabs
         value={view}
         onChange={(next) => { setParam('view', next, 'list'); setSelected([]); }}
+        onRaise={canCreate ? () => setRaising(true) : undefined}
       />
 
       <FilterBar
         label="Task scope"
-        /* "Unassigned" is dropped whenever the list is pinned to one person —
-           by the host (a record's "2 open" link) or by the scope control. A
-           task assigned to you is by definition not unassigned, so the band
-           asks for a set that cannot exist; it printed "Unassigned 1" beside
-           "All 0" before the count was fixed, and even a correct 0 is a
-           permanent zero taking up a band.
-
-           The condition has to test BOTH sources: when "My tasks" moved from
-           a route into `?scope=`, the pin moved out of `baseFilters` and this
-           check silently stopped firing. */
-        tabs={SCOPES.filter((s) => !(s.key === 'unassigned' && (baseFilters.assigneeId || who === 'mine'))).map((s) => ({
+        tabs={SCOPES.map((s) => ({
           key: s.key,
           label: s.label,
           count: summary?.[s.key] ?? 0,
@@ -324,20 +363,54 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
           matched: search ? total : undefined,
         }}
       >
-        {/* Whose work, beside the search — where the reference tools put the
-            grouping control, and where the view switcher used to sit before it
-            was promoted to a tab strip of its own. */}
-        <Select
-          selectSize="sm"
-          aria-label="Whose tasks"
-          value={who}
-          containerClassName="w-36 shrink-0"
-          onChange={(event) => {
-            setParam('scope', event.target.value, 'all');
-            setPage(1);
-            setSelected([]);
-          }}
-          options={SCOPES_WHO.map((s) => ({ value: s.key, label: s.label }))}
+        {/* Whose work, and the four cuts that used to be permanent bands.
+            Each is its own group, so they combine — see the note on `SCOPES`.
+            "Unassigned" is dropped when the list is already pinned to one
+            person: a task assigned to you cannot also be unassigned. */}
+        <FilterMenu
+          groups={[
+            {
+              key: 'who',
+              label: 'Whose tasks',
+              value: who,
+              onChange: (value: string) => { setParam('scope', value, 'all'); setPage(1); setSelected([]); },
+              options: SCOPES_WHO.map((s) => ({ value: s.key, label: s.label })),
+            },
+            {
+              key: 'due',
+              label: 'Due',
+              value: due,
+              defaultValue: 'any',
+              onChange: (value: string) => { setParam('due', value, 'any'); setPage(1); setSelected([]); },
+              options: DUE_CHOICES,
+            },
+            {
+              key: 'priority',
+              label: 'Priority',
+              value: priority,
+              defaultValue: 'any',
+              onChange: (value: string) => { setParam('priority', value, 'any'); setPage(1); setSelected([]); },
+              options: PRIORITY_CHOICES,
+            },
+            ...(baseFilters.assigneeId || who === 'mine'
+              ? []
+              : [{
+                  key: 'owner',
+                  label: 'Owner',
+                  value: owner,
+                  defaultValue: 'any',
+                  onChange: (value: string) => { setParam('owner', value, 'any'); setPage(1); setSelected([]); },
+                  options: OWNER_CHOICES,
+                }]),
+            {
+              key: 'watch',
+              label: 'Watching',
+              value: watch,
+              defaultValue: 'any',
+              onChange: (value: string) => { setParam('watch', value, 'any'); setPage(1); setSelected([]); },
+              options: WATCH_CHOICES,
+            },
+          ]}
         />
       </FilterBar>
 
@@ -349,7 +422,7 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
         <div className="flex items-center justify-center gap-2 rounded-card border border-border py-16 text-sm text-muted-foreground">
           <Spinner className="size-4" /> Loading tasks…
         </div>
-      ) : view === 'board' || view === 'calendar' ? (
+      ) : view === 'board' ? (
         <>
           {total > rows.length ? (
             <p className="rounded-card border border-warning bg-warning-subtle px-3 py-2 text-xs text-warning-subtle-foreground">
@@ -365,25 +438,12 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
             <p className="rounded-card border border-dashed border-border bg-surface-sunken px-4 py-12 text-center text-sm text-muted-foreground">
               {emptyCopy}
             </p>
-          ) : view === 'board' ? (
+          ) : (
             <TaskBoard
               tasks={rows}
               busy={updateTask.isPending}
               onMove={(task, status) => updateTask.mutate({ idOrRef: task.id, patch: { status } })}
             />
-          ) : (
-            <>
-              <TaskCalendar tasks={rows} />
-              {/* A task with no due date is not on a calendar — and a reader
-                  looking at eleven open tasks and an empty grid deserves to be
-                  told that rather than left to work it out. */}
-              {rows.every((task) => !task.dueAt) ? (
-                <p className="rounded-card border border-warning bg-warning-subtle px-3 py-2 text-xs text-warning-subtle-foreground">
-                  None of these {rows.length === 1 ? 'tasks has' : 'tasks have'} a due date, so
-                  nothing lands on the calendar. The list and board show them all.
-                </p>
-              ) : null}
-            </>
           )}
         </>
       ) : (
@@ -507,6 +567,12 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
           ) : null}
         </>
       )}
+
+      <RaiseTaskDialog
+        open={raising}
+        onOpenChange={setRaising}
+        onCreated={(reference) => navigate(buildPath(ROUTES.workspaceTaskDetail, { reference }))}
+      />
 
       {view !== 'workload' ? (
         <BulkActionBar

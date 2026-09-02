@@ -1,6 +1,6 @@
 import { forwardRef, type ButtonHTMLAttributes } from 'react';
 
-import { Avatar, MARK_STACK_OVERLAP, Tooltip } from '@/design-system';
+import { Avatar, MARK_STACK_LEAD_GAP, MARK_STACK_OVERLAP, Tooltip } from '@/design-system';
 import { UserPlus } from '@/design-system/icons';
 import { cn } from '@/utils';
 
@@ -43,8 +43,9 @@ export interface CrewStackProps extends ButtonHTMLAttributes<HTMLButtonElement> 
   /**
    * Which surface it sits on.
    *
-   * The three `tile-*` tones are the shipment masthead's own slabs — teal
-   * booked, green in transit, ink once every box is home. The tile has to name
+   * The `tile-*` tones are the shipment masthead's own slabs — teal booked,
+   * green in transit, brand yellow while a box owes a return, ink once every
+   * box is home. The tile has to name
    * itself because the stack cannot see what it is sitting on, and every
    * colour in the treatment is derived from it: a white ring on a black slab
    * is invisible, and a hardcoded teal ink is wrong on two slabs out of three.
@@ -78,42 +79,95 @@ export interface CrewStackProps extends ButtonHTMLAttributes<HTMLButtonElement> 
  * plate on a black slab is invisible, which is exactly how the first version
  * of this failed. The halo's gap is what makes it read, and it reads the same
  * way on a white card as on any of the three slabs.
+ *
+ * The gap is **1px, not 2**, and that is what buys the row one rhythm. A 2px
+ * gap plus a 2px ring puts 4px outside the plate; at the shared `-ml-1`
+ * overlap that left the next face's initials with no air, which is why the
+ * lead used to be given spacing of its own. At 1px the halo costs 3px, the
+ * neighbour keeps ~1.5px of air on a 36px plate, and every mark in the row
+ * takes the same overlap. The gap still reads — it is the discontinuity that
+ * carries it, not its width.
  */
 const TONES = {
   card: {
     plate: '',
     separator: 'ring-card',
-    lead: 'ring-primary ring-offset-2 ring-offset-card',
+    lead: 'ring-primary ring-offset-1 ring-offset-card',
     placeholder: 'border-border-strong text-muted-foreground',
     overflow: 'bg-muted text-muted-foreground',
   },
   'tile-teal': {
     plate: 'bg-tile-teal-foreground [&_span]:text-tile-teal',
     separator: 'ring-tile-teal',
-    lead: 'ring-tile-teal-foreground ring-offset-2 ring-offset-tile-teal',
+    lead: 'ring-tile-teal-foreground ring-offset-1 ring-offset-tile-teal',
     placeholder: 'border-tile-teal-foreground/70 text-tile-teal-foreground/90',
     overflow: 'bg-tile-teal-foreground text-tile-teal',
+  },
+  /* The empty-return slab — brand yellow. Same inversion as the rest: the
+     plate takes the tile's foreground (near-black) and the initials take the
+     tile itself, so a face on a yellow masthead reads as a dark disc with
+     yellow letters rather than as a hole. */
+  'tile-empty': {
+    plate: 'bg-container-empty-foreground [&_span]:text-container-empty',
+    separator: 'ring-container-empty',
+    lead: 'ring-container-empty-foreground ring-offset-1 ring-offset-container-empty',
+    placeholder: 'border-container-empty-foreground/70 text-container-empty-foreground/90',
+    overflow: 'bg-container-empty-foreground text-container-empty',
   },
   'tile-success': {
     plate: 'bg-success-foreground [&_span]:text-success',
     separator: 'ring-success',
-    lead: 'ring-success-foreground ring-offset-2 ring-offset-success',
+    lead: 'ring-success-foreground ring-offset-1 ring-offset-success',
     placeholder: 'border-success-foreground/70 text-success-foreground/90',
     overflow: 'bg-success-foreground text-success',
+  },
+  /* The Unstuffing slab — see `STEP_INTENT`. Same inversion as the others:
+     the plate takes the tile's foreground and the ink takes the tile itself. */
+  'tile-destructive': {
+    plate: 'bg-destructive-foreground [&_span]:text-destructive',
+    separator: 'ring-destructive',
+    lead: 'ring-destructive-foreground ring-offset-1 ring-offset-destructive',
+    placeholder: 'border-destructive-foreground/70 text-destructive-foreground/90',
+    overflow: 'bg-destructive-foreground text-destructive',
   },
   'tile-done': {
     plate: 'bg-tile-done-foreground [&_span]:text-tile-done',
     separator: 'ring-tile-done',
-    lead: 'ring-tile-done-foreground ring-offset-2 ring-offset-tile-done',
+    lead: 'ring-tile-done-foreground ring-offset-1 ring-offset-tile-done',
     placeholder: 'border-tile-done-foreground/70 text-tile-done-foreground/90',
     overflow: 'bg-tile-done-foreground text-tile-done',
   },
 } as const;
 
 const SIZE = {
-  xs: { avatar: 'xs' as const, overlap: MARK_STACK_OVERLAP.xs, chip: 'size-6 text-[9px]', icon: 'size-3' },
-  sm: { avatar: 'sm' as const, overlap: MARK_STACK_OVERLAP.sm, chip: 'size-8 text-[10px]', icon: 'size-3.5' },
-  md: { avatar: 'md' as const, overlap: MARK_STACK_OVERLAP.md, chip: 'size-9 text-[11px]', icon: 'size-4' },
+  /* `initials` is the letters one step down from the plate's own default, and
+     only `xs` needs it: at 24px the capitals took ~13px of a 24px disc, which
+     left the overlap 5px to work in and forced it down to 2px — a row of
+     circles touching, not a stack. See `MARK_STACK_OVERLAP`. */
+  xs: {
+    avatar: 'xs' as const,
+    overlap: MARK_STACK_OVERLAP.xs,
+    leadGap: MARK_STACK_LEAD_GAP.xs,
+    initials: '[&_span]:text-[8.5px]',
+    chip: 'size-6 text-[9px]',
+    icon: 'size-3',
+  },
+  sm: {
+    avatar: 'sm' as const,
+    overlap: MARK_STACK_OVERLAP.sm,
+    leadGap: MARK_STACK_LEAD_GAP.sm,
+    initials: '',
+    chip: 'size-8 text-[10px]',
+    icon: 'size-3.5',
+  },
+  md: {
+    avatar: 'md' as const,
+    overlap: MARK_STACK_OVERLAP.md,
+    leadGap: MARK_STACK_LEAD_GAP.md,
+    initials: '',
+    chip: 'size-9 text-[11px]',
+    icon: 'size-4',
+  },
 };
 
 /** Name, and the desk they sit at — the whole tooltip. */
@@ -149,24 +203,25 @@ export const CrewStack = forwardRef<HTMLButtonElement, CrewStackProps>(function 
 
   const faces = (
     <span className="inline-flex items-center">
-      {visible.map((face, index) => {
-        /* The lead's halo is a ring plus a 2px gap drawn OUTSIDE its plate, so
-           it needs 4px of clearance that the plate's own box does not reserve.
-           The face after it therefore takes a small positive gap instead of an
-           overlap — which also sets the person to call slightly apart from the
-           crew behind them, and is the reason the old stack cut the second
-           face's initials in half. */
-        const afterLead = index > 0 && showLead && visible[index - 1]?.isLead === true;
-
-        return (
+      {visible.map((face, index) => (
         <Tooltip key={face.id} content={faceLabel(face, showLead)}>
           <span
             /* Earlier faces paint over later ones, so a row reads left to
-               right and no ring is ever half-covered by the next plate. */
+               right and no ring is ever half-covered by the next plate. It is
+               also what lets the lead keep the SAME overlap as everybody else:
+               the lead is first, so its halo paints on top of the face beside
+               it rather than being clipped by it.
+
+               The mark behind the lead slides a little less far, because the
+               lead's halo is drawn outside its plate and that mark pays for it
+               — see `MARK_STACK_LEAD_GAP`. It is a 3px difference, not the
+               positive margin this once had, which set the lead apart from an
+               otherwise even row and read as a gap somebody forgot to close. */
             style={{ zIndex: visible.length - index }}
             className={cn(
               'relative inline-flex',
-              index > 0 && (afterLead ? 'ml-1' : metrics.overlap),
+              index > 0 &&
+                (showLead && visible[index - 1]?.isLead ? metrics.leadGap : metrics.overlap),
             )}
           >
             <Avatar
@@ -177,12 +232,12 @@ export const CrewStack = forwardRef<HTMLButtonElement, CrewStackProps>(function 
                 'ring-2',
                 showLead && face.isLead ? palette.lead : palette.separator,
                 palette.plate,
+                metrics.initials,
               )}
             />
           </span>
         </Tooltip>
-        );
-      })}
+      ))}
 
       {overflow.length > 0 && (
         <Tooltip content={overflow.map((face) => face.fullName).join(', ')}>

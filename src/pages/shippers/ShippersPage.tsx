@@ -254,8 +254,15 @@ export function ShippersPage() {
       if (formData.logo) {
         await uploadLogo.mutateAsync({ id: shipperId, file: formData.logo });
       }
-      for (const [category, file] of Object.entries(formData.stagedFiles)) {
-        await uploadDocument({ ownerType: 'SHIPPER', ownerId: shipperId, category, file });
+      for (const staged of formData.stagedDocuments) {
+        await uploadDocument({
+          ownerType: 'SHIPPER',
+          ownerId: shipperId,
+          category: staged.category,
+          file: staged.capture.file,
+          issueDate: staged.capture.issueDate,
+          expiryDate: staged.capture.expiryDate,
+        });
       }
       setDrawerState({ mode: 'profile', shipper: updated });
       setSuccessNotice(`Shipper "${formData.companyLegalName}" updated successfully!`);
@@ -264,8 +271,15 @@ export function ShippersPage() {
       if (formData.logo) {
         await uploadLogo.mutateAsync({ id: created.id, file: formData.logo });
       }
-      for (const [category, file] of Object.entries(formData.stagedFiles)) {
-        await uploadDocument({ ownerType: 'SHIPPER', ownerId: created.id, category, file });
+      for (const staged of formData.stagedDocuments) {
+        await uploadDocument({
+          ownerType: 'SHIPPER',
+          ownerId: created.id,
+          category: staged.category,
+          file: staged.capture.file,
+          issueDate: staged.capture.issueDate,
+          expiryDate: staged.capture.expiryDate,
+        });
       }
       setDrawerState({ mode: 'closed' });
       setSuccessNotice(`Shipper "${formData.companyLegalName}" created successfully!`);

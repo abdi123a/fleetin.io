@@ -41,3 +41,15 @@ export {
   type RecordStatusTone,
 } from './RecordStatus';
 export { HelpHint, type HelpHintProps } from './HelpHint';
+export { ViewTabs, type ViewTab, type ViewTabsProps } from './ViewTabs';
+export { SheetHeading, type SheetHeadingProps } from './SheetHeading';
+export { FilterTrigger, type FilterTriggerProps } from './FilterMenu';
+export {
+  ExpiryLabel,
+  daysOfCover,
+  expiryBandOf,
+  EXPIRY_CRITICAL_DAYS,
+  EXPIRY_SAFE_DAYS,
+  type ExpiryBand,
+  type ExpiryLabelProps,
+} from './ExpiryLabel';

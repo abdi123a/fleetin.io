@@ -76,36 +76,30 @@ export function FilterBar<K extends string>({
        this line" are different questions — the same mismatch that had the
        Control Tower's table scrolling sideways on a 1200px screen. */
     <div className={cn('@container/bar min-w-0 border-b border-border', className)}>
-      {/* Side by side only once the bar itself is wide enough. Narrower, a tab
-          row and a 256px field want the same line and the search lands on top
-          of the last tab; it takes its own row above them instead. Above rather
-          than below, so the active tab's underline always meets the hairline.
-          The threshold counts the bands: 52rem was measured against four, and a
-          fifth (every directory gained one in Aug 2026) broke the row onto two
-          lines at every width between 52 and 64rem — the tabs wrapping under
-          themselves while the search sat beside them.
-
-          64rem was still too low. Above the breakpoint the controls are
-          `shrink-0`, so every pixel the row is short comes out of the tab list,
-          and a five-band row beside three controls turned into a ragged column
-          of one band per line the moment the sidebar collapsed and the bar
-          crossed 64rem. 72rem is the width at which five bands and a full
-          control set genuinely fit; below it the bar stacks, which is the
-          layout that was working. */}
-      {/* 72rem and 52rem were measured when the right-hand side was two wide
-          selects and a greedy search — about 33rem of controls, which a
-          five-band tab row could not sit beside until the bar was very wide.
-          A single `FilterMenu` pill plus a capped search is roughly 20rem, so
-          the controls fit next to the tabs far sooner and the bar stops
-          spending a whole second line on itself. */}
-      <div
-        className={cn(
-          'flex min-w-0 flex-col gap-2',
-          tabs.length > 4
-            ? '@[52rem]/bar:flex-row @[52rem]/bar:items-end @[52rem]/bar:justify-between @[52rem]/bar:gap-6'
-            : '@[40rem]/bar:flex-row @[40rem]/bar:items-end @[40rem]/bar:justify-between @[40rem]/bar:gap-6',
-        )}
-      >
+      {/*
+       * `flex-wrap-reverse`, and NOT a breakpoint.
+       *
+       * This used to switch column→row at a measured container width — 52rem
+       * for five bands, 40rem for fewer. Every one of those numbers was a
+       * guess at how much room a tab row plus the controls need, and the guess
+       * was wrong in the ordinary case: with the sidebar open on a 1125px
+       * window the bar measures **813px against an 832px threshold** and spent
+       * a whole extra row on itself for the sake of nineteen pixels.
+       *
+       * Wrapping answers the question the breakpoint was estimating — "do
+       * these actually fit on one line" — from the real content, at any tab
+       * count, with no number to maintain.
+       *
+       * REVERSE because the active tab's underline has to meet the bar's
+       * hairline. Wrapped normally the controls would land beneath the tabs
+       * and break that join; reversed, the first line sits at the bottom, so
+       * the tabs keep the hairline and the controls take the line above.
+       *
+       * `items-start`, not `items-end`, and that is not a typo: `wrap-reverse`
+       * inverts the cross axis, so `flex-end` resolves to the visual TOP. It
+       * left the tab underline floating 13px above the hairline.
+       */}
+      <div className="flex min-w-0 flex-wrap-reverse items-start justify-between gap-x-6 gap-y-2">
         <div className="pb-2 @[30rem]/bar:hidden">
           <Select
             value={active}
@@ -141,20 +135,14 @@ export function FilterBar<K extends string>({
         </div>
 
         {/* One control per row until there is room to share one. Below about
-            26rem a sort select and a search field on the same line leave the
-            search a stub you cannot read your own query in. */}
+            26rem a filter pill and a search field on the same line leave the
+            search a stub you cannot read your own query in.
+
+            `pb-2.5` matches the tab row's, so the two sit on one baseline when
+            they share a line — they were `pb-2` against `pb-2.5`, which is the
+            half-step of misalignment you could see but not name. */}
         {(search || children) && (
-          /* Search first, then the menu — the filter sits on the outside edge
-             where the eye lands last, rather than between the tabs and the
-             field it does not belong to. */
-          <div
-            className={cn(
-              'order-first flex w-full flex-col items-stretch gap-2 pb-2 @[26rem]/bar:flex-row @[26rem]/bar:flex-wrap @[26rem]/bar:items-center',
-              tabs.length > 4
-                ? '@[52rem]/bar:order-last @[52rem]/bar:w-auto @[52rem]/bar:flex-nowrap @[52rem]/bar:shrink-0'
-                : '@[40rem]/bar:order-last @[40rem]/bar:w-auto @[40rem]/bar:flex-nowrap @[40rem]/bar:shrink-0',
-            )}
-          >
+          <div className="flex w-full flex-col items-stretch gap-2 pb-2.5 @[26rem]/bar:w-auto @[26rem]/bar:flex-row @[26rem]/bar:flex-wrap @[26rem]/bar:items-center">
             {search && <SearchField {...search} />}
             {children}
           </div>
@@ -239,7 +227,10 @@ export function SearchField({
        room to sit beside anything it takes a fixed 13rem: `flex-1` made it
        swallow every spare pixel of the bar, which is a very large box to type
        one shipper's name into. */
-    <div className={cn('relative min-w-0 flex-1 @[26rem]/bar:w-52 @[26rem]/bar:flex-none', className)}>
+    /* 15rem, not 13. At 13rem the box is 208px and the padding below took
+       116 of them, leaving 92px of text room for a placeholder that needs
+       101 — which is why "Search transporters…" read as "Search transp". */
+    <div className={cn('relative min-w-0 flex-1 @[26rem]/bar:w-60 @[26rem]/bar:flex-none', className)}>
       <Search
         className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
         aria-hidden
@@ -251,7 +242,16 @@ export function SearchField({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         aria-label={placeholder}
-        className="type-body-sm h-9 w-full rounded-md border border-input bg-surface pl-9 pr-20 text-foreground transition-colors placeholder:text-muted-foreground hover:border-border-strong focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary [&::-webkit-search-cancel-button]:appearance-none"
+        className={cn(
+          'type-body-sm h-9 w-full rounded-md border border-input bg-surface pl-9 text-foreground transition-colors',
+          'placeholder:text-muted-foreground hover:border-border-strong focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary',
+          '[&::-webkit-search-cancel-button]:appearance-none',
+          /* Room on the right ONLY when something is there. `pr-20` was
+             unconditional, so an empty field reserved 80px for a match count
+             and a clear button that only exist while you are typing — and the
+             placeholder was clipped to pay for them. */
+          counting ? 'pr-20' : value !== '' ? 'pr-9' : 'pr-3',
+        )}
       />
       <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
         {counting && (

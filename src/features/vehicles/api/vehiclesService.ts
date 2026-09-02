@@ -58,6 +58,8 @@ export interface CreateVehiclePayload {
   containerCapacity?: string;
   trailerInfo?: string;
   ownershipType: string;
+  /** The insurer, taken from the truck's Insurance certificate. */
+  insuranceProvider?: string;
   insuranceStartDate?: string;
   insuranceExpiry: string;
   registrationExpiry: string;

@@ -14,10 +14,9 @@ import {
   RotateCcw,
   ShieldAlert,
   ShieldCheck,
-  Truck,
 } from '@/design-system/icons';
-import { AVOIDED_TRIP_DETENTION_DAYS, useEmptyContainers } from '@/features/empty-returns';
-import { CRITICAL_THRESHOLD_MS, detentionRatePerDay, formatDetention } from '@/data/emptyReturnData';
+import { useEmptyContainers } from '@/features/empty-returns';
+import { CRITICAL_THRESHOLD_MS, formatContainerSize } from '@/data/emptyReturnData';
 import {
   chainStateOf,
   emptyDwellOf,
@@ -153,7 +152,7 @@ export function EmptyReturnCyclesPage() {
                   {record.container || record.bookingReference}
                 </Mono>
                 <div className="truncate text-[11px] text-muted-foreground">
-                  {record.size} · {record.line}
+                  {formatContainerSize(record.size)} · {record.line}
                 </div>
                 <div className="text-[11px] text-muted-foreground">
                   Empty for {formatSpan(now - (record.emptyReadyAt ?? now))}
@@ -319,8 +318,13 @@ function ChainCard({
           be wrong more often than it was right. */}
       <div className="min-w-0 space-y-2 px-4 pb-3 pt-9">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
-          <div className="flex min-w-0 flex-1 items-center gap-1.5">
-            <Truck className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          {/* The word, not a truck glyph. A lorry beside a company's own
+              logo read as a second mark on the name — two icons, neither
+              saying which of the chain's three parties this is. */}
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-bold uppercase leading-tight tracking-[0.09em] text-muted-foreground">
+              Transporter
+            </p>
             {chain.first.transporter ? (
               <CompanyName
                 name={chain.first.transporter}
@@ -356,24 +360,20 @@ function ChainCard({
         <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg bg-primary-bold px-3.5 py-2.5 text-primary-bold-foreground shadow-2xs">
           {/* Plain counts. What happened, in white — they carry no verdict, and
               tinting them was what turned the row into one green wall with
-              nothing standing out of it. */}
-          <Figure label="links" value={String(chain.cycles.length)} />
-          <Figure label="pairings" value={String(chain.pairings)} />
+              nothing standing out of it.
+
+              "pairings" and "returns avoided" were TWO figures reading
+              `chain.pairings` — the same number under two labels, on every
+              chain, forever. `CycleChain.pairings` says so on its face: "links
+              that ended in a pairing — each one is an empty return avoided".
+              The outcome survives and the mechanism goes, which is the rule
+              `StageChip` already follows for a closed container. */}
+          <Figure label="cycles" value={String(chain.cycles.length)} />
           <Figure label="returns avoided" value={String(chain.pairings)} />
           {/* Not an invented threshold: avoidance below 100% means some empty
               on this chain went back on a trip of its own, which is exactly
               the cost the module exists to remove. */}
           <Figure label="avoidance" value={`${avoidance}%`} tone={avoidance < 100 ? 'warn' : 'neutral'} />
-          {/* The headline, by size and not by hue — money saved is the figure
-              the business acts on, and the one thing here worth finding
-              without reading the row. */}
-          <Figure
-            lead
-            label="est. detention avoided"
-            value={formatDetention(
-              chain.pairings * AVOIDED_TRIP_DETENTION_DAYS * detentionRatePerDay(),
-            )}
-          />
           {/* Dwell is the one figure where longer is worse. The threshold is
               the module's own `CRITICAL_THRESHOLD_MS` (24h) rather than a new
               number: a day is what this module already calls the point where a
@@ -413,7 +413,7 @@ function ChainCard({
       {chain.cycles.length > 1 && (
         <div className="flex min-w-0 items-center justify-between gap-2 border-t border-border/60 px-4 py-2">
           <span className="text-[11px] tabular-nums text-muted-foreground">
-            {chain.cycles.length} links — scroll or use the arrows
+            {chain.cycles.length} cycles — scroll or use the arrows
           </span>
           <div className="flex shrink-0 items-center gap-1">
             <Button
@@ -421,7 +421,7 @@ function ChainCard({
               size="sm"
               disabled={atStart}
               onClick={() => scrollByLink(-1)}
-              aria-label="Earlier links in this chain"
+              aria-label="Earlier cycles in this chain"
               className="h-7 w-7 rounded-lg p-0"
             >
               <ChevronLeft className="size-3.5" />
@@ -431,7 +431,7 @@ function ChainCard({
               size="sm"
               disabled={atEnd}
               onClick={() => scrollByLink(1)}
-              aria-label="Later links in this chain"
+              aria-label="Later cycles in this chain"
               className="h-7 w-7 rounded-lg p-0"
             >
               <ChevronRight className="size-3.5" />
@@ -456,7 +456,7 @@ function ChainStateBadge({ state }: { state: ReturnType<typeof chainStateOf> }) 
            colour on this card (the band under it), and solid so it holds its
            corner against the orange tab opposite. */
         className="font-bold"
-        title="A link in this chain is still waiting on a decision."
+        title="A cycle in this chain is still waiting on a decision."
       >
         Active
       </Badge>
@@ -469,7 +469,7 @@ function ChainStateBadge({ state }: { state: ReturnType<typeof chainStateOf> }) 
         intent="primary"
         size="sm"
         className="border-stage-paired-border bg-stage-paired-subtle text-stage-paired-subtle-foreground"
-        title="Every link closed and the last one paired out — the chain continues once that container is emptied."
+        title="Every cycle closed and the last one paired out — the chain continues once that container is emptied."
       >
         Handed on
       </Badge>
@@ -493,20 +493,24 @@ type FigureTone = 'neutral' | 'warn';
 /**
  * One chain KPI, set on the band.
  *
- * The row started as six identical figures — same size, same colour — so six
- * numbers arrived at once with nothing to read first and nothing saying which
- * of them mattered.
- *
- * **Size carries the hierarchy, colour carries the alarm.** They are separate
- * jobs, and the row got worse when one thing did both: tinting every good
- * number green turned a healthy chain into a wall of one colour, which is the
- * same problem as a wall of white with extra steps.
+ * **Colour carries the alarm, and nothing else carries anything.** The row got
+ * worse when one thing did two jobs: tinting every good number green turned a
+ * healthy chain into a wall of one colour, which is the same problem as a wall
+ * of white with extra steps.
  *
  * So: the value is a step above its noun (figures first, what they are
- * second), the money saved is a step above that — the one thing worth finding
- * without reading — and everything is white. Amber appears **only** where a
- * figure is saying something is wrong. A good chain is a clean white row; a
- * bad one carries one or two amber figures that are impossible to miss.
+ * second), and everything is white. Amber appears **only** where a figure is
+ * saying something is wrong. A good chain is a clean white row; a bad one
+ * carries one or two amber figures that are impossible to miss.
+ *
+ * There is no headline figure. There was one — an estimated detention saving,
+ * set a size larger so it could be found without reading the row — and it was
+ * removed on 2026-09-01: it was the only figure on the band that was not a
+ * count of something that happened, and a modelled number set larger than the
+ * measured ones beside it reads as the most solid thing there when it is the
+ * least. The estimate still lives on the Performance page, which states its
+ * method on its face ("2 container-days × rate per avoided trip") — that is
+ * where an estimate can be read as one.
  *
  * Colour is never the only carrier: the label already names the fact
  * ("avoidance", "avg empty"), so a reader who cannot separate the hues loses
@@ -516,27 +520,16 @@ function Figure({
   label,
   value,
   tone = 'neutral',
-  lead = false,
 }: {
   label: string;
   value: string;
   tone?: FigureTone;
-  /**
-   * The band's headline figure. At most one per band.
-   *
-   * `text-lg` against the row's `text-sm` — 16px against 13px. One step up
-   * the scale (14px) was tried and is not a hierarchy: a 1px difference is
-   * something you can measure and not something you can see, so the figure
-   * that is supposed to be findable without reading was not.
-   */
-  lead?: boolean;
 }) {
   return (
     <span className="flex shrink-0 items-baseline gap-1 whitespace-nowrap">
       <Mono
         className={cn(
-          'font-bold leading-none',
-          lead ? 'text-lg' : 'text-sm',
+          'font-bold leading-none text-sm',
           tone === 'warn' ? 'text-stage-returning-on-fill' : 'text-primary-bold-foreground',
         )}
       >
@@ -781,8 +774,8 @@ function LinkHeader({
       )}
       aria-hidden={ghost || undefined}
     >
-      <span className="shrink-0 rounded bg-foreground/85 px-1.5 py-px text-[9px] font-extrabold uppercase tracking-widest text-background">
-        Link {index + 1}
+      <span className="shrink-0 rounded-full bg-foreground/85 px-2 py-px text-[9px] font-extrabold uppercase tracking-widest text-background">
+        Cycle {index + 1}
       </span>
 
       <span className="text-[10px] text-muted-foreground">
@@ -849,7 +842,7 @@ function FullCard({
       </div>
       <Mono className="mt-0.5 block truncate text-sm font-bold">{container || '—'}</Mono>
       <div className="truncate text-[9px] opacity-80">
-        <Mono>{reference}</Mono> · {line} · {size}
+        <Mono>{reference}</Mono> · {line} · {formatContainerSize(size)}
       </div>
       <div className="truncate text-[9px] opacity-70">
         {stampLabel} <Mono>{formatStamp(stamp)}</Mono>

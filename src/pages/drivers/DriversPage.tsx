@@ -1,3 +1,4 @@
+import { ExpiryLabel, expiryBandOf, SheetHeading } from '@/components/common';
 import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -10,16 +11,13 @@ import {
   X,
   CheckCircle2,
   Pencil,
-  Upload,
   FileText,
   Trash2,
-  Eye,
-  Download,
 } from '@/design-system/icons';
 import { DocumentViewerModal, type DocumentToView } from '@/components/DocumentViewerModal';
 import { RecordRaise } from '@/features/workspace';
 import { triggerDocumentDownload } from '@/components/documentDownload';
-import { RotateCcw, AlertTriangle, Building2, UserCheck, Check } from 'lucide-react';
+import { RotateCcw, AlertTriangle, Building2, UserCheck } from 'lucide-react';
 import { DataTable, FilterBar,
   FilterMenu, PageHeader, TablePager, usePagedRows } from '@/components';
 import {
@@ -30,9 +28,7 @@ import { usePermissions } from '@/hooks';
 import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
 import { Tooltip, useConfirm } from '@/design-system';
 import {
-  Badge,
   Button,
-  Checkbox,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -62,9 +58,13 @@ import {
   useDrivers,
   useUpdateDriver,
 } from '@/features/drivers/api/queries';
-import { useDocuments, useCreateDocumentType, useDocumentTypes, useUploadDocument, useDeleteDocument } from '@/features/documents/api/queries';
-import { toDisplayDocument, uploadDocument, type DocumentTypeRecord } from '@/features/documents/api/documentsService';
-import { cn, isDriverVerified } from '@/utils';
+import { useDocuments, useUploadDocument, useDeleteDocument } from '@/features/documents/api/queries';
+import { toDisplayDocument, type DisplayDocument } from '@/features/documents/api/documentsService';
+import { DocumentChecklist } from '@/features/documents/components/DocumentChecklist';
+import type { DocumentCapture } from '@/features/documents/components/DocumentCaptureDialog';
+import type { DocumentTypeSpec } from '@/features/documents/catalog';
+import { useStagedDocuments, uploadStagedDocuments } from '@/features/documents/stagedDocuments';
+import { isDriverVerified } from '@/utils';
 
 type StatusFilter = 'all' | 'available' | 'on-the-road' | 'on-leave' | 'unavailable';
 
@@ -109,186 +109,6 @@ function StatusPill({ status }: { status: OperationalStatus }) {
       <span className={`size-2 shrink-0 rounded-full ${dot}`} aria-hidden />
       {label}
     </span>
-  );
-}
-
-function isExpiredOrSoon(dateStr?: string): 'expired' | 'soon' | 'ok' {
-  if (!dateStr) return 'ok';
-  const d = new Date(dateStr);
-  const now = new Date();
-  if (d < now) return 'expired';
-  const diff = (d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
-  if (diff <= 30) return 'soon';
-  return 'ok';
-}
-
-function ExpiryLabel({ date, label }: { date?: string; label: string }) {
-  if (!date) return null;
-  const state = isExpiredOrSoon(date);
-  const cls = state === 'expired' ? 'text-destructive-subtle-foreground font-semibold' : state === 'soon' ? 'text-warning-subtle-foreground font-semibold' : 'text-foreground';
-  return (
-    <div className="text-2xs">
-      <span className="text-muted-foreground block text-[10px]">{label}</span>
-      <span className={`flex items-center gap-1 ${cls}`}>
-        {state !== 'ok' && <AlertTriangle className="h-3 w-3 shrink-0" />}
-        {date}
-      </span>
-    </div>
-  );
-}
-
-interface DriverDocRow {
-  id: string;
-  name: string;
-  category: string;
-  fileSize: string;
-}
-
-/** Shared "one row per document type" list — same pattern as the New Transporter
- *  Onboarding compliance-documents step. Used both in the Add Driver popup
- *  (docs staged before the driver exists) and the driver drawer's Documents tab. */
-function DocumentTypeList({
-  types,
-  docs,
-  onUpload,
-  onView,
-  onDownload,
-  onRemove,
-}: {
-  types: DocumentTypeRecord[];
-  docs: DriverDocRow[];
-  onUpload: (type: DocumentTypeRecord, file: File) => void;
-  onView: (doc: DriverDocRow) => void;
-  onDownload: (doc: DriverDocRow) => void;
-  onRemove: (docId: string) => void;
-}) {
-  return (
-    <div className="space-y-1.5">
-      {types.map((type) => {
-        const existing = docs.find((d) => d.category === type.label);
-        return (
-          <div
-            key={type.id}
-            className={cn(
-              'flex items-center gap-3 rounded-lg border px-3.5 py-2.5 transition-colors',
-              existing ? 'border-success/30 bg-success-subtle/40' : 'border-border/70 bg-card hover:border-primary/40'
-            )}
-          >
-            <span
-              className={cn(
-                'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
-                existing ? 'border-success bg-success text-success-foreground' : 'border-border-strong text-transparent'
-              )}
-              aria-hidden
-            >
-              <Check className="h-3 w-3 stroke-[3]" />
-            </span>
-
-            <div className="min-w-0 flex-1 flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-bold text-foreground truncate">{type.label}</span>
-              {existing ? (
-                <span className="text-2xs text-muted-foreground truncate">
-                  {existing.name} · {existing.fileSize}
-                </span>
-              ) : (
-                <Badge intent={type.required ? 'warning' : 'default'} size="sm">
-                  {type.required ? 'Required' : 'Optional'}
-                </Badge>
-              )}
-            </div>
-
-            <div className="flex items-center gap-1 shrink-0">
-              {existing ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => onView(existing)}
-                    className="p-1 rounded-md text-muted-foreground hover:text-primary transition-colors"
-                    title="View Document"
-                  >
-                    <Eye className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDownload(existing)}
-                    className="p-1 rounded-md text-muted-foreground hover:text-primary transition-colors"
-                    title="Download Document"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onRemove(existing.id)}
-                    className="p-1 rounded-md text-muted-foreground hover:text-destructive transition-colors shrink-0"
-                    title="Remove document"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </>
-              ) : (
-                <label className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-dashed border-primary/40 bg-primary/5 text-primary text-2xs font-semibold hover:bg-primary/10 transition-colors cursor-pointer shrink-0">
-                  <input
-                    type="file"
-                    accept=".pdf,.png,.jpg,.jpeg"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) onUpload(type, file);
-                    }}
-                  />
-                  <Upload className="h-3 w-3" />
-                  <span>Upload</span>
-                </label>
-              )}
-            </div>
-          </div>
-        );
-      })}
-
-      {types.length === 0 && (
-        <div className="p-6 rounded-lg border border-dashed border-border/80 text-center text-xs text-muted-foreground">
-          No document types yet.
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Shared "define a new document type" box — same pattern as New Transporter Onboarding. */
-function AddDocumentTypeBox({
-  labelValue,
-  onLabelChange,
-  required,
-  onRequiredChange,
-  onSave,
-  placeholder,
-}: {
-  labelValue: string;
-  onLabelChange: (value: string) => void;
-  required: boolean;
-  onRequiredChange: (value: boolean) => void;
-  onSave: () => void;
-  placeholder: string;
-}) {
-  return (
-    <div className="p-4 rounded-lg border border-primary/30 bg-primary/5 space-y-3 animate-in fade-in">
-      <h5 className="text-xs font-bold text-primary">New Document Type</h5>
-      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 sm:items-center">
-        <Input placeholder={placeholder} value={labelValue} onChange={(e) => onLabelChange(e.target.value)} />
-        <Checkbox label="Required document" checked={required} onChange={(e) => onRequiredChange(e.target.checked)} />
-      </div>
-      <div className="flex justify-end pt-1">
-        <Button
-          type="button"
-          size="sm"
-          onClick={onSave}
-          disabled={!labelValue.trim()}
-          className="bg-primary text-primary-foreground font-semibold text-xs rounded-full px-4"
-        >
-          Save document type
-        </Button>
-      </div>
-    </div>
   );
 }
 
@@ -338,41 +158,18 @@ export function DriversPage() {
     partnerId: '',
     fullName: '',
     phone: '',
-    licenseExpiry: '2027-12-31',
   });
   const [addSuccessNotice, setAddSuccessNotice] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
 
-  // Documents staged for the driver before it exists — uploaded to the
-  // backend once the driver record is created and has a real id.
-  const [newDriverDocs, setNewDriverDocs] = useState<DriverDocRow[]>([]);
-  const [newDriverFiles, setNewDriverFiles] = useState<Record<string, File>>({});
-
-  const handleUploadForNewDriverType = (type: DocumentTypeRecord, file: File) => {
-    const newDoc: DriverDocRow = {
-      id: `staged-${Date.now()}`,
-      name: file.name,
-      category: type.label,
-      fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-    };
-    setNewDriverDocs((prev) => [...prev.filter((d) => d.category !== type.label), newDoc]);
-    setNewDriverFiles((prev) => ({ ...prev, [type.label]: file }));
-  };
-
-  const handleRemoveNewDriverDoc = (docId: string) => {
-    setNewDriverDocs((prev) => prev.filter((d) => d.id !== docId));
-  };
-
-  /** A staged (not-yet-persisted) upload has no backend document id — download the local File directly. */
-  const handleDownloadNewDriverDoc = (doc: DriverDocRow) => {
-    const file = newDriverFiles[doc.category];
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = doc.name;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  /**
+   * The licence, held until the driver has an id to file it against.
+   *
+   * `licenseExpiry` used to be a date field defaulting to 2027 — a driver
+   * registered without a thought was licensed for another eighteen months
+   * because the form said so. The licence itself sets it now.
+   */
+  const newDriverDocs = useStagedDocuments();
 
   const handleCreateDriver = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -381,6 +178,13 @@ export function DriversPage() {
     const partner = partners.find((p) => p.id === newDriver.partnerId);
     if (!partner) return;
 
+    const licence = newDriverDocs.captureFor('Driver License');
+    if (!licence) {
+      setAddError("Attach the driver's licence before registering them.");
+      return;
+    }
+
+    setAddError(null);
     const created = await createDriver.mutateAsync({
       partnerId: newDriver.partnerId,
       payload: {
@@ -388,25 +192,20 @@ export function DriversPage() {
         phone: newDriver.phone || '+253 77 00 00 00',
         nationalId: `DJ-NID-${Math.floor(100000 + Math.random() * 900000)}`,
         drivingLicenseNumber: `DL-DJ-${Math.floor(10000 + Math.random() * 90000)}`,
-        licenseExpiry: newDriver.licenseExpiry || '2027-12-31',
+        licenseExpiry: licence.expiryDate,
         status: 'Available',
         joinDate: new Date().toISOString().slice(0, 10),
       },
     });
 
-    // Upload any documents staged during registration for the new driver.
-    for (const [category, file] of Object.entries(newDriverFiles)) {
-      await uploadDocument({ ownerType: 'DRIVER', ownerId: created.id, category, file });
-    }
+    await uploadStagedDocuments('DRIVER', created.id, newDriverDocs.staged);
 
     setIsAddDriverOpen(false);
-    setNewDriverDocs([]);
-    setNewDriverFiles({});
+    newDriverDocs.reset();
     setNewDriver({
       partnerId: '',
       fullName: '',
       phone: '',
-      licenseExpiry: '2027-12-31',
     });
 
     setAddSuccessNotice(`Driver "${created.fullName}" registered to ${partner.companyLegalName}.`);
@@ -425,14 +224,6 @@ export function DriversPage() {
 
   // Edit form state
   const [editForm, setEditForm] = useState<Partial<EnrichedDriver>>({});
-
-  // Document-type catalog — shared across every driver via the backend.
-  const { data: driverDocTypes = [] } = useDocumentTypes('DRIVER');
-  const createDocType = useCreateDocumentType('DRIVER');
-
-  const [showAddDocType, setShowAddDocType] = useState(false);
-  const [newDocTypeLabel, setNewDocTypeLabel] = useState('');
-  const [newDocTypeRequired, setNewDocTypeRequired] = useState(true);
 
   /**
    * The document panel's one line of feedback.
@@ -475,7 +266,7 @@ export function DriversPage() {
   const { data: selectedDriverDocs = [] } = useDocuments('DRIVER', selectedDriver?.id);
   const uploadDoc = useUploadDocument('DRIVER', selectedDriver?.id);
   const deleteDoc = useDeleteDocument('DRIVER', selectedDriver?.id);
-  const driverDocRows: DriverDocRow[] = useMemo(
+  const driverDocRows: DisplayDocument[] = useMemo(
     () => selectedDriverDocs.map(toDisplayDocument),
     [selectedDriverDocs],
   );
@@ -486,28 +277,6 @@ export function DriversPage() {
     setEditForm(driver);
     setDrawerTab('view');
     setDocNotice(null);
-    setShowAddDocType(false);
-  };
-
-  /** Defines a new document type — saved to the catalog, so it shows up as
-   *  an upload slot for every driver after this one. */
-  const handleAddDocumentType = () => {
-    const label = newDocTypeLabel.trim();
-    if (!label) return;
-    createDocType.mutate(
-      { label, required: newDocTypeRequired },
-      {
-        onSuccess: () => {
-          say('ok', `"${label}" added — it is now an upload slot on every driver.`);
-          setNewDocTypeLabel('');
-          setNewDocTypeRequired(true);
-          setShowAddDocType(false);
-        },
-        /* The form stays open and keeps what was typed, so a refused save is
-           recoverable rather than a retype. */
-        onError: (error) => say('error', explain(error)),
-      },
-    );
   };
 
   const handleSaveEdit = async () => {
@@ -527,12 +296,18 @@ export function DriversPage() {
     setDrawerTab('view');
   };
 
-  const handleUploadForType = (type: DocumentTypeRecord, file: File) => {
+  const handleUploadForType = (spec: DocumentTypeSpec, capture: DocumentCapture) => {
     if (!selectedDriver) return;
     uploadDoc.mutate(
-      { category: type.label, file },
       {
-        onSuccess: (doc) => say('ok', `Document "${doc.name}" uploaded.`),
+        category: spec.label,
+        file: capture.file,
+        issueDate: capture.issueDate,
+        expiryDate: capture.expiryDate,
+        issuer: capture.issuer,
+      },
+      {
+        onSuccess: (doc) => say('ok', `Document "${doc.name}" filed.`),
         onError: (error) => say('error', explain(error)),
       },
     );
@@ -548,7 +323,7 @@ export function DriversPage() {
     if (ok) deleteDoc.mutate(docId);
   };
 
-  const handleDownloadDriverDoc = (doc: DriverDocRow) => {
+  const handleDownloadDriverDoc = (doc: DisplayDocument) => {
     void triggerDocumentDownload(doc.id, doc.name);
   };
 
@@ -601,7 +376,14 @@ export function DriversPage() {
   const totalDrivers = drivers.length;
   const availableCount = drivers.filter((d) => d.status === 'Available').length;
   const inTransitCount = drivers.filter((d) => d.status === 'In Transit').length;
-  const licenseAlerts = drivers.filter((d) => isExpiredOrSoon(d.licenseExpiry) !== 'ok').length;
+  /* An ALERT is a licence that needs acting on — gone, or gone within a
+     fortnight. Those are exactly the two bands `ExpiryLabel` puts a plate
+     around, so the tile counts the rows a reader can see are marked. The old
+     rule counted anything inside 30 days, which folded the run-up in with the
+     emergencies and left the number high enough to stop meaning anything. */
+  const licenseAlerts = drivers.filter((d) =>
+    ['expired', 'critical'].includes(expiryBandOf(d.licenseExpiry)),
+  ).length;
 
   // Filtering & Sorting
   const filteredDrivers = useMemo(() => {
@@ -720,14 +502,16 @@ export function DriversPage() {
           side="right"
           className="flex h-full w-full flex-col gap-0 overflow-hidden border-l border-border bg-background p-0 sm:max-w-md"
         >
-          <div className="shrink-0 space-y-1 border-b border-border/40 px-6 pb-4 pt-6 sm:px-8 sm:pt-8">
-            <SheetTitle className="flex items-center gap-2 text-xl font-extrabold tracking-tight text-foreground">
-              <User className="h-5 w-5 text-primary" /> Register New Driver
-            </SheetTitle>
-            <SheetDescription className="text-xs text-muted-foreground">
-              Added to the selected transporter's driver roster.
-            </SheetDescription>
-          </div>
+          <SheetHeading
+            titleComponent={SheetTitle}
+            descriptionComponent={SheetDescription}
+            title={
+              <>
+                <User className="h-5 w-5 text-primary" /> Register New Driver
+              </>
+            }
+            description="Added to the selected transporter's driver roster."
+          />
 
           <form onSubmit={handleCreateDriver} className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5 sm:px-8">
@@ -766,57 +550,26 @@ export function DriversPage() {
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-foreground block">License Expiry Date</label>
-              <Input
-                type="date"
-                value={newDriver.licenseExpiry}
-                onChange={(e) => setNewDriver((prev) => ({ ...prev, licenseExpiry: e.target.value }))}
+            {/* The licence sets the expiry — there is no field for it.
+             *
+             * A date typed beside an optional upload is a second answer to a
+             * question the paper already answers, and the one somebody typed
+             * was the one every alert read. */}
+            <div className="space-y-3 border-t border-border/40 pt-3">
+              <h4 className="type-h4 flex items-center gap-2 font-semibold text-foreground">
+                <FileText className="h-4.5 w-4.5 text-primary" />
+                Driver Documents
+              </h4>
+
+              <DocumentChecklist
+                ownerType="DRIVER"
+                documents={newDriverDocs.rows}
+                subject={newDriver.fullName || undefined}
+                onUpload={newDriverDocs.stage}
+                onRemove={newDriverDocs.remove}
               />
-            </div>
 
-            <div className="space-y-3 pt-3 border-t border-border/40">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
-                    <FileText className="h-4.5 w-4.5 text-primary" />
-                    Driver Compliance Documents
-                  </h4>
-                  <p className="type-caption text-muted-foreground mt-0.5">
-                    Optional; can be added later.
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowAddDocType((prev) => !prev)}
-                  leadingIcon={<Plus className="h-3.5 w-3.5" />}
-                  className="text-xs font-semibold rounded-full shrink-0"
-                >
-                  {showAddDocType ? 'Cancel' : 'Add document type'}
-                </Button>
-              </div>
-
-              {showAddDocType && (
-                <AddDocumentTypeBox
-                  labelValue={newDocTypeLabel}
-                  onLabelChange={setNewDocTypeLabel}
-                  required={newDocTypeRequired}
-                  onRequiredChange={setNewDocTypeRequired}
-                  onSave={handleAddDocumentType}
-                  placeholder="Document name (e.g. Medical Clearance)"
-                />
-              )}
-
-              <DocumentTypeList
-                types={driverDocTypes}
-                docs={newDriverDocs}
-                onUpload={handleUploadForNewDriverType}
-                onView={setViewingDoc}
-                onDownload={handleDownloadNewDriverDoc}
-                onRemove={handleRemoveNewDriverDoc}
-              />
+              {addError && <p className="text-[11px] font-medium text-destructive">{addError}</p>}
             </div>
 
           </div>
@@ -830,8 +583,8 @@ export function DriversPage() {
               className="rounded-lg"
               onClick={() => {
                 setIsAddDriverOpen(false);
-                setNewDriverDocs([]);
-                setShowAddDocType(false);
+                newDriverDocs.reset();
+                setAddError(null);
               }}
             >
               Cancel
@@ -1069,44 +822,16 @@ export function DriversPage() {
               {/* ── DOCUMENTS — part of editing, not a third destination ── */}
               {drawerTab === 'edit' && (
                 <div className="space-y-5 border-t border-border pt-5">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <div>
-                      <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
-                        <FileText className="h-4.5 w-4.5 text-primary" />
-                        Driver Compliance Documents
-                      </h4>
-                      <p className="type-caption text-muted-foreground mt-0.5">
-                        New document types apply to every future driver.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowAddDocType((prev) => !prev)}
-                      leadingIcon={<Plus className="h-3.5 w-3.5" />}
-                      className="text-xs font-semibold rounded-full shrink-0"
-                    >
-                      {showAddDocType ? 'Cancel' : 'Add Document Type'}
-                    </Button>
-                  </div>
+                  <h4 className="type-h4 flex items-center gap-2 font-semibold text-foreground">
+                    <FileText className="h-4.5 w-4.5 text-primary" />
+                    Driver Documents
+                  </h4>
 
-                  {/* Add document type box */}
-                  {showAddDocType && (
-                    <AddDocumentTypeBox
-                      labelValue={newDocTypeLabel}
-                      onLabelChange={setNewDocTypeLabel}
-                      required={newDocTypeRequired}
-                      onRequiredChange={setNewDocTypeRequired}
-                      onSave={handleAddDocumentType}
-                      placeholder="Document name (e.g. Medical Clearance)"
-                    />
-                  )}
-
-                  {/* Document Type List — one compact row per type */}
-                  <DocumentTypeList
-                    types={driverDocTypes}
-                    docs={driverDocRows}
+                  <DocumentChecklist
+                    ownerType="DRIVER"
+                    documents={driverDocRows}
+                    subject={selectedDriver.fullName}
+                    busy={uploadDoc.isPending}
                     onUpload={handleUploadForType}
                     onView={setViewingDoc}
                     onDownload={handleDownloadDriverDoc}
@@ -1221,7 +946,7 @@ export function DriversPage() {
                 <span className="block truncate font-mono text-xs font-semibold text-foreground">
                   {driver.drivingLicenseNumber}
                 </span>
-                <ExpiryLabel date={driver.licenseExpiry} label="" />
+                <ExpiryLabel date={driver.licenseExpiry} />
               </div>
             ),
           },

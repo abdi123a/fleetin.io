@@ -36,7 +36,6 @@ export function TransporterRecommendations({
   sizes,
   pickupAt,
   vehiclesNeeded,
-  rateOf,
   considerEmpties,
   assignedPartnerIds,
   onChoose,
@@ -47,7 +46,6 @@ export function TransporterRecommendations({
   sizes: string[];
   pickupAt: number;
   vehiclesNeeded: number;
-  rateOf: (partner: PartnerRecord) => number;
   /** Container shipments only — bulk and machinery have no box to reuse. */
   considerEmpties: boolean;
   assignedPartnerIds: string[];
@@ -120,8 +118,7 @@ export function TransporterRecommendations({
         sizes,
         pickupAt,
         vehiclesNeeded,
-        rateOf,
-        considerEmpties,
+              considerEmpties,
         scheduledByName,
         ratingOf: (partner) => ratingByPartner.get(partner.id) ?? null,
       }),
@@ -132,8 +129,7 @@ export function TransporterRecommendations({
       sizes,
       pickupAt,
       vehiclesNeeded,
-      rateOf,
-      considerEmpties,
+          considerEmpties,
       scheduledByName,
       ratingByPartner,
     ],
@@ -151,20 +147,16 @@ export function TransporterRecommendations({
               useful the first time, noise on the four hundredth — the operator
               filling their tenth shipment of the day was reading past a
               paragraph to reach the list. */}
+          {/* One branch, because the panel now renders only on container
+              shipments — see `CreateShipmentModal`. The "no container to reuse"
+              copy it used to carry was an admission that the panel's own reason
+              for existing did not apply, printed on a panel that should not
+              have been open. */}
           <HelpHint label="How these are scored">
-            {considerEmpties ? (
-              <>
-                Scored on the empty containers each carrier is already holding for this line and
-                size, and on the empty returns already booked in their calendar around this pickup —
-                either way the trip is one they are largely making anyway. Their star rating, fleet
-                size and price make up the rest.
-              </>
-            ) : (
-              <>
-                This shipment carries no container to reuse, so carriers are scored on their star
-                rating, fleet size and price alone.
-              </>
-            )}
+            Scored on the empty containers each carrier is already holding for this line and size,
+            and on the empty returns already booked in their calendar around this pickup — either
+            way the trip is one they are largely making anyway. Their star rating, fleet size and
+            price make up the rest.
           </HelpHint>
         </h4>
         <Badge variant="subtle" intent="default" size="sm">
@@ -247,7 +239,6 @@ function RecommendationRow({
     entry.coversFleet
       ? `${entry.vehicles} vehicles`
       : `only ${entry.vehicles} of ${entry.vehiclesNeeded} vehicles`,
-    entry.ratePerVehicle > 0 ? `${entry.ratePerVehicle.toLocaleString()} FDJ` : null,
   ]
     .filter(Boolean)
     .join(' · ');

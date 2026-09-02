@@ -1,0 +1,93 @@
+import type { DocumentOwnerType } from './api/documentsService';
+
+/**
+ * Every paper Fleetin asks for, and nothing else.
+ *
+ * The catalog used to be open — the onboarding wizard had a "New Document
+ * Type" box, so each of the four record types accumulated whatever the last
+ * person to onboard somebody had decided to invent. Seven types across four
+ * owners, several in the wrong place: the **grey card sat on the transporter**,
+ * which meant a haulier with forty trucks proved its registration once, with
+ * one file.
+ *
+ * The list is now closed and lives here, because a required document is a
+ * *rule* — it gates a status, it drives an expiry alert — and a rule that
+ * anybody can add from a form is not a rule. Its twin is `COMPLIANCE_CATALOG`
+ * in the backend's `document-owner-type.ts`; the two must agree.
+ *
+ * | Owner       | Paper                    | Because                              |
+ * |-------------|--------------------------|--------------------------------------|
+ * | Transporter | Business License         | the company is licensed to trade     |
+ * | Vehicle     | Grey Card · Insurance    | the truck is registered and covered  |
+ * | Driver      | Driver License           | the person is allowed to drive       |
+ * | Shipper     | Business License         | the client is a real business        |
+ *
+ * A transporter is onboarded with its business licence and its logo, and
+ * nothing more; its trucks and its drivers bring their own papers when those
+ * records are created.
+ */
+export interface DocumentTypeSpec {
+  /** The stored `category` — the string the backend and every guard match on. */
+  label: string;
+  /** Whether the record is incomplete without it. All four are, today. */
+  required: boolean;
+  /**
+   * Who issued it, asked for alongside the dates.
+   *
+   * Only the insurance certificate asks. A policy is worth whatever the
+   * company behind it is worth — a claim is made against the insurer, not
+   * against the paper — so "whose cover is this?" is part of the document.
+   * The others are issued by the state, which is not a question.
+   */
+  issuer?: { label: string; catalog: 'insurers' };
+}
+
+export const DOCUMENT_CATALOG: Readonly<
+  Record<Exclude<DocumentOwnerType, 'BOOKING'>, readonly DocumentTypeSpec[]>
+> = {
+  SHIPPER: [{ label: 'Business License', required: true }],
+  PARTNER: [{ label: 'Business License', required: true }],
+  VEHICLE: [
+    { label: 'Grey Card', required: true },
+    { label: 'Insurance', required: true, issuer: { label: 'Insurance company', catalog: 'insurers' } },
+  ],
+  DRIVER: [{ label: 'Driver License', required: true }],
+};
+
+export function documentCatalogFor(ownerType: DocumentOwnerType): readonly DocumentTypeSpec[] {
+  if (ownerType === 'BOOKING') return [];
+  return DOCUMENT_CATALOG[ownerType];
+}
+
+export function documentSpecFor(
+  ownerType: DocumentOwnerType,
+  category: string,
+): DocumentTypeSpec | undefined {
+  return documentCatalogFor(ownerType).find((spec) => spec.label === category);
+}
+
+/**
+ * How close a paper is to being worthless.
+ *
+ * One scale, because "is this transporter compliant" is asked on six screens
+ * and was answered slightly differently on each. `expiring` is the only
+ * interesting state — expired is a fact and valid is silence, but a licence
+ * with five weeks left is the one somebody can still do something about.
+ */
+export type DocumentValidity = 'valid' | 'expiring' | 'expired' | 'undated';
+
+/** Six weeks. Long enough to renew a Djibouti licence without expediting it. */
+export const EXPIRY_WARNING_DAYS = 42;
+
+export function documentValidity(expiryDate: string | null | undefined, now = Date.now()): DocumentValidity {
+  if (!expiryDate) return 'undated';
+  const at = new Date(expiryDate).getTime();
+  if (Number.isNaN(at)) return 'undated';
+  if (at <= now) return 'expired';
+  return at - now <= EXPIRY_WARNING_DAYS * 86_400_000 ? 'expiring' : 'valid';
+}
+
+/** Whole days until it lapses — negative once it has. */
+export function daysUntilExpiry(expiryDate: string, now = Date.now()): number {
+  return Math.ceil((new Date(expiryDate).getTime() - now) / 86_400_000);
+}

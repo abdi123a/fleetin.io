@@ -2,7 +2,21 @@ import { statusBadgeIntentOf } from '@/lib/shipmentStatus';
 
 import type { RecordType } from '../contracts';
 
-export type RecordStatusIntent = 'primary' | 'success' | 'warning' | 'destructive' | 'info' | 'default';
+/**
+ * The two deep values are the later rung of an existing phase, not new phases
+ * — a chip has to be able to say "Delivered" the way the card behind it does,
+ * or the ladder has one colour on the shipment page and another in the task
+ * list. See `--success-deep`.
+ */
+export type RecordStatusIntent =
+  | 'primary'
+  | 'success'
+  | 'success-deep'
+  | 'warning'
+  | 'warning-deep'
+  | 'destructive'
+  | 'info'
+  | 'default';
 
 /**
  * A record's status, as one of the app's own colour intents.
