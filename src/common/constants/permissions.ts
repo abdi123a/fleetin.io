@@ -169,6 +169,25 @@ export const PERMISSIONS = {
    * so a new string here reaches nobody until a data migration writes it into
    * the existing role rows. See `..._workspace_permissions`.
    */
+  /*
+   * The location catalogue — ports, free zones, depots, yards.
+   *
+   * Read is split from write for the reason every directory splits them: a
+   * dispatcher picking a drop-off needs to SEE every place, and a place added
+   * carelessly is a place that quietly mis-measures every distance computed
+   * from it afterwards. `create` covers searching Google and saving the
+   * result, because those are one action from the operator's side.
+   *
+   * Note for whoever adds the next one: `Role.permissions` is a JSON column,
+   * so a new string here reaches nobody until a data migration writes it into
+   * the existing role rows. See `..._locations_permissions`.
+   */
+  locations: {
+    view: 'locations.view',
+    create: 'locations.create',
+    update: 'locations.update',
+    delete: 'locations.delete',
+  },
   workspace: {
     view: 'workspace.view',
     create: 'workspace.create',

@@ -460,6 +460,28 @@ export class TasksService {
         user.id,
         WorkspaceNotificationKind.TASK_UPDATED,
       );
+      /* And the customer's copy of it.
+       *
+       * A ticket that has a task takes its status from that task — the whole
+       * point of joining them was that a helpdesk maintaining two statuses by
+       * hand ends up telling a shipper their problem is still OPEN a week
+       * after it was fixed. `updateMany` rather than `update` because most
+       * tasks have no ticket, and a miss must be a no-op rather than a throw.
+       *
+       * Deliberately not wrapped in the task's transaction: the ticket
+       * following a beat late is a cosmetic lag, while a failed ticket write
+       * rolling back a status the operator just set is a lost update. */
+      await this.prisma.workspaceTicket.updateMany({
+        where: { taskId: task.id },
+        data: {
+          status: task.status,
+          closedAt:
+            task.status === WorkspaceTaskStatus.COMPLETED ||
+            task.status === WorkspaceTaskStatus.CANCELLED
+              ? new Date()
+              : null,
+        },
+      });
     }
     return task;
   }

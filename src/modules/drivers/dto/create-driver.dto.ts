@@ -23,9 +23,6 @@ export class CreateDriverDto {
   @IsNotEmpty()
   drivingLicenseNumber: string;
 
-  @ApiProperty()
-  @IsDateString()
-  licenseExpiry: string;
 
   @ApiPropertyOptional()
   @IsOptional()

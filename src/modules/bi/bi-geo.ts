@@ -11,6 +11,19 @@
  * not invented business data. A location that isn't in the table resolves to
  * `null` and its route is emitted without a position rather than with a made-up
  * one; the map simply doesn't draw that leg.
+ *
+ * ## Since the Locations table existed
+ *
+ * This is now the FALLBACK, not the source. A shipment created through the
+ * location catalogue carries `pickupLocationId` / `deliveryLocationId`, and
+ * those rows hold coordinates Google verified — so `buildLocator` below is
+ * given the catalogue and consults it first. The gazetteer stays for the
+ * shipments created before the catalogue existed, which have only free text and
+ * always will.
+ *
+ * It is deliberately not deleted and not extended. Nothing new should be added
+ * here: a place worth knowing about is a place worth saving properly, where it
+ * can be measured to and edited by somebody who is not a programmer.
  */
 
 export interface GeoPoint {
@@ -59,4 +72,61 @@ export function locate(locationName: string | null | undefined): GeoPoint | null
     if (needle.includes(key)) return GAZETTEER[key];
   }
   return null;
+}
+
+/**
+ * A locator that prefers the catalogue and falls back to the gazetteer.
+ *
+ * Built once per dataset rather than queried per row: a BI build walks
+ * thousands of bookings, and the catalogue is a few dozen rows that all fit in
+ * a Map. Pass the saved locations in; get back a function with `locate`'s
+ * signature plus an optional id.
+ *
+ * Resolution order, most trustworthy first:
+ *   1. the linked location's own coordinates, if the shipment carries a link;
+ *   2. a catalogue entry whose name matches the free text exactly (case- and
+ *      space-insensitive) — this is what makes an old shipment snap onto a
+ *      place somebody has since saved properly;
+ *   3. the gazetteer's substring match, unchanged.
+ */
+export interface CataloguedPlace {
+  id: string;
+  name: string;
+  latitude: { toNumber(): number };
+  longitude: { toNumber(): number };
+}
+
+export type Locator = (
+  locationName: string | null | undefined,
+  locationId?: string | null,
+) => GeoPoint | null;
+
+export function buildLocator(places: CataloguedPlace[]): Locator {
+  const byId = new Map<string, GeoPoint>();
+  const byName = new Map<string, GeoPoint>();
+
+  for (const place of places) {
+    const point: GeoPoint = {
+      lat: place.latitude.toNumber(),
+      lng: place.longitude.toNumber(),
+    };
+    byId.set(place.id, point);
+    byName.set(normalise(place.name), point);
+  }
+
+  return (locationName, locationId) => {
+    if (locationId) {
+      const linked = byId.get(locationId);
+      if (linked) return linked;
+    }
+    if (locationName) {
+      const named = byName.get(normalise(locationName));
+      if (named) return named;
+    }
+    return locate(locationName);
+  };
+}
+
+function normalise(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim();
 }

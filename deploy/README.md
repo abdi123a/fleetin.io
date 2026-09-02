@@ -48,6 +48,47 @@ The seeds defend themselves too: `prisma/seed-target-guard.ts` aborts any seed
 whose `DATABASE_URL` is not localhost, unless `SEED_ALLOW_REMOTE=1` and
 `SEED_I_UNDERSTAND_THIS_DELETES_DATA=1` are both set.
 
+## Google Maps: after the release that adds it
+
+The `locations` release needs one environment variable and one command, and the
+deploy script does neither — it never touches `.env` and never runs a script.
+
+1. On the server, add to `.env`:
+
+   ```
+   GOOGLE_MAPS_API_KEY=…
+   ```
+
+   Enable **Places API (New)** and **Routes API** on the Google Cloud project,
+   with billing on. Restrict the key by **server IP** — never by HTTP referrer.
+   The key is read server-side only; the browser never sees it, so a referrer
+   restriction would reject every call this app makes. Restart the API.
+
+2. Measure the corridor once, so nobody waits on Google while filling a form:
+
+   ```
+   curl -X POST https://<api>/api/v1/locations/distances/build \
+     -H "Authorization: Bearer <admin token>"
+   ```
+
+   Or press **Measure Distances** on the Locations page. A corridor of ~16
+   places is a few hundred pairs, measured once and cached forever.
+
+3. Replace the guessed distances on existing shipments:
+
+   ```
+   npx ts-node scripts/backfill-shipment-distances.ts          # report
+   npx ts-node scripts/backfill-shipment-distances.ts --write  # apply
+   ```
+
+   It refuses to write anything but a real Google road measurement, so running
+   it before step 1 is a harmless no-op.
+
+The catalogue rows themselves need no action — `20260902190200_locations_corridor_rows`
+carries them, because the deploy never seeds and `seed-locations.ts` refuses any
+non-local database. Without that migration the release would ship a Locations
+page with nothing in it.
+
 ## Rolling back
 
 - **Code**: re-run the previous build and `deploy.sh --yes --skip-migrate`.

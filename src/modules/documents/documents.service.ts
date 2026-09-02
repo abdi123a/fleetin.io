@@ -35,13 +35,53 @@ export class DocumentsService {
       this.prisma.document.count({ where }),
     ]);
 
-    return { items, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
+    return {
+      items: await this.withPeople(items),
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
   }
 
   async findOne(id: string) {
     const document = await this.prisma.document.findUnique({ where: { id } });
     if (!document) throw new NotFoundException(`Document with ID "${id}" not found`);
-    return document;
+    const [withPerson] = await this.withPeople([document]);
+    return withPerson;
+  }
+
+  /**
+   * Who filed it, and who checked it.
+   *
+   * `uploadedById` and `verifiedById` are plain columns — a Document has no
+   * relation to User, deliberately, since a document outlives the account that
+   * uploaded it and must not be deleted with one. So the names are resolved
+   * here, in one query for the whole page rather than one per row, and folded
+   * onto the response.
+   *
+   * An id with no user behind it (a deleted account, a seeded row) reports
+   * `null` rather than the raw uuid: a name nobody can read is worse than no
+   * name, because it looks like data.
+   */
+  private async withPeople<T extends { uploadedById: string; verifiedById: string | null }>(
+    documents: T[],
+  ): Promise<(T & { uploadedByName: string | null; verifiedByName: string | null })[]> {
+    const ids = [
+      ...new Set(
+        documents.flatMap((doc) => [doc.uploadedById, doc.verifiedById]).filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const users = ids.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: ids } },
+          select: { id: true, firstName: true, lastName: true },
+        })
+      : [];
+    const nameById = new Map(users.map((user) => [user.id, `${user.firstName} ${user.lastName}`.trim()]));
+
+    return documents.map((doc) => ({
+      ...doc,
+      uploadedByName: nameById.get(doc.uploadedById) ?? null,
+      verifiedByName: doc.verifiedById ? (nameById.get(doc.verifiedById) ?? null) : null,
+    }));
   }
 
   async upload(dto: UploadDocumentDto, file: Express.Multer.File | undefined, uploadedById: string) {
@@ -167,12 +207,70 @@ export class DocumentsService {
     });
   }
 
-  /** Reads the file back through StorageService and counts the download. */
-  async download(id: string) {
+  /**
+   * Reads the file back through StorageService, and records who took a copy.
+   *
+   * The counter used to be the whole record — an integer that answered "how
+   * popular is this file", which is not a question anybody asks about an
+   * insurance certificate. Who pulled a copy of a haulier's trading licence is
+   * an audit fact, so it is written as a row with a name and a time on it.
+   *
+   * The counter is still incremented. It is the only trace of the downloads
+   * that happened before the log existed, and the reader is told when the two
+   * disagree rather than having the older number quietly discarded.
+   */
+  async download(id: string, userId?: string) {
     const document = await this.findOne(id);
     const buffer = await this.storage.get(document.storageKey);
     await this.prisma.document.update({ where: { id }, data: { downloadCount: { increment: 1 } } });
+    if (userId) {
+      await this.prisma.documentDownload.create({ data: { documentId: id, userId } });
+    }
     return { buffer, document };
+  }
+
+  /**
+   * Who has taken a copy, newest first.
+   *
+   * Capped at fifty: this is read inside a panel to answer "who has seen this",
+   * and a document downloaded hundreds of times is answering that with its most
+   * recent readers. `total` is the logged count, which the caller compares
+   * against `downloadCount` to say how many predate the log.
+   */
+  async downloads(id: string, limit = 50) {
+    await this.findOne(id);
+    const [rows, total] = await Promise.all([
+      this.prisma.documentDownload.findMany({
+        where: { documentId: id },
+        orderBy: { at: 'desc' },
+        take: limit,
+      }),
+      this.prisma.documentDownload.count({ where: { documentId: id } }),
+    ]);
+
+    const users = rows.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: [...new Set(rows.map((row) => row.userId))] } },
+          select: { id: true, firstName: true, lastName: true, avatarUrl: true },
+        })
+      : [];
+    const byId = new Map(users.map((user) => [user.id, user]));
+
+    return {
+      items: rows.map((row) => {
+        const user = byId.get(row.userId);
+        return {
+          id: row.id,
+          at: row.at,
+          userId: row.userId,
+          /* Null rather than the uuid for an account that is gone: a name
+             nobody can read looks like data. */
+          name: user ? `${user.firstName} ${user.lastName}`.trim() : null,
+          avatarUrl: user?.avatarUrl ?? null,
+        };
+      }),
+      total,
+    };
   }
 
   async remove(id: string) {

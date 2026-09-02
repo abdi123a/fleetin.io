@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { locate } from './bi-geo';
+import { buildLocator } from './bi-geo';
 
 /**
  * The BI dataset, built from real rows.
@@ -163,6 +163,17 @@ export class BiService {
       orderBy: { createdAt: 'asc' },
     });
 
+    /* The location catalogue, loaded once. `locate` prefers a shipment's saved
+     * location over the gazetteer's name-substring guess, so a route drawn on
+     * the tracking map uses coordinates somebody verified rather than a
+     * hardcoded one. See `bi-geo.ts`. */
+    const locate = buildLocator(
+      await this.prisma.location.findMany({
+        where: { deletedAt: null },
+        select: { id: true, name: true, latitude: true, longitude: true },
+      }),
+    );
+
     const transporters = new Map<string, Record<string, unknown>>();
     const routes = new Map<string, Record<string, unknown>>();
     const depots = new Map<string, Record<string, unknown>>();
@@ -198,8 +209,8 @@ export class BiService {
         .replace(/\s+/g, '-')
         .slice(0, 120);
       if (!routes.has(routeId)) {
-        const origin = locate(shipment.pickupLocationName);
-        const destination = locate(shipment.deliveryLocationName);
+        const origin = locate(shipment.pickupLocationName, shipment.pickupLocationId);
+        const destination = locate(shipment.deliveryLocationName, shipment.deliveryLocationId);
         routes.set(routeId, {
           id: routeId,
           name: `${shipment.pickupLocationName} → ${shipment.deliveryLocationName}`,

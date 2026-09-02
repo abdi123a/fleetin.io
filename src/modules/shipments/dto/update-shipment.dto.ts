@@ -23,6 +23,12 @@ export class UpdateShipmentDto {
   @IsIn(['Paid', 'Pending', 'Overdue', 'Partially Paid'])
   paymentStatus?: string;
 
+  /** Re-point the pickup at a catalogued location. Re-measures the distance. */
+  @ApiPropertyOptional({ description: 'Location.id, from the Locations catalogue' })
+  @IsOptional()
+  @IsString()
+  pickupLocationId?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
@@ -43,6 +49,12 @@ export class UpdateShipmentDto {
   @IsString()
   pickupGateOrTerminal?: string;
 
+  /** Re-point the drop-off at a catalogued location. Re-measures the distance. */
+  @ApiPropertyOptional({ description: 'Location.id, from the Locations catalogue' })
+  @IsOptional()
+  @IsString()
+  deliveryLocationId?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
@@ -62,6 +74,26 @@ export class UpdateShipmentDto {
   @IsOptional()
   @IsString()
   deliveryGateOrTerminal?: string;
+
+  /**
+   * Override the measured distance. Only honoured together with
+   * `estimatedDistanceSource: 'manual'` — otherwise a re-measurement of a moved
+   * route wins, because the road is not a matter of opinion.
+   */
+  @ApiPropertyOptional({ example: 24.6 })
+  @IsOptional()
+  @IsNumber()
+  estimatedDistanceKm?: number;
+
+  @ApiPropertyOptional({ enum: ['google', 'manual', 'estimate'] })
+  @IsOptional()
+  @IsIn(['google', 'manual', 'estimate'])
+  estimatedDistanceSource?: string;
+
+  @ApiPropertyOptional({ example: '1h 15m' })
+  @IsOptional()
+  @IsString()
+  estimatedDurationHours?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

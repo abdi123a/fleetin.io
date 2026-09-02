@@ -27,24 +27,24 @@ model Role {
 }
 
 model User {
-  id            String         @id @default(uuid())
-  email         String         @unique
-  passwordHash  String
-  firstName     String
-  lastName      String
-  phoneNumber   String?
-  avatarUrl     String?
-  status        UserStatus     @default(ACTIVE)
-  roleId        String
-  role          Role           @relation(fields: [roleId], references: [id])
-  refreshTokens RefreshToken[]
+  id                String             @id @default(uuid())
+  email             String             @unique
+  passwordHash      String
+  firstName         String
+  lastName          String
+  phoneNumber       String?
+  avatarUrl         String?
+  status            UserStatus         @default(ACTIVE)
+  roleId            String
+  role              Role               @relation(fields: [roleId], references: [id])
+  refreshTokens     RefreshToken[]
   /// Portal scoping (BR-10.5) — set only for SHIPPER-role accounts, whose
   /// queries are row-filtered to this company's own data.
-  shipperId     String?
-  shipper       Shipper?       @relation(fields: [shipperId], references: [id])
+  shipperId         String?
+  shipper           Shipper?           @relation(fields: [shipperId], references: [id])
   /// Portal scoping (BR-10.5) — set only for TRANSPORTER-role accounts.
-  partnerId     String?
-  partner       Partner?       @relation(fields: [partnerId], references: [id])
+  partnerId         String?
+  partner           Partner?           @relation(fields: [partnerId], references: [id])
   /// Shipments this account is on the crew of, and shipments where it put
   /// somebody else on the crew.
   shipmentCrew      ShipmentAssignee[] @relation("ShipmentCrew")
@@ -54,25 +54,26 @@ model User {
 
   /// Workspace. Named relations throughout: User reaches WorkspaceMessage five
   /// different ways, and Prisma cannot disambiguate them positionally.
-  workspaceTasksAssigned       WorkspaceTask[]         @relation("WorkspaceTaskAssignee")
-  workspaceTasksCreated        WorkspaceTask[]         @relation("WorkspaceTaskCreator")
-  workspaceMessages            WorkspaceMessage[]      @relation("WorkspaceMessageAuthor")
-  workspaceMessagesAssigned    WorkspaceMessage[]      @relation("WorkspaceMessageAssignee")
-  workspaceMessagesAssignedBy  WorkspaceMessage[]      @relation("WorkspaceMessageAssigner")
-  workspaceMessagesResolved    WorkspaceMessage[]      @relation("WorkspaceMessageResolver")
+  workspaceTasksAssigned       WorkspaceTask[]              @relation("WorkspaceTaskAssignee")
+  workspaceTasksCreated        WorkspaceTask[]              @relation("WorkspaceTaskCreator")
+  workspaceTicketsOpened       WorkspaceTicket[]            @relation("WorkspaceTicketOpener")
+  workspaceMessages            WorkspaceMessage[]           @relation("WorkspaceMessageAuthor")
+  workspaceMessagesAssigned    WorkspaceMessage[]           @relation("WorkspaceMessageAssignee")
+  workspaceMessagesAssignedBy  WorkspaceMessage[]           @relation("WorkspaceMessageAssigner")
+  workspaceMessagesResolved    WorkspaceMessage[]           @relation("WorkspaceMessageResolver")
   workspaceMentions            WorkspaceMention[]
   workspaceTaskEvents          WorkspaceTaskEvent[]
-  workspaceNotifications       WorkspaceNotification[] @relation("WorkspaceNotificationRecipient")
-  workspaceNotificationsActed  WorkspaceNotification[] @relation("WorkspaceNotificationActor")
-  workspaceChannelsCreated     WorkspaceChannel[]      @relation("WorkspaceChannelCreator")
+  workspaceNotifications       WorkspaceNotification[]      @relation("WorkspaceNotificationRecipient")
+  workspaceNotificationsActed  WorkspaceNotification[]      @relation("WorkspaceNotificationActor")
+  workspaceChannelsCreated     WorkspaceChannel[]           @relation("WorkspaceChannelCreator")
   workspaceChannelMemberships  WorkspaceChannelMember[]
   workspaceChecklistCompleted  WorkspaceTaskChecklistItem[] @relation("WorkspaceChecklistCompleter")
   workspaceTasksFollowed       WorkspaceTaskFollower[]      @relation("WorkspaceTaskFollower")
   workspaceTemplatesCreated    WorkspaceTaskTemplate[]      @relation("WorkspaceTemplateCreator")
   workspaceRecurrencesAssigned WorkspaceTaskRecurrence[]    @relation("WorkspaceRecurrenceAssignee")
   workspaceRecurrencesCreated  WorkspaceTaskRecurrence[]    @relation("WorkspaceRecurrenceCreator")
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  createdAt                    DateTime                     @default(now())
+  updatedAt                    DateTime                     @updatedAt
 
   @@index([roleId])
   @@index([shipperId])
@@ -127,9 +128,9 @@ model AppSettings {
   /// fraction.
   fleetinCommissionPct Float @default(0)
 
-  updatedAt    DateTime @updatedAt
-  updatedById  String?
-  updatedByName String? @db.VarChar(255)
+  updatedAt     DateTime @updatedAt
+  updatedById   String?
+  updatedByName String?  @db.VarChar(255)
 
   @@map("app_settings")
 }
@@ -196,7 +197,6 @@ model BankAccount {
 /**
  * A hand-entered cash movement on an account Fleetin owns: a deposit, a
  * withdrawal, or one leg of a transfer between two of its own accounts.
- *
  * Distinct from `BankStatementLine`, which is an IMPORTED line off the bank's
  * own statement waiting to be matched. This table is the opposite direction —
  * the finance desk stating what it did, which then moves `currentBalance`.
@@ -588,12 +588,12 @@ model Partner {
   updatedAt             DateTime  @updatedAt
   deletedAt             DateTime?
 
-  users        User[]
-  vehicles     Vehicle[]
-  drivers      Driver[]
-  bankAccount  PartnerBankAccount?
-  shipments    Shipment[]
-  bookings     Booking[]
+  users       User[]
+  vehicles    Vehicle[]
+  drivers     Driver[]
+  bankAccount PartnerBankAccount?
+  shipments   Shipment[]
+  bookings    Booking[]
 
   @@index([partnerStatus])
   @@map("partners")
@@ -619,7 +619,6 @@ model Contact {
   @@index([ownerType, ownerId])
   @@map("contacts")
 }
-
 
 /// A partner's payout bank details — distinct from finance's own
 /// BankAccount model, which represents FLEETIN's own accounts, not a
@@ -682,11 +681,11 @@ model Vehicle {
   updatedAt          DateTime  @updatedAt
   deletedAt          DateTime?
 
-  shipments Shipment[]
-  bookings  Booking[]
+  shipments      Shipment[]
+  bookings       Booking[]
   /// The bookings whose empty return leg this truck ran — see
   /// `Booking.returnVehicleId`.
-  returnBookings Booking[] @relation("BookingReturnVehicle")
+  returnBookings Booking[]  @relation("BookingReturnVehicle")
 
   @@index([partnerId])
   @@index([operationalStatus])
@@ -703,7 +702,13 @@ model Driver {
   phone                String    @db.VarChar(32)
   nationalId           String    @db.VarChar(64)
   drivingLicenseNumber String    @db.VarChar(64)
-  licenseExpiry        DateTime
+  /// No `licenseExpiry`. A Djibouti driving licence does not expire, so the
+  /// column was a date the system invented and then policed — it drove a
+  /// "License Alerts" tile, a verification tick and a nightly expiring query,
+  /// all of them reporting on a deadline that does not exist. Dropped
+  /// 2026-09-02 at the user's direction. What the licence does have is an
+  /// issue date, and that lives on the uploaded document (`documents.issueDate`)
+  /// beside the file itself, where every other paper's dates already live.
   nationalIdExpiry     DateTime?
   profilePictureKey    String?   @db.VarChar(512)
   accessCards          Json? // string[]
@@ -717,12 +722,12 @@ model Driver {
 
   /// No standing vehicle — the pairing lives on each `Booking`. See the note
   /// on `Vehicle.year` for why.
-  shipments Shipment[]
-  bookings  Booking[]
+  shipments      Shipment[]
+  bookings       Booking[]
   /// The bookings whose EMPTY RETURN leg this driver took. A container's round
   /// trip is two jobs and often two people, so a driver can appear on a booking
   /// through either relation — see `Booking.returnDriverId`.
-  returnBookings Booking[] @relation("BookingReturnDriver")
+  returnBookings Booking[]  @relation("BookingReturnDriver")
 
   @@index([partnerId])
   @@index([status])
@@ -776,7 +781,143 @@ model Document {
   @@map("documents")
 }
 
+/// Who opened a document, and when.
+///
+/// `Document.downloadCount` has always been an integer that went up, which
+/// answers "how popular is this file" — a question nobody has ever asked about
+/// an insurance certificate. The question people do ask is *who pulled a copy
+/// of this*, and for a compliance document that is an audit question: these
+/// files are a haulier's licence, a driver's ID and a policy naming a company,
+/// and the record of who took one is part of holding them responsibly.
+///
+/// No relation to Document or User, deliberately, and no cascade: the log
+/// outlives both. A document deleted after the fact does not get to erase the
+/// record of who read it, and a departed employee's downloads stay attributed.
+model DocumentDownload {
+  id         String   @id @default(uuid())
+  documentId String
+  userId     String
+  at         DateTime @default(now())
+
+  @@index([documentId, at])
+  @@map("document_downloads")
+}
+
 // ─── 11. Shipments ──────────────────────────────────────────────────────
+
+/**
+ * A real place on the map — a port, a free zone, a depot, a customer's yard.
+ * Until this table existed the corridor's geography lived in three places that
+ * did not know about each other: six hardcoded rows in the frontend's Locations
+ * page, a list of bare strings in the browser's localStorage that the shipment
+ * wizard picked from, and a 25-entry gazetteer in `bi-geo.ts` that mapped a
+ * name substring to coordinates so the tracking map had something to draw. A
+ * place added in one was invisible to the other two, and none of them held a
+ * coordinate anybody had checked.
+ * This is the one list. A location is normally created by searching Google
+ * Places — `googlePlaceId` is then set and `source` is `google`, so the name,
+ * address and coordinates are Google's rather than a typist's. Entering one by
+ * hand is still allowed and always will be: a private gate or a yard Google has
+ * never heard of is a real place a shipment goes to.
+ * Shipments keep their text snapshots (`pickupLocationName` and friends)
+ * alongside the new foreign key, the same way they snapshot the shipper and the
+ * transporter — a location renamed or removed in 2027 must not rewrite what a
+ * 2026 shipment said it was.
+ */
+model Location {
+  id        String @id @default(uuid())
+  /// `LOC-00001`, minted by `reference.util.ts` like every other reference.
+  reference String @unique @db.VarChar(32)
+
+  name String @db.VarChar(255)
+  /// port|free_zone|depot|yard|customer|other — what the place IS, which is
+  /// also how the shipment wizard filters it: pickups offer ports, drop-offs
+  /// offer free zones, and both can be overridden because a shipment
+  /// occasionally runs depot-to-depot.
+  kind String @default("other") @db.VarChar(24)
+
+  /// Google's own id for the place. Unique, so the same terminal cannot be
+  /// added twice by two people searching for it on two different days. Null
+  /// for a place entered by hand.
+  googlePlaceId    String? @unique @db.VarChar(255)
+  formattedAddress String? @db.Text
+  city             String  @default("Djibouti") @db.VarChar(120)
+  country          String  @default("Djibouti") @db.VarChar(120)
+  countryCode      String? @db.VarChar(2)
+
+  /// Decimal, not Float. Seven decimal places is ~1cm — far more than a truck
+  /// gate needs, and it round-trips exactly, which a Float does not.
+  latitude  Decimal @db.Decimal(10, 7)
+  longitude Decimal @db.Decimal(10, 7)
+
+  /// google|manual — where the coordinates came from. Worth storing: a
+  /// hand-dropped pin and a Google-verified terminal are both usable, but only
+  /// one of them is worth re-checking when a distance looks wrong.
+  source String @default("manual") @db.VarChar(16)
+
+  gateOrTerminal String? @db.VarChar(120)
+  contactPerson  String? @db.VarChar(255)
+  contactPhone   String? @db.VarChar(32)
+  notes          String? @db.Text
+
+  /// Retired rather than deleted: a place that stops being used should stop
+  /// being offered, without breaking the shipments that already reference it.
+  active Boolean @default(true)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  distancesFrom     LocationDistance[] @relation("DistanceOrigin")
+  distancesTo       LocationDistance[] @relation("DistanceDestination")
+  pickupShipments   Shipment[]         @relation("ShipmentPickupLocation")
+  deliveryShipments Shipment[]         @relation("ShipmentDeliveryLocation")
+
+  @@index([kind])
+  @@index([active])
+  @@map("locations")
+}
+
+/**
+ * How far it actually is between two locations, by road, measured once.
+ * This is a cache with a very long life, and that is the whole point. Google's
+ * Routes API is billed per element, but the road between the Doraleh terminal
+ * and the DIFTZ gate is the same road tomorrow as it was today — so a pair is
+ * measured on first use and read from here forever after. A corridor of fifteen
+ * places is about two hundred pairs; the entire book costs about a dollar to
+ * build and nothing to keep.
+ * Directional on purpose. `origin -> destination` and the reverse are separate
+ * rows because a one-way system, a port gate that only admits inbound traffic,
+ * or a bridge under repair makes the return leg a genuinely different length.
+ * The Routes API answers them separately, so this stores them separately.
+ * `provider` says who measured it. `google` is a real driving route.
+ * `haversine` is the straight line between the two coordinates, used when no
+ * API key is configured, and it is deliberately marked rather than passed off
+ * as a road distance — it is always short, on the corridor by about a third.
+ * `manual` is a number an operator stood behind.
+ */
+model LocationDistance {
+  id String @id @default(uuid())
+
+  originId      String
+  origin        Location @relation("DistanceOrigin", fields: [originId], references: [id], onDelete: Cascade)
+  destinationId String
+  destination   Location @relation("DistanceDestination", fields: [destinationId], references: [id], onDelete: Cascade)
+
+  /// Metres and seconds, as Google returns them. Kilometres and drive-time
+  /// strings are presentation, and are formatted at the edge.
+  distanceMeters  Int
+  durationSeconds Int
+
+  /// google|haversine|manual — see the model comment.
+  provider   String   @default("google") @db.VarChar(16)
+  computedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([originId, destinationId])
+  @@index([destinationId])
+  @@map("location_distances")
+}
 
 model Shipment {
   id              String @id @default(uuid())
@@ -833,21 +974,40 @@ model Shipment {
   vehicleCapacity           String?  @db.VarChar(64)
   vehicleVerified           Boolean?
 
-  pickupLocationName    String  @db.VarChar(255)
-  pickupLocationAddress String  @db.Text
-  pickupLocationCity    String  @db.VarChar(120)
-  pickupGateOrTerminal  String? @db.VarChar(120)
-  pickupContactPerson   String? @db.VarChar(255)
-  pickupContactPhone    String? @db.VarChar(32)
+  /// The catalogued place this shipment leaves from, when there is one.
+  /// Nullable and always will be: every shipment created before the Locations
+  /// table existed has only the text below, and a one-off pickup at an address
+  /// nobody wants in the picker is a legitimate shipment. The text fields are
+  /// the snapshot and stay authoritative for display; this is the link that
+  /// lets a distance be measured and a pin be drawn.
+  pickupLocationId      String?
+  pickupLocation        Location? @relation("ShipmentPickupLocation", fields: [pickupLocationId], references: [id])
+  pickupLocationName    String    @db.VarChar(255)
+  pickupLocationAddress String    @db.Text
+  pickupLocationCity    String    @db.VarChar(120)
+  pickupGateOrTerminal  String?   @db.VarChar(120)
+  pickupContactPerson   String?   @db.VarChar(255)
+  pickupContactPhone    String?   @db.VarChar(32)
 
-  deliveryLocationName    String  @db.VarChar(255)
-  deliveryLocationAddress String  @db.Text
-  deliveryLocationCity    String  @db.VarChar(120)
-  deliveryGateOrTerminal  String? @db.VarChar(120)
-  deliveryContactPerson   String? @db.VarChar(255)
-  deliveryContactPhone    String? @db.VarChar(32)
+  /// The catalogued place this shipment is delivered to. Same contract as
+  /// `pickupLocationId` above.
+  deliveryLocationId      String?
+  deliveryLocation        Location? @relation("ShipmentDeliveryLocation", fields: [deliveryLocationId], references: [id])
+  deliveryLocationName    String    @db.VarChar(255)
+  deliveryLocationAddress String    @db.Text
+  deliveryLocationCity    String    @db.VarChar(120)
+  deliveryGateOrTerminal  String?   @db.VarChar(120)
+  deliveryContactPerson   String?   @db.VarChar(255)
+  deliveryContactPhone    String?   @db.VarChar(32)
 
   estimatedDistanceKm     Float
+  /// How `estimatedDistanceKm` was arrived at. Until 2026-09-02 there was only
+  /// one answer and it was not recorded: a substring match on the drop-off name
+  /// returning 10, 15, 20 or 25 — a guess that Finance and BI then multiplied by
+  /// the container count. `google` is a measured road route, `manual` is a
+  /// number the operator typed or corrected, `estimate` is that old guess and
+  /// what every pre-existing row is backfilled to, honestly.
+  estimatedDistanceSource String    @default("estimate") @db.VarChar(16)
   /// Display string, e.g. "18h 30m" — Mission types it as a string, not a number.
   estimatedDurationHours  String    @db.VarChar(32)
   cargoType               String    @db.VarChar(120)
@@ -870,7 +1030,7 @@ model Shipment {
   lashingStandard         String?   @db.VarChar(120)
   requiredDocuments       Json? // string[]
 
-  scheduledPickupTime DateTime
+  scheduledPickupTime   DateTime
   /// When the shipper expects the goods at the drop-off. Optional, and
   /// deliberately not derived from the pickup: on this corridor a 15km run and
   /// a cross-border one both leave the same morning, and only the shipper
@@ -878,7 +1038,7 @@ model Shipment {
   /// created before 2026-09-01, so every reader must treat it as absent
   /// rather than as "same day".
   scheduledDeliveryTime DateTime?
-  completedAt         DateTime?
+  completedAt           DateTime?
 
   /// Money shape per convention. Currency is DJF ("FDJ") in practice — the
   /// fields still carry currency/fxRate/baseAmount so this is the same
@@ -916,18 +1076,18 @@ model Shipment {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  timeline ShipmentTimelineStep[]
+  timeline  ShipmentTimelineStep[]
   /// The Fleetin staff working this shipment — see `ShipmentAssignee`.
   assignees ShipmentAssignee[]
   /// One row per container the shipper asked for — see `Booking`'s own doc
   /// comment for why this exists alongside the shipment-level fields above
   /// rather than replacing them yet.
-  bookings Booking[]
-  holds    PayoutHold[]
+  bookings  Booking[]
+  holds     PayoutHold[]
   /// The shipment's conversation — including the comments scoped to one of
   /// its bookings, which hang off the shipment too so the whole thread can be
   /// read in one query. See `Comment`.
-  comments Comment[]
+  comments  Comment[]
 
   @@index([shipperId])
   @@index([partnerId])
@@ -936,6 +1096,8 @@ model Shipment {
   @@index([status])
   @@index([scheduledPickupTime])
   @@index([projectId])
+  @@index([pickupLocationId])
+  @@index([deliveryLocationId])
   @@map("shipments")
 }
 
@@ -974,20 +1136,20 @@ model ShipmentTimelineStep {
 /// `setAssignees`, not by the database, since MySQL has no partial unique
 /// index. A crew with no lead is legal and means nobody has claimed point yet.
 model ShipmentAssignee {
-  id         String   @id @default(uuid())
-  shipmentId String
-  shipment   Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  id           String   @id @default(uuid())
+  shipmentId   String
+  shipment     Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
   /// The staff account. `onDelete: Cascade` — an account that no longer exists
   /// is not "assigned"; the shipment goes back to unassigned rather than
   /// pointing at a ghost.
-  userId     String
-  user       User     @relation("ShipmentCrew", fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User     @relation("ShipmentCrew", fields: [userId], references: [id], onDelete: Cascade)
   /// On point. At most one per shipment.
-  isLead     Boolean  @default(false)
-  assignedAt DateTime @default(now())
+  isLead       Boolean  @default(false)
+  assignedAt   DateTime @default(now())
   /// Who put them on it. Nullable for rows created by a seed or a migration.
   assignedById String?
-  assignedBy   User?   @relation("ShipmentCrewAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+  assignedBy   User?    @relation("ShipmentCrewAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
 
   /// One row per person per shipment — assigning twice is a no-op, not a
   /// duplicate avatar in the stack.
@@ -1030,7 +1192,7 @@ model ShipmentAssignee {
 /// the replies around it still make sense, and the service never returns its
 /// body.
 model Comment {
-  id         String   @id @default(uuid())
+  id String @id @default(uuid())
 
   /// The thread this belongs to. Always set — see the doc comment above.
   shipmentId String
@@ -1038,20 +1200,20 @@ model Comment {
 
   /// The container this comment is *about*, when it is about one. Null means
   /// it speaks to the whole shipment.
-  bookingId  String?
-  booking    Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  bookingId String?
+  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
-  body       String   @db.Text
+  body String @db.Text
 
-  authorId   String
-  author     User     @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Restrict)
 
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   /// Set on the first edit — absent means "as written".
-  editedAt   DateTime?
+  editedAt  DateTime?
   /// Soft delete: the row stays, the body is never served again.
-  deletedAt  DateTime?
+  deletedAt DateTime?
 
   /// The thread read, oldest first — one shipment, in order.
   @@index([shipmentId, createdAt])
@@ -1174,21 +1336,21 @@ model Booking {
   /// asked to give one.
   /// The overall — the mean of whichever axes below were answered. Stored
   /// rather than derived so a reader never has to know the averaging rule.
-  driverRating Int?    @db.TinyInt
+  driverRating                Int?      @db.TinyInt
   /// The three axes the debrief asks, of the person who just watched the
   /// delivery. What the profile's three bars print back, verbatim.
-  driverRatingReliability     Int? @db.TinyInt
-  driverRatingPunctuality     Int? @db.TinyInt
-  driverRatingProfessionalism Int? @db.TinyInt
-  driverNote   String? @db.Text
+  driverRatingReliability     Int?      @db.TinyInt
+  driverRatingPunctuality     Int?      @db.TinyInt
+  driverRatingProfessionalism Int?      @db.TinyInt
+  driverNote                  String?   @db.Text
   /// Who wrote the debrief, and when. The name is denormalised on purpose: it
   /// is what the sheet prints, and "recorded by" has to keep naming the person
   /// who actually wrote it even after that account is renamed or deactivated.
   /// Set server-side from the authenticated user — never accepted from the
   /// client, which could otherwise sign somebody else's name to an opinion.
-  driverRatedById   String?   @db.VarChar(191)
-  driverRatedByName String?   @db.VarChar(255)
-  driverRatedAt     DateTime?
+  driverRatedById             String?   @db.VarChar(191)
+  driverRatedByName           String?   @db.VarChar(255)
+  driverRatedAt               DateTime?
 
   /// The return driver's debrief, asked when the box is actually home.
   ///
@@ -1200,15 +1362,15 @@ model Booking {
   /// set; when the same driver did both legs the operator is asked once and the
   /// answer lands on `driverRating*`, where that driver's other trips already
   /// are.
-  returnDriverRating Int? @db.TinyInt
-  returnDriverRatingReliability     Int? @db.TinyInt
-  returnDriverRatingPunctuality     Int? @db.TinyInt
-  returnDriverRatingProfessionalism Int? @db.TinyInt
-  returnDriverNote   String? @db.Text
+  returnDriverRating                Int?      @db.TinyInt
+  returnDriverRatingReliability     Int?      @db.TinyInt
+  returnDriverRatingPunctuality     Int?      @db.TinyInt
+  returnDriverRatingProfessionalism Int?      @db.TinyInt
+  returnDriverNote                  String?   @db.Text
   /// Stamped server-side from the token, like every other debrief signature.
-  returnDriverRatedById   String?   @db.VarChar(191)
-  returnDriverRatedByName String?   @db.VarChar(255)
-  returnDriverRatedAt     DateTime?
+  returnDriverRatedById             String?   @db.VarChar(191)
+  returnDriverRatedByName           String?   @db.VarChar(255)
+  returnDriverRatedAt               DateTime?
 
   /// The closing debrief — the shipper's half of the round trip, asked when the
   /// box is actually home. How fast they stripped and released it is what ran
@@ -1216,16 +1378,16 @@ model Booking {
   /// fetched it. Same three axes, same 1-5, same rule: a person's answer or
   /// nothing. The frontend has collected these since the debrief shipped; until
   /// this migration there was nowhere to put them and every one was discarded.
-  shipperRating Int? @db.TinyInt
-  shipperRatingReliability     Int? @db.TinyInt
-  shipperRatingPunctuality     Int? @db.TinyInt
-  shipperRatingProfessionalism Int? @db.TinyInt
-  shipperNote   String? @db.Text
+  shipperRating                Int?      @db.TinyInt
+  shipperRatingReliability     Int?      @db.TinyInt
+  shipperRatingPunctuality     Int?      @db.TinyInt
+  shipperRatingProfessionalism Int?      @db.TinyInt
+  shipperNote                  String?   @db.Text
   /// Who wrote it, stamped server-side from the token — never from the client,
   /// which could otherwise sign somebody else's name to an opinion.
-  shipperRatedById   String?   @db.VarChar(191)
-  shipperRatedByName String?   @db.VarChar(255)
-  shipperRatedAt     DateTime?
+  shipperRatedById             String?   @db.VarChar(191)
+  shipperRatedByName           String?   @db.VarChar(255)
+  shipperRatedAt               DateTime?
 
   /// What this specific container's own transporter charges — the piece
   /// `Shipment.rateMinorUnits` collapses away by summing across every
@@ -1343,10 +1505,10 @@ model EmptyReturnCycle {
   /// Provenance of the pairing — v19's `matchInfo`. Kept because an operator
   /// override and the engine's own pick are different claims, and a board that
   /// shows both without saying which is which is not auditable.
-  matchedAt     DateTime?
-  matchedBy     String?   @db.VarChar(120)
+  matchedAt   DateTime?
+  matchedBy   String?   @db.VarChar(120)
   /// e.g. "Suggestion — Recommended", "Manual — Matching", "Contextual".
-  matchSource   String?   @db.VarChar(64)
+  matchSource String?   @db.VarChar(64)
 
   /// Stamped when the return leg actually leaves. Distinct from `returnedAt`:
   /// dispatched is "the truck has it", returned is "the depot has it".
@@ -2037,10 +2199,10 @@ enum WorkspaceNotificationKind {
 /// legitimately names both the booking and its shipment, and discovering that
 /// after the fact would be a migration on a table with rows.
 model WorkspaceTask {
-  id          String @id @default(uuid())
+  id        String @id @default(uuid())
   /// `TSK-00184`. Minted by `nextReference()`, the same scheme as every other
   /// Fleetin reference — three letters, a hyphen, five digits.
-  reference   String @unique @db.VarChar(32)
+  reference String @unique @db.VarChar(32)
 
   title       String  @db.VarChar(255)
   description String? @db.Text
@@ -2067,13 +2229,16 @@ model WorkspaceTask {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  links    WorkspaceTaskLink[]
-  messages WorkspaceMessage[]
-  events   WorkspaceTaskEvent[]
+  links         WorkspaceTaskLink[]
+  messages      WorkspaceMessage[]
+  events        WorkspaceTaskEvent[]
   notifications WorkspaceNotification[]
-  checklist WorkspaceTaskChecklistItem[]
-  followers WorkspaceTaskFollower[]
-  occurrence WorkspaceTaskOccurrence?
+  checklist     WorkspaceTaskChecklistItem[]
+  followers     WorkspaceTaskFollower[]
+  occurrence    WorkspaceTaskOccurrence?
+  /// The customer complaint this task answers, when there is one. Most tasks
+  /// have none — internal work is the majority of the board.
+  ticket        WorkspaceTicket?
 
   /// "My Tasks", the default landing query.
   @@index([assigneeId, status])
@@ -2112,6 +2277,99 @@ model WorkspaceTaskLink {
   /// "What is open on this shipment?" — the count beside every Raise button.
   @@index([recordType, recordId])
   @@map("workspace_task_links")
+}
+
+/// How the problem reached us.
+///
+/// Worth a column because it is the first thing asked when a ticket is
+/// disputed later — "they said they never told us" is settled by a channel and
+/// a timestamp, and on this corridor most of it arrives by phone.
+enum WorkspaceTicketChannel {
+  PHONE
+  EMAIL
+  WHATSAPP
+  IN_PERSON
+  /// Raised by the counterparty themselves, through their own portal.
+  PORTAL
+}
+
+/// A problem somebody outside Fleetin reported.
+///
+/// The distinction from `WorkspaceTask` is who it belongs to, not how big it
+/// is. A ticket is a **claim made by a counterparty** — a shipper rang about a
+/// container, a haulier disputes an invoice — and it exists whether or not
+/// anybody has decided what to do about it yet. A task is the work Fleetin
+/// does; most of it has no ticket behind it ("renew the office insurance") and
+/// always will, which is why this is a separate table rather than a flag on
+/// the task.
+///
+/// The two are joined by ONE task, and the join carries a rule: while a ticket
+/// has a task, the ticket's status follows the task's (see
+/// `tasks.service.ts`). The alternative — a status on each, maintained by hand
+/// — is the double bookkeeping every helpdesk that tries it abandons: the
+/// ticket says OPEN for a week after the work was finished, and the customer
+/// is chased for an update on something already done.
+///
+/// `taskId` is nullable and unique. Nullable because a ticket is logged the
+/// moment the phone is put down, before anybody has been given the work.
+/// Unique because "which task closes this ticket" must have exactly one
+/// answer; a problem needing three jobs is three tickets, or one task with a
+/// checklist, and both of those already exist.
+model WorkspaceTicket {
+  id        String @id @default(uuid())
+  /// `TKT-00042`. The same three-letters-five-digits scheme as every other
+  /// Fleetin reference.
+  reference String @unique @db.VarChar(32)
+
+  /// What to call it in a list — the caller's own words, shortened.
+  subject     String @db.VarChar(255)
+  /// The problem as reported, in full. Not nullable: a ticket with no account
+  /// of the problem is a note, and whoever picks it up a week later cannot
+  /// ring the caller back to ask what they meant.
+  description String @db.Text
+
+  status   WorkspaceTaskStatus    @default(OPEN)
+  priority WorkspaceTaskPriority  @default(NORMAL)
+  channel  WorkspaceTicketChannel @default(PHONE)
+
+  /// The human who called, and how to reach them again. Free text on purpose:
+  /// the caller is frequently somebody at the shipper whose name is on no
+  /// record here — a warehouse foreman, a driver's brother — and refusing the
+  /// ticket until they exist as a row would lose the report.
+  reporterName    String? @db.VarChar(160)
+  reporterContact String? @db.VarChar(160)
+
+  /// Which Fleetin record the complaint is about, in the same vocabulary a
+  /// task link uses. Denormalised the same way and for the same reason: a
+  /// ticket list prints the reference beside every row.
+  recordType  WorkspaceRecordType?
+  recordId    String?              @db.VarChar(64)
+  recordRef   String?              @db.VarChar(64)
+  recordLabel String?              @db.VarChar(160)
+
+  /// The work raised to fix it. Null until somebody is given the job.
+  taskId String?        @unique
+  task   WorkspaceTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  /// Who took the call. `Restrict`, like a task's creator: a deleted account
+  /// must not take the provenance of an open complaint with it.
+  openedById String
+  openedBy   User   @relation("WorkspaceTicketOpener", fields: [openedById], references: [id], onDelete: Restrict)
+
+  /// Stamped when the status first reaches COMPLETED or CANCELLED. A ticket is
+  /// closed by being answered OR withdrawn, unlike a task, which is only
+  /// finished by being done.
+  closedAt DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  /// The open queue, which is what the page lands on.
+  @@index([status, priority])
+  /// "What has this shipper reported?" — the count beside a record.
+  @@index([recordType, recordId])
+  @@map("workspace_tickets")
 }
 
 /// One message in a Workspace conversation.
@@ -2178,7 +2436,7 @@ model WorkspaceMessage {
   /// Who did the assigning — the comment header reads "Assigned to X by Y",
   /// and that second name is the whole point: it says who is waiting.
   assignedById String?
-  assignedBy   User?   @relation("WorkspaceMessageAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+  assignedBy   User?     @relation("WorkspaceMessageAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
   assignedAt   DateTime?
 
   resolvedAt   DateTime?
@@ -2450,7 +2708,7 @@ model WorkspaceTaskTemplate {
   title       String  @db.VarChar(255)
   description String? @db.Text
 
-  priority WorkspaceTaskPriority @default(NORMAL)
+  priority  WorkspaceTaskPriority @default(NORMAL)
   /// Days from creation to the due date. Null leaves the task with no deadline.
   dueInDays Int?
 
@@ -2503,9 +2761,9 @@ model WorkspaceTaskRecurrence {
   description String?               @db.Text
   priority    WorkspaceTaskPriority @default(NORMAL)
 
-  frequency WorkspaceRecurrenceFrequency
+  frequency  WorkspaceRecurrenceFrequency
   /// Every N days/weeks/months. 1 unless somebody wants a fortnight.
-  interval  Int                          @default(1)
+  interval   Int                          @default(1)
   /// 0–6, Sunday first. Weekly rules only.
   weekday    Int?
   /// 1–31. Monthly rules only; a 31 in a 30-day month clamps to the last day

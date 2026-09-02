@@ -1053,7 +1053,7 @@ async function refreshFleetDocuments(): Promise<void> {
     const days = i === 0 ? -5 : i < 4 ? int(8, 27) : int(150, 500);
     await prisma.driver.update({
       where: { id: drivers[i].id },
-      data: { licenseExpiry: at(days), nationalIdExpiry: at(days + int(60, 200)) },
+      data: { nationalIdExpiry: at(days + int(60, 200)) },
     });
   }
   console.log(`   ${vehicles.length} vehicles · ${drivers.length} drivers re-dated`);

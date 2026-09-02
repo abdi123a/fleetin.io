@@ -1,0 +1,15 @@
+-- A driving licence has no expiry date.
+--
+-- Djibouti issues them without one, so `drivers.licenseExpiry` was a deadline
+-- the system made up: it fed a "License Alerts" tile, decided whether a driver
+-- wore a verified tick, and backed a `GET /drivers/expiring` endpoint — three
+-- features policing a date that does not exist on the paper.
+--
+-- The values are NOT carried over to anything. An expiry reinterpreted as an
+-- issue date would be wrong data wearing a new label, and the licence's real
+-- issue date already has a home: `documents.issueDate` on the uploaded file,
+-- where the grey card's and the insurance certificate's dates live.
+--
+-- Destructive, and irreversible without the pre-migrate dump the deploy script
+-- takes. The national ID keeps its expiry — those do lapse.
+ALTER TABLE `drivers` DROP COLUMN `licenseExpiry`;

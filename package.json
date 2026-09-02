@@ -28,7 +28,11 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "prisma:seed:workspace": "ts-node prisma/seed-workspace.ts"
+    "prisma:seed:workspace": "ts-node prisma/seed-workspace.ts",
+    "prisma:seed:locations": "ts-node prisma/seed-locations.ts",
+    "backfill:distances": "ts-node scripts/backfill-shipment-distances.ts",
+    "check:maps": "ts-node scripts/check-google-maps.ts",
+    "set:maps-key": "bash scripts/set-maps-key.sh"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1106.0",

@@ -20,21 +20,12 @@ import type { AuthenticatedUser } from '../auth/jwt.strategy';
 export class DriversController {
   constructor(private readonly driversService: DriversService) {}
 
-  @Get('expiring')
-  @RequirePermissions(PERMISSIONS.drivers.view)
-  @ApiOperation({ summary: 'Drivers with a license expiring soon' })
-  @ApiQuery({ name: 'withinDays', required: false, example: 30 })
-  expiring(@Query('withinDays') withinDays = 30) {
-    return this.driversService.expiring(+withinDays);
-  }
-
   @Get()
   @RequirePermissions(PERMISSIONS.drivers.view)
   @ApiOperation({ summary: 'List drivers across every partner' })
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'partnerId', required: false })
-  @ApiQuery({ name: 'licenseExpiringWithinDays', required: false })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 25 })
   findAll(
@@ -42,7 +33,6 @@ export class DriversController {
     @Query('search') search?: string,
     @Query('status') status?: string,
     @Query('partnerId') partnerId?: string,
-    @Query('licenseExpiringWithinDays') licenseExpiringWithinDays?: string,
     @Query('page') page = 1,
     @Query('limit') limit = 25,
   ) {
@@ -50,7 +40,6 @@ export class DriversController {
       search,
       status,
       partnerId,
-      licenseExpiringWithinDays: licenseExpiringWithinDays ? +licenseExpiringWithinDays : undefined,
       page: +page,
       limit: +limit,
       scope: ownCompanyScope(user, { partnerField: 'partnerId' }),

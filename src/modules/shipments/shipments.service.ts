@@ -1,7 +1,8 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { BookingsService } from '../bookings/bookings.service';
+import { LocationsService } from '../locations/locations.service';
 import { nextReference } from '../../common/helpers/reference.util';
 import { fleetinCommissionPct, splitCommission } from '../../common/helpers/pricing.util';
 import { CreateShipmentDto } from './dto/create-shipment.dto';
@@ -175,10 +176,68 @@ function withBookingCount<T extends { _count?: { bookings: number } } & BookingP
 
 @Injectable()
 export class ShipmentsService {
+  private readonly logger = new Logger(ShipmentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly bookings: BookingsService,
+    private readonly locations: LocationsService,
   ) {}
+
+  /**
+   * The real road distance for a shipment, when both ends are catalogued.
+   *
+   * Until 2026-09-02 `estimatedDistanceKm` arrived from the frontend's
+   * `distanceForDropoff()` — a substring match on the drop-off's name returning
+   * 10, 15, 20 or 25. Finance bills off it and BI charts it, so it was a guess
+   * wearing a measurement's clothes.
+   *
+   * Now: if both locations are catalogued, the server measures the pair itself
+   * through the Locations distance book (a cache hit for any lane run before)
+   * and that number wins. Three things stop it and each is deliberate — the
+   * operator said `manual`, one of the ends was typed rather than picked, or
+   * the measurement failed. In all three the DTO's own number stands, and
+   * `estimatedDistanceSource` records which of them happened, so nobody
+   * downstream has to guess whether a distance was measured.
+   */
+  private async resolveDistance(dto: {
+    pickupLocationId?: string;
+    deliveryLocationId?: string;
+    estimatedDistanceKm: number;
+    estimatedDistanceSource?: string;
+    estimatedDurationHours?: string;
+  }): Promise<{ km: number; source: string; duration: string }> {
+    const fallback = {
+      km: dto.estimatedDistanceKm,
+      source: dto.estimatedDistanceSource ?? 'estimate',
+      duration: dto.estimatedDurationHours ?? '',
+    };
+
+    if (dto.estimatedDistanceSource === 'manual') return fallback;
+    if (!dto.pickupLocationId || !dto.deliveryLocationId) return fallback;
+    if (dto.pickupLocationId === dto.deliveryLocationId) return fallback;
+
+    try {
+      const measured = await this.locations.distanceBetween(
+        dto.pickupLocationId,
+        dto.deliveryLocationId,
+      );
+      return {
+        km: measured.distanceKm,
+        source: measured.provider === 'google' ? 'google' : 'estimate',
+        /* Google's drive time only when Google gave one. A straight-line
+         * fallback has no duration, and inventing one from an average speed
+         * would be the same class of lie this whole change removes. */
+        duration: measured.durationLabel ?? dto.estimatedDurationHours ?? '',
+      };
+    } catch (error) {
+      /* Google being down must never stop a shipment being created. */
+      this.logger.warn(
+        `Could not measure ${dto.pickupLocationId} -> ${dto.deliveryLocationId}; keeping the submitted distance. ${(error as Error).message}`,
+      );
+      return fallback;
+    }
+  }
 
   private orderBy(sortBy?: string): Prisma.ShipmentOrderByWithRelationInput {
     switch (sortBy) {
@@ -246,7 +305,22 @@ export class ShipmentsService {
       ...(status && status !== 'all' ? { status } : {}),
       ...(paymentStatus && paymentStatus !== 'all' ? { paymentStatus } : {}),
       ...(customerId ? { shipperId: customerId } : {}),
-      ...(transporterId ? { partnerId: transporterId } : {}),
+      /* A shipment this carrier ACTUALLY worked, not one it was named on.
+       *
+       * `Shipment.partnerId` is a creation-time snapshot — the transporter the
+       * job was booked with — and about a fifth of shipments end up split
+       * across more than one carrier, with the extra ones appearing only on
+       * their own bookings. Matching the snapshot alone left a haulier's own
+       * page missing jobs it ran three containers on, which is the kind of gap
+       * nobody reports because there is nothing on screen to notice. */
+      ...(transporterId
+        ? {
+            OR: [
+              { partnerId: transporterId },
+              { bookings: { some: { partnerId: transporterId, deletedAt: null } } },
+            ],
+          }
+        : {}),
       ...(driverId ? { driverId } : {}),
       ...(vehicleId ? { vehicleId } : {}),
       /* Crew filter. `'unassigned'` is the interesting half: `none: {}` is
@@ -424,6 +498,9 @@ export class ShipmentsService {
       ? dto.transporterAssignments.flatMap((a) => a.bookingIds ?? []).filter(Boolean).join(', ')
       : (dto.bookingId?.trim() ?? '');
 
+    /* Measured here rather than trusted from the form — see `resolveDistance`. */
+    const distance = await this.resolveDistance(dto);
+
     const shipment = await this.prisma.shipment.create({
       data: {
         reference,
@@ -451,18 +528,21 @@ export class ShipmentsService {
         transporterPhone: partnerContact?.phone ?? '',
         transporterFleetCode: `FLT-${primaryPartner.id.slice(-3).toUpperCase()}`,
 
+        pickupLocationId: dto.pickupLocationId ?? null,
         pickupLocationName: dto.pickupLocationName,
         pickupLocationAddress: dto.pickupLocationAddress,
         pickupLocationCity: dto.pickupLocationCity,
         pickupGateOrTerminal: dto.pickupGateOrTerminal,
 
+        deliveryLocationId: dto.deliveryLocationId ?? null,
         deliveryLocationName: dto.deliveryLocationName,
         deliveryLocationAddress: dto.deliveryLocationAddress,
         deliveryLocationCity: dto.deliveryLocationCity,
         deliveryGateOrTerminal: dto.deliveryGateOrTerminal,
 
-        estimatedDistanceKm: dto.estimatedDistanceKm,
-        estimatedDurationHours: dto.estimatedDurationHours ?? '',
+        estimatedDistanceKm: distance.km,
+        estimatedDistanceSource: distance.source,
+        estimatedDurationHours: distance.duration,
         cargoType: dto.cargoType,
         shipmentCategory: dto.shipmentCategory,
         machineryType: dto.machineryType,
@@ -567,20 +647,59 @@ export class ShipmentsService {
       };
     }
 
+    /* An edit that moves either end of the route re-measures it. Only then:
+     * a shipment edited to change its cargo description must not silently
+     * acquire a different distance, and a lane whose ends did not move already
+     * has the right number. */
+    const routeChanged =
+      (dto.pickupLocationId !== undefined &&
+        dto.pickupLocationId !== existing.pickupLocationId) ||
+      (dto.deliveryLocationId !== undefined &&
+        dto.deliveryLocationId !== existing.deliveryLocationId);
+
+    const rerouted = routeChanged
+      ? await this.resolveDistance({
+          pickupLocationId: dto.pickupLocationId ?? existing.pickupLocationId ?? undefined,
+          deliveryLocationId: dto.deliveryLocationId ?? existing.deliveryLocationId ?? undefined,
+          estimatedDistanceKm: dto.estimatedDistanceKm ?? existing.estimatedDistanceKm,
+          estimatedDistanceSource: dto.estimatedDistanceSource,
+          estimatedDurationHours: dto.estimatedDurationHours ?? existing.estimatedDurationHours,
+        })
+      : null;
+
     const shipment = await this.prisma.shipment.update({
       where: { id: existing.id },
       data: {
         ...driverSnapshot,
         ...vehicleSnapshot,
         paymentStatus: dto.paymentStatus,
+        /* `connect`, not a bare scalar: this update object already carries a
+         * relation input (`project` below), and Prisma refuses to mix the
+         * checked and unchecked forms in one payload. */
+        pickupLocation: dto.pickupLocationId
+          ? { connect: { id: dto.pickupLocationId } }
+          : undefined,
         pickupLocationName: dto.pickupLocationName,
         pickupLocationAddress: dto.pickupLocationAddress,
         pickupLocationCity: dto.pickupLocationCity,
         pickupGateOrTerminal: dto.pickupGateOrTerminal,
+        deliveryLocation: dto.deliveryLocationId
+          ? { connect: { id: dto.deliveryLocationId } }
+          : undefined,
         deliveryLocationName: dto.deliveryLocationName,
         deliveryLocationAddress: dto.deliveryLocationAddress,
         deliveryLocationCity: dto.deliveryLocationCity,
         deliveryGateOrTerminal: dto.deliveryGateOrTerminal,
+        /* Re-measured when an edit moved either end. `resolveDistance` returns
+         * the submitted values untouched when it can't or shouldn't measure, so
+         * `undefined` here means "the edit didn't touch the route". */
+        ...(rerouted
+          ? {
+              estimatedDistanceKm: rerouted.km,
+              estimatedDistanceSource: rerouted.source,
+              estimatedDurationHours: rerouted.duration,
+            }
+          : {}),
         goodsDescription: dto.goodsDescription,
         totalWeightKg: dto.totalWeightKg,
         requiredDocuments: dto.requiredDocuments,

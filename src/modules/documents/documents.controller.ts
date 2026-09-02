@@ -92,8 +92,12 @@ export class DocumentsController {
   @Get(':id/download')
   @RequirePermissions(PERMISSIONS.documents.view)
   @ApiOperation({ summary: "Download a document's file" })
-  async download(@Param('id') id: string, @Res({ passthrough: true }) res: Response) {
-    const { buffer, document } = await this.documentsService.download(id);
+  async download(
+    @Param('id') id: string,
+    @Res({ passthrough: true }) res: Response,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const { buffer, document } = await this.documentsService.download(id, user.id);
     res.set({
       'Content-Type': document.mimeType,
       /* Never interpolate the raw name — see `contentDisposition`. A macOS
@@ -103,6 +107,13 @@ export class DocumentsController {
       'Content-Disposition': contentDisposition(document.name),
     });
     return new StreamableFile(buffer);
+  }
+
+  @Get(':id/downloads')
+  @RequirePermissions(PERMISSIONS.documents.view)
+  @ApiOperation({ summary: 'Who has taken a copy of this document, newest first' })
+  downloads(@Param('id') id: string) {
+    return this.documentsService.downloads(id);
   }
 
   @Delete(':id')

@@ -10,6 +10,8 @@ import { WorkspaceNotificationsService } from './notifications.service';
 import { RecordAccessService } from './record-access.service';
 import { TasksService } from './tasks.service';
 import { WorkspaceTasksController } from './tasks.controller';
+import { TicketsService } from './tickets.service';
+import { WorkspaceTicketsController } from './tickets.controller';
 import { WorkspaceController } from './workspace.controller';
 
 /**
@@ -23,6 +25,7 @@ import { WorkspaceController } from './workspace.controller';
 @Module({
   controllers: [
     WorkspaceTasksController,
+    WorkspaceTicketsController,
     WorkspaceMessagesController,
     WorkspaceChannelsController,
     WorkspaceController,
@@ -30,6 +33,7 @@ import { WorkspaceController } from './workspace.controller';
   ],
   providers: [
     TasksService,
+    TicketsService,
     MessagesService,
     ChannelsService,
     ProductivityService,

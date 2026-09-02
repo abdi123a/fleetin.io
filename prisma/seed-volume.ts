@@ -729,7 +729,6 @@ async function main() {
             phone: `+253 77 ${int(10, 99)} ${int(10, 99)} ${int(10, 99)}`,
             nationalId: `${int(100000, 999999)}-${int(10, 99)}`,
             drivingLicenseNumber: `DL-${int(100000, 999999)}`,
-            licenseExpiry: addDays(NOW, int(60, 900)),
             nationalIdExpiry: addDays(NOW, int(200, 1400)),
             accessCards: ['Port Access Card', 'Free Zone Pass'],
             status: 'Available',
@@ -866,9 +865,18 @@ async function main() {
       for (const driver of fleet.drivers) {
         const row = await prisma.driver.findUniqueOrThrow({
           where: { id: driver.id },
-          select: { licenseExpiry: true, joinDate: true },
+          select: { joinDate: true },
         });
-        await attachDocument('DRIVER', driver.id, 'Driver License', addDays(row.licenseExpiry, -1095), row.licenseExpiry);
+        /* No expiry — a Djibouti driving licence does not have one. The issue
+           date is dated back from the day they joined, since a driver is hired
+           already holding the licence. */
+        await attachDocument(
+          'DRIVER',
+          driver.id,
+          'Driver License',
+          addDays(row.joinDate, -int(180, 2500)),
+          null,
+        );
       }
     }
     console.log(`\uD83D\uDCC4 ${documentCount} compliance documents filed`);

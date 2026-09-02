@@ -46,6 +46,22 @@ export const environmentSchema = z
 
     RESEND_API_KEY: z.string().optional(),
     EMAIL_FROM: z.string().default('FLEETIN System <noreply@fleetin.com>'),
+
+    /* Google Maps Platform — Places API (New) for the location search, Routes
+     * API for road distance. Optional, and deliberately so: the Locations
+     * module works without it (a place can always be entered by hand with its
+     * own coordinates) and every Google-backed endpoint answers with a plain
+     * "not configured" rather than a 500. The key is only ever read here, on
+     * the server; it is never sent to the browser, because a Places key in a
+     * bundle is a key anybody can spend. */
+    GOOGLE_MAPS_API_KEY: z.string().optional(),
+    /* Bias place search toward the corridor rather than the whole planet:
+     * typing "doraleh" should not offer a street in another hemisphere first.
+     * Defaults to Djibouti city and a 300km radius, which covers the ports,
+     * the free zones and the Ethiopian border run. */
+    GOOGLE_MAPS_BIAS_LAT: z.coerce.number().default(11.5721),
+    GOOGLE_MAPS_BIAS_LNG: z.coerce.number().default(43.1456),
+    GOOGLE_MAPS_BIAS_RADIUS_M: z.coerce.number().int().positive().default(300_000),
   })
   /* Reusing one secret for both token types collapses the access/refresh
    * distinction: an access token would verify against the refresh secret and

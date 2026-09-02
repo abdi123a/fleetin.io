@@ -22,6 +22,7 @@ import { EmptyReturnsModule } from './modules/empty-returns/empty-returns.module
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { HoldsModule } from './modules/holds/holds.module';
 import { WorkspaceModule } from './modules/workspace/workspace.module';
+import { LocationsModule } from './modules/locations/locations.module';
 import { LedgerModule } from './modules/ledger/ledger.module';
 import { FundingModule } from './modules/funding/funding.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
@@ -89,6 +90,7 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     SettingsModule,
     HrModule,
     WorkspaceModule,
+    LocationsModule,
   ],
   providers: [
     /* Order matters. Nest runs global guards in registration order, so

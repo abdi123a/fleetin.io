@@ -352,7 +352,6 @@ interface SeedDriver {
   phone: string;
   nationalId: string;
   drivingLicenseNumber: string;
-  licenseExpiry: string;
   accessCards?: string[];
   status: string;
   joinDate: string;
@@ -436,9 +435,9 @@ const SEED_PARTNERS: SeedPartner[] = [
       { name: 'Business License 2026.pdf', category: 'Business License' },
     ],
     drivers: [
-      { mockId: 'DRV-001', fullName: 'Abdi Yusuf Mohamed', phone: '+253 77 55 11 22', nationalId: 'DJ-NID-882211', drivingLicenseNumber: 'DL-DJ-44821', licenseExpiry: '2026-08-15', status: 'Available', joinDate: '2022-03-01', accessCards: ['Port Gate A', 'Free Zone'] },
-      { mockId: 'DRV-002', fullName: 'Hassan Farah Jama', phone: '+253 77 66 22 33', nationalId: 'DJ-NID-991132', drivingLicenseNumber: 'DL-DJ-55932', licenseExpiry: '2025-09-30', status: 'In Transit', joinDate: '2021-07-15', accessCards: ['Port Gate B'] },
-      { mockId: 'DRV-003', fullName: 'Ali Warsame Hussein', phone: '+253 77 99 44 55', nationalId: 'DJ-NID-337841', drivingLicenseNumber: 'DL-DJ-77342', licenseExpiry: '2027-02-28', status: 'Available', joinDate: '2023-11-01' },
+      { mockId: 'DRV-001', fullName: 'Abdi Yusuf Mohamed', phone: '+253 77 55 11 22', nationalId: 'DJ-NID-882211', drivingLicenseNumber: 'DL-DJ-44821', status: 'Available', joinDate: '2022-03-01', accessCards: ['Port Gate A', 'Free Zone'] },
+      { mockId: 'DRV-002', fullName: 'Hassan Farah Jama', phone: '+253 77 66 22 33', nationalId: 'DJ-NID-991132', drivingLicenseNumber: 'DL-DJ-55932', status: 'In Transit', joinDate: '2021-07-15', accessCards: ['Port Gate B'] },
+      { mockId: 'DRV-003', fullName: 'Ali Warsame Hussein', phone: '+253 77 99 44 55', nationalId: 'DJ-NID-337841', drivingLicenseNumber: 'DL-DJ-77342', status: 'Available', joinDate: '2023-11-01' },
     ],
     vehicles: [
       { mockId: 'VEH-001', plateNumber: 'DJ-ABJ-1234', truckType: '40ft Container', containerCapacity: '40ft / 28 tons', trailerInfo: 'DRY-VAN-2020', ownershipType: 'Owned', insuranceExpiry: '2025-12-31', registrationExpiry: '2026-03-20', hasGPS: true, gpsDeviceId: 'GPS-4421', operationalStatus: 'Available', assignedDriverMockId: 'DRV-001', year: 2020, make: 'Volvo', model: 'FH16' },
@@ -464,9 +463,9 @@ const SEED_PARTNERS: SeedPartner[] = [
     dispatchers: [{ name: 'Tigist Bekele', title: 'Operations Director', phone: '+251 91 234 5678', email: 'tigist@horn-transit.et', isPrimary: true }],
     documents: [{ name: 'Commercial Registration Certificate.pdf', category: 'Business License' }],
     drivers: [
-      { mockId: 'DRV-101', fullName: 'Bekele Haile', phone: '+251 91 111 2222', nationalId: 'ETH-NID-33441', drivingLicenseNumber: 'DL-ETH-88812', licenseExpiry: '2026-12-01', status: 'In Transit', joinDate: '2023-01-10' },
-      { mockId: 'DRV-102', fullName: 'Dawit Mulugeta', phone: '+251 91 555 6666', nationalId: 'ETH-NID-55123', drivingLicenseNumber: 'DL-ETH-99921', licenseExpiry: '2025-07-15', status: 'In Transit', joinDate: '2022-05-20' },
-      { mockId: 'DRV-103', fullName: 'Meron Tadesse', phone: '+251 91 777 8888', nationalId: 'ETH-NID-77234', drivingLicenseNumber: 'DL-ETH-11132', licenseExpiry: '2026-09-30', status: 'Available', joinDate: '2023-08-14' },
+      { mockId: 'DRV-101', fullName: 'Bekele Haile', phone: '+251 91 111 2222', nationalId: 'ETH-NID-33441', drivingLicenseNumber: 'DL-ETH-88812', status: 'In Transit', joinDate: '2023-01-10' },
+      { mockId: 'DRV-102', fullName: 'Dawit Mulugeta', phone: '+251 91 555 6666', nationalId: 'ETH-NID-55123', drivingLicenseNumber: 'DL-ETH-99921', status: 'In Transit', joinDate: '2022-05-20' },
+      { mockId: 'DRV-103', fullName: 'Meron Tadesse', phone: '+251 91 777 8888', nationalId: 'ETH-NID-77234', drivingLicenseNumber: 'DL-ETH-11132', status: 'Available', joinDate: '2023-08-14' },
     ],
     vehicles: [
       { mockId: 'VEH-101', plateNumber: 'ETH-AA-4421', truckType: '40ft Container', containerCapacity: '40ft', ownershipType: 'Owned', insuranceExpiry: '2026-06-30', registrationExpiry: '2026-01-15', hasGPS: true, gpsDeviceId: 'GPS-8891', operationalStatus: 'In Transit', assignedDriverMockId: 'DRV-101', year: 2021, make: 'Scania', model: 'R450' },
@@ -489,7 +488,7 @@ const SEED_PARTNERS: SeedPartner[] = [
     dispatchers: [{ name: 'Ahmed Abdi Warsame', title: 'Fleet Manager', phone: '+252 61 234 5678', email: 'ahmed@albaraka-transport.so', isPrimary: true }],
     documents: [],
     drivers: [
-      { mockId: 'DRV-201', fullName: 'Mohamud Farah Rage', phone: '+252 61 888 9999', nationalId: 'SOM-NID-44001', drivingLicenseNumber: 'DL-SOM-10022', licenseExpiry: '2025-11-20', status: 'Available', joinDate: '2024-02-10' },
+      { mockId: 'DRV-201', fullName: 'Mohamud Farah Rage', phone: '+252 61 888 9999', nationalId: 'SOM-NID-44001', drivingLicenseNumber: 'DL-SOM-10022', status: 'Available', joinDate: '2024-02-10' },
     ],
     vehicles: [
       { mockId: 'VEH-201', plateNumber: 'SOM-MGS-991', truckType: 'Box Truck', containerCapacity: '10 tons', ownershipType: 'Owned', insuranceExpiry: '2024-12-31', registrationExpiry: '2025-06-30', hasGPS: false, operationalStatus: 'Available', assignedDriverMockId: 'DRV-201', year: 2017, make: 'Isuzu', model: 'NPR' },
@@ -1004,7 +1003,6 @@ async function seedPartners(storage: StorageService, uploadedById: string) {
           phone: d.phone,
           nationalId: d.nationalId,
           drivingLicenseNumber: d.drivingLicenseNumber,
-          licenseExpiry: new Date(d.licenseExpiry),
           accessCards: d.accessCards,
           status: d.status,
           joinDate: new Date(d.joinDate),

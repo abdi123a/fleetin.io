@@ -10,7 +10,6 @@ interface FindAllParams {
   search?: string;
   status?: string;
   partnerId?: string;
-  licenseExpiringWithinDays?: number;
   page: number;
   limit: number;
   scope: Record<string, string> | null;
@@ -40,15 +39,12 @@ export class DriversService {
     private readonly storage: StorageService,
   ) {}
 
-  async findAll({ search, status, partnerId, licenseExpiringWithinDays, page, limit, scope }: FindAllParams) {
+  async findAll({ search, status, partnerId, page, limit, scope }: FindAllParams) {
     const where: Prisma.DriverWhereInput = {
       deletedAt: null,
       ...(scope ?? {}),
       ...(partnerId ? { partnerId } : {}),
       ...(status && status !== 'all' ? { status } : {}),
-      ...(licenseExpiringWithinDays
-        ? { licenseExpiry: { lte: new Date(Date.now() + licenseExpiringWithinDays * 24 * 60 * 60 * 1000) } }
-        : {}),
       ...(search
         ? {
             OR: [
@@ -109,7 +105,6 @@ export class DriversService {
         phone: dto.phone,
         nationalId: dto.nationalId,
         drivingLicenseNumber: dto.drivingLicenseNumber,
-        licenseExpiry: new Date(dto.licenseExpiry),
         nationalIdExpiry: dto.nationalIdExpiry ? new Date(dto.nationalIdExpiry) : undefined,
         accessCards: dto.accessCards,
         status: dto.status ?? 'Available',
@@ -130,7 +125,6 @@ export class DriversService {
         phone: dto.phone,
         nationalId: dto.nationalId,
         drivingLicenseNumber: dto.drivingLicenseNumber,
-        licenseExpiry: dto.licenseExpiry ? new Date(dto.licenseExpiry) : undefined,
         nationalIdExpiry: dto.nationalIdExpiry ? new Date(dto.nationalIdExpiry) : undefined,
         accessCards: dto.accessCards,
         status: dto.status,
@@ -144,16 +138,6 @@ export class DriversService {
   async remove(id: string) {
     await this.findOne(id, null);
     return this.prisma.driver.update({ where: { id }, data: { deletedAt: new Date() } });
-  }
-
-  async expiring(withinDays: number) {
-    const threshold = new Date(Date.now() + withinDays * 24 * 60 * 60 * 1000);
-    const rows = await this.prisma.driver.findMany({
-      where: { deletedAt: null, licenseExpiry: { lte: threshold } },
-      include: DRIVER_INCLUDE,
-      orderBy: { licenseExpiry: 'asc' },
-    });
-    return Promise.all(rows.map((row) => this.enrich(row)));
   }
 
   private async enrich(driver: Prisma.DriverGetPayload<{ include: typeof DRIVER_INCLUDE }>) {

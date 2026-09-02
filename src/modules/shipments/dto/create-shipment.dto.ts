@@ -56,6 +56,19 @@ export class CreateShipmentDto {
   @IsNotEmpty()
   preferredVehicleType: string;
 
+  /**
+   * The catalogued place this leaves from, when it was picked from the
+   * Locations list rather than typed.
+   *
+   * Optional and staying that way: a one-off pickup at an address nobody wants
+   * in the picker is a real shipment. Supplying it is what buys the real
+   * distance — see `estimatedDistanceKm` below.
+   */
+  @ApiPropertyOptional({ description: 'Location.id, from the Locations catalogue' })
+  @IsOptional()
+  @IsString()
+  pickupLocationId?: string;
+
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
@@ -75,6 +88,12 @@ export class CreateShipmentDto {
   @IsOptional()
   @IsString()
   pickupGateOrTerminal?: string;
+
+  /** The catalogued place this is delivered to. Same contract as the pickup. */
+  @ApiPropertyOptional({ description: 'Location.id, from the Locations catalogue' })
+  @IsOptional()
+  @IsString()
+  deliveryLocationId?: string;
 
   @ApiProperty()
   @IsString()
@@ -96,9 +115,29 @@ export class CreateShipmentDto {
   @IsString()
   deliveryGateOrTerminal?: string;
 
+  /**
+   * The one-way leg, in kilometres.
+   *
+   * When both location ids are supplied the server measures this itself against
+   * the Locations distance book and OVERWRITES whatever is sent — the road
+   * between two fixed points is not a thing a form should be trusted on, and
+   * this number is multiplied up by Finance and BI. What is sent still matters
+   * in two cases: either location was typed rather than picked, or the operator
+   * deliberately overrode the measurement, which they say with
+   * `estimatedDistanceSource: 'manual'`.
+   */
   @ApiProperty({ example: 42 })
   @IsNumber()
   estimatedDistanceKm: number;
+
+  /**
+   * `manual` means the operator stands behind `estimatedDistanceKm` and the
+   * server must not overwrite it. Anything else lets the measurement win.
+   */
+  @ApiPropertyOptional({ enum: ['google', 'manual', 'estimate'] })
+  @IsOptional()
+  @IsIn(['google', 'manual', 'estimate'])
+  estimatedDistanceSource?: string;
 
   @ApiPropertyOptional({ example: '1h 15m' })
   @IsOptional()
