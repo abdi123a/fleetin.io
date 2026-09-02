@@ -1,9 +1,10 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { nextReference } from '../../common/helpers/reference.util';
 import { fleetinCommissionPct, splitCommission } from '../../common/helpers/pricing.util';
 import { EmptyReturnsService } from '../empty-returns/empty-returns.service';
+import { EmissionsService } from '../emissions/emissions.service';
 import {
   allowedNextShipmentStatuses,
   isValidShipmentStatusTransition,
@@ -42,11 +43,32 @@ interface FindAllParams {
  * booking as its matched outbound load — that is the whole of how Empty
  * Return stays driven by the real booking instead of its own clicks.
  */
+/**
+ * The rungs on which a booking's carbon changes.
+ *
+ * Not "every status write" — most rungs are about where a truck is, not about
+ * a completed drive, and re-measuring on each of them would spend Routes API
+ * calls to arrive at the same number. These three are the ones where a leg is
+ * earned or given back. See `EmissionsService`'s accrual table.
+ */
+const CARBON_ACCRUAL_RUNGS = ['Arrived', 'Empty Picked Up', 'Completed'];
+
+/**
+ * The two statuses that take a container out of every count in this product —
+ * `LIVE_BOOKINGS` in the vehicles service, the shipment's own container split,
+ * and the carbon rollup. Moving into or out of one changes a shipment's total
+ * without changing any booking's own figure.
+ */
+const TERMINAL_STATUSES = ['Cancelled', 'Failed'];
+
 @Injectable()
 export class BookingsService {
+  private readonly logger = new Logger(BookingsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly emptyReturns: EmptyReturnsService,
+    private readonly emissions: EmissionsService,
   ) {}
 
   /**
@@ -198,6 +220,12 @@ export class BookingsService {
         },
         include: { timeline: true },
       });
+      /* Carbon is snapshotted at the moment a truck is named, not on some
+         later sweep — a booking must never exist with a vehicle and no factor.
+         A booking created without one gets its snapshot when it is assigned;
+         see `update` below. */
+      if (booking.vehicleId) await this.emissions.snapshotFactor(booking.id);
+
       created.push(booking);
     }
 
@@ -368,6 +396,15 @@ export class BookingsService {
       include: { timeline: { orderBy: { createdAt: 'asc' } }, ...this.bookingDetailInclude },
     });
 
+    /* A different truck is a different factor. Re-snapshotted only when the
+     * assignment actually moved: re-saving a booking for any other reason
+     * must not re-price a trip that has already been reported, which is the
+     * whole point of `Booking.co2FactorUsed` being a copy rather than a join.
+     * Clearing the fleet clears the carbon with it — see `snapshotFactor`. */
+    if (updated.vehicleId !== existing.vehicleId) {
+      await this.emissions.snapshotFactor(updated.id);
+    }
+
     /* A booking that moved rung takes its shipment's derived status with it,
      * exactly as a real status write would. */
     if (restated) {
@@ -520,6 +557,41 @@ export class BookingsService {
         where: { bookingId: booking.id, emptyReadyAt: null },
         data: { emptyReadyAt: occurredAt },
       });
+    }
+
+    /* ── CARBON ACCRUES HERE ──
+     *
+     * Each of these rungs is the moment a drive stopped being planned and
+     * started being a fact, so each one is where that drive's kilometres join
+     * the booking's total:
+     *
+     *   `Arrived`          the loaded run to the consignee has been made
+     *   `Empty Picked Up`  a truck has the empty and is running it back
+     *   `Completed`        the box is home; the round trip is closed
+     *
+     * A booking that walks *back* down the ladder is re-measured too, and the
+     * legs it no longer earns are removed — the figure follows the record
+     * rather than ratcheting.
+     *
+     * Cheap: every leg is a lane the distance cache has almost certainly
+     * measured before. Wrapped because a road Google will not answer for is a
+     * gap in a carbon figure, never a reason to refuse a status write — the
+     * yard does not stop for the Routes API. */
+    if (CARBON_ACCRUAL_RUNGS.includes(booking.status) || CARBON_ACCRUAL_RUNGS.includes(existing.status)) {
+      try {
+        await this.emissions.rebuildRoute(booking.id);
+      } catch (error) {
+        this.logger.warn(
+          `Could not re-measure the route for booking ${booking.reference}: ${String(error)}`,
+        );
+      }
+    } else if (TERMINAL_STATUSES.includes(booking.status) || TERMINAL_STATUSES.includes(existing.status)) {
+      /* Cancelling or failing a container does not change its own legs — it
+       * changes whether they count. The shipment rollup excludes a cancelled
+       * booking, so the total has to be taken again, or a job keeps reporting
+       * carbon for a run that was called off. The booking's own columns are
+       * left alone: it did drive that road before somebody cancelled it. */
+      await this.emissions.rollUpShipment(booking.shipmentId);
     }
 
     // The one line that replaces the whole manual milestone clicker: if this

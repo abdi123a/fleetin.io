@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { nextReference } from '../../common/helpers/reference.util';
+import { computeVehicleCo2Factor, normaliseFuelType } from '../../common/helpers/co2.util';
 import { CreateVehicleDto } from './dto/create-vehicle.dto';
 import { UpdateVehicleDto } from './dto/update-vehicle.dto';
 
@@ -114,6 +115,12 @@ export class VehiclesService {
         year: dto.year,
         make: dto.make,
         model: dto.model,
+        fuelType: normaliseFuelType(dto.fuelType),
+        ...this.carbonFactorFor({
+          truckType: dto.truckType,
+          fuelType: dto.fuelType,
+          year: dto.year,
+        }),
       },
       include: VEHICLE_INCLUDE,
     });
@@ -122,10 +129,22 @@ export class VehiclesService {
   }
 
   async update(id: string, dto: UpdateVehicleDto) {
-    await this.findOne(id, null);
+    const before = await this.findOne(id, null);
+
+    /* The factor is re-derived from the row as it will be *after* this patch,
+       not from the patch alone: changing only the fuel still has to be priced
+       against the truck's existing type and year. A vehicle whose factor
+       moves does not disturb a single finished booking — those carry their
+       own snapshot, which is the whole point of `Booking.co2FactorUsed`. */
+    const fuelType = dto.fuelType !== undefined ? normaliseFuelType(dto.fuelType) : before.fuelType;
+    const truckType = dto.truckType ?? before.truckType;
+    const year = dto.year !== undefined ? dto.year : before.year;
+
     const vehicle = await this.prisma.vehicle.update({
       where: { id },
       data: {
+        fuelType,
+        ...this.carbonFactorFor({ truckType, fuelType, year }),
         plateNumber: dto.plateNumber,
         truckType: dto.truckType,
         containerCapacity: dto.containerCapacity,
@@ -165,10 +184,40 @@ export class VehiclesService {
     return Promise.all(rows.map((row) => this.enrich(row)));
   }
 
+  /**
+   * The carbon columns for a given set of answers, ready to spread into a
+   * write. Kept in one place so create and update can never derive the factor
+   * two different ways.
+   */
+  private carbonFactorFor(input: { truckType?: string | null; fuelType?: string | null; year?: number | null }) {
+    const factor = computeVehicleCo2Factor(input);
+    return {
+      co2PerKm: factor.perKm,
+      co2FactorBasis: factor.basis,
+      co2ModelVersion: factor.modelVersion,
+      co2FactorAt: new Date(),
+    };
+  }
+
+  /** The truck's photograph. Same key-not-URL rule as a partner's logo. */
+  async uploadPhoto(id: string, file: Express.Multer.File) {
+    const existing = await this.findOne(id, null);
+    const stored = await this.storage.upload(
+      { originalname: file.originalname, buffer: file.buffer, mimetype: file.mimetype, size: file.size },
+      { folder: 'vehicles' },
+    );
+    await this.prisma.vehicle.update({ where: { id: existing.id }, data: { photoKey: stored.key } });
+    return this.findOne(existing.id, null);
+  }
+
   private async enrich(vehicle: Prisma.VehicleGetPayload<{ include: typeof VEHICLE_INCLUDE }>) {
-    const { partner, _count, ...rest } = vehicle;
+    const { partner, _count, photoKey, co2PerKm, ...rest } = vehicle;
     return {
       ...rest,
+      /* Decimal crosses the wire as a string; the factor is a small number
+         every consumer does arithmetic with, so it is sent as one. */
+      co2PerKm: co2PerKm === null ? null : Number(co2PerKm),
+      photoUrl: photoKey ? await this.storage.getUrl(photoKey) : null,
       partnerId: partner.id,
       partnerReference: partner.reference,
       partnerName: partner.companyLegalName,

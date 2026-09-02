@@ -1,5 +1,17 @@
-import { Body, Controller, Delete, Get, Param, Patch, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { VehiclesService } from './vehicles.service';
 import { UpdateVehicleDto } from './dto/update-vehicle.dto';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -71,6 +83,19 @@ export class VehiclesController {
     return this.vehiclesService.update(id, dto);
   }
 
+  /**
+   * The truck's photograph. A separate call from the PATCH above because it is
+   * multipart and the rest of the form is JSON — same split as a partner's
+   * logo, and it means a failed upload never loses the typed fields.
+   */
+  @Post(':id/photo')
+  @RequirePermissions(PERMISSIONS.vehicles.update)
+  @ApiOperation({ summary: "Upload the vehicle's photo" })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadPhoto(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+    return this.vehiclesService.uploadPhoto(id, file);
+  }
 
   @Delete(':id')
   @RequirePermissions(PERMISSIONS.vehicles.delete)

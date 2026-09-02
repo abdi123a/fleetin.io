@@ -677,6 +677,34 @@ model Vehicle {
   year               Int?
   make               String?   @db.VarChar(64)
   model              String?   @db.VarChar(64)
+
+  /// The truck's own photograph. A storage key, never a URL — see
+  /// `Partner.logoKey`; the presigned link is derived at read time and would
+  /// be a dead string by tomorrow if it were stored.
+  photoKey String? @db.VarChar(255)
+
+  /// What it burns. Diesel|Petrol|CNG|LNG|Hybrid|Electric — `FUEL_TYPES` in
+  /// `co2.util.ts`. One of the three answers the carbon factor is derived
+  /// from, which is why it is asked for at registration rather than left to a
+  /// spec sheet nobody opens.
+  fuelType String @default("Diesel") @db.VarChar(24)
+
+  /// kg CO₂ per kilometre for this truck. **Never typed in.** Computed from
+  /// `truckType` + `fuelType` + `year` by `computeVehicleCo2Factor` on every
+  /// write that touches one of those three, so a fleet's factors are all
+  /// arrived at the same way and can be compared.
+  ///
+  /// Nullable only for the moment between a row existing and the backfill
+  /// reaching it; every live write sets it.
+  co2PerKm       Decimal?  @db.Decimal(6, 3)
+  /// One line saying how the number above was reached ("40ft Container ·
+  /// Diesel · 2022 (Euro VI-E)"), stored so a reader never has to run the
+  /// model in their head, and `CO2_MODEL_VERSION` so a factor computed under
+  /// an older table stays identifiable after the table moves.
+  co2FactorBasis String?   @db.VarChar(255)
+  co2ModelVersion String?  @db.VarChar(32)
+  co2FactorAt    DateTime?
+
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   deletedAt          DateTime?
@@ -999,6 +1027,25 @@ model Shipment {
   deliveryGateOrTerminal  String?   @db.VarChar(120)
   deliveryContactPerson   String?   @db.VarChar(255)
   deliveryContactPhone    String?   @db.VarChar(32)
+
+  /// ── Carbon, rolled up from this shipment's bookings ──
+  ///
+  /// The sum of `Booking.co2EmissionsKg` and `Booking.actualDistanceKm`,
+  /// written by `EmissionsService.rollUpShipment` after every booking write
+  /// that changes one. Denormalised for one reason: the shipments *list* has
+  /// to print a job's carbon without loading the bookings underneath every
+  /// row, and a list that fetched them would be a query per card.
+  ///
+  /// One writer, so the total can never disagree with the cards it totals.
+  /// NULL — never 0 — while nothing under it has moved: a shipment that has
+  /// not been driven yet has no figure, and zero would read as a measurement.
+  ///
+  /// `co2DistanceKm` is the sum of the *trucks'* roads, not the length of the
+  /// lane: five containers down a 27 km corridor is 135 truck-kilometres, and
+  /// that is what produced the carbon. It is deliberately NOT comparable to
+  /// `estimatedDistanceKm` below, which is one hop, quoted.
+  co2EmissionsKg Decimal? @db.Decimal(12, 2)
+  co2DistanceKm  Decimal? @db.Decimal(11, 2)
 
   estimatedDistanceKm     Float
   /// How `estimatedDistanceKm` was arrived at. Until 2026-09-02 there was only
@@ -1401,11 +1448,41 @@ model Booking {
   transporterCostFxRate               Float?  @default(1.0)
   transporterCostBaseAmountMinorUnits BigInt?
 
+  /// ── Carbon ───────────────────────────────────────────────────────────────
+  /// The booking is the unit of record for emissions, and these four columns
+  /// are why: they are a *snapshot*, not a view of the vehicle.
+  ///
+  /// `co2FactorUsed` is `Vehicle.co2PerKm` copied at the moment a truck was
+  /// put on this job. It is never refreshed. Re-deriving a finished trip from
+  /// the truck's present factor would silently rewrite last quarter's carbon
+  /// statement every time somebody corrected a vehicle's model year — a
+  /// reported figure has to stay the figure that was reported.
+  ///
+  /// `actualDistanceKm` is the road the truck actually covered: the sum of
+  /// this booking's `BookingRouteLeg` rows, each one measured between two
+  /// catalogue locations through the same Google distance cache the shipment
+  /// wizard uses. `co2DistanceSource` says where it came from, because a
+  /// measured route and a fallback are not the same claim.
+  ///
+  /// `co2EmissionsKg` = `actualDistanceKm` × `co2FactorUsed`. Stored rather
+  /// than multiplied at read time so every screen, export and rollup quotes
+  /// one number, and so the arithmetic behind a historical figure survives
+  /// any later change to either input.
+  actualDistanceKm  Decimal?  @db.Decimal(9, 2)
+  co2FactorUsed     Decimal?  @db.Decimal(6, 3)
+  co2EmissionsKg    Decimal?  @db.Decimal(10, 2)
+  /// legs|shipment_estimate|manual — see `EmissionsService.recompute`.
+  co2DistanceSource String?   @db.VarChar(24)
+  co2ComputedAt     DateTime?
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
   timeline   BookingTimelineStep[]
+  /// The movement this booking's emissions are measured over — one row per
+  /// leg, in order. See `BookingRouteLeg`.
+  routeLegs  BookingRouteLeg[]
   /// This booking as the empty going back — at most one live cycle per
   /// booking (matching consumes it).
   asEmpty    EmptyReturnCycle?     @relation("CycleEmptyBooking")
@@ -1429,7 +1506,69 @@ model Booking {
   @@index([returnDriverId])
   @@index([status])
   @@index([containerNumber])
+  @@index([co2ComputedAt])
   @@map("bookings")
+}
+
+/// One movement of the truck, and how long it was.
+///
+/// A booking's carbon is its distance times its factor, and the distance has
+/// to be the road actually driven — not the straight port-to-zone hop the
+/// shipment was quoted on. A container run is normally several legs:
+///
+///     Garage → Port → Free Zone → Port → Free Zone
+///
+/// so the route is stored as a list rather than a single number. Each leg is
+/// measured between two catalogue `Location` rows through
+/// `LocationsService.distance`, which is the same Google Routes call the
+/// shipment wizard makes and the same permanently-cached `location_distances`
+/// row — a leg down a lane somebody has already driven costs nothing to
+/// measure.
+///
+/// `originLocationId`/`destinationLocationId` are nullable and the names are
+/// not, on purpose: a leg to a place that is not in the catalogue (a
+/// consignee's own yard) is still a real leg, and it keeps its `manual`
+/// distance and its typed name rather than being dropped from the total.
+///
+/// Legs are rebuilt, never accumulated: `EmissionsService.rebuildRoute`
+/// deletes and rewrites the set for one booking, so a route can be corrected
+/// without leaving orphan kilometres behind it.
+model BookingRouteLeg {
+  id String @id @default(uuid())
+
+  bookingId String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  /// 1-based position in the drive. Unique per booking, so the order is a
+  /// fact about the data rather than whatever the query happened to return.
+  sequence Int
+
+  originLocationId      String?
+  destinationLocationId String?
+  /// What the leg is called on screen. Denormalised so a route still reads
+  /// after a location is renamed or retired.
+  originName      String @db.VarChar(255)
+  destinationName String @db.VarChar(255)
+
+  /// Metres and seconds, as the Routes API returns them — kilometres are
+  /// presentation, formatted at the edge. Same rule as `LocationDistance`.
+  distanceMeters  Int
+  durationSeconds Int?
+
+  /// google|haversine|manual — who measured it. A haversine leg is the
+  /// straight line and is marked as such rather than passed off as a road.
+  provider String @default("google") @db.VarChar(16)
+
+  /// Why this leg is part of the drive: positioning|loaded|empty_return|manual.
+  /// Kept so a route can explain itself — an operator looking at 240 km on an
+  /// 85 km lane should be able to see which legs made it up.
+  purpose String @default("loaded") @db.VarChar(24)
+
+  createdAt DateTime @default(now())
+
+  @@unique([bookingId, sequence])
+  @@index([bookingId])
+  @@map("booking_route_legs")
 }
 
 model BookingTimelineStep {
