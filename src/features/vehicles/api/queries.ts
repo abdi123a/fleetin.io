@@ -5,6 +5,7 @@ import {
   fetchVehicle,
   fetchVehicles,
   updateVehicle,
+  uploadVehiclePhoto,
   type CreateVehiclePayload,
   type VehicleFilters,
 } from './vehiclesService';
@@ -50,6 +51,14 @@ export function useUpdateVehicle() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: Partial<CreateVehiclePayload> }) => updateVehicle(id, payload),
+    onSuccess: (_data, variables) => invalidateVehicles(queryClient, variables.id),
+  });
+}
+
+export function useUploadVehiclePhoto() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) => uploadVehiclePhoto(id, file),
     onSuccess: (_data, variables) => invalidateVehicles(queryClient, variables.id),
   });
 }

@@ -10,7 +10,8 @@ import {
   Truck,
   User,
 } from '@/design-system/icons';
-import { PageHeader } from '@/components';
+import { PageHeader, TablePager, usePagedRows } from '@/components';
+import { FilterMenu } from '@/components/common';
 import { RecordRaise } from '@/features/workspace';
 import { triggerDocumentDownload } from '@/components/documentDownload';
 import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
@@ -65,6 +66,48 @@ import { cn } from '@/utils';
  * root, at the company, at the section, and finally on the truck. You can
  * always see where to go next without opening anything.
  */
+/**
+ * How the drive can be ordered.
+ *
+ * Every comparator falls back to the label, so a page of folders that all owe
+ * nothing is alphabetical rather than arbitrary — otherwise "sorted by most
+ * missing" reshuffles a clean drive on every render for no reason a reader
+ * could name.
+ *
+ * Only what a folder actually carries: `ComplianceTally` has no dates on it,
+ * so there is no "expiring soonest" here — that would need the documents
+ * themselves, and a control that sorts by a number the card does not show is
+ * a control nobody can check.
+ */
+type DriveSortKey = 'attention' | 'missing' | 'expired' | 'name';
+
+const byLabel = (a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label);
+
+const DRIVE_SORTS: Record<
+  DriveSortKey,
+  { label: string; compare: (a: DriveSortable, b: DriveSortable) => number }
+> = {
+  attention: {
+    label: 'Needs attention',
+    compare: (a, b) => b.tally.attention - a.tally.attention || byLabel(a, b),
+  },
+  missing: {
+    label: 'Most missing',
+    compare: (a, b) => b.tally.missing - a.tally.missing || byLabel(a, b),
+  },
+  expired: {
+    label: 'Most expired',
+    compare: (a, b) => b.tally.expired - a.tally.expired || byLabel(a, b),
+  },
+  name: { label: 'Name (A–Z)', compare: byLabel },
+};
+
+/** The half of a folder or a search hit that sorting reads. */
+interface DriveSortable {
+  label: string;
+  tally: ComplianceTally;
+}
+
 export function DocumentsPage() {
   const { data: documents = [] } = useDocumentBook();
   const { data: shippersPage } = useShippers();
@@ -74,6 +117,7 @@ export function DocumentsPage() {
 
   const [path, setPath] = useState<DriveSegment[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [sort, setSort] = useState<DriveSortKey>('attention');
   /* Held here rather than in the leaf, so walking from one truck to the next
      does not silently put the browser back into grid. */
   const [view, setView] = useState<DocumentView>('grid');
@@ -125,7 +169,45 @@ export function DocumentsPage() {
     () => searchDrive(searchTerm, companies, documents),
     [searchTerm, companies, documents],
   );
+  /* Sorted by what is wrong with it rather than by what it is called.
+     This is a compliance surface — the tiles above count Missing, Expired and
+     Expiring — so the folder owing work belongs at the top, and name is there
+     for when you already know which one you are after.
+
+     The same order is applied to search results: a reader who has chosen "most
+     missing" and then types a name has not stopped caring about the order. */
+  const compare = DRIVE_SORTS[sort].compare;
+  const folders = useMemo(() => [...listing.folders].sort(compare), [listing.folders, compare]);
+  const sortedMatches = useMemo(() => [...matches].sort(compare), [matches, compare]);
+
   const searching = searchTerm.trim().length > 0;
+
+  /* One page of folders at a time.
+   *
+   * 12, because the grid is two, three or four across depending on the width
+   * and twelve is the smallest useful number that fills a whole last row at
+   * every one of them — a page ending in a single orphan tile reads as a
+   * loading failure.
+   *
+   * The pager runs over whichever grid is on screen, so searching a large
+   * drive does not hand back the scroll this was added to remove. Changing the
+   * folder, the search or the sort returns to page one: page 4 of the old list
+   * is a different set of folders in the new one, and landing there looks like
+   * the filter did nothing. */
+  const [pageSize, setPageSize] = useState(12);
+  /* Two pagers rather than one over a union: the folder grid and the search
+     grid hold different shapes, and collapsing them would cost each branch the
+     type that tells it which fields it has. They share a page size; `paged` is
+     only for the readout, whose fields are the same either way. */
+  const pagedFolders = usePagedRows(folders, {
+    pageSize,
+    resetKey: `${sort}|${JSON.stringify(path)}`,
+  });
+  const pagedMatches = usePagedRows(sortedMatches, {
+    pageSize,
+    resetKey: `${searchTerm}|${sort}`,
+  });
+  const paged = searching ? pagedMatches : pagedFolders;
 
   return (
     <div className="w-full min-w-0 space-y-5">
@@ -162,21 +244,41 @@ export function DocumentsPage() {
           })}
         </nav>
 
-        <Input
-          value={searchTerm}
-          onChange={(event) => setSearchTerm(event.target.value)}
-          placeholder="Search the whole drive…"
-          leadingIcon={<Search className="size-4" />}
-          isClearable
-          onClear={() => setSearchTerm('')}
-          className="w-full sm:w-72"
-        />
+        {/* Search and sort narrow the same list, so they share a row and
+            wrap together away from the trail. */}
+        <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
+          <Input
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search the whole drive…"
+            leadingIcon={<Search className="size-4" />}
+            isClearable
+            onClear={() => setSearchTerm('')}
+            className="w-full sm:w-72"
+          />
+          <FilterMenu
+            label="Sort"
+            groups={[
+              {
+                key: 'sort',
+                label: 'Sort by',
+                value: sort,
+                onChange: (value) => setSort(value as DriveSortKey),
+                options: (Object.keys(DRIVE_SORTS) as DriveSortKey[]).map((key) => ({
+                  value: key,
+                  label: DRIVE_SORTS[key].label,
+                })),
+                defaultValue: 'attention',
+              },
+            ]}
+          />
+        </div>
       </div>
 
       {searching ? (
         <FolderGrid
           empty={`Nothing in the drive matches “${searchTerm.trim()}”.`}
-          items={matches.map((match) => ({
+          items={pagedMatches.rows.map((match) => ({
             key: match.key,
             label: match.label,
             sublabel: match.where,
@@ -193,7 +295,7 @@ export function DocumentsPage() {
       ) : (
         <FolderGrid
           empty="This folder is empty."
-          items={listing.folders.map((folder) => ({
+          items={pagedFolders.rows.map((folder) => ({
             key: folder.key,
             label: folder.label,
             sublabel: folder.sublabel,
@@ -202,6 +304,19 @@ export function DocumentsPage() {
             tally: folder.tally,
             onOpen: () => setPath([...path, folder.segment]),
           }))}
+        />
+      )}
+
+      {/* Only where there is a grid to page. A leaf folder is one owner's
+          papers and `LeafFolder` handles its own listing; a drive that fits on
+          one page says so by not drawing a pager at all. */}
+      {!listing.leaf && paged.pageCount > 1 && (
+        <TablePager
+          paged={paged}
+          noun="folders"
+          pageSize={pageSize}
+          onPageSizeChange={setPageSize}
+          pageSizeOptions={[12, 24, 48]}
         />
       )}
     </div>

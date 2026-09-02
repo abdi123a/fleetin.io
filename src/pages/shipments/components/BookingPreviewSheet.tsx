@@ -38,6 +38,13 @@ import {
 import { ROUTES } from '@/config/routes';
 import { BOOKING_LADDER } from '@/features/bookings/api/bookingsService';
 import { RecordRaise } from '@/features/workspace';
+import {
+  Co2Figure,
+  useBookingRoute,
+  useRebuildBookingRoute,
+  type RouteLeg,
+} from '@/features/emissions';
+import { co2Number, formatFactor } from '@/lib/co2';
 import { BookingProofPanel } from '@/features/documents/components/BookingProofPanel';
 import { ProofFileField } from '@/features/documents/components/ProofFileField';
 import { proofsRequiredForWalk, type ProofRequirement } from '@/features/documents/proofRequirement';
@@ -70,11 +77,18 @@ import { cn, formatDate } from '@/utils';
  * standalone flag) and only ever shown here, never used to gate anything.
  * Undefined before the booking is delivered — the question doesn't apply yet.
  */
-export type EmptyReturnStage = 'awaiting_empty' | 'waiting_match' | 'matched' | 'returned' | 'standalone';
+/* Declared with the rule that computes it, not beside the component that draws
+   it — see `features/empty-returns/returnStage`. Imported AND re-exported: this
+   file uses the name itself, and `export type { X } from` alone re-exports
+   without binding it locally. */
+import type { EmptyReturnStage } from '@/features/empty-returns/returnStage';
+export type { EmptyReturnStage };
 
 export interface BookingPreviewItem {
   id: string;
   bookingNumber: string;
+  /** The reference exactly as stored — what Empty Return keys its records on. */
+  bookingReference?: string;
   /** The container this specific booking is carrying — the identifier to search by in Empty Return's Create Match, the shipment's own booking cards, and everywhere else this booking gets cross-referenced. */
   containerNumber?: string;
   partnerId?: string;
@@ -119,6 +133,18 @@ export interface BookingPreviewItem {
   emptyReadyAt?: string;
   /** The matched cycle's own reference (`CYC-2026-#####`) — set whenever `emptyReturnStage` is `matched` or `returned`, so the card can jump straight to it. */
   emptyReturnCycleReference?: string;
+  /**
+   * What this container's run put into the air, and over how far.
+   *
+   * Read straight off the booking — the figure was computed once, server-side,
+   * from the factor its truck carried at the time. `co2DistanceSource` says
+   * whether the kilometres are a measured route or the shipment's quoted hop,
+   * which is the difference between a measurement and an estimate.
+   */
+  co2EmissionsKg?: string | number | null;
+  actualDistanceKm?: string | number | null;
+  co2FactorUsed?: string | number | null;
+  co2DistanceSource?: string | null;
   /** What the operator said when they marked this delivered — see `BookingStatusPicker`. */
   driverRating?: number | null;
   driverRatingReliability?: number | null;
@@ -200,6 +226,11 @@ export function BookingPreviewSheet({
   // partner, and this booking's partner is who the client told us is running
   // it. A placeholder id when no partner is assigned yet returns an empty
   // list rather than every vehicle/driver in the system.
+  /* The measured route behind this booking's carbon figure, and the way to
+     re-measure it. Keyed on the open booking, so the sheet — which stays
+     mounted for the life of the page — fetches nothing until one is picked. */
+  const { data: route } = useBookingRoute(booking?.id);
+  const rebuildRoute = useRebuildBookingRoute();
   const { data: partnerVehicles } = useVehicles({ partnerId: booking?.partnerId ?? '__unassigned__' });
   const { data: partnerDrivers } = useDrivers({ partnerId: booking?.partnerId ?? '__unassigned__' });
   const { confirm, confirmDialog } = useConfirm();
@@ -1393,6 +1424,90 @@ export function BookingPreviewSheet({
             )}
             </Card>
           </div>
+
+          {/* ── EMISSIONS ──
+           *
+           * The figure, and the drive that produced it.
+           *
+           * The legs are the point of putting this here rather than only on
+           * the dashboard: a reader who sees 47.9 km against an 85 km lane
+           * needs to be able to look at what was counted. The factor beneath
+           * is the truck's, as it stood when this booking was assigned — the
+           * snapshot, not the truck's present rating, which is why it can
+           * differ from what the Vehicles page shows today.
+           *
+           * The rebuild button is a write and looks like one. Re-measuring a
+           * lane costs a Routes API element, so it is asked for rather than
+           * done on every open. */}
+          {booking.co2EmissionsKg != null && (
+            <div className="space-y-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Emissions</h3>
+
+              <Co2Figure
+                size="md"
+                co2Kg={booking.co2EmissionsKg}
+                distanceKm={booking.actualDistanceKm}
+                source={booking.co2DistanceSource}
+              />
+
+              <Card className="space-y-2.5 rounded-lg border border-border/80 bg-card p-3">
+                {route?.legs.length ? (
+                  <ol className="space-y-1.5">
+                    {route.legs.map((leg: RouteLeg) => (
+                      <li key={leg.id} className="flex items-center gap-2 text-[11px]">
+                        <span className="min-w-0 flex-1 truncate text-foreground">
+                          <span className="font-semibold">{leg.originName}</span>
+                          <span className="mx-1 text-muted-foreground">→</span>
+                          <span className="font-semibold">{leg.destinationName}</span>
+                        </span>
+                        {/* A straight line is not a road, and says so. A
+                            measured leg carries no badge — labelling every
+                            row "measured" tells the reader nothing. */}
+                        {leg.provider === 'haversine' && (
+                          <Badge variant="subtle" intent="default" size="sm" className="shrink-0 text-[10px]">
+                            Straight line
+                          </Badge>
+                        )}
+                        <span className="shrink-0 font-bold tabular-nums text-foreground">
+                          {(leg.distanceMeters / 1000).toFixed(1)} km
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    No route measured yet — the distance above is this shipment's own
+                    pickup-to-delivery estimate.
+                  </p>
+                )}
+
+                <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-2">
+                  <span className="text-[11px] text-muted-foreground">
+                    Factor used{' '}
+                    <strong className="font-semibold text-foreground">
+                      {formatFactor(co2Number(booking.co2FactorUsed))}
+                    </strong>
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-[11px]"
+                    disabled={rebuildRoute.isPending}
+                    leadingIcon={<RotateCcw className="size-3" />}
+                    onClick={() => rebuildRoute.mutate(booking.id)}
+                  >
+                    {rebuildRoute.isPending ? 'Measuring…' : 'Re-measure'}
+                  </Button>
+                </div>
+
+                {rebuildRoute.data?.notes?.map((note: string) => (
+                  <p key={note} className="text-[11px] font-medium text-warning-subtle-foreground">
+                    {note}
+                  </p>
+                ))}
+              </Card>
+            </div>
+          )}
 
           {/* EMPTY RETURN — only meaningful once this booking is delivered.
               Its real `status` never advances past "Completed" for this;

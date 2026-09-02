@@ -1,9 +1,10 @@
 import React from 'react';
 import type { Mission } from '@/types/mission';
 import {
+  Button,
   Card,
   CornerBadge,
-  Button,
+  IconChip,
   MARK_STACK_OVERLAP,
   Tooltip,
   rowCardActionClasses,
@@ -11,6 +12,7 @@ import {
 import { carriesContainer, containerStateOf } from '@/lib/containerState';
 import { shipmentProgress, statusCornerIntentOf } from '@/lib/shipmentStatus';
 import { formatKm, shipmentDistance } from '@/lib/shipmentDistance';
+import { co2Label, formatCo2 } from '@/lib/co2';
 import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
 import { CrewStack } from '@/components/crew';
 import { MissionStatusBadge } from './MissionStatusBadge';
@@ -19,6 +21,7 @@ import {
   MapPin,
   ArrowRight,
   ContainerIcon,
+  Leaf,
   Package,
   Wrench,
 } from '@/design-system/icons';
@@ -103,6 +106,12 @@ export const MissionRowCard: React.FC<MissionRowCardProps> = ({
   const containerState = containerStateOf(mission.status, hasContainer);
   const progress = shipmentProgress(mission.status, hasContainer);
 
+  /* The job's carbon so far. Null — not zero — until a container under it has
+     actually been driven, so the corner stays quiet on a shipment that has
+     not moved. See `Mission.co2EmissionsKg`. */
+  const co2Kg = mission.co2EmissionsKg ?? null;
+  const co2 = formatCo2(co2Kg);
+
   const handleCardClick = () => {
     if (onClick) {
       onClick();
@@ -184,6 +193,27 @@ export const MissionRowCard: React.FC<MissionRowCardProps> = ({
 
       </div>
 
+      {/* ── CARBON MARK ──
+          The card's other corner, opposite the reference tab. It sits on the
+          frame rather than in the header row because it is a property of the
+          whole job, not of the line it would otherwise share — and in the
+          header it pushed the completion figure and the status badge down a
+          row on every card in the list.
+
+          The mark only. The figure is at the end of the meta line beside the
+          kilometres it was computed from; distance and emissions are one fact
+          told twice, and reading them a card apart meant doing the arithmetic
+          in your head.
+
+          Absent, not zero, until something has actually been driven — so its
+          presence is itself the news. */}
+      {co2Kg !== null && (
+        <span className="absolute right-3 top-3 z-10" title={co2Label(co2Kg)}>
+          <IconChip icon={Leaf} size={36} className="bg-success text-success-foreground shadow-2xs" />
+          <span className="sr-only">{co2Label(co2Kg)}</span>
+        </span>
+      )}
+
       {/* ── CARD BODY — 3 lines: header, route, meta+actions ── */}
       {/* `pt-15`: a 27px tab, a 4px gap and a 21px chip stacked under it — 52px
           — plus the ~8px of air the card has always kept between the corner
@@ -226,13 +256,26 @@ export const MissionRowCard: React.FC<MissionRowCardProps> = ({
               reading — the number was the useful half all along. */}
           <div className="flex shrink-0 flex-col items-end gap-1">
             {progress && (
+              /* The figure says what it is.
+               *
+               * A bare "0%" in the corner of a card is a number with no unit:
+               * 0% of what — the route, the paperwork, the money? The word was
+               * only in the `title`, which you have to already suspect is there
+               * to go looking for. It is inline rather than a caption under the
+               * number, so naming the figure costs no extra row on the card. */
               <span
-                className="text-lg font-extrabold leading-none tabular-nums text-foreground"
+                className="flex items-baseline gap-1"
                 title={`Step ${progress.step} of ${progress.of} — ${progress.percent}% complete`}
               >
-                {progress.percent}%
+                <span className="text-lg font-extrabold leading-none tabular-nums text-foreground">
+                  {progress.percent}%
+                </span>
+                <span className="text-[10px] font-medium leading-none text-muted-foreground">
+                  complete
+                </span>
               </span>
             )}
+
             <MissionStatusBadge status={mission.status} size="sm" containerState={containerState} />
           </div>
         </div>
@@ -248,7 +291,13 @@ export const MissionRowCard: React.FC<MissionRowCardProps> = ({
 
         {/* ── LINE 3: Meta (date · transporter · distance) + actions ── */}
         <div className="flex items-center justify-between gap-3 pt-1.5 border-t border-border/60">
-          <div className="flex items-center gap-1.5 min-w-0 text-[11px] text-muted-foreground truncate">
+          {/* Wraps rather than truncates. Every item on this line is a fact
+              with no shorter form — a date, a count, the carriers, the
+              kilometres, the carbon — so cutting the row silently drops whole
+              figures off the end rather than shortening one. At 375px the km
+              and the CO₂ were both gone and nothing said so. `gap-y` keeps the
+              second line legible when it happens; on a desk it never does. */}
+          <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted-foreground">
             <span className="font-bold text-foreground" title="Created">
               {mission.createdAt}
             </span>
@@ -317,6 +366,19 @@ export const MissionRowCard: React.FC<MissionRowCardProps> = ({
             >
               {formatKm(drive.totalKm)}
             </span>
+            {co2Kg !== null && (
+              <>
+                <span>·</span>
+                {/* Next to the distance it came from. No leaf here — the corner
+                    already carries the mark, and "kg CO₂" names itself. */}
+                <span
+                  className="shrink-0 font-mono font-bold text-foreground"
+                  title={`${co2Label(co2Kg)} across ${formatKm(mission.co2DistanceKm ?? 0)} driven`}
+                >
+                  {co2.value} {co2.unit}
+                </span>
+              </>
+            )}
           </div>
 
           <div className="flex items-center gap-2 shrink-0">

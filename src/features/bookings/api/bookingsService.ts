@@ -110,6 +110,24 @@ export interface BookingRecord {
   emptyReadyAt?: string | null;
   /** When Operations planned this container's own return for — written beside `emptyReturnException` on the "Plan Empty Return" decision. */
   emptyReturnPlannedAt?: string | null;
+  /**
+   * ── Carbon ──
+   *
+   * A **snapshot**, not a join. `co2FactorUsed` is the truck's kg CO₂/km as it
+   * stood when this booking was assigned, and it is never refreshed: correcting
+   * a vehicle's model year next March must not move a figure already reported
+   * to a shipper. `co2EmissionsKg` is that factor times `actualDistanceKm`,
+   * multiplied once server-side — nothing on this side computes it.
+   *
+   * Decimal crosses the wire as a string; read all four through `co2Number`
+   * in `@/lib/co2`, the same way a location's latitude is read.
+   */
+  actualDistanceKm?: string | number | null;
+  co2FactorUsed?: string | number | null;
+  co2EmissionsKg?: string | number | null;
+  /** `legs` (a measured route) | `shipment_estimate` | `manual`. */
+  co2DistanceSource?: string | null;
+  co2ComputedAt?: string | null;
   /** Auto-computed from the assigned partner's pricing grid the moment `partnerId` is set — never manually entered. Nullable when that partner has no matching pricing-tier row. */
   transporterCostMinorUnits: string | null;
   transporterCostCurrency: string | null;

@@ -26,6 +26,8 @@ import {
 import { usePermissions } from '@/hooks';
 import { PanelHeader } from '@/components/panels';
 import { RecordRaise } from '@/features/workspace';
+import { Co2FactorField, VehiclePhotoField } from '@/features/emissions';
+import { FUEL_TYPES } from '@/lib/co2';
 import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
 import { IconChip, Tooltip, useConfirm } from '@/design-system';
 import {
@@ -53,6 +55,7 @@ import {
   useCreateVehicle,
   useDeleteVehicle,
   useUpdateVehicle,
+  useUploadVehiclePhoto,
   useVehicles,
 } from '@/features/vehicles/api/queries';
 import {
@@ -147,6 +150,7 @@ export function VehiclesPage() {
   const partners = useMemo(() => partnersResponse?.items ?? [], [partnersResponse]);
   const createVehicle = useCreateVehicle();
   const updateVehicle = useUpdateVehicle();
+  const uploadPhoto = useUploadVehiclePhoto();
   const [selectedVehicle, setSelectedVehicle] = useState<EnrichedVehicle | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -156,7 +160,17 @@ export function VehiclesPage() {
     partnerId: '',
     plateNumber: '',
     truckType: '40ft Container' as TruckType,
+    /* The three answers the carbon factor is derived from. Asked at
+       registration rather than left to be filled in later, because a truck
+       without them is a truck whose emissions nobody can state. */
+    make: '',
+    model: '',
+    year: '' as string,
+    fuelType: 'Diesel' as string,
   });
+  /* The photo is held until the truck has an id to file it against — the same
+     shape the two staged documents below use. */
+  const [newVehiclePhoto, setNewVehiclePhoto] = useState<File | null>(null);
   const [addSuccessNotice, setAddSuccessNotice] = useState<string | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
 
@@ -207,17 +221,34 @@ export function VehiclesPage() {
         registrationExpiry: greyCard.expiryDate,
         hasGPS: false,
         operationalStatus: 'Available',
+        make: newVehicle.make || undefined,
+        model: newVehicle.model || undefined,
+        year: newVehicle.year ? Number(newVehicle.year) : undefined,
+        fuelType: newVehicle.fuelType,
+        /* No `co2PerKm`. The server computes it from the three answers above
+           and hands it back on the created row — see `@/lib/co2`. */
       },
     });
 
     await uploadStagedDocuments('VEHICLE', created.id, newVehicleDocs.staged);
+    /* After the truck exists, because a photo needs something to belong to.
+       A failed upload leaves a registered truck without a picture, which is a
+       far better outcome than a failed registration. */
+    if (newVehiclePhoto) {
+      await uploadPhoto.mutateAsync({ id: created.id, file: newVehiclePhoto });
+    }
 
     setIsAddVehicleOpen(false);
     newVehicleDocs.reset();
+    setNewVehiclePhoto(null);
     setNewVehicle({
       partnerId: '',
       plateNumber: '',
       truckType: '40ft Container',
+      make: '',
+      model: '',
+      year: '',
+      fuelType: 'Diesel',
     });
 
     setAddSuccessNotice(`Vehicle "${created.plateNumber}" registered to ${partner.companyLegalName}.`);
@@ -231,6 +262,7 @@ export function VehiclesPage() {
 
   // Edit form state
   const [editForm, setEditForm] = useState<Partial<EnrichedVehicle>>({});
+  const [editPhoto, setEditPhoto] = useState<File | null>(null);
 
   const [docNotice, setDocNotice] = useState<string | null>(null);
   const [viewingDoc, setViewingDoc] = useState<DocumentToView | null>(null);
@@ -246,6 +278,7 @@ export function VehiclesPage() {
   const handleSelectVehicle = (vehicle: EnrichedVehicle) => {
     setSelectedVehicle(vehicle);
     setEditForm(vehicle);
+    setEditPhoto(null);
     setDrawerTab('view');
     setDocNotice(null);
   };
@@ -297,9 +330,19 @@ export function VehiclesPage() {
         operationalStatus: editForm.operationalStatus || selectedVehicle.operationalStatus,
         gpsDeviceId: editForm.gpsDeviceId || selectedVehicle.gpsDeviceId,
         hasGPS: !!(editForm.gpsDeviceId || selectedVehicle.hasGPS),
+        /* Changing any of type, fuel or year re-derives the factor server-side.
+           Not a single finished booking moves with it — each one carries the
+           snapshot it ran under. */
+        fuelType: editForm.fuelType || selectedVehicle.fuelType,
       },
     });
-    setSelectedVehicle(updated);
+    /* The photo, if one was picked while editing. Uploaded after the patch so
+       the row it lands on is the saved one. */
+    const withPhoto = editPhoto
+      ? await uploadPhoto.mutateAsync({ id: selectedVehicle.id, file: editPhoto })
+      : updated;
+    setEditPhoto(null);
+    setSelectedVehicle(withPhoto);
     setDrawerTab('view');
   };
 
@@ -545,6 +588,69 @@ export function VehiclesPage() {
               </div>
             </div>
 
+            {/* What the truck IS — and therefore what it emits.
+             *
+             * These four are grouped because they answer one question between
+             * them: type, fuel and year are the three inputs to the carbon
+             * factor, and the factor block below them is that arithmetic done
+             * out loud. Nobody types kg/km; it moves as they answer.
+             *
+             * Type sits above rather than beside the plate, where it used to
+             * be, so the group reads as one thought. */}
+            <div className="space-y-3 border-t border-border/40 pt-3">
+              <h4 className="type-h4 flex items-center gap-2 font-semibold text-foreground">
+                <Truck className="h-4.5 w-4.5 text-primary" />
+                Vehicle & Emissions
+              </h4>
+
+              <VehiclePhotoField pending={newVehiclePhoto} onSelect={setNewVehiclePhoto} />
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-foreground block">Make</label>
+                  <Input
+                    value={newVehicle.make}
+                    onChange={(e) => setNewVehicle((prev) => ({ ...prev, make: e.target.value }))}
+                    placeholder="Volvo"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-foreground block">Model</label>
+                  <Input
+                    value={newVehicle.model}
+                    onChange={(e) => setNewVehicle((prev) => ({ ...prev, model: e.target.value }))}
+                    placeholder="FH16"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-foreground block">Year</label>
+                  <Input
+                    type="number"
+                    value={newVehicle.year}
+                    onChange={(e) => setNewVehicle((prev) => ({ ...prev, year: e.target.value }))}
+                    placeholder="2022"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-foreground block">Fuel Type *</label>
+                  <Select
+                    value={newVehicle.fuelType}
+                    options={FUEL_TYPES.map((fuel) => ({ value: fuel, label: fuel }))}
+                    onChange={(e) => setNewVehicle((prev) => ({ ...prev, fuelType: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <Co2FactorField
+                truckType={newVehicle.truckType}
+                fuelType={newVehicle.fuelType}
+                year={newVehicle.year ? Number(newVehicle.year) : null}
+              />
+            </div>
+
             {/* The truck's papers, and the dates that come off them.
              *
              * The two date fields this replaced asked for the insurance
@@ -753,14 +859,38 @@ export function VehiclesPage() {
                     </div>
                   </Card>
 
+                  {/* The truck itself. Forty plate numbers is a list; forty
+                      photographs is a yard somebody recognises. */}
+                  {selectedVehicle.photoUrl && (
+                    <img
+                      src={selectedVehicle.photoUrl}
+                      alt={`Vehicle ${selectedVehicle.plateNumber}`}
+                      className="h-40 w-full rounded-lg border border-border object-cover"
+                    />
+                  )}
+
                   <div className="space-y-3">
                     <h4 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Specifications & Capacity</h4>
                     <div className="grid grid-cols-2 gap-2 text-xs p-3.5 rounded-lg border border-border bg-card">
                       <div><span className="text-muted-foreground block text-[10px]">Capacity</span><strong className="text-foreground font-semibold">{selectedVehicle.containerCapacity || '—'}</strong></div>
                       <div><span className="text-muted-foreground block text-[10px]">Ownership</span><strong className="text-foreground font-semibold">{selectedVehicle.ownershipType}</strong></div>
                       <div><span className="text-muted-foreground block text-[10px]">Year / Make</span><strong className="text-foreground font-semibold">{selectedVehicle.year ? `${selectedVehicle.year} ${selectedVehicle.make || ''}` : '—'}</strong></div>
-                      <div><span className="text-muted-foreground block text-[10px]">Trailer Info</span><strong className="text-foreground font-semibold">{selectedVehicle.trailerInfo || '—'}</strong></div>
+                      <div><span className="text-muted-foreground block text-[10px]">Fuel</span><strong className="text-foreground font-semibold">{selectedVehicle.fuelType || '—'}</strong></div>
                     </div>
+                  </div>
+
+                  {/* What this truck emits per kilometre, and how that was
+                      arrived at. The stored figure, not a re-derivation —
+                      every booking it has run quotes this same column. */}
+                  <div className="space-y-2">
+                    <h4 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Emissions</h4>
+                    <Co2FactorField
+                      truckType={selectedVehicle.truckType}
+                      fuelType={selectedVehicle.fuelType}
+                      year={selectedVehicle.year ?? null}
+                      savedPerKm={selectedVehicle.co2PerKm ?? null}
+                      savedBasis={selectedVehicle.co2FactorBasis ?? null}
+                    />
                   </div>
 
                   <div className="space-y-2">
@@ -860,6 +990,12 @@ export function VehiclesPage() {
                     </div>
                   </div>
 
+                  <VehiclePhotoField
+                    url={selectedVehicle.photoUrl}
+                    pending={editPhoto}
+                    onSelect={setEditPhoto}
+                  />
+
                   <div className="grid grid-cols-3 gap-3">
                     <div className="space-y-1.5">
                       <label className="text-[11px] font-bold text-foreground block">Make</label>
@@ -886,6 +1022,29 @@ export function VehiclesPage() {
                         placeholder="2021"
                       />
                     </div>
+                  </div>
+
+                  {/* Fuel, and the factor the three answers above make.
+                   *
+                   * The factor previews the edit rather than showing what is
+                   * stored: an operator changing 2015 to 2022 should see the
+                   * consequence before they save it. Bookings already made keep
+                   * the factor they ran under, whatever this becomes. */}
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold text-foreground block">Fuel Type</label>
+                      <Select
+                        value={editForm.fuelType || 'Diesel'}
+                        options={FUEL_TYPES.map((fuel) => ({ value: fuel, label: fuel }))}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, fuelType: e.target.value }))}
+                      />
+                    </div>
+
+                    <Co2FactorField
+                      truckType={editForm.truckType || selectedVehicle.truckType}
+                      fuelType={editForm.fuelType || selectedVehicle.fuelType}
+                      year={editForm.year ?? selectedVehicle.year ?? null}
+                    />
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">

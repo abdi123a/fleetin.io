@@ -69,6 +69,7 @@ const ReportsPage = lazyWithRetry(() => import('@/pages/reports'), 'ReportsPage'
 const AdministrationPage = lazyWithRetry(() => import('@/pages/administration'), 'AdministrationPage');
 const SettingsPage = lazyWithRetry(() => import('@/pages/settings'), 'SettingsPage');
 const DesignSystemPage = lazyWithRetry(() => import('@/pages/design-system'), 'DesignSystemPage');
+const EmissionsPage = lazyWithRetry(() => import('@/pages/emissions'), 'EmissionsPage');
 const LocationsPage = lazyWithRetry(() => import('@/pages/locations'), 'LocationsPage');
 const AddLocationPage = lazyWithRetry(() => import('@/pages/locations'), 'AddLocationPage');
 const ShippersPage = lazyWithRetry(() => import('@/pages/shippers'), 'ShippersPage');
@@ -235,6 +236,7 @@ export const routes: RouteObject[] = [
           { path: ROUTES.hrDocuments, element: <HrDocumentsPage /> },
         ],
       },
+      { path: ROUTES.emissions, element: <EmissionsPage /> },
       { path: ROUTES.reports, element: <ReportsPage /> },
       { path: ROUTES.administration, element: <AdministrationPage /> },
       { path: ROUTES.settings, element: <SettingsPage /> },

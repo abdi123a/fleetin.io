@@ -5,12 +5,14 @@ import {
   CheckCircle2,
   Clock,
   ContainerIcon,
+  Leaf,
   Truck,
 } from '@/design-system/icons';
 import { Badge } from '@/design-system';
 import { ApexChart } from '@/features/shipper-bi/charts/ApexChart';
 import { donutOptions } from '@/features/shipper-bi/charts/apexChartTheme';
 import { intentColor, stepColor } from '@/features/shipper-bi/charts/chartTheme';
+import { formatCo2, formatFactor, formatKm } from '@/lib/co2';
 import { formatDate } from '@/utils';
 import { cn } from '@/utils';
 import type { ShipmentReport } from './shipmentReport';
@@ -50,12 +52,33 @@ import { ReportCard, ReportEmpty, ReportStatusBadge, STAGE_VISUAL } from './repo
  * out as its own "Time by Party" card.
  */
 
+/**
+ * The consignment's carbon, as the report states it.
+ *
+ * Passed in rather than derived here, because it is the only figure in this
+ * document that does not come from a timestamp: `computeShipmentReport` reads
+ * the event trail, and emissions are a stored per-booking column snapshotted
+ * at assignment. Keeping it a prop means neither has to know about the other.
+ */
+export interface ShipmentCarbon {
+  /** kg CO₂ — the sum of the containers that have actually been driven. */
+  co2Kg: number;
+  /** The sum of the trucks' roads, which is not the length of the lane. */
+  distanceKm: number;
+  /** How many of the shipment's containers have a figure at all. */
+  priced: number;
+  /** How many it has in total, so the report can say what is still to come. */
+  total: number;
+}
+
 export interface ShipmentReportViewProps {
   report: ShipmentReport;
+  /** Absent, or `priced: 0`, when nothing under this shipment has moved yet. */
+  carbon?: ShipmentCarbon | null;
   className?: string;
 }
 
-export function ShipmentReportView({ report, className }: ShipmentReportViewProps) {
+export function ShipmentReportView({ report, carbon, className }: ShipmentReportViewProps) {
   const { containers, onTime, time, stages, custody, containerReturn: ret } = report;
 
   const longestStage = stages.find((stage) => stage.isLongest) ?? null;
@@ -153,7 +176,54 @@ export function ShipmentReportView({ report, className }: ShipmentReportViewProp
         </div>
       </div>
 
-      {/* ══ 2. Time ═════════════════════════════════════════════════════ */}
+      {/* ══ 2. Carbon ═══════════════════════════════════════════════════
+          What the consignment put into the air, and the two figures that
+          explain it: the truck-kilometres it took, and the rate those
+          kilometres came out at.
+
+          The rate is the one worth stating. Total CO₂ mostly says how far the
+          job was; kg per kilometre says what kind of fleet ran it, and it is
+          the only figure here a transport manager can act on.
+
+          Drawn only once something has actually been driven. Carbon accrues
+          from movements that happened — a container earns its loaded leg when
+          it reaches the consignee — so a shipment still on the road reports
+          what it has done so far and says how many boxes that covers, rather
+          than projecting the rest. */}
+      {carbon && carbon.priced > 0 && (
+        <ReportCard
+          icon={Leaf}
+          title="Emissions"
+          right={
+            carbon.priced < carbon.total ? (
+              <Badge intent="default" variant="subtle" size="sm">
+                {carbon.priced} of {carbon.total} containers driven so far
+              </Badge>
+            ) : undefined
+          }
+        >
+          <div className="grid grid-cols-2 gap-2.5 @[34rem]/report:grid-cols-3">
+            <Cell
+              label="CO₂ emitted"
+              value={`${formatCo2(carbon.co2Kg).value} ${formatCo2(carbon.co2Kg).unit}`}
+            />
+            <Cell
+              label="Distance driven"
+              value={`${formatKm(carbon.distanceKm).value} km`}
+              note="Every truck's own road, added up"
+            />
+            <Cell
+              label="Rate"
+              value={
+                carbon.distanceKm > 0 ? formatFactor(carbon.co2Kg / carbon.distanceKm) : '—'
+              }
+              size="sm"
+            />
+          </div>
+        </ReportCard>
+      )}
+
+      {/* ══ 3. Time ═════════════════════════════════════════════════════ */}
       <ReportCard
         icon={Clock}
         title="Time Breakdown"

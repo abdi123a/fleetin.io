@@ -16,6 +16,7 @@ import {
   Handshake,
   Landmark,
   LayoutDashboard,
+  Leaf,
   Link2,
   Palette,
   Receipt,
@@ -227,6 +228,30 @@ export const NAVIGATION: NavSection[] = [
             icon: Folder,
           },
         ],
+      },
+    ],
+  },
+  {
+    /*
+     * Carbon, on its own.
+     *
+     * A section rather than a row under Operations, because it is not a view
+     * of the shipment book: it reads across every container any transporter
+     * ran, and the question it answers ("how clean is this fleet") belongs to
+     * a different person on a different day from "where is my box".
+     *
+     * One item, and the section is named for the subject while the row is
+     * named for the figure — the sidebar never says the same word twice.
+     */
+    id: 'sustainability',
+    label: 'Sustainability',
+    items: [
+      {
+        id: 'emissions',
+        label: 'CO₂ Emissions',
+        path: ROUTES.emissions,
+        icon: Leaf,
+        matchNested: true,
       },
     ],
   },

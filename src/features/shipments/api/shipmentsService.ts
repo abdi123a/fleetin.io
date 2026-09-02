@@ -2,6 +2,7 @@ import { apiClient } from '@/services/api.client';
 import { useAuthStore } from '@/stores/auth.store';
 import type { CreateBookingItemPayload } from '@/features/bookings/api/bookingsService';
 import type { Mission, MissionFilterState, MissionStatus } from '@/types/mission';
+import { co2Number } from '@/lib/co2';
 
 export interface PaginatedResponse<T> {
   items: T[];
@@ -64,6 +65,26 @@ export interface ShipmentRecord {
   estimatedDistanceKm: number;
   /** `google` — a measured road. `estimate` — the pre-2026-09-02 guess. */
   estimatedDistanceSource: 'google' | 'manual' | 'estimate';
+  /**
+   * ── Carbon, rolled up from this job's containers ──
+   *
+   * The sum of its bookings' emissions and truck-kilometres, maintained
+   * server-side so a list row can print a job's carbon without loading the
+   * bookings under it.
+   *
+   * **Null, not zero, while nothing has been driven.** Carbon accrues from
+   * movements that happened — a booking earns its loaded leg when the box
+   * reaches the consignee — so a shipment created this morning has no figure
+   * rather than a figure of nothing.
+   *
+   * `co2DistanceKm` is the sum of the trucks' roads, so it is deliberately not
+   * comparable to `estimatedDistanceKm` above: five containers down a 27 km
+   * lane is 135 truck-kilometres.
+   *
+   * Decimal crosses the wire as a string — read through `co2Number`.
+   */
+  co2EmissionsKg: string | number | null;
+  co2DistanceKm: string | number | null;
   estimatedDurationHours: string;
   cargoType: string;
   shipmentCategory: string | null;
@@ -240,6 +261,8 @@ export function mapShipmentToMission(s: ShipmentRecord): Mission {
     },
     estimatedDistanceKm: s.estimatedDistanceKm,
     estimatedDurationHours: s.estimatedDurationHours,
+    co2EmissionsKg: co2Number(s.co2EmissionsKg),
+    co2DistanceKm: co2Number(s.co2DistanceKm),
     cargoType: s.cargoType,
     shipmentCategory: (s.shipmentCategory ?? undefined) as Mission['shipmentCategory'],
     containerNumber: s.containerNumber ?? undefined,

@@ -47,6 +47,12 @@ export const ROUTES = {
   hrLeave: '/hr/leave',
   /** The three-step document generator. */
   hrDocuments: '/hr/documents',
+  /**
+   * Carbon. One page, and deliberately not `/analytics/emissions`: it reads
+   * bookings rather than the BI dataset, and a reader looking for the fleet's
+   * CO₂ should not have to know which of the two it was built on.
+   */
+  emissions: '/emissions',
   reports: '/reports',
   administration: '/administration',
   settings: '/settings',

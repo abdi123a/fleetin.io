@@ -296,3 +296,58 @@
   );
 }
 
+/* ---------------------------------------------------------------------------
+ * The pairing celebration
+ * ---------------------------------------------------------------------------
+ * Confirming a pairing is the one moment in this product where the operator has
+ * *prevented* a cost rather than recorded one — an empty container going home
+ * under somebody else's load instead of on a truck of its own. It used to be
+ * acknowledged by a quiet green strip, which is the same weight the app gives a
+ * saved filter.
+ *
+ * Three pieces, all short and all opt-out-able. Nothing here loops: a
+ * celebration that keeps going is a distraction, and this one has to be gone
+ * before the operator reaches for the next container.
+ * ------------------------------------------------------------------------- */
+
+/* The ring that leaves the centre. One pulse outward, then nothing. */
+@keyframes fl-burst-ring {
+  from {
+    opacity: 0.55;
+    transform: scale(0.35);
+  }
+  to {
+    opacity: 0;
+    transform: scale(2.4);
+  }
+}
+
+/* A chip thrown clear of the centre. `--fl-throw-x/y` are set per chip so one
+   keyframe serves every direction — the alternative is a keyframe per chip. */
+@keyframes fl-burst-chip {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(var(--fl-throw-x, 0), var(--fl-throw-y, 0)) rotate(var(--fl-throw-spin, 180deg))
+      scale(0.4);
+  }
+}
+
+/* The mark landing in the middle — overshoot, then settle. */
+@keyframes fl-burst-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

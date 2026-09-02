@@ -136,6 +136,18 @@ export interface PartnerVehicle {
   year?: number;
   make?: string;
   model?: string;
+  /** The truck's own photograph, if one was uploaded. */
+  photoUrl?: string | null;
+  /** Diesel|Petrol|CNG|LNG|Hybrid|Electric — see `@/lib/co2`. */
+  fuelType?: string;
+  /**
+   * kg CO₂ per kilometre. **Read-only from this side.** Computed server-side
+   * from `truckType` + `fuelType` + `year`; the form previews it but never
+   * posts it, so a fleet's factors are all arrived at the same way.
+   */
+  co2PerKm?: number | null;
+  /** How that factor was reached, in one line, ready to print. */
+  co2FactorBasis?: string | null;
   documents?: PartnerDocument[];
 }
 

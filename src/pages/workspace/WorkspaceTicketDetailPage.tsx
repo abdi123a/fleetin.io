@@ -1,10 +1,10 @@
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { Avatar, Button, Card, HelpHint, IconChip, Spinner } from '@/design-system';
+import { cn } from '@/utils';
 import { AlertTriangle, ArrowLeft, ArrowRight, Mail, Phone, Plus } from '@/design-system/icons';
 import { ROUTES, buildPath } from '@/config/routes';
 import {
-  PersonAvatar,
   RecordChip,
   TASK_STATUS_LABEL,
   TICKET_CHANNEL_LABEL,
@@ -246,21 +246,13 @@ export function WorkspaceTicketDetailPage() {
               <div className="flex items-start gap-3">
                 <IconChip icon={ArrowRight} size={36} />
                 <div className="min-w-0 flex-1">
+                  {/* The task's own title and reference. Its owner and its
+                      status are in the rail and the masthead — a third copy
+                      here is a third thing to keep in step by eye. */}
                   <p className="text-sm font-bold text-foreground">{ticket.task.title}</p>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                    <span className="font-mono text-[11px] text-muted-foreground">
-                      {ticket.task.reference}
-                    </span>
-                    {ticket.task.assignee ? (
-                      <span className="flex items-center gap-1.5 text-[13px] text-foreground">
-                        <PersonAvatar person={ticket.task.assignee} size="xs" />
-                        {ticket.task.assignee.firstName} {ticket.task.assignee.lastName}
-                      </span>
-                    ) : (
-                      <span className="text-[13px] text-muted-foreground">Nobody yet</span>
-                    )}
-                    <TaskStatusBadge status={ticket.task.status} />
-                  </div>
+                  <span className="mt-0.5 block font-mono text-[11px] text-muted-foreground">
+                    {ticket.task.reference}
+                  </span>
                 </div>
               </div>
             ) : (
@@ -283,11 +275,7 @@ export function WorkspaceTicketDetailPage() {
 
           {/* ── ACTIVITY ── the steps and what was said, read-only */}
           <Block title="Activity">
-            <TicketActivity
-              taskRef={ticket.task?.reference}
-              openedAt={ticket.createdAt}
-              openedBy={ticket.openedBy}
-            />
+            <TicketActivity taskRef={ticket.task?.reference} />
           </Block>
         </Card>
 
@@ -296,17 +284,15 @@ export function WorkspaceTicketDetailPage() {
             answer to one question, and a frame between each of them was three
             borders to separate five lines of text. */}
         <aside className="min-w-0 space-y-3 @[44rem]/ticket:sticky @[44rem]/ticket:top-4">
+          {/* No status or priority here: they are the loudest thing in the
+              masthead, three inches up and left. A rail that repeats the header
+              is a rail somebody has to check against the header. */}
           <Card className="rounded-lg border border-border/80 bg-card p-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <TaskStatusBadge status={status} size="md" label={TICKET_STATUS_LABEL[status]} />
-              <TicketPriorityBadge priority={ticket.priority} />
-            </div>
-
             {ticket.task ? (
               <Button
                 variant="outline"
                 size="sm"
-                className="mt-3 h-8 w-full"
+                className="h-8 w-full"
                 trailingIcon={<ArrowRight className="size-3.5" />}
                 onClick={() =>
                   navigate(
@@ -318,11 +304,15 @@ export function WorkspaceTicketDetailPage() {
               </Button>
             ) : null}
 
-            <div className="mt-3 divide-y divide-border/50 border-t border-border/70 pt-1">
-              <Fact label="Created">{new Date(ticket.createdAt).toLocaleDateString()}</Fact>
-              {ticket.closedAt ? (
-                <Fact label="Resolved">{new Date(ticket.closedAt).toLocaleDateString()}</Fact>
-              ) : null}
+            {/* Created and who logged it are on the masthead's own line — this
+                is the half of the dossier that changes: who has it, when it is
+                owed, when it was answered. */}
+            <div
+              className={cn(
+                'divide-y divide-border/50',
+                ticket.task && 'mt-3 border-t border-border/70 pt-1',
+              )}
+            >
               <Fact label="Assigned to">
                 {ticket.task?.assignee ? (
                   `${ticket.task.assignee.firstName} ${ticket.task.assignee.lastName}`
@@ -341,7 +331,9 @@ export function WorkspaceTicketDetailPage() {
                   <span className="font-normal text-muted-foreground">No date</span>
                 )}
               </Fact>
-              <Fact label="Logged by">{ticket.openedBy.firstName}</Fact>
+              {ticket.closedAt ? (
+                <Fact label="Resolved">{new Date(ticket.closedAt).toLocaleDateString()}</Fact>
+              ) : null}
             </div>
           </Card>
 

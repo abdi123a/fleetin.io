@@ -141,6 +141,16 @@ export interface Mission {
   pickupLocation: LocationInfo;
   deliveryLocation: LocationInfo;
   estimatedDistanceKm: number;
+  /**
+   * What this job has actually put into the air, and over how many
+   * truck-kilometres — the sum of its containers, rolled up server-side.
+   *
+   * Null until something under it has been driven. Carbon accrues from
+   * movements that happened, so a shipment that has not been delivered yet has
+   * no figure rather than a figure of zero.
+   */
+  co2EmissionsKg?: number | null;
+  co2DistanceKm?: number | null;
   estimatedDurationHours: string;
   cargoType: string;
   shipmentCategory?:

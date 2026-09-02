@@ -53,6 +53,16 @@
       ],
       "port": 5399,
       "autoPort": false
+    },
+    {
+      "name": "fleetin-dev-co2-verify",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "VITE_API_BASE_URL=http://localhost:3000/api/v1 npx vite --port 5399 --strictPort"
+      ],
+      "port": 5399,
+      "autoPort": true
     }
   ]
 }

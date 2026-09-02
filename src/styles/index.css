@@ -372,6 +372,11 @@
   --animate-shimmer: fl-shimmer 1.6s var(--fl-ease-linear) infinite;
   --animate-spin: fl-spin 0.7s var(--fl-ease-linear) infinite;
 
+  /* The pairing celebration — see `animations.css`. None of them repeat. */
+  --animate-burst-ring: fl-burst-ring 900ms var(--fl-ease-out) forwards;
+  --animate-burst-chip: fl-burst-chip 1100ms var(--fl-ease-out) forwards;
+  --animate-burst-pop: fl-burst-pop 520ms var(--fl-ease-emphasized) both;
+
   /* =========================================================================
    * LAYOUT
    * ======================================================================= */

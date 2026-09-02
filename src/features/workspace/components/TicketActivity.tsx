@@ -4,11 +4,7 @@ import { cn } from '@/utils';
 
 import { useTask } from '../api/queries';
 import { plainBody } from '../composer/tokens';
-import {
-  TICKET_STATUS_LABEL,
-  type WorkspacePerson,
-  type TaskStatus,
-} from '../contracts';
+import { TICKET_STATUS_LABEL, type TaskStatus } from '../contracts';
 import { PersonAvatar } from './PersonAvatar';
 
 /**
@@ -50,16 +46,7 @@ function when(iso: string): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-export function TicketActivity({
-  taskRef,
-  openedAt,
-  openedBy,
-}: {
-  taskRef?: string;
-  /** The ticket's own beginning — the one event no task can carry. */
-  openedAt: string;
-  openedBy: WorkspacePerson;
-}) {
+export function TicketActivity({ taskRef }: { taskRef?: string }) {
   const { data: task, isLoading } = useTask(taskRef);
 
   if (taskRef && isLoading) {
@@ -75,31 +62,20 @@ export function TicketActivity({
   /* One rail, newest first. A status move and the comment explaining it are
      one thing that happened, and splitting them into two lists makes the
      reader interleave them by timestamp in their head. */
+  /* Status moves and the ticket's own creation are NOT here — they are the
+     Status history beside this, and telling the same story in two rails means
+     a reader has to work out whether the second one is saying something new.
+     This is what people DID and SAID; that is where it has BEEN. */
   const feed = [
-    /* The ticket's own first line. The task's CREATED event says when the
-       WORK started; this says when the customer rang, and on a queue where
-       those can be days apart the gap is the thing being asked about. */
-    {
-      key: 'ticket:created',
-      at: openedAt,
-      actor: openedBy,
-      kind: 'event' as const,
-      status: null,
-      text: 'logged the ticket',
-    },
-    ...(task?.events ?? []).map((event) => ({
+    ...(task?.events ?? [])
+      .filter((event) => event.kind !== 'STATUS_CHANGED')
+      .map((event) => ({
       key: `e:${event.id}`,
       at: event.createdAt,
       actor: event.actor,
       kind: 'event' as const,
-      status:
-        event.kind === 'STATUS_CHANGED' ? (event.toValue as TaskStatus | null) : null,
-      /* The state moves onto the badge, not into the sentence — "moved it to
-         In Progress — In Progress" is what saying it in both places gets you. */
-      text:
-        event.kind === 'STATUS_CHANGED'
-          ? 'moved it to'
-          : (EVENT_TEXT[event.kind] ?? event.kind.toLowerCase().replace(/_/g, ' ')),
+      status: null as TaskStatus | null,
+      text: EVENT_TEXT[event.kind] ?? event.kind.toLowerCase().replace(/_/g, ' '),
     })),
     ...(task?.messages ?? [])
       .filter((message) => !message.deletedAt)

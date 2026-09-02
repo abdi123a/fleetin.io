@@ -8,7 +8,6 @@ import { AlertTriangle, Calendar, Clock, LifeBuoy, Plus, User } from '@/design-s
 import { ROUTES, buildPath } from '@/config/routes';
 
 import { useTicketSummary, useTickets } from '../api/ticketQueries';
-import { RecordChip } from '../composer/RecordChip';
 import { TICKET_STATUS_LABEL, type WorkspaceTicket } from '../contracts';
 import { LogTicketDialog } from './LogTicketDialog';
 import { PersonAvatar } from './PersonAvatar';
@@ -116,22 +115,33 @@ export function TicketList() {
           breakpoint="56rem"
           columns={[
             {
+              /* Priority has its own column now. Stacked into the title cell it
+                 was one of four things in that box — badge, title, reference,
+                 record chip — and a cell carrying four facts is a cell nobody
+                 reads. Alone in a column it can also be compared down the page,
+                 which is the only reason a queue sorts by it. */
+              key: 'priority',
+              label: 'Priority',
+              width: 'w-[11%]',
+              cardLabel: 'Priority',
+              cell: (ticket) => <TicketPriorityBadge priority={ticket.priority} />,
+            },
+            {
               key: 'ticket',
               label: 'Ticket',
               icon: LifeBuoy,
-              width: 'w-[34%]',
+              width: 'w-[31%]',
               card: 'identity',
+              /* The reference and the complaint, and nothing else. What it is
+                 about, who reported it and what they said are all one click
+                 away on the ticket itself — printing them here made the row a
+                 summary of the page rather than a way into it. */
               cell: (ticket) => (
                 <div className="min-w-0">
-                  <div className="flex min-w-0 items-center gap-2">
-                    {/* Priority first, filled — the reason to open this row
-                        before the one under it. */}
-                    <TicketPriorityBadge priority={ticket.priority} />
-                    <span className="min-w-0 truncate text-[15px] font-bold leading-tight text-foreground">
-                      {ticket.subject}
-                    </span>
-                  </div>
-                  <div className="mt-0.5 flex min-w-0 items-center gap-2">
+                  <p className="min-w-0 truncate text-[15px] font-bold leading-tight text-foreground">
+                    {ticket.subject}
+                  </p>
+                  <p className="mt-0.5 flex min-w-0 items-center gap-2">
                     <span className="font-mono text-[11px] text-muted-foreground">
                       {ticket.reference}
                     </span>
@@ -139,29 +149,14 @@ export function TicketList() {
                       createdAt={ticket.createdAt}
                       closed={ticket.status === 'COMPLETED' || ticket.status === 'CANCELLED'}
                     />
-                  </div>
-                  {/* What has the problem. The chip carries the kind, the
-                      reference and the record's own live status, so the row
-                      says "Shipment SH-10452, in transit" in one mark. */}
-                  {ticket.recordType && ticket.recordRef ? (
-                    <div className="mt-1 flex min-w-0">
-                      <RecordChip
-                        recordType={ticket.recordType}
-                        reference={ticket.recordRef}
-                        label={ticket.recordLabel}
-                        status={ticket.recordStatus}
-                        size="sm"
-                        static
-                      />
-                    </div>
-                  ) : null}
+                  </p>
                 </div>
               ),
             },
             {
               key: 'status',
               label: 'Status',
-              width: 'w-[12%]',
+              width: 'w-[13%]',
               cardLabel: 'Status',
               /* The ticket's own word for the shared state — a task is
                  Completed, a complaint is Resolved. */
@@ -174,7 +169,7 @@ export function TicketList() {
               key: 'work',
               label: 'Assigned',
               icon: User,
-              width: 'w-[24%]',
+              width: 'w-[21%]',
               cardLabel: 'Assigned',
               cell: (ticket) =>
                 ticket.task ? (
@@ -222,7 +217,7 @@ export function TicketList() {
               key: 'created',
               label: 'Created',
               icon: Calendar,
-              width: 'w-[16%]',
+              width: 'w-[13%]',
               cardLabel: 'Created',
               cell: (ticket) => (
                 <div className="min-w-0">
@@ -245,7 +240,7 @@ export function TicketList() {
               key: 'due',
               label: 'Due',
               icon: Clock,
-              width: 'w-[14%]',
+              width: 'w-[11%]',
               cardLabel: 'Due',
               cell: (ticket) => {
                 const closed =

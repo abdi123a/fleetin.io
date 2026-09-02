@@ -52,25 +52,33 @@ function invalidateEmptyReturns(queryClient: QueryClient) {
 }
 
 /**
- * Mirrors `bookingQueryKeys.forShipment` from `@/features/bookings/api/queries`
- * without importing it — `bookings/queries.ts` already imports this module
- * (to invalidate empty-returns after a status change), and the reverse
- * import would be circular. Keep this key literal in sync with that file's.
+ * Every cached booking list, addressed by prefix.
+ *
+ * NOT `['bookings','shipment', shipmentId]`, which is what these mutations used
+ * until 2026-09-02 and is the trap `useUpdateBooking` documents at length: the
+ * Shipment Overview page caches its bookings under the shipment **reference**
+ * from the URL, while a mutation response carries the **UUID**. Invalidating by
+ * UUID addressed a bucket nothing was reading — so planning a return, creating
+ * a pairing or cancelling one changed the database, changed nothing on screen,
+ * and only showed up after the reader pressed refresh.
+ *
+ * A prefix lands whichever key the caller used. It is broader than strictly
+ * needed — every shipment's booking list refetches, not just this one — and
+ * that is the right trade for a module whose writes ripple across shipments
+ * anyway: a pairing touches two bookings on two different shipments.
  */
-function bookingsForShipmentKey(shipmentId: string) {
-  return ['bookings', 'shipment', shipmentId] as const;
-}
+const ALL_BOOKING_LISTS = ['bookings'] as const;
 
 export function useCreateCycle() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: CreateCyclePayload) => createCycle(payload),
-    onSuccess: (cycle) => {
+    onSuccess: () => {
       invalidateEmptyReturns(queryClient);
-      // `createCycle` force-transitions the outbound booking to `Assigned` — its own shipment's booking list is now stale too.
-      if (cycle.nextBooking) {
-        queryClient.invalidateQueries({ queryKey: bookingsForShipmentKey(cycle.nextBooking.shipmentId) });
-      }
+      /* `createCycle` force-transitions the outbound booking to `Assigned`, and
+         marks the empty as paired — two bookings on two shipments, both now
+         stale. The prefix covers both without needing to know either key. */
+      queryClient.invalidateQueries({ queryKey: ALL_BOOKING_LISTS });
     },
   });
 }
@@ -87,9 +95,10 @@ export function usePlanEmptyReturn() {
   return useMutation({
     mutationFn: ({ bookingId, plannedReturnAt }: PlanEmptyReturnInput) =>
       planEmptyReturn(bookingId, plannedReturnAt),
-    onSuccess: (booking) => {
+    onSuccess: () => {
       invalidateEmptyReturns(queryClient);
-      queryClient.invalidateQueries({ queryKey: bookingsForShipmentKey(booking.shipmentId) });
+      /* This is what makes the standalone mark appear without a reload. */
+      queryClient.invalidateQueries({ queryKey: ALL_BOOKING_LISTS });
     },
   });
 }
@@ -108,11 +117,9 @@ export function useCancelCycle() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (cycleId: string) => cancelCycle(cycleId),
-    onSuccess: (cancelled) => {
+    onSuccess: () => {
       invalidateEmptyReturns(queryClient);
-      if (cancelled.shipmentId) {
-        queryClient.invalidateQueries({ queryKey: bookingsForShipmentKey(cancelled.shipmentId) });
-      }
+      queryClient.invalidateQueries({ queryKey: ALL_BOOKING_LISTS });
     },
   });
 }
@@ -121,9 +128,11 @@ export function useConfirmStandaloneReturn() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (bookingId: string) => confirmStandaloneReturn(bookingId),
-    onSuccess: (cycle) => {
+    onSuccess: () => {
       invalidateEmptyReturns(queryClient);
-      queryClient.invalidateQueries({ queryKey: bookingsForShipmentKey(cycle.booking.shipmentId) });
+      /* Same prefix, same reason — confirming the box is home is the write that
+         flips the card to RETURNED, and it was landing on the wrong key too. */
+      queryClient.invalidateQueries({ queryKey: ALL_BOOKING_LISTS });
     },
   });
 }

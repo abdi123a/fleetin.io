@@ -29,6 +29,7 @@ import { cn } from '@/utils';
  */
 export type IconChipTint =
   | 'teal'
+  | 'green'
   | 'orange'
   | 'amber'
   | 'red'
@@ -43,6 +44,11 @@ export type IconChipSize = 44 | 36;
 
 const CHIP_TINT: Record<IconChipTint, string> = {
   teal: 'bg-primary-bold text-primary-bold-foreground',
+  /* The solid green the rest of the scale was missing. `on-green` below is its
+     inverse — a white disc for use ON a green tile — and until this existed a
+     green subject sitting on a plain white card had no disc of its own and had
+     to borrow teal. Carbon is that subject. */
+  green: 'bg-success text-success-foreground',
   orange: 'bg-accent-bold text-accent-bold-foreground',
   amber: 'bg-warning text-warning-foreground',
   red: 'bg-destructive text-destructive-foreground',

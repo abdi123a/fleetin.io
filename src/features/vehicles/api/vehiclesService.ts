@@ -69,6 +69,16 @@ export interface CreateVehiclePayload {
   year?: number;
   make?: string;
   model?: string;
+  /**
+   * What the truck burns — one of the three answers its carbon factor is
+   * derived from.
+   *
+   * There is deliberately no `co2PerKm` here. The factor is computed
+   * server-side and never accepted from a client: a payload that could carry
+   * its own number would let a 40-tonne tractor onto the books at 0.1 kg/km,
+   * and every carbon statement downstream would repeat it.
+   */
+  fuelType?: string;
 }
 
 /** The only creation route — DD-02: a vehicle always belongs to a partner. */
@@ -84,4 +94,18 @@ export async function updateVehicle(id: string, payload: Partial<CreateVehiclePa
 
 export async function deleteVehicle(id: string): Promise<void> {
   await apiClient.delete(`/vehicles/${id}`, token());
+}
+
+/**
+ * The truck's photograph.
+ *
+ * A separate call from the PATCH above because it is multipart while the rest
+ * of the form is JSON — the same split a partner's logo makes, and it means a
+ * failed upload never takes the typed fields with it.
+ */
+export async function uploadVehiclePhoto(id: string, file: File): Promise<EnrichedVehicle> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await apiClient.upload<EnrichedVehicle>(`/vehicles/${id}/photo`, form, token());
+  return normaliseDates(res.data);
 }

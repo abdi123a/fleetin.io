@@ -18,9 +18,10 @@ import {
   CONTAINER_STATE_BADGE_CLASS,
   containerStateOf,
 } from '@/lib/containerState';
+import { co2Number } from '@/lib/co2';
 import { cn, formatDate } from '@/utils';
 import { MissionReportView } from './MissionReportView';
-import { ShipmentReportView } from './ShipmentReportView';
+import { ShipmentReportView, type ShipmentCarbon } from './ShipmentReportView';
 import { computeShipmentReport } from './shipmentReport';
 import { useShipmentMissionReports } from './useShipperReporting';
 import { formatDuration } from './reportFormat';
@@ -112,6 +113,33 @@ export function ShipmentReportPanel({
   );
 
   const shipmentReport = useMemo(() => computeShipmentReport(reports, now), [reports, now]);
+
+  /**
+   * The consignment's carbon: the sum of its containers.
+   *
+   * Computed here rather than inside `computeShipmentReport`, which reads
+   * event timestamps and nothing else — emissions are a stored per-booking
+   * column, snapshotted from the truck's factor at assignment and priced from
+   * the legs actually driven. Summing them is addition, and the addition
+   * belongs where the bookings already are.
+   *
+   * A container with no figure is one that has not been driven yet. It is
+   * counted in `total` but not in `priced`, so the report can say "8 of 12
+   * driven so far" instead of quietly reporting a partial job as a whole one.
+   */
+  const carbon: ShipmentCarbon | null = useMemo(() => {
+    let co2Kg = 0;
+    let distanceKm = 0;
+    let priced = 0;
+    for (const booking of bookings) {
+      const kg = co2Number(booking.co2EmissionsKg);
+      if (kg === null) continue;
+      co2Kg += kg;
+      distanceKm += co2Number(booking.actualDistanceKm) ?? 0;
+      priced += 1;
+    }
+    return priced === 0 ? null : { co2Kg, distanceKm, priced, total: bookings.length };
+  }, [bookings]);
 
   // Follow the list: never point at a container that is no longer there.
   useEffect(() => {
@@ -295,7 +323,7 @@ export function ShipmentReportPanel({
           footnote={<ReportFootnote />}
         >
           {isShipmentScope ? (
-            <ShipmentReportView report={shipmentReport} />
+            <ShipmentReportView report={shipmentReport} carbon={carbon} />
           ) : (
             selectedReport && <MissionReportView report={selectedReport} />
           )}

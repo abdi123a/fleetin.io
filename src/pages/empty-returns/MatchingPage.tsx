@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { format, parse } from 'date-fns';
 
 import { buildPath, ROUTES } from '@/config/routes';
@@ -19,11 +19,8 @@ import {
 import {
   AlertTriangle,
   ArrowLeft,
-  ArrowLeftRight,
-  ArrowRight,
   CheckCircle2,
   RotateCcw,
-  X,
 } from '@/design-system/icons';
 import {
   detentionFor,
@@ -44,6 +41,7 @@ import { cn } from '@/utils';
 
 import { TablePager, usePagedRows } from '@/components';
 import { CompanyName, EmptyTag, FullTag, Mono, RiskBadge } from './components/marks';
+import { PairingCelebration } from './components/PairingCelebration';
 
 /**
  * Matching — *which empty containers are available, and where can they be used?*
@@ -89,6 +87,7 @@ export function MatchingPage() {
   /** The container a "Plan empty return" click is asking a slot for. */
   const [planTarget, setPlanTarget] = useState<EmptyReturnRecord | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   /* The selection follows the queue: an id that no longer exists (its container
      was just paired) falls back to the top of the list rather than emptying the
@@ -184,52 +183,28 @@ export function MatchingPage() {
           Back to shipment <Mono className="font-semibold">{cameFrom}</Mono>
         </Link>
       )}
-      {/* v19's confirmation banner. It draws the two containers rather than
-          naming them in prose, because "which box went out under which" is the
-          one fact an operator re-checks after committing. */}
-      {lastPairing && (
-        <div className="rounded-card border border-stage-closed-border bg-stage-closed-subtle px-4 py-3 text-xs text-stage-closed-subtle-foreground">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="size-4 shrink-0" aria-hidden />
-            <b>Pairing confirmed</b>
-            {cameFrom && (
-              /* The moment the job is done is the moment somebody wants to
-                 leave — so the way out sits in the banner that says it. */
-              <Link
-                to={buildPath(ROUTES.shipmentOverview, { id: cameFrom })}
-                className="ml-2 inline-flex items-center gap-1 font-semibold underline-offset-2 hover:underline"
-              >
-                Back to {cameFrom}
-                <ArrowRight className="size-3.5" aria-hidden />
-              </Link>
-            )}
-            <button
-              type="button"
-              onClick={() => setLastPairing(null)}
-              aria-label="Dismiss"
-              className="ml-auto rounded-sm p-0.5 opacity-70 transition-opacity hover:opacity-100"
-            >
-              <X className="size-3.5" />
-            </button>
-          </div>
-          <div className="mt-2 flex flex-wrap items-center gap-3">
-            <span className="inline-flex items-center gap-1.5 rounded-md border-2 border-dashed border-stage-available-border bg-card px-2.5 py-1">
-              <EmptyTag small />
-              <Mono className="font-bold text-foreground">{lastPairing.empty}</Mono>
-            </span>
-            {/* ⇄, not →. The module's own legend reserves the thin arrow for
-                "same container, unloaded" and the double arrow for a pairing
-                between two DIFFERENT containers — which is exactly what this
-                banner just confirmed. A → here contradicted the Cycles legend
-                two clicks away. */}
-            <ArrowLeftRight className="size-4 shrink-0 text-stage-paired-subtle-foreground" aria-hidden />
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-container-full px-2.5 py-1 text-container-full-foreground">
-              <Mono className="font-bold">{lastPairing.full}</Mono>
-              <span className="text-[10px] opacity-80">{lastPairing.load}</span>
-            </span>
-          </div>
-        </div>
-      )}
+      {/* Confirming a pairing is the one moment here that PREVENTS a cost, and
+          it used to be acknowledged by a thin strip above the workbench — the
+          weight this app gives a saved filter. It interrupts now: a burst, the
+          two boxes welded together, and the detention that will not be spent.
+          See `PairingCelebration` for why it stops short of congratulating
+          anybody. */}
+      <PairingCelebration
+        open={lastPairing !== null}
+        onOpenChange={(next) => !next && setLastPairing(null)}
+        empty={lastPairing?.empty ?? ''}
+        full={lastPairing?.full ?? ''}
+        load={lastPairing?.load ?? ''}
+        backTo={cameFrom}
+        onBack={
+          cameFrom
+            ? () => {
+                setLastPairing(null);
+                navigate(buildPath(ROUTES.shipmentOverview, { id: cameFrom }));
+              }
+            : undefined
+        }
+      />
 
       {/* ── One workbench, two ways to stand at it ────────────────────────────
           Wide, it is the pile beside the opportunities and both are in view.

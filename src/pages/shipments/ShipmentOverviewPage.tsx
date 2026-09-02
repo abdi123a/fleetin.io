@@ -24,8 +24,10 @@ import {
   VerificationBadge,
 } from '@/design-system';
 import { ROUTES } from '@/config/routes';
+import { useEmptyReturnStore } from '@/stores/emptyReturn.store';
 import { cn, isDriverVerified } from '@/utils';
-import { BookingPreviewSheet, type BookingPreviewItem, type EmptyReturnStage } from './components';
+import { BookingPreviewSheet, type BookingPreviewItem } from './components';
+import { emptyReturnStageOf, type EmptyReturnStage } from '@/features/empty-returns/returnStage';
 import { CrewPicker, CrewStack } from '@/components/crew';
 import {
   BookingDebriefDialog,
@@ -35,6 +37,7 @@ import {
   type DebriefSubject,
 } from '@/components/bookings';
 import { RecordRaise, RecordTickets } from '@/features/workspace';
+import { Co2CardStrip } from '@/features/emissions';
 import { useSetShipmentCrew, useShipment, useShipmentRaw } from '@/features/shipments/api/queries';
 import { markShipmentSeen } from '@/features/shipments/seenShipments';
 import { useBookingsForShipment } from '@/features/bookings/api/queries';
@@ -70,33 +73,6 @@ import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
  */
 const PAGE_SIZE = 6;
 
-/** Mirrors the backend's `DELIVERED_STATUSES` (`empty-return-status.util.ts`) — the same boundary Empty Return itself uses to decide when a booking's container is even eligible to go back. */
-const DELIVERED_STATUSES = ['Arrived', 'Unloading', 'POD Submitted', 'Empty Ready', 'Completed'];
-
-/**
- * Where this booking's own container sits on its way back — purely a
- * read of Empty Return's already-real data (a matched cycle, or the
- * standalone flag), never a new status of its own. `undefined` before the
- * booking is delivered, since the question doesn't apply yet.
- */
-function emptyReturnStageOf(booking: BookingRecord, cycle: EmptyReturnCycleRecord | undefined): EmptyReturnStage | undefined {
-  // No box, no empty return. A bulk or machinery load has nothing to give
-  // back, so the row simply does not apply — it used to read "Awaiting match"
-  // on tipper loads, inventing an obligation that will never exist.
-  if (!booking.containerNumber) return undefined;
-  if (!DELIVERED_STATUSES.includes(booking.status)) return undefined;
-  /* The return starts when Operations says the box was emptied — the "Empty
-   * Ready" rung — not when the truck pulled up. Until then the container is
-   * still being stripped and there is nothing to match it against. */
-  if (!booking.emptyReadyAt) return 'awaiting_empty';
-  // `returnedAt` is the fact that the box is home; the cycle's own status can
-  // read "completed" for the leg that carried it while the box itself is not
-  // yet logged back.
-  if (cycle) return cycle.returnedAt ? 'returned' : 'matched';
-  if (booking.emptyReturnException) return 'standalone';
-  return 'waiting_match';
-}
-
 /**
  * Compact mark for the booking card's own row — the full sentence lives in the
  * preview sheet's Empty Return card.
@@ -117,7 +93,11 @@ const EMPTY_RETURN_STAGE_MARK: Record<
   { label: string; icon?: typeof ArrowLeftRight }
 > = {
   awaiting_empty: { label: 'Still loaded' },
-  waiting_match: { label: 'No return booked' },
+  /* Not a label — a door. See the button that renders this stage below: a
+     container nobody has booked a return for is the one state on this card that
+     is asking somebody to DO something, and "No return booked" only described
+     the hole. */
+  waiting_match: { label: 'Book return', icon: ArrowLeftRight },
   /* Was "In progress", which said nothing: everything on this page is in
      progress. The fact worth printing is that the box has a ride home — it is
      paired with an inbound full load and travelling to the depot. "Return
@@ -136,6 +116,13 @@ function bookingToPreviewItem(booking: BookingRecord, cycle: EmptyReturnCycleRec
   return {
     id: booking.id,
     bookingNumber: booking.reference.replace('BKG-', ''),
+    /* The reference as stored, unmodified. `bookingNumber` above is the display
+       form, and on the live book the two happen to be identical because
+       references carry no `BKG-` prefix any more — which is exactly why this
+       exists separately. Empty Return keys its records on the raw reference, so
+       "Book return" must send that and not something that only coincides with
+       it today. */
+    bookingReference: booking.reference,
     containerNumber: booking.containerNumber ?? undefined,
     partnerId: booking.partnerId ?? undefined,
     partnerName: booking.partner?.companyLegalName,
@@ -166,6 +153,10 @@ function bookingToPreviewItem(booking: BookingRecord, cycle: EmptyReturnCycleRec
     returnVehicleNumber: booking.returnVehicle?.plateNumber,
     emptyReadyAt: booking.emptyReadyAt ?? undefined,
     emptyReturnCycleReference: cycle?.reference,
+    co2EmissionsKg: booking.co2EmissionsKg,
+    actualDistanceKm: booking.actualDistanceKm,
+    co2FactorUsed: booking.co2FactorUsed,
+    co2DistanceSource: booking.co2DistanceSource,
     driverRating: booking.driverRating,
     driverRatingReliability: booking.driverRatingReliability,
     driverRatingPunctuality: booking.driverRatingPunctuality,
@@ -214,6 +205,10 @@ function BookingField({ label, children }: { label: string; children: ReactNode 
 export function ShipmentOverviewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  /* Matching reads its subject from the store, not the URL — so "Book return"
+     selects the container first and then navigates, exactly as the Empty
+     Container dossier's own "Open in Matching" does. */
+  const selectEmptyForMatching = useEmptyReturnStore((state) => state.selectEmpty);
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: mission, isLoading, isError } = useShipment(id);
   const { data: shipmentRaw } = useShipmentRaw(mission?.id);
@@ -815,6 +810,15 @@ export function ShipmentOverviewPage() {
           </div>
         </div>
 
+        {/* No shipment-level carbon total here.
+         *
+         * It sat at the top of this card for one revision and was moved: a
+         * consignment's total is an analysis figure, and the analysis has a
+         * home — the Shipment Report below, where every other rolled-up number
+         * on this page already lives. What stays on this card is what each
+         * card is about: the container's own figure, on the container's own
+         * card. */}
+
         {/* Booking Items */}
         <div className={`grid grid-cols-1 gap-2.5 @[34rem]/page:grid-cols-2 ${bookingColumnsClass}`}>
           {pagedBookings.map(item => {
@@ -909,12 +913,32 @@ export function ShipmentOverviewPage() {
                    * is cut out of it. `mt-2` lines it up with the status pill
                    * opposite — the tab is pulled out of the card's padding with
                    * `-mt-3`, so nothing in this row sits on its own baseline. */}
-                  {containerState === 'returned' && (
+                  {/* Shown the moment the return is DECIDED — paired, or going
+                      back alone — not when the box finally arrives.
+                      
+                      It used to be gated on `containerState === 'returned'`,
+                      so the one mark that says how a container is getting home
+                      appeared only after it already had. That is the half of
+                      the job nobody needed: while the box is still out is
+                      exactly when somebody is deciding what to do with it, and
+                      the card gave no sign a decision had been made until the
+                      decision no longer mattered. */}
+                  {(item.emptyReturnStage === 'matched' ||
+                    item.emptyReturnStage === 'standalone' ||
+                    item.emptyReturnStage === 'returned') && (
                     <Tooltip
                       content={
-                        item.emptyReturnMatched
-                          ? 'Matched — this empty went back under another full load, so no empty leg was driven for it.'
-                          : 'Standalone — this empty was driven back to the depot on its own.'
+                        /* Tense follows the box. Before it is home these are
+                           plans, and writing them in the past tense on a
+                           container still sitting in a yard reads as a claim
+                           that it is already back. */
+                        item.emptyReturnStage === 'returned'
+                          ? item.emptyReturnMatched
+                            ? 'Matched — this empty went back under another full load, so no empty leg was driven for it.'
+                            : 'Standalone — this empty was driven back to the depot on its own.'
+                          : item.emptyReturnMatched
+                            ? 'Matched — this empty is going back under another full load, so no empty leg is driven for it.'
+                            : 'Standalone — this empty is going back to the depot on its own.'
                       }
                     >
                       <span
@@ -1014,8 +1038,42 @@ export function ShipmentOverviewPage() {
                           item.emptyReturnStage !== 'returned' &&
                           containerState !== 'returned' &&
                           (() => {
-                            const mark = EMPTY_RETURN_STAGE_MARK[item.emptyReturnStage];
+                            const stage = item.emptyReturnStage;
+                            const mark = EMPTY_RETURN_STAGE_MARK[stage];
                             const Glyph = mark.icon;
+
+                            /* The one stage that is a question rather than a
+                               fact. Everything else here reports what was
+                               decided; this one is the container standing in a
+                               yard with nothing arranged, and the card is where
+                               somebody notices. So it is a button, and it opens
+                               Matching on this exact container with its
+                               candidate loads already worked out — the same
+                               destination the Empty Container dossier's own
+                               "Open in Matching" uses, so one decision keeps
+                               one door. */
+                            if (stage === 'waiting_match') {
+                              const reference = item.bookingReference ?? item.bookingNumber;
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    /* The whole card opens the booking preview.
+                                       Without this, "Book return" would open
+                                       the sheet and navigate underneath it. */
+                                    event.stopPropagation();
+                                    selectEmptyForMatching(reference);
+                                    navigate(ROUTES.emptyReturnsMatching);
+                                  }}
+                                  title="Empty return — book this container a ride back"
+                                  className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-warning-subtle-foreground/30 bg-warning-subtle px-1.5 py-0.5 text-[11px] font-semibold text-warning-subtle-foreground transition-colors hover:border-warning-subtle-foreground/60 hover:bg-warning-subtle/70 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
+                                >
+                                  {Glyph ? <Glyph className="size-3 shrink-0" aria-hidden /> : null}
+                                  {mark.label}
+                                </button>
+                              );
+                            }
+
                             return (
                               <span
                                 className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px] font-semibold text-warning-subtle-foreground"
@@ -1057,6 +1115,12 @@ export function ShipmentOverviewPage() {
                       )}
                     </div>
                   </BookingField>
+
+                  {/* What this box's run cost the air. Below the crew rows
+                      rather than among them: it is a consequence of the trip,
+                      not a party to it, and it draws nothing at all until
+                      there is a truck to attribute it to. */}
+                  <Co2CardStrip co2Kg={item.co2EmissionsKg} distanceKm={item.actualDistanceKm} />
 
                 </div>
 

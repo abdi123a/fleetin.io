@@ -79,6 +79,11 @@ export const ROUTE_PERMISSIONS: Record<string, readonly string[]> = {
   [ROUTES.employees]: ['hr.view'],
 
   /* Analytics & reporting */
+  /* Emissions rides on `analytics.view` rather than a resource of its own.
+     It is a reading of bookings that already exist, and a new permission
+     string reaches nobody until a data migration writes it into every role —
+     see the note above `PERMISSIONS.locations` on the backend. */
+  [ROUTES.emissions]: ['analytics.view'],
   [ROUTES.analytics]: ['analytics.view'],
   [ROUTES.reports]: ['analytics.view'],
   [ROUTES.transporterAnalytics]: ['analytics.view', 'partners.view'],
