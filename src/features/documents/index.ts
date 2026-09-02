@@ -37,15 +37,17 @@ export {
   type ProofRequirement,
 } from './proofRequirement';
 export { useStagedDocuments, uploadStagedDocuments, type StagedDocument } from './stagedDocuments';
-export { ComplianceCell } from './components/ComplianceBar';
+export { ComplianceCell, OwnerComplianceCell } from './components/ComplianceBar';
 export {
   EXPIRING_WINDOW_DAYS,
   DOCUMENT_STATE_LABEL,
   byUrgency,
   complianceFindings,
   documentState,
+  summariseByOwner,
   tallyFindings,
   type ComplianceFinding,
+  type ComplianceGroup,
   type ComplianceOwner,
   type ComplianceTally,
   type DocumentState,

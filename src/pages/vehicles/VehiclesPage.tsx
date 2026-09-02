@@ -55,7 +55,19 @@ import {
   useUpdateVehicle,
   useVehicles,
 } from '@/features/vehicles/api/queries';
-import { useDocuments, useUploadDocument, useDeleteDocument } from '@/features/documents/api/queries';
+import {
+  useDocumentBook,
+  useDocuments,
+  useUploadDocument,
+  useDeleteDocument,
+} from '@/features/documents/api/queries';
+import {
+  OwnerComplianceCell,
+  complianceFindings,
+  tallyFindings,
+  type ComplianceOwner,
+  type ComplianceTally,
+} from '@/features/documents';
 import { toDisplayDocument, type DisplayDocument } from '@/features/documents/api/documentsService';
 import { DocumentChecklist } from '@/features/documents/components/DocumentChecklist';
 import type { DocumentCapture } from '@/features/documents/components/DocumentCaptureDialog';
@@ -109,6 +121,29 @@ export function VehiclesPage() {
   const { data: vehiclesResponse } = useVehicles();
   const vehicles = useMemo(() => vehiclesResponse?.items ?? [], [vehiclesResponse]);
   const { data: partnersResponse } = usePartners();
+
+  const { data: documentBook } = useDocumentBook();
+
+  /**
+   * Whether each vehicle's papers are in order.
+   *
+   * The whole document book in one read, then a tally per row — the same trade
+   * the Transporters list makes, and deliberately the same request, so the two
+   * pages share one cached response instead of each fetching the register.
+   */
+  const complianceByVehicle = useMemo(() => {
+    const docs = documentBook ?? [];
+    const now = Date.now();
+    const map = new Map<string, ComplianceTally>();
+    for (const vehicle of vehicles) {
+      const owners: ComplianceOwner[] = [
+        { ownerType: 'VEHICLE', ownerId: vehicle.id, ownerLabel: vehicle.plateNumber },
+      ];
+      map.set(vehicle.id, tallyFindings(complianceFindings(owners, docs, now)));
+    }
+    return map;
+  }, [vehicles, documentBook]);
+
   const partners = useMemo(() => partnersResponse?.items ?? [], [partnersResponse]);
   const createVehicle = useCreateVehicle();
   const updateVehicle = useUpdateVehicle();
@@ -658,12 +693,13 @@ export function VehiclesPage() {
       </FilterBar>
       {/* Vehicle Drawer */}
       <Sheet open={Boolean(selectedVehicle)} onOpenChange={(open) => !open && closeVehicleDrawer()}>
-        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto p-6 bg-background border-l border-border space-y-6">
+        <SheetContent hideCloseButton side="right" className="flex w-full flex-col gap-0 overflow-hidden border-l border-border bg-background p-0 sm:max-w-md">
           <SheetTitle className="sr-only">Vehicle Details & Documents</SheetTitle>
           <SheetDescription className="sr-only">Vehicle specifications and documents.</SheetDescription>
           {selectedVehicle && (
-            <div className="space-y-6">
+            <>
               <PanelHeader
+                withClose
                 media={<IconChip icon={Truck} />}
                 title={<span className="font-mono tracking-wide">{selectedVehicle.plateNumber}</span>}
                 subtitle={`${selectedVehicle.truckType}${selectedVehicle.make ? ` · ${selectedVehicle.make} ${selectedVehicle.model || ''}`.trimEnd() : ''}`}
@@ -673,6 +709,8 @@ export function VehiclesPage() {
                 editing={drawerTab === 'edit'}
               />
 
+              {/* The body scrolls under the header, which stays put. */}
+              <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-5 sm:px-8">
               <RecordRaise
                 recordType="VEHICLE"
                 recordId={selectedVehicle.id}
@@ -928,7 +966,8 @@ export function VehiclesPage() {
                   />
                 </div>
               )}
-            </div>
+              </div>
+            </>
           )}
         </SheetContent>
       </Sheet>
@@ -969,7 +1008,7 @@ export function VehiclesPage() {
             key: 'plate',
             label: 'Plate & type',
             icon: ContainerIcon,
-            width: 'w-[22%]',
+            width: 'w-[19%]',
             card: 'identity',
             cell: (vehicle) => (
               <div className="flex min-w-0 items-center gap-2.5">
@@ -996,7 +1035,7 @@ export function VehiclesPage() {
             key: 'transporter',
             label: 'Transporter',
             icon: Building2,
-            width: 'w-[23%]',
+            width: 'w-[18%]',
             /* Mark **and** name. The mark alone, with the name hidden in a
                tooltip, is the one place the app breaks its own rule that a
                named company always shows its logo beside the name — and in a
@@ -1032,7 +1071,7 @@ export function VehiclesPage() {
             key: 'trips',
             label: 'Trips',
             icon: Route,
-            width: 'w-[18%]',
+            width: 'w-[12%]',
             cardLabel: 'Trips',
             cell: (vehicle) => {
               const trips = vehicle.trips ?? 0;
@@ -1065,6 +1104,16 @@ export function VehiclesPage() {
             icon: FileText,
             width: 'w-[14%]',
             cell: (vehicle) => <ExpiryLabel date={vehicle.insuranceExpiry} />,
+          },
+          {
+            key: 'documents',
+            label: 'Documents',
+            icon: FileText,
+            width: 'w-[14%]',
+            cardLabel: 'Documents',
+            /* The same reading the Transporters list gives a haulier, for the
+               one owner this row is about — see `OwnerComplianceCell`. */
+            cell: (vehicle) => <OwnerComplianceCell tally={complianceByVehicle.get(vehicle.id)} />,
           },
           {
             key: 'status',

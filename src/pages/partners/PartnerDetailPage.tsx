@@ -2,10 +2,11 @@ import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
-  Building2,
   CheckCircle2,
+  ChevronRight,
   ExternalLink,
   FileText,
+  Handshake,
   MapPin,
   Pencil,
   Trash2,
@@ -14,20 +15,22 @@ import {
   Phone,
   Mail,
   User,
-  Compass,
   Plus,
   Package,
   Search,
-  DollarSign,
 } from '@/design-system/icons';
 import { DocumentViewerModal, type DocumentToView } from '@/components/DocumentViewerModal';
 import {
-  AlertTriangle,
-  BadgeCheck,
   Star,
   Users,
 } from 'lucide-react';
 import { PageHeader, TablePager, usePagedRows } from '@/components';
+import { MissionRowCard } from '@/pages/missions/components/MissionRowCard';
+import { useShipments } from '@/features/shipments/api/queries';
+import {
+  useAddDispatcher,
+  useRemoveDispatcher,
+} from '@/features/partners/api/queries';
 import { useConfirm } from '@/design-system';
 import {
   Badge,
@@ -39,7 +42,6 @@ import {
   SheetContent,
   SheetDescription,
   SheetTitle,
-  ShipmentCard,
   VerificationBadge,
 } from '@/design-system';
 import { ROUTES, buildPath } from '@/config/routes';
@@ -47,11 +49,8 @@ import { cn, isDriverVerified, isVehicleVerified } from '@/utils';
 import {
   type PartnerDriver,
   type PartnerVehicle,
-  type PartnerDocument,
-  type OperationalStatus,
   type TruckType,
-  computeComplianceScore,
-  deriveComplianceAlerts,
+  type DispatcherContact,
 } from '@/types/partner';
 import { AddPartnerForm, type PartnerFormData } from './AddPartnerForm';
 import {
@@ -61,35 +60,32 @@ import {
 } from '@/features/partners/api/queries';
 import { useCreateDriver, useDeleteDriver } from '@/features/drivers/api/queries';
 import { useCreateVehicle, useDeleteVehicle } from '@/features/vehicles/api/queries';
-import {
-  useDeleteDocument,
-  useDocuments,
-  useUploadDocument,
-} from '@/features/documents/api/queries';
-import { downloadDocument, toDisplayDocument } from '@/features/documents/api/documentsService';
-import { DocumentChecklist } from '@/features/documents/components/DocumentChecklist';
-import type { DocumentCapture } from '@/features/documents/components/DocumentCaptureDialog';
-import type { DocumentTypeSpec } from '@/features/documents/catalog';
 import { useBreadcrumbLabel } from '@/hooks/useBreadcrumbLabel';
 import { useBookings } from '@/features/bookings/api/queries';
 import type { BookingRecord } from '@/features/bookings/api/bookingsService';
-import { DriverRatingRow, PerformancePanel, RatingTrendChart } from '@/components/performance';
+import { PerformancePanel } from '@/components/performance';
 import { useDocumentBook } from '@/features/documents/api/queries';
 import {
-  DOCUMENT_STATE_LABEL,
   byUrgency,
   complianceFindings,
   tallyFindings,
   type ComplianceOwner,
 } from '@/features/documents';
 import { DriverProfileSheet } from '@/components/drivers';
-import { UNRATED, fleetRatingTrend, summariseFleet, summarisePerformance } from '@/lib/rating';
-import { displayShipmentStatus, statusIntentOf } from '@/lib/shipmentStatus';
-import { containerStateOf } from '@/lib/containerState';
+import { UNRATED, summariseFleet, summarisePerformance } from '@/lib/rating';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type WorkspaceTab = 'overview' | 'fleet_compliance' | 'shipments';
+/**
+ * Two, not three.
+ *
+ * "Fleet & Compliance" was a third tab holding a vehicle grid and a compliance
+ * panel, both of which said what the overview already said — and the papers
+ * themselves belong in Fleetin Drive, where every document in the company
+ * lives. A tab whose content is a longer version of the page behind it is a
+ * place readers go to check they have not missed something.
+ */
+type WorkspaceTab = 'overview' | 'shipments';
 
 const TRUCK_TYPE_OPTIONS: { value: TruckType; label: string }[] = [
   { value: 'Flatbed', label: 'Flatbed' },
@@ -103,44 +99,10 @@ const TRUCK_TYPE_OPTIONS: { value: TruckType; label: string }[] = [
   { value: 'Other', label: 'Other' },
 ];
 
-const STATUS_OPTIONS: { value: OperationalStatus; label: string }[] = [
-  { value: 'Available', label: 'Available' },
-  { value: 'In Transit', label: 'In Transit' },
-  { value: 'Under Maintenance', label: 'Under Maintenance' },
-  { value: 'Out of Service', label: 'Out of Service' },
-];
 
-/**
- * This tab's own filter buckets. Deliberately *not* a fifth status
- * vocabulary: the words shown on a row come from `displayShipmentStatus`
- * like everywhere else, and these are only the coarse groups the filter
- * strip offers. The version this replaced invented `REGISTERED`/`IN_TRANSIT`
- * labels from the *shipment's* status, which is why a transporter with five
- * delivered containers read "Delivered 0".
- */
-type BookingBucket = 'PAID' | 'DELIVERED' | 'IN_TRANSIT' | 'OPEN';
-
-function bookingBucket(booking: BookingRecord): BookingBucket {
-  if (booking.status === 'Completed' && booking.shipment?.payoutReleasedAt) return 'PAID';
-  if (['Completed', 'POD Submitted', 'Empty Ready'].includes(booking.status)) return 'DELIVERED';
-  if (['Driver Assigned', 'Heading to Pickup', 'At Pickup', 'Loading', 'Loaded', 'En Route', 'Arrived', 'Unloading'].includes(booking.status)) return 'IN_TRANSIT';
-  return 'OPEN';
-}
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function StatusPill({ status }: { status: OperationalStatus }) {
-  switch (status) {
-    case 'Available':
-      return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-success-subtle text-success-subtle-foreground border border-success/20"><span className="h-1.5 w-1.5 rounded-full bg-success" />Available</span>;
-    case 'In Transit':
-      return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-info-subtle text-info-subtle-foreground border border-info/20"><span className="h-1.5 w-1.5 rounded-full bg-info" />In Transit</span>;
-    case 'Under Maintenance':
-      return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-warning-subtle text-warning-subtle-foreground border border-warning/20"><span className="h-1.5 w-1.5 rounded-full bg-warning" />Maintenance</span>;
-    case 'Out of Service':
-      return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-destructive-subtle text-destructive-subtle-foreground border border-destructive/20"><span className="h-1.5 w-1.5 rounded-full bg-destructive" />Out of Service</span>;
-  }
-}
 
 // ─── Page Component ───────────────────────────────────────────────────────────
 
@@ -169,6 +131,328 @@ function ComplianceFigure({ label, value, tone }: { label: string; value: number
   );
 }
 
+
+/* ---------------------------------------------------------------------------
+ * The overview's three building blocks
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Everybody worth ringing at this carrier, and a way to add the next one.
+ *
+ * The page held exactly ONE contact, at the bottom, under the driver roster —
+ * and a haulier is not one person. There is a dispatcher who answers in the day
+ * and an owner who answers at night, and the record only ever kept whichever
+ * was typed into the onboarding form, so the second number lived in somebody's
+ * phone and left with them.
+ *
+ * The `Contact` table has been one-to-many since it was written, and the
+ * add/update/delete endpoints have existed the whole time. Nothing in the app
+ * had ever called them.
+ *
+ * The primary is marked and cannot be deleted from here: it is the number the
+ * rest of the app prints when it needs "the transporter", and a list you can
+ * empty is a list that will be emptied.
+ */
+function ContactsCard({
+  partnerId,
+  contacts,
+  onChanged,
+}: {
+  partnerId: string;
+  contacts: DispatcherContact[];
+  onChanged: (message: string) => void;
+}) {
+  const addContact = useAddDispatcher();
+  const removeContact = useRemoveDispatcher();
+  const { confirm, confirmDialog } = useConfirm();
+
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState({ name: '', title: '', phone: '', email: '' });
+  const [error, setError] = useState('');
+
+  const save = () => {
+    if (!draft.name.trim() || !draft.phone.trim()) {
+      setError('A contact needs at least a name and a number.');
+      return;
+    }
+    setError('');
+    addContact.mutate(
+      {
+        partnerId,
+        payload: {
+          name: draft.name.trim(),
+          title: draft.title.trim() || 'Contact',
+          phone: draft.phone.trim(),
+          email: draft.email.trim(),
+        },
+      },
+      {
+        onSuccess: () => {
+          onChanged(`${draft.name.trim()} added.`);
+          setDraft({ name: '', title: '', phone: '', email: '' });
+          setAdding(false);
+        },
+        onError: (caught) =>
+          setError(caught instanceof Error ? caught.message : 'The contact could not be saved.'),
+      },
+    );
+  };
+
+  const drop = async (contact: DispatcherContact) => {
+    const ok = await confirm({
+      title: `Remove ${contact.name}?`,
+      description: 'They stop being a contact for this transporter. Nothing else changes.',
+      confirmLabel: 'Remove',
+    });
+    if (!ok) return;
+    removeContact.mutate(
+      { partnerId, contactId: contact.id },
+      { onSuccess: () => onChanged(`${contact.name} removed.`) },
+    );
+  };
+
+  return (
+    <Card className="space-y-3 rounded-lg border border-border/80 bg-card p-4 shadow-2xs @[40rem]/panel:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5">
+        <div className="flex items-center gap-2">
+          <User className="h-4.5 w-4.5 text-primary" />
+          <h4 className="type-h4 font-semibold text-foreground">Contacts</h4>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setAdding((was) => !was)}
+          leadingIcon={adding ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+          className="shrink-0 rounded-full text-xs"
+        >
+          {adding ? 'Cancel' : 'Add contact'}
+        </Button>
+      </div>
+
+      {adding && (
+        <div className="space-y-2.5 rounded-lg border border-primary/30 bg-primary/5 p-3 animate-in fade-in">
+          <div className="grid grid-cols-1 gap-2.5 @[28rem]/panel:grid-cols-2">
+            <Input
+              autoFocus
+              placeholder="Name"
+              value={draft.name}
+              onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+            />
+            <Input
+              placeholder="Role (e.g. Night dispatcher)"
+              value={draft.title}
+              onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
+            />
+            <Input
+              placeholder="Phone"
+              value={draft.phone}
+              onChange={(e) => setDraft((d) => ({ ...d, phone: e.target.value }))}
+            />
+            <Input
+              placeholder="Email"
+              type="email"
+              value={draft.email}
+              onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))}
+            />
+          </div>
+          {error && <p className="text-[11px] font-medium text-destructive">{error}</p>}
+          <div className="flex justify-end">
+            <Button size="sm" disabled={addContact.isPending} onClick={save} className="rounded-full px-4 text-xs">
+              {addContact.isPending ? 'Saving…' : 'Save contact'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {contacts.length === 0 ? (
+        <p className="text-xs text-muted-foreground">Nobody on file — add the dispatcher you call.</p>
+      ) : (
+        <div className="grid gap-2 @[34rem]/panel:grid-cols-2">
+          {contacts.map((contact, index) => (
+            <div
+              key={contact.id || `${contact.name}-${index}`}
+              className="flex items-start gap-2.5 rounded-lg border border-border/60 bg-muted/20 p-2.5"
+            >
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">
+                {contact.name.slice(0, 2).toUpperCase()}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="truncate text-xs font-bold text-foreground">{contact.name}</span>
+                  {index === 0 && (
+                    <Badge intent="primary" variant="subtle" size="sm">
+                      Primary
+                    </Badge>
+                  )}
+                </div>
+                <span className="block truncate text-[11px] text-muted-foreground">{contact.title}</span>
+                {/* Tel and mailto, because the reason this card exists is to be
+                    acted on — a number you have to select and copy is a number
+                    that gets misread. */}
+                <a
+                  href={`tel:${contact.phone}`}
+                  className="mt-1 flex items-center gap-1.5 font-mono text-[11px] font-medium text-foreground hover:text-primary"
+                >
+                  <Phone className="size-3 shrink-0 text-primary" />
+                  {contact.phone}
+                </a>
+                {contact.email && (
+                  <a
+                    href={`mailto:${contact.email}`}
+                    className="flex items-center gap-1.5 truncate text-[11px] text-muted-foreground hover:text-primary"
+                  >
+                    <Mail className="size-3 shrink-0 text-primary" />
+                    <span className="truncate">{contact.email}</span>
+                  </a>
+                )}
+              </div>
+              {index > 0 && contact.id && (
+                <button
+                  type="button"
+                  onClick={() => void drop(contact)}
+                  aria-label={`Remove ${contact.name}`}
+                  title={`Remove ${contact.name}`}
+                  className="shrink-0 rounded-sm p-1 text-muted-foreground transition-colors hover:text-destructive"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {confirmDialog}
+    </Card>
+  );
+}
+
+/** A titled list with a count and one action — the shell both rosters share. */
+function MinimalRoster({
+  title,
+  icon: Icon,
+  count,
+  action,
+  children,
+}: {
+  title: string;
+  icon: React.ComponentType<{ className?: string }>;
+  count: number;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card className="space-y-2.5 rounded-lg border border-border/80 bg-card p-4 shadow-2xs @[40rem]/panel:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5">
+        <div className="flex items-center gap-2">
+          <Icon className="h-4.5 w-4.5 text-primary" />
+          <h4 className="type-h4 font-semibold text-foreground">{title}</h4>
+          <span className="text-xs font-medium text-muted-foreground">{count}</span>
+        </div>
+        {action}
+      </div>
+      {children}
+    </Card>
+  );
+}
+
+/**
+ * One truck or one driver, in a line.
+ *
+ * Three facts and a way in: what it is called, what kind it is, how much work
+ * it has done. Everything else — capacity, status, licence dates, papers — is
+ * on that record's own sheet, which is what the row opens.
+ *
+ * The grid of bordered tiles this replaced gave a truck four fields, two
+ * badges and a delete button inside 150 pixels, and forty trucks was most of
+ * the page. A fleet list is scanned, not studied.
+ */
+function RosterRow({
+  name,
+  meta,
+  mono = false,
+  verified,
+  figure,
+  figureLabel,
+  stars,
+  onOpen,
+  onRemove,
+  removeLabel,
+}: {
+  name: string;
+  meta?: string;
+  /** Plates are read character by character; names are not. */
+  mono?: boolean;
+  verified: boolean;
+  figure: number;
+  figureLabel: string;
+  stars?: number;
+  onOpen: () => void;
+  onRemove: () => void;
+  removeLabel: string;
+}) {
+  return (
+    <div className="group flex items-center gap-1 border-b border-border/40 last:border-b-0">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-primary/5"
+      >
+        {/* One line, not two. The plate and its type were stacked, which made a
+            row two lines tall for two values that fit side by side — eight of
+            those was the whole viewport, for a list whose job is to be glanced
+            at on the way somewhere else. */}
+        <span className="flex min-w-0 flex-1 items-baseline gap-2">
+          <span
+            className={cn(
+              'truncate text-xs font-bold text-foreground',
+              mono && 'font-mono text-[13px] font-extrabold',
+            )}
+          >
+            {name}
+          </span>
+          {meta && (
+            <span className="hidden truncate text-[11px] text-muted-foreground @[24rem]/panel:inline">
+              {meta}
+            </span>
+          )}
+        </span>
+
+        <VerificationBadge state={verified ? 'verified' : 'unverified'} size="sm" />
+
+        {stars !== undefined && stars > 0 && (
+          <span className="hidden shrink-0 items-center gap-0.5 @[26rem]/panel:inline-flex">
+            <Star aria-hidden className="size-3 fill-warning text-warning" />
+            <span className="text-[11px] font-bold tabular-nums text-foreground">
+              {stars.toFixed(1)}
+            </span>
+          </span>
+        )}
+
+        {/* The figure and its noun on one line: "3 trips" is a phrase, and
+            stacking it put a 10px label under a 12px number for no gain. */}
+        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+          <span className="font-bold text-foreground">{figure}</span> {figureLabel}
+        </span>
+
+        <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+      </button>
+
+      {/* Revealed on hover, present for the keyboard. Eight bins down the right
+          edge of a roster is eight invitations to the one action nobody came
+          here for. */}
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={removeLabel}
+        title={removeLabel}
+        className="shrink-0 rounded-sm p-1 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
 export function PartnerDetailPage() {
   const navigate = useNavigate();
   const { id: partnerId } = useParams<{ id: string }>();
@@ -185,11 +469,6 @@ export function PartnerDetailPage() {
   const deleteDriverMutation = useDeleteDriver();
   const createVehicleMutation = useCreateVehicle();
   const deleteVehicleMutation = useDeleteVehicle();
-
-  const { data: rawDocuments = [] } = useDocuments('PARTNER', partnerId);
-  const documents = useMemo(() => rawDocuments.map(toDisplayDocument) as PartnerDocument[], [rawDocuments]);
-  const uploadDocumentMutation = useUploadDocument('PARTNER', partnerId);
-  const deleteDocumentMutation = useDeleteDocument('PARTNER', partnerId);
 
   const drivers = useMemo<PartnerDriver[]>(() => partner?.drivers ?? [], [partner]);
   const vehicles = useMemo<PartnerVehicle[]>(() => partner?.vehicles ?? [], [partner]);
@@ -213,12 +492,15 @@ export function PartnerDetailPage() {
   // ── Shipments search & filter ──
   /* Each dossier tab pages independently — a partner with sixty trucks should
      not make the fleet tab a scroll, and its shipment history even less so. */
-  const [driversPageSize, setDriversPageSize] = useState(12);
-  const [vehiclesPageSize, setVehiclesPageSize] = useState(12);
+  /* Five. These two rosters sit one above the other on a page that also holds
+     contacts, performance and papers — at twelve rows each they were most of
+     the scroll, and a fleet list is something you glance at on the way to
+     something else. The pager is right there for the sixth. */
+  const [driversPageSize, setDriversPageSize] = useState(5);
+  const [vehiclesPageSize, setVehiclesPageSize] = useState(5);
   const [shipmentsPageSize, setShipmentsPageSize] = useState(12);
 
   const [shipmentSearch, setShipmentSearch] = useState('');
-  const [shipmentFilter, setShipmentFilter] = useState<'ALL' | 'IN_TRANSIT' | 'DELIVERED' | 'REGISTERED'>('ALL');
 
   const showSuccess = (msg: string) => {
     setSuccessNotice(msg);
@@ -227,8 +509,6 @@ export function PartnerDetailPage() {
 
   const { confirm, confirmDialog } = useConfirm();
 
-  const complianceScore = partner ? computeComplianceScore({ ...partner, drivers, vehicles, uploadedDocuments: documents }) : 0;
-  const complianceAlerts = partner ? deriveComplianceAlerts({ ...partner, drivers, vehicles, uploadedDocuments: documents }) : [];
 
   // ── Handlers ──
   const handleEditSuccess = (formData: PartnerFormData) => {
@@ -280,7 +560,6 @@ export function PartnerDetailPage() {
           phone: newDriver.phone || '',
           nationalId: newDriver.nationalId || '',
           drivingLicenseNumber,
-          licenseExpiry: newDriver.licenseExpiry || '',
           status: newDriver.status || 'Available',
           joinDate: (newDriver.joinDate ?? new Date().toISOString().split('T')[0]) as string,
         },
@@ -339,27 +618,7 @@ export function PartnerDetailPage() {
     deleteVehicleMutation.mutate(vehId, { onSuccess: () => showSuccess('Vehicle removed.') });
   };
 
-  const handleAddDoc = (spec: DocumentTypeSpec, capture: DocumentCapture) => {
-    uploadDocumentMutation.mutate(
-      {
-        category: spec.label,
-        file: capture.file,
-        issueDate: capture.issueDate,
-        expiryDate: capture.expiryDate,
-        issuer: capture.issuer,
-      },
-      { onSuccess: () => showSuccess('Document filed.') },
-    );
-  };
 
-  const handleDeleteDoc = async (docId: string) => {
-    const ok = await confirm({
-      title: 'Delete this document?',
-      description: 'The file will be permanently removed from the vault.',
-    });
-    if (!ok) return;
-    deleteDocumentMutation.mutate(docId, { onSuccess: () => showSuccess('Document removed.') });
-  };
 
   /**
    * The containers this transporter is actually carrying — real `Booking`
@@ -373,35 +632,21 @@ export function PartnerDetailPage() {
    * are excluded — this tab is the working book.
    */
   const { data: bookingPage } = useBookings({ partnerId: partner?.id }, { enabled: Boolean(partner?.id) });
-  const partnerShipments = useMemo(
-    () =>
-      (bookingPage?.items ?? [])
-        .filter((b) => b.status !== 'Cancelled' && b.status !== 'Failed')
-        .map((b) => {
-          const scheduled = b.scheduledPickupTime ?? b.shipment?.scheduledPickupTime ?? '';
-          const cost = b.transporterCostMinorUnits ? Number(b.transporterCostMinorUnits) : 0;
-          return {
-            id: b.reference,
-            shipmentReference: b.shipment?.reference ?? '',
-            containerNumber: b.containerNumber ?? '',
-            origin: b.shipment?.pickupLocationName ?? '—',
-            destination: b.shipment?.deliveryLocationName ?? '—',
-            shipperCompany: b.shipment?.customerCompany ?? 'Unknown shipper',
-            shipperContact: b.shipment?.customerName ?? '',
-            rawStatus: b.status,
-            bucket: bookingBucket(b),
-            date: scheduled.split('T')[0] ?? scheduled,
-            time: (scheduled.split('T')[1] ?? '').slice(0, 5),
-            // What this transporter earns on this container — their own cost
-            // line, not the shipment-level aggregate that sums every carrier.
-            amount: cost ? `FDJ ${cost.toLocaleString()}` : 'Not priced',
-            rateFDJ: cost,
-            driverName: b.driver?.fullName ?? '',
-            goodsType: b.cargoType,
-          };
-        }),
-    [bookingPage],
-  );
+  /**
+   * The shipments this carrier has actually worked.
+   *
+   * Whole jobs, from `/shipments?transporterId=` — which since 2026-09-02
+   * matches on the carrier's BOOKINGS as well as the shipment's creation-time
+   * transporter field, so a job it ran three containers on shows up even when
+   * somebody else was named on it.
+   *
+   * This replaced a list built from the bookings themselves, which produced one
+   * row per container: a twenty-box shipment split with another haulier
+   * appeared twelve times over, same route, same shipper, and grouping them
+   * back into jobs was left to the reader.
+   */
+  const { data: missionPage } = useShipments({ transporterId: partner?.id, limit: 200 });
+  const partnerMissions = useMemo(() => missionPage?.items ?? [], [missionPage]);
 
   /**
    * This carrier's record, and each of its drivers'.
@@ -413,6 +658,16 @@ export function PartnerDetailPage() {
    * the whole of the reliability axis.
    */
   const partnerBookings = useMemo(() => bookingPage?.items ?? [], [bookingPage]);
+
+  /* Primary first, then everyone else. The backend already orders contacts
+     `isPrimary desc` and splits the first one out; this puts them back into the
+     single list the card renders. */
+  const contacts = useMemo<DispatcherContact[]>(
+    () => [partner?.primaryDispatcher, ...(partner?.additionalDispatchers ?? [])].filter(
+      (contact): contact is DispatcherContact => Boolean(contact?.name),
+    ),
+    [partner],
+  );
   /* The carrier's own star is its drivers' marks — see `summariseFleet`.
      Its mission figures still count every booking, driver or not. */
   const partnerPerformance = useMemo(() => summariseFleet(partnerBookings), [partnerBookings]);
@@ -447,7 +702,6 @@ export function PartnerDetailPage() {
       moreToChase: Math.max(0, findings.filter((f) => f.state !== 'valid').length - 8),
     };
   }, [partner?.id, partner?.companyLegalName, vehicles, drivers, documentBook]);
-  const partnerTrend = useMemo(() => fleetRatingTrend(partnerBookings), [partnerBookings]);
   const driverPerformance = useMemo(() => {
     const byDriver = new Map<string, BookingRecord[]>();
     for (const booking of partnerBookings) {
@@ -461,30 +715,27 @@ export function PartnerDetailPage() {
     );
   }, [partnerBookings]);
 
-  const shipmentStats = useMemo(() => {
-    const inTransit = partnerShipments.filter((s) => s.bucket === 'IN_TRANSIT').length;
-    const delivered = partnerShipments.filter((s) => s.bucket === 'DELIVERED' || s.bucket === 'PAID').length;
-    const totalFdj = partnerShipments.reduce((sum, s) => sum + s.rateFDJ, 0);
-    return { total: partnerShipments.length, inTransit, delivered, totalFdj };
-  }, [partnerShipments]);
 
-  const filteredShipments = partnerShipments.filter((shp) => {
-    const needle = shipmentSearch.toLowerCase();
-    const matchesSearch =
-      shp.id.toLowerCase().includes(needle) ||
-      shp.shipmentReference.toLowerCase().includes(needle) ||
-      shp.containerNumber.toLowerCase().includes(needle) ||
-      shp.shipperCompany.toLowerCase().includes(needle) ||
-      shp.destination.toLowerCase().includes(needle) ||
-      shp.origin.toLowerCase().includes(needle);
+  const filteredMissions = useMemo(() => {
+    const needle = shipmentSearch.trim().toLowerCase();
+    if (!needle) return partnerMissions;
+    return partnerMissions.filter((mission) =>
+      [
+        mission.id,
+        mission.dpcsReference,
+        mission.customer.company,
+        mission.pickupLocation.name,
+        mission.deliveryLocation.name,
+        mission.goodsDescription,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(needle)),
+    );
+  }, [partnerMissions, shipmentSearch]);
 
-    const matchesFilter =
-      shipmentFilter === 'ALL' ||
-      (shipmentFilter === 'IN_TRANSIT' && shp.bucket === 'IN_TRANSIT') ||
-      (shipmentFilter === 'DELIVERED' && (shp.bucket === 'DELIVERED' || shp.bucket === 'PAID')) ||
-      (shipmentFilter === 'REGISTERED' && shp.bucket === 'OPEN');
-
-    return matchesSearch && matchesFilter;
+  const pagedMissions = usePagedRows(filteredMissions, {
+    pageSize: shipmentsPageSize,
+    resetKey: shipmentSearch,
   });
 
   /* Best record first. A roster in insertion order is a list; in rating order
@@ -513,10 +764,6 @@ export function PartnerDetailPage() {
     [drivers, openDriverId],
   );
   const pagedVehicles = usePagedRows(vehicles, { pageSize: vehiclesPageSize });
-  const pagedShipments = usePagedRows(filteredShipments, {
-    pageSize: shipmentsPageSize,
-    resetKey: `${shipmentFilter}|${shipmentSearch}`,
-  });
 
   if (isPartnerLoading || !partner) {
     return (
@@ -545,8 +792,14 @@ export function PartnerDetailPage() {
       )}
 
       {/* Top Header */}
+      {/* The carrier's name, not "Transporter Workspace".
+       *
+       * Every page in the app is a workspace; naming one after the software
+       * spends the largest type on screen saying nothing about which haulier
+       * you are looking at. The name is the one thing the reader arrived
+       * needing, and the reference and country ride underneath it. */}
       <PageHeader
-        title="Transporter Workspace"
+        title={partner.companyLegalName}
         description={`Transporter ${partner.reference ?? partner.id} · ${partner.country}`}
         actions={
           <div className="flex items-center gap-3">
@@ -652,7 +905,7 @@ export function PartnerDetailPage() {
               </div>
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Truck className="h-3.5 w-3.5 text-primary shrink-0" />
-                <span>{partner.fleetSize} Fleet Vehicles</span>
+                <span>{vehicles.length} vehicles · {drivers.length} drivers</span>
               </div>
             </div>
           </Card>
@@ -663,47 +916,24 @@ export function PartnerDetailPage() {
               View Navigation
             </span>
 
-            {/* Overview & Drivers Tab Button */}
-            <button
-              type="button"
-              onClick={() => setActiveTab('overview')}
-              className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === 'overview'
-                  ? 'bg-primary text-primary-foreground shadow-xs'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-              }`}
-            >
-              <Building2 className="h-4 w-4 shrink-0" />
-              <span>Overview & Drivers</span>
-            </button>
-
-            {/* Fleet & Compliance Tab Button */}
-            <button
-              type="button"
-              onClick={() => setActiveTab('fleet_compliance')}
-              className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === 'fleet_compliance'
-                  ? 'bg-primary text-primary-foreground shadow-xs'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-              }`}
-            >
-              <Truck className="h-4 w-4 shrink-0" />
-              <span className="min-w-0 text-left leading-snug">Fleet &amp; Compliance</span>
-            </button>
-
-            {/* Shipments & Cargo Tab Button */}
-            <button
-              type="button"
-              onClick={() => setActiveTab('shipments')}
-              className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === 'shipments'
-                  ? 'bg-primary text-primary-foreground shadow-xs'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-              }`}
-            >
-              <Package className="h-4 w-4 shrink-0" />
-              <span className="min-w-0 text-left leading-snug">Shipments &amp; Cargo</span>
-            </button>
+            {([
+              { key: 'overview' as const, label: 'Overview', icon: Handshake },
+              { key: 'shipments' as const, label: 'Shipments', icon: Package },
+            ]).map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setActiveTab(key)}
+                className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  activeTab === key
+                    ? 'bg-primary text-primary-foreground shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                }`}
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className="min-w-0 text-left leading-snug">{label}</span>
+              </button>
+            ))}
           </Card>
 
         </div>
@@ -717,52 +947,64 @@ export function PartnerDetailPage() {
             and "FDJ 9,801,600" ran off the right edge. */}
         <div className="@container/panel min-w-0 space-y-6">
           {activeTab === 'overview' && (
-            <div className="space-y-6 animate-in fade-in">
-              {/* Performance — the carrier's own record, before its capabilities. */}
-              <Card className="p-4 @[40rem]/panel:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
-                <div className="border-b border-border/60 pb-3">
-                  <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
-                    <Star className="h-4.5 w-4.5 text-warning fill-warning" />
-                    Performance
-                  </h4>
-                </div>
+            <div className="space-y-5 animate-in fade-in">
+              {/* ── WHO TO CALL ──
+               *
+               * First on the page, because it is the reason most people open a
+               * carrier: something has gone wrong with a container and they
+               * need a human. It used to be a strip at the very bottom, under a
+               * driver roster and a rate table, holding exactly one person.
+               *
+               * A haulier is not one person. There is a dispatcher for the day
+               * shift and an owner who answers at night, and the record only
+               * ever held whichever of them was typed in first — so the second
+               * number lived in somebody's phone. The Contact table has always
+               * been one-to-many; nothing in the app had ever added a second
+               * row to it. */}
+              <ContactsCard
+                partnerId={partner.id}
+                contacts={contacts}
+                onChanged={(message) => showSuccess(message)}
+              />
 
-                {/* auto-fit, not a viewport breakpoint: this card sits in a
-                    column the sidebar narrows, so "is there room for two" is a
-                    question about the container, not the window. When there is
-                    not, the trend drops below — and keeps its own heading, so
-                    a stacked chart never reads as a tail of the bars above it. */}
-                <div className="grid gap-x-8 gap-y-7 [grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr))]">
-                  <PerformancePanel summary={partnerPerformance} />
-                  {partnerPerformance.rated && (
-                    <section className="flex min-w-0 flex-col justify-center gap-3">
-                      <h5 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                        Rating Trend
-                      </h5>
-                      <RatingTrendChart points={partnerTrend} />
-                    </section>
-                  )}
+              {/* ── HOW THEY RUN ──
+               *
+               * The rating trend chart is gone. It drew six months of a single
+               * line for a carrier whose whole record is often three missions —
+               * a shape with nothing in it, taking half the card, next to the
+               * three axis bars that were actually carrying the answer. */}
+              <Card className="space-y-4 rounded-lg border border-border/80 bg-card p-4 shadow-2xs @[40rem]/panel:p-6">
+                <div className="flex items-center gap-2 border-b border-border/60 pb-3">
+                  <Star className="h-4.5 w-4.5 fill-warning text-warning" />
+                  <h4 className="type-h4 font-semibold text-foreground">Performance</h4>
                 </div>
+                <PerformancePanel summary={partnerPerformance} />
               </Card>
 
-              {/* Documents — what this carrier owes, and what lapses next.
-                  Above capabilities because a truck that cannot legally leave
-                  the yard makes the equipment list beside the point. */}
-              <Card className="p-4 @[40rem]/panel:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-4">
+              {/* ── PAPERS ──
+               *
+               * Four figures and a way through to them. The chase list that was
+               * here — one row per lapsing document, capped at eight — is
+               * Fleetin Drive's whole job, and doing it twice meant two places
+               * to fix a licence and two places to be out of date. This says
+               * whether there is a problem; the Drive is where it is worked. */}
+              <Card className="space-y-4 rounded-lg border border-border/80 bg-card p-4 shadow-2xs @[40rem]/panel:p-6">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
-                  <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
+                  <div className="flex items-center gap-2">
                     <FileText className="h-4.5 w-4.5 text-primary" />
-                    Documents
-                  </h4>
-                  <span className="text-xs text-muted-foreground">
-                    {compliance.tally.required} required · {vehicles.length} vehicles ·{' '}
-                    {drivers.length} drivers
-                  </span>
+                    <h4 className="type-h4 font-semibold text-foreground">Documents</h4>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => navigate(ROUTES.documents)}
+                    trailingIcon={<ExternalLink className="h-3.5 w-3.5" />}
+                    className="rounded-full text-xs"
+                  >
+                    Open in Fleetin Drive
+                  </Button>
                 </div>
 
-                {/* Four figures and the bar. The denominators matter: three gaps
-                    on a forty-paper book and three on a four-paper one are not
-                    the same carrier. */}
                 <div className="grid grid-cols-2 gap-3 @[34rem]/panel:grid-cols-4">
                   <ComplianceFigure label="Held" value={compliance.tally.valid} tone="text-success" />
                   <ComplianceFigure
@@ -781,346 +1023,36 @@ export function PartnerDetailPage() {
                     tone="text-foreground"
                   />
                 </div>
-
-                {compliance.chase.length > 0 ? (
-                  <ul className="divide-y divide-border/60 rounded-lg border border-border/70">
-                    {compliance.chase.map((finding) => (
-                      <li
-                        key={`${finding.ownerType}-${finding.ownerId}-${finding.category}`}
-                        className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-2"
-                      >
-                        <span className="flex min-w-0 items-center gap-2">
-                          <span className="truncate text-xs font-semibold text-foreground">
-                            {finding.ownerLabel}
-                          </span>
-                          <span className="truncate text-[11px] text-muted-foreground">
-                            {finding.category}
-                          </span>
-                        </span>
-                        <span className="flex shrink-0 items-center gap-2">
-                          {/* The date says how urgent; the word says what kind
-                              of problem it is. A missing paper has no date, and
-                              that absence is the point. */}
-                          {finding.daysToExpiry !== null && (
-                            <span className="text-[11px] tabular-nums text-muted-foreground">
-                              {finding.daysToExpiry < 0
-                                ? `${Math.abs(finding.daysToExpiry)}d ago`
-                                : `in ${finding.daysToExpiry}d`}
-                            </span>
-                          )}
-                          <Badge
-                            intent={
-                              finding.state === 'expired'
-                                ? 'destructive'
-                                : finding.state === 'expiring'
-                                  ? 'warning'
-                                  : 'default'
-                            }
-                            variant="subtle"
-                            size="sm"
-                            className="text-[10px]"
-                          >
-                            {DOCUMENT_STATE_LABEL[finding.state]}
-                          </Badge>
-                        </span>
-                      </li>
-                    ))}
-                    {compliance.moreToChase > 0 && (
-                      <li className="px-3 py-2 text-[11px] text-muted-foreground">
-                        and {compliance.moreToChase} more
-                      </li>
-                    )}
-                  </ul>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Every required paper is on file and in date.
-                  </p>
-                )}
               </Card>
 
-              {/* Card 1: Fleet Capabilities */}
-              <Card className="p-4 @[40rem]/panel:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-4">
-                <div className="border-b border-border/60 pb-3">
-                  <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
-                    <Compass className="h-4.5 w-4.5 text-primary" />
-                    Fleet Capabilities
-                  </h4>
-                </div>
-
-                <div className="grid grid-cols-1 gap-5 text-xs @[46rem]/panel:grid-cols-3">
-                  <div>
-                    <span className="text-muted-foreground font-medium block mb-1.5">Operating Cross-Border Regions</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {partner.operatingRegions.map((region) => (
-                        <Badge key={region} intent="default" size="sm" className="bg-muted/40 border border-border">
-                          {region}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <span className="text-muted-foreground font-medium block mb-1.5">Service Categories</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {partner.serviceCategories.map((cat) => (
-                        <Badge key={cat} intent="accent" size="sm">
-                          {cat}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <span className="text-muted-foreground font-medium block mb-1.5">Vehicle Types</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {partner.vehicleTypes.map((vt) => (
-                        <Badge key={vt} intent="primary" size="sm">
-                          {vt}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </Card>
-
-              {/* The contracted-rates card is gone. A transporter no longer
-                  carries a price list: every shipment on this corridor is
-                  negotiated, so the wizard asks for the figure directly and
-                  nothing derives it — see `CreateShipmentModal`. A stored
-                  rate that nothing reads is a number that goes stale and
-                  then gets believed. Removed 2026-08-31 at the user's
-                  direction; the backend tiers and their mutations still
-                  exist, unused, if per-carrier pricing ever returns. */}
-
-
-              {/* Drivers Roster Card */}
-              <Card className="p-4 @[40rem]/panel:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
-                <div className="flex items-center justify-between flex-wrap gap-3 border-b border-border/60 pb-3">
-                  <div>
-                    <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
-                      <Users className="h-4.5 w-4.5 text-primary" />
-                      Drivers ({drivers.length})
-                    </h4>
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={() => setShowAddDriver((prev) => !prev)}
-                    leadingIcon={<Plus className="h-4 w-4" />}
-                    className="bg-primary text-primary-foreground text-xs font-semibold rounded-full shrink-0"
-                  >
-                    {showAddDriver ? 'Cancel' : 'Add driver'}
-                  </Button>
-                </div>
-
-                {/* Add Driver Inline Form */}
-                {showAddDriver && (
-                  <div className="p-4 rounded-lg border border-primary/30 bg-primary/5 space-y-3 animate-in fade-in">
-                    <h5 className="text-xs font-bold text-primary">New Driver</h5>
-                    <div className="grid grid-cols-1 gap-3 @[28rem]/panel:grid-cols-2 @[46rem]/panel:grid-cols-3">
-                      <Input
-                        placeholder="Full Name (e.g. Abdi Yusuf)"
-                        value={newDriver.fullName || ''}
-                        onChange={(e) => setNewDriver((p) => ({ ...p, fullName: e.target.value }))}
-                      />
-                      <Input
-                        placeholder="Driving License No."
-                        value={newDriver.drivingLicenseNumber || ''}
-                        onChange={(e) => setNewDriver((p) => ({ ...p, drivingLicenseNumber: e.target.value }))}
-                      />
-                      <Input
-                        placeholder="Phone Number"
-                        value={newDriver.phone || ''}
-                        onChange={(e) => setNewDriver((p) => ({ ...p, phone: e.target.value }))}
-                      />
-                      <Input
-                        type="date"
-                        placeholder="License Expiry"
-                        value={newDriver.licenseExpiry || ''}
-                        onChange={(e) => setNewDriver((p) => ({ ...p, licenseExpiry: e.target.value }))}
-                      />
-                      <Select
-                        value={newDriver.status || 'Available'}
-                        options={STATUS_OPTIONS}
-                        onChange={(e) => setNewDriver((p) => ({ ...p, status: e.target.value as OperationalStatus }))}
-                      />
-                    </div>
-                    <div className="flex justify-end pt-1">
-                      <Button size="sm" onClick={handleAddDriver} className="bg-primary text-primary-foreground font-semibold text-xs rounded-full px-4">
-                        Save driver
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Drivers Roster — best record first, each row opening that
-                    driver's own profile. License, documents and vehicle live
-                    there; here the row answers only "how do they run". */}
-                <div className="space-y-2">
-                  {pagedDrivers.rows.map((drv) => (
-                    <div key={drv.id} className="flex items-center gap-2">
-                      <DriverRatingRow
-                        className="min-w-0 flex-1"
-                        name={drv.fullName}
-                        meta={[
-                          drv.reference,
-                          drv.trips ? `${drv.trips} ${drv.trips === 1 ? 'trip' : 'trips'}` : null,
-                        ]
-                          .filter(Boolean)
-                          .join(' · ')}
-                        photoUrl={drv.profilePictureUrl}
-                        badge={<VerificationBadge state={isDriverVerified(drv) ? 'verified' : 'unverified'} size="sm" />}
-                        status={<StatusPill status={drv.status} />}
-                        summary={driverPerformance.get(drv.id) ?? UNRATED}
-                        onOpen={() => setOpenDriverId(drv.id)}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteDriver(drv.id)}
-                        className="p-1.5 rounded-sm text-muted-foreground hover:text-destructive transition-colors shrink-0"
-                        /* `title` alone is the weakest accessible name there is —
-                           it never reaches touch, and screen readers treat it as
-                           a last resort. The name says *which* driver, because
-                           seven identical "Remove driver" buttons in a list is
-                           the same as none. */
-                        aria-label={`Remove ${drv.fullName} from this transporter`}
-                        title={`Remove ${drv.fullName}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-
-                {drivers.length > 0 ? (
-                  <TablePager
-                    paged={pagedDrivers}
-                    noun="drivers"
-                    pageSize={driversPageSize}
-                    onPageSizeChange={setDriversPageSize}
-                    pageSizeOptions={[12, 24, 48, 96]}
-                  />
-                ) : null}
-              </Card>
-
-              {/* Compact Primary Dispatcher Contact Card (Bottom) */}
-              <Card className="p-4 border border-border/80 bg-card rounded-lg shadow-2xs space-y-2">
-                <div className="flex items-center justify-between border-b border-border/40 pb-2">
-                  <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                    <User className="h-3.5 w-3.5 text-primary" />
-                    Primary Dispatcher Contact
-                  </span>
-                  <span className="text-xs font-bold text-foreground">
-                    {partner.primaryDispatcher.name} <span className="text-[11px] font-normal text-muted-foreground">({partner.primaryDispatcher.title})</span>
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-xs flex-wrap gap-3">
-                  <div className="flex items-center gap-2 text-foreground font-mono font-medium">
-                    <Phone className="h-3.5 w-3.5 text-primary shrink-0" />
-                    <span>{partner.primaryDispatcher.phone}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-muted-foreground truncate">
-                    <Mail className="h-3.5 w-3.5 text-primary shrink-0" />
-                    <span className="truncate">{partner.primaryDispatcher.email}</span>
-                  </div>
-                </div>
-              </Card>
-            </div>
-          )}
-
-          {/* =============================================================== */}
-          {/* TAB 2: FLEET & COMPLIANCE (COMBINED VEHICLES, DOCS & SCORE)     */}
-          {/* =============================================================== */}
-          {activeTab === 'fleet_compliance' && (
-            <div className="space-y-6 animate-in fade-in">
-              
-              {/* Professional Color-Branded Compliance & Fleet Metrics Strip */}
-              <div className="grid grid-cols-1 gap-4 @[20rem]/panel:grid-cols-2 @[52rem]/panel:grid-cols-4">
-                {/* Card 1: Compliance Health Score */}
-                <Card className="p-4 border border-border/80 bg-card rounded-lg shadow-2xs space-y-2">
-                  <div className="flex items-center justify-between text-muted-foreground">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Compliance Score</span>
-                    <div className="p-2 rounded-lg bg-success-subtle text-success-subtle-foreground">
-                      <BadgeCheck className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <span className="text-2xl font-black text-success-subtle-foreground tabular-nums block">
-                    {complianceScore}%
-                  </span>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Verified fleet compliance</span>
-                </Card>
-
-                {/* Card 2: Registered Vehicles */}
-                <Card className="p-4 border border-border/80 bg-card rounded-lg shadow-2xs space-y-2">
-                  <div className="flex items-center justify-between text-muted-foreground">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Active Fleet</span>
-                    <div className="p-2 rounded-lg bg-primary/10 text-primary">
-                      <Truck className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <span className="text-2xl font-black text-foreground tabular-nums block">
-                    {vehicles.length} / {partner.fleetSize}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Vehicles in registry</span>
-                </Card>
-
-                {/* Card 3: Documents Vault */}
-                <Card className="p-4 border border-border/80 bg-card rounded-lg shadow-2xs space-y-2">
-                  <div className="flex items-center justify-between text-muted-foreground">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Documents Vault</span>
-                    <div className="p-2 rounded-lg bg-info-subtle text-info-subtle-foreground">
-                      <FileText className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <span className="text-2xl font-black text-foreground tabular-nums block">
-                    {documents.filter((d) => d.status === 'Verified').length}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Verified documents</span>
-                </Card>
-
-                {/* Card 4: Compliance Alerts */}
-                <Card className="p-4 border border-border/80 bg-card rounded-lg shadow-2xs space-y-2">
-                  <div className="flex items-center justify-between text-muted-foreground">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Compliance Alerts</span>
-                    <div className="p-2 rounded-lg bg-warning-subtle text-warning-subtle-foreground">
-                      <AlertTriangle className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <span className="text-2xl font-black text-warning-subtle-foreground tabular-nums block">
-                    {complianceAlerts.length}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Open items</span>
-                </Card>
-              </div>
-
-              {/* Vehicles Registry Card */}
-              <Card className="p-4 @[40rem]/panel:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
-                <div className="flex items-center justify-between flex-wrap gap-3 border-b border-border/60 pb-3">
-                  <div>
-                    <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
-                      <Truck className="h-4.5 w-4.5 text-primary" />
-                      Vehicles ({vehicles.length})
-                    </h4>
-                    <p className="type-caption text-muted-foreground mt-0.5">
-                      Plates, capacities and trips run.
-                    </p>
-                  </div>
+              {/* ── THE FLEET ──
+               *
+               * Plate, type, trips. The grid of bordered tiles this replaced
+               * gave each truck a capacity line, a status pill, a verification
+               * tick and a delete button in a 150px card, and forty of them was
+               * most of the page — for a list whose only question is "what have
+               * they got and how much has it run". The truck's own sheet holds
+               * the rest, one click away on the row. */}
+              <MinimalRoster
+                title="Vehicles"
+                icon={Truck}
+                count={vehicles.length}
+                action={
                   <Button
                     size="sm"
                     onClick={() => setShowAddVehicle((prev) => !prev)}
-                    leadingIcon={<Plus className="h-4 w-4" />}
-                    className="bg-primary text-primary-foreground text-xs font-semibold rounded-full shrink-0"
+                    leadingIcon={<Plus className="h-3.5 w-3.5" />}
+                    className="shrink-0 rounded-full text-xs"
                   >
-                    {showAddVehicle ? 'Cancel' : 'Register vehicle'}
+                    {showAddVehicle ? 'Cancel' : 'Add vehicle'}
                   </Button>
-                </div>
-
-                {/* Add Vehicle Inline Form */}
+                }
+              >
                 {showAddVehicle && (
-                  <div className="p-4 rounded-lg border border-primary/30 bg-primary/5 space-y-3 animate-in fade-in">
-                    <h5 className="text-xs font-bold text-primary">New Vehicle</h5>
-                    <div className="grid grid-cols-1 gap-3 @[28rem]/panel:grid-cols-2 @[46rem]/panel:grid-cols-3">
+                  <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3 animate-in fade-in">
+                    <div className="grid grid-cols-1 gap-2.5 @[28rem]/panel:grid-cols-3">
                       <Input
-                        placeholder="Plate Number (e.g. DJ-ABJ-9922)"
+                        placeholder="Plate (e.g. DJ-ABJ-9922)"
                         value={newVehicle.plateNumber || ''}
                         onChange={(e) => setNewVehicle((p) => ({ ...p, plateNumber: e.target.value }))}
                       />
@@ -1135,288 +1067,195 @@ export function PartnerDetailPage() {
                         onChange={(e) => setNewVehicle((p) => ({ ...p, containerCapacity: e.target.value }))}
                       />
                     </div>
-                    <div className="flex justify-end pt-1">
-                      <Button size="sm" onClick={handleAddVehicle} className="bg-primary text-primary-foreground font-semibold text-xs rounded-full px-4">
+                    <div className="flex justify-end">
+                      <Button size="sm" onClick={handleAddVehicle} className="rounded-full px-4 text-xs">
                         Save vehicle
                       </Button>
                     </div>
                   </div>
                 )}
 
-                {/* Vehicles Grid */}
-                <div className="grid grid-cols-1 gap-4 @[28rem]/panel:grid-cols-2 @[46rem]/panel:grid-cols-3">
-                  {pagedVehicles.rows.map((veh) => (
-                    <div key={veh.id} className="@container/veh p-4 rounded-lg border border-border/80 bg-muted/20 space-y-3 text-xs">
-                      {/* The plate keeps its line; the pill drops below it.
-                          Side by side these fought: nothing was `shrink-0`, so
-                          a 170px card squeezed "DT-2238-DJ" into three stacked
-                          characters while "Available" sat on top of it. The
-                          plate is the identifier and is never broken, so it
-                          gets the full width and the pill takes the next row
-                          until the card is wide enough for both. */}
-                      <div className="flex flex-col gap-2 @[15rem]/veh:flex-row @[15rem]/veh:items-start @[15rem]/veh:justify-between">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1">
-                            <span className="block truncate font-mono text-sm font-extrabold text-foreground">{veh.plateNumber}</span>
-                            <VerificationBadge state={isVehicleVerified(veh) ? 'verified' : 'unverified'} size="sm" />
-                          </div>
-                          <span className="text-[11px] text-muted-foreground block">{veh.truckType}</span>
-                        </div>
-                        <div className="shrink-0">
-                          <StatusPill status={veh.operationalStatus} />
-                        </div>
-                      </div>
+                {pagedVehicles.rows.map((veh) => (
+                  <RosterRow
+                    key={veh.id}
+                    mono
+                    name={veh.plateNumber}
+                    meta={veh.truckType}
+                    verified={isVehicleVerified(veh)}
+                    figure={veh.trips ?? 0}
+                    figureLabel={(veh.trips ?? 0) === 1 ? 'trip' : 'trips'}
+                    onOpen={() => navigate(`${ROUTES.vehicles}?vehicle=${veh.id}`)}
+                    onRemove={() => handleDeleteVehicle(veh.id)}
+                    removeLabel={`Remove ${veh.plateNumber} from this transporter`}
+                  />
+                ))}
 
-                      <div className="pt-2 border-t border-border/40 space-y-1 text-[11px]">
-                        {veh.containerCapacity && (
-                          <div className="flex justify-between gap-2">
-                            <span className="shrink-0 text-muted-foreground">Capacity:</span>
-                            <span className="text-right font-semibold text-foreground">{veh.containerCapacity}</span>
-                          </div>
-                        )}
-                        {/* Trips, not a standing driver. A truck is driven by
-                            whoever the booking names; what the fleet card can
-                            honestly say is how much work this one has done. */}
-                        <div className="flex justify-between gap-2">
-                          <span className="shrink-0 text-muted-foreground">Trips:</span>
-                          <span className="font-bold text-primary">
-                            {(veh.trips ?? 0).toLocaleString()}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex justify-end pt-1">
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteVehicle(veh.id)}
-                          className="p-1 rounded-sm text-muted-foreground hover:text-destructive transition-colors"
-                          title="Delete vehicle"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {vehicles.length > 0 ? (
+                {vehicles.length > 0 && (
                   <TablePager
                     paged={pagedVehicles}
                     noun="vehicles"
                     pageSize={vehiclesPageSize}
                     onPageSizeChange={setVehiclesPageSize}
-                    pageSizeOptions={[12, 24, 48, 96]}
+                    pageSizeOptions={[5, 10, 25, 50]}
                   />
-                ) : null}
-              </Card>
+                )}
+              </MinimalRoster>
 
-              {/* THE COMPANY'S PAPER
+              {/* ── THE CREW ──
                *
-               * One row, from the closed catalog: a transporter's own
-               * compliance is its licence to trade. Its trucks' grey cards and
-               * insurance live on the trucks and its drivers' licences on the
-               * drivers — where each can be renewed by the person who holds
-               * it. The free-form category picker this replaced let any of the
-               * four be filed against the company, which is how a forty-truck
-               * fleet came to prove its registration with one grey card. */}
-              <Card className="space-y-5 rounded-lg border border-border/80 bg-card p-4 shadow-2xs @[40rem]/panel:p-6">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
-                  <h4 className="type-h4 flex items-center gap-2 font-semibold text-foreground">
-                    <FileText className="h-4.5 w-4.5 text-primary" />
-                    Compliance Documents
-                  </h4>
-                </div>
+               * Same row, same three facts. The "On Time" column beside every
+               * driver read "—" for seven of eight of them, because on-time is
+               * computed from delivery windows most bookings never carried; a
+               * column that is empty on almost every row is a column teaching
+               * the reader to ignore that part of the row. */}
+              <MinimalRoster
+                title="Drivers"
+                icon={Users}
+                count={drivers.length}
+                action={
+                  <Button
+                    size="sm"
+                    onClick={() => setShowAddDriver((prev) => !prev)}
+                    leadingIcon={<Plus className="h-3.5 w-3.5" />}
+                    className="shrink-0 rounded-full text-xs"
+                  >
+                    {showAddDriver ? 'Cancel' : 'Add driver'}
+                  </Button>
+                }
+              >
+                {showAddDriver && (
+                  <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3 animate-in fade-in">
+                    <div className="grid grid-cols-1 gap-2.5 @[28rem]/panel:grid-cols-3">
+                      <Input
+                        placeholder="Full name"
+                        value={newDriver.fullName || ''}
+                        onChange={(e) => setNewDriver((p) => ({ ...p, fullName: e.target.value }))}
+                      />
+                      <Input
+                        placeholder="Licence number"
+                        value={newDriver.drivingLicenseNumber || ''}
+                        onChange={(e) => setNewDriver((p) => ({ ...p, drivingLicenseNumber: e.target.value }))}
+                      />
+                      <Input
+                        placeholder="Phone"
+                        value={newDriver.phone || ''}
+                        onChange={(e) => setNewDriver((p) => ({ ...p, phone: e.target.value }))}
+                      />
+                    </div>
+                    <div className="flex justify-end">
+                      <Button size="sm" onClick={handleAddDriver} className="rounded-full px-4 text-xs">
+                        Save driver
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
-                <DocumentChecklist
-                  ownerType="PARTNER"
-                  documents={documents}
-                  subject={partner.companyLegalName}
-                  busy={uploadDocumentMutation.isPending}
-                  onUpload={handleAddDoc}
-                  onView={setViewingDoc}
-                  onDownload={(doc) => void downloadDocument(doc.id, doc.name)}
-                  onRemove={handleDeleteDoc}
-                />
-              </Card>
+                {pagedDrivers.rows.map((drv) => {
+                  const summary = driverPerformance.get(drv.id) ?? UNRATED;
+                  return (
+                    <RosterRow
+                      key={drv.id}
+                      name={drv.fullName}
+                      meta={drv.reference}
+                      verified={isDriverVerified(drv)}
+                      figure={summary.missions}
+                      figureLabel={summary.missions === 1 ? 'mission' : 'missions'}
+                      stars={summary.overall ?? undefined}
+                      onOpen={() => setOpenDriverId(drv.id)}
+                      onRemove={() => handleDeleteDriver(drv.id)}
+                      removeLabel={`Remove ${drv.fullName} from this transporter`}
+                    />
+                  );
+                })}
 
+                {drivers.length > 0 && (
+                  <TablePager
+                    paged={pagedDrivers}
+                    noun="drivers"
+                    pageSize={driversPageSize}
+                    onPageSizeChange={setDriversPageSize}
+                    pageSizeOptions={[5, 10, 25, 50]}
+                  />
+                )}
+              </MinimalRoster>
             </div>
           )}
+
 
           {/* =============================================================== */}
           {/* TAB 3: SHIPMENTS & CARGO                                        */}
           {/* =============================================================== */}
+          {/* =============================================================== */}
+          {/* SHIPMENTS — whole jobs, in the app's own shipment row           */}
+          {/* =============================================================== */}
           {activeTab === 'shipments' && (
-            <div className="space-y-6 animate-in fade-in">
-              {/* Shipments Executive Metric Cards Strip */}
-              <div className="grid grid-cols-1 gap-4 @[20rem]/panel:grid-cols-2 @[52rem]/panel:grid-cols-4">
-                <Card className="p-4 border border-border/80 bg-card rounded-lg shadow-2xs space-y-2">
-                  <div className="flex items-center justify-between text-muted-foreground">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Total Bookings</span>
-                    <div className="p-2 rounded-lg bg-primary/10 text-primary">
-                      <Package className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <span className="text-2xl font-black text-foreground tabular-nums block">
-                    {shipmentStats.total}
+            <div className="space-y-4 animate-in fade-in">
+              {/* ── ONE ROW PER JOB, NOT PER CONTAINER ──
+               *
+               * This listed BOOKINGS. A twenty-container shipment split across
+               * two carriers appeared as twelve near-identical rows, each with
+               * the same route and the same shipper, and reading it meant
+               * mentally grouping them back into the jobs they came from.
+               *
+               * A shipment is the job; which of its containers this carrier
+               * ran is a question the shipment's own page answers, and that is
+               * one click away on the row. So the list is the shipments this
+               * carrier has worked — matched on its BOOKINGS, not on the
+               * shipment's creation-time transporter field, because about a
+               * fifth of jobs are split and the field names only the first.
+               *
+               * `MissionRowCard` is the row the Operations list uses. Same
+               * card, same corner tab, same progress figure: a shipment should
+               * not look like a different kind of thing because of which page
+               * it is being read on. */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h4 className="type-h4 flex items-center gap-2 font-semibold text-foreground">
+                  <Package className="h-4.5 w-4.5 text-primary" />
+                  Shipments
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {partnerMissions.length}
                   </span>
-                  <span className="text-[10px] text-muted-foreground font-medium block">All operational bookings</span>
-                </Card>
-
-                <Card className="p-4 border border-border/80 bg-card rounded-lg shadow-2xs space-y-2">
-                  <div className="flex items-center justify-between text-muted-foreground">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">In Transit</span>
-                    <div className="p-2 rounded-lg bg-warning-subtle text-warning-subtle-foreground">
-                      <Truck className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <span className="text-2xl font-black text-warning-subtle-foreground tabular-nums block">
-                    {shipmentStats.inTransit}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Currently moving</span>
-                </Card>
-
-                <Card className="p-4 border border-border/80 bg-card rounded-lg shadow-2xs space-y-2">
-                  <div className="flex items-center justify-between text-muted-foreground">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Delivered</span>
-                    <div className="p-2 rounded-lg bg-success-subtle text-success-subtle-foreground">
-                      <CheckCircle2 className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <span className="text-2xl font-black text-success-subtle-foreground tabular-nums block">
-                    {shipmentStats.delivered}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Completed</span>
-                </Card>
-
-                <Card className="p-4 border border-border/80 bg-card rounded-lg shadow-2xs space-y-2">
-                  <div className="flex items-center justify-between text-muted-foreground">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Freight Value</span>
-                    <div className="p-2 rounded-lg bg-info-subtle text-info-subtle-foreground">
-                      <DollarSign className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <span className="text-2xl font-black text-foreground tabular-nums block">
-                    FDJ {shipmentStats.totalFdj.toLocaleString()}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground font-medium block">Gross revenue</span>
-                </Card>
+                </h4>
+                <Input
+                  value={shipmentSearch}
+                  onChange={(e) => setShipmentSearch(e.target.value)}
+                  placeholder="Search shipments…"
+                  leadingIcon={<Search className="size-4" />}
+                  isClearable
+                  onClear={() => setShipmentSearch('')}
+                  className="w-full sm:w-64"
+                />
               </div>
 
-              {/* Shipments List Controls & Cards */}
-              <Card className="p-4 @[40rem]/panel:p-6 border border-border/80 bg-card rounded-lg shadow-2xs space-y-5">
-                <div className="flex flex-col justify-between gap-4 border-b border-border/60 pb-4 @[36rem]/panel:flex-row @[36rem]/panel:items-center">
-                  <div>
-                    <h4 className="type-h4 font-semibold text-foreground flex items-center gap-2">
-                      <Package className="h-4.5 w-4.5 text-primary" />
-                      Assigned Shipments
-                    </h4>
-                    <p className="type-caption text-muted-foreground mt-0.5">
-                      Active, delivered, and registered shipments for {partner.companyLegalName}.
-                    </p>
+              <div className="space-y-3.5">
+                {pagedMissions.rows.map((mission) => (
+                  <MissionRowCard
+                    key={mission.id}
+                    mission={mission}
+                    onClick={() =>
+                      navigate(buildPath(ROUTES.shipmentOverview, { id: mission.id }))
+                    }
+                  />
+                ))}
+
+                {pagedMissions.rows.length === 0 && (
+                  <div className="rounded-card-nested border border-border bg-card px-3 py-12 text-center text-sm text-muted-foreground">
+                    {shipmentSearch.trim()
+                      ? 'No shipment matches that search.'
+                      : 'This transporter has not run a shipment yet.'}
                   </div>
+                )}
+              </div>
 
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <div className="relative min-w-[200px]">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                      <Input
-                        type="text"
-                        placeholder="Search shipments..."
-                        value={shipmentSearch}
-                        onChange={(e) => setShipmentSearch(e.target.value)}
-                        className="pl-8 text-xs h-9 rounded-lg"
-                      />
-                    </div>
-
-                    <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-lg border border-border/60">
-                      {(['ALL', 'IN_TRANSIT', 'DELIVERED', 'REGISTERED'] as const).map((filterKey) => (
-                        <button
-                          key={filterKey}
-                          type="button"
-                          onClick={() => setShipmentFilter(filterKey)}
-                          className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${
-                            shipmentFilter === filterKey
-                              ? 'bg-primary text-primary-foreground shadow-2xs'
-                              : 'text-muted-foreground hover:text-foreground'
-                          }`}
-                        >
-                          {filterKey === 'ALL'
-                            ? 'All'
-                            : filterKey === 'IN_TRANSIT'
-                            ? 'In Transit'
-                            : filterKey === 'DELIVERED'
-                            ? 'Delivered'
-                            : 'Registered'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  {pagedShipments.rows.map((shp) => (
-                    // Both references print whole. Stripping the prefix was how
-                    // the old twelve-character ids were made to fit; the scheme
-                    // is short enough now that hiding what kind of reference it
-                    // is costs more than it saves.
-                    <ShipmentCard
-                      key={shp.id}
-                      shipmentNumber={shp.shipmentReference}
-                      bookingNumber={shp.id}
-                      origin={shp.origin}
-                      destination={shp.destination}
-                      // The shipper, not this carrier. Both of these printed
-                      // the transporter's own name before, so a Red Sea Cargo
-                      // Group job read as if Al-Baraka had booked it.
-                      organization={shp.shipperCompany}
-                      date={shp.date}
-                      time={shp.time}
-                      goodsType={shp.goodsType}
-                      goodsWeight={shp.amount}
-                      vehicleType={partner.companyLegalName}
-                      driverName={shp.driverName || undefined}
-                      createdBy={shp.shipperContact || shp.shipperCompany}
-                      createdByInitials={shp.shipperCompany
-                        .split(/\s+/)
-                        .map((word) => word.charAt(0))
-                        .join('')
-                        .slice(0, 2)
-                        .toUpperCase()}
-                      status={displayShipmentStatus(shp.rawStatus, 'shipment')}
-                      /* Teal full, brand yellow empty — the app-wide container
-                         rule, so this carrier's jobs read the same here as they
-                         do on the shipments list. */
-                      statusIntent={(() => {
-                        const state = containerStateOf(shp.rawStatus, Boolean(shp.containerNumber));
-                        /* `'shipment'`, matching the label two lines above — a row
-                           whose word rolled up and whose colour did not would be
-                           two opinions about one job. */
-                        return state ? (`container-${state}` as const) : statusIntentOf(shp.rawStatus, 'shipment');
-                      })()}
-                      verified={true}
-                      clickable
-                      onClick={() =>
-                        navigate(buildPath(ROUTES.shipmentOverview, { id: shp.shipmentReference }))
-                      }
-                    />
-                  ))}
-
-                  {filteredShipments.length === 0 && (
-                    <div className="p-10 text-center text-sm text-muted-foreground border border-dashed border-border/70 rounded-lg">
-                      No shipments yet.
-                    </div>
-                  )}
-
-                  {filteredShipments.length > 0 && (
-                    <TablePager
-                      paged={pagedShipments}
-                      noun="shipments"
-                      pageSize={shipmentsPageSize}
-                      onPageSizeChange={setShipmentsPageSize}
-                      pageSizeOptions={[12, 24, 48, 96]}
-                    />
-                  )}
-                </div>
-              </Card>
+              {filteredMissions.length > 0 && (
+                <TablePager
+                  paged={pagedMissions}
+                  noun="shipments"
+                  pageSize={shipmentsPageSize}
+                  onPageSizeChange={setShipmentsPageSize}
+                  pageSizeOptions={[12, 24, 48, 96]}
+                />
+              )}
             </div>
           )}
 

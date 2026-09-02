@@ -1,5 +1,6 @@
 import {
   ArrowLeftRight,
+  LifeBuoy,
   ListChecks,
   MessageSquare,
   BarChart3,
@@ -10,7 +11,9 @@ import {
   Compass,
   Container,
   FileText,
+  Folder,
   Globe,
+  Handshake,
   Landmark,
   LayoutDashboard,
   Link2,
@@ -81,6 +84,21 @@ export const NAVIGATION: NavSection[] = [
         label: 'Tasks',
         path: ROUTES.workspaceTasks,
         icon: ListChecks,
+        matchNested: true,
+      },
+      {
+        /*
+         * Tickets, beside Tasks rather than inside it.
+         *
+         * The two lists answer different questions to different people: the
+         * board is "what am I doing today", and most of what is on it has no
+         * customer behind it. This is "who is waiting on us", and its empty
+         * state is a good day — which is never true of the board.
+         */
+        id: 'workspace-tickets',
+        label: 'Tickets',
+        path: ROUTES.workspaceTickets,
+        icon: LifeBuoy,
         matchNested: true,
       },
       {
@@ -164,15 +182,19 @@ export const NAVIGATION: NavSection[] = [
         matchNested: true,
       },
       {
+        /* Not `Building2` — that is the SHIPPER's glyph, and a shipper and a
+           transporter are opposite ends of the same job. A haulier is a company
+           we contract with, so it takes the handshake; its trucks and drivers
+           keep their own marks below it. */
         id: 'partners-group',
         label: 'Partners',
-        icon: Building2,
+        icon: Handshake,
         children: [
           {
             id: 'partners',
             label: 'Partners Overview',
             path: ROUTES.partners,
-            icon: Building2,
+            icon: Handshake,
             matchNested: true,
           },
           {
@@ -193,11 +215,16 @@ export const NAVIGATION: NavSection[] = [
             /* The register that reads across all four dossiers: what is
                expired, what is expiring, and what was never filed. Sits under
                Partners because three of the four papers it watches belong to a
-               transporter, its trucks or its drivers. */
+               transporter, its trucks or its drivers.
+
+               Named "Fleetin Drive" rather than "Documents" — HR has its own
+               Documents entry (it issues contracts and payslips), and two
+               unrelated items reading the same word in one sidebar is a
+               coin-toss for anybody looking for either. */
             id: 'documents',
-            label: 'Documents',
+            label: 'Fleetin Drive',
             path: ROUTES.documents,
-            icon: FileText,
+            icon: Folder,
           },
         ],
       },

@@ -406,6 +406,23 @@
   --container-empty-subtle-foreground: var(--fl-orange-900);
   --container-empty-border: var(--accent);
 
+  /* ── Fleetin Drive's folders ──
+   *
+   * The body is NEUTRAL, and that is the whole point.
+   *
+   * Three tries at a teal folder came off badly for the same reason each time:
+   * eighteen brand-coloured folders in a grid is eighteen things asking to be
+   * looked at, and the two or three that hold a lapsed policy have nothing left
+   * to distinguish them. Saturated teal was a wall, teal-300 was muddy under a
+   * logo, and teal-50 was so close to white the shape stopped being a folder.
+   *
+   * A neutral body spends no attention at all, which leaves the whole of it for
+   * the tab: red where a paper is missing or lapsed, amber where one is about
+   * to. The brand appears on the fold of a folder with nothing wrong — enough
+   * for the grid to be Fleetin's, not enough to compete with the news. */
+  --folder-face: var(--fl-neutral-100);
+  --folder-fold: var(--primary);
+
   --container-returned: var(--fl-neutral-950);
   --container-returned-foreground: var(--fl-neutral-0);
   --container-returned-subtle: var(--fl-neutral-100);
@@ -812,6 +829,11 @@
   --tile-ink-foreground: var(--fl-neutral-0);
 
   /* Same inversion for the container mark — see the note above. */
+  /* Lighter than the page, not darker — a folder is a thing ON the surface, and
+     in dark mode that reads as raised only if it is the paler of the two. */
+  --folder-face: var(--fl-slate-700);
+  --folder-fold: var(--primary);
+
   --container-returned: var(--fl-neutral-100);
   --container-returned-foreground: var(--fl-neutral-950);
   --container-returned-subtle: var(--fl-slate-800);

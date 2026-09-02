@@ -1,4 +1,4 @@
-import { ExpiryLabel, expiryBandOf, SheetHeading } from '@/components/common';
+import { SheetHeading } from '@/components/common';
 import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -58,7 +58,19 @@ import {
   useDrivers,
   useUpdateDriver,
 } from '@/features/drivers/api/queries';
-import { useDocuments, useUploadDocument, useDeleteDocument } from '@/features/documents/api/queries';
+import {
+  useDocumentBook,
+  useDocuments,
+  useUploadDocument,
+  useDeleteDocument,
+} from '@/features/documents/api/queries';
+import {
+  OwnerComplianceCell,
+  complianceFindings,
+  tallyFindings,
+  type ComplianceOwner,
+  type ComplianceTally,
+} from '@/features/documents';
 import { toDisplayDocument, type DisplayDocument } from '@/features/documents/api/documentsService';
 import { DocumentChecklist } from '@/features/documents/components/DocumentChecklist';
 import type { DocumentCapture } from '@/features/documents/components/DocumentCaptureDialog';
@@ -118,6 +130,29 @@ export function DriversPage() {
   const { data: driversResponse } = useDrivers();
   const drivers = useMemo(() => driversResponse?.items ?? [], [driversResponse]);
   const { data: partnersResponse } = usePartners();
+
+  const { data: documentBook } = useDocumentBook();
+
+  /**
+   * Whether each driver's papers are in order.
+   *
+   * The whole document book in one read, then a tally per row — the same trade
+   * the Transporters list makes, and deliberately the same request, so the two
+   * pages share one cached response instead of each fetching the register.
+   */
+  const complianceByDriver = useMemo(() => {
+    const docs = documentBook ?? [];
+    const now = Date.now();
+    const map = new Map<string, ComplianceTally>();
+    for (const driver of drivers) {
+      const owners: ComplianceOwner[] = [
+        { ownerType: 'DRIVER', ownerId: driver.id, ownerLabel: driver.fullName },
+      ];
+      map.set(driver.id, tallyFindings(complianceFindings(owners, docs, now)));
+    }
+    return map;
+  }, [drivers, documentBook]);
+
   const partners = useMemo(() => partnersResponse?.items ?? [], [partnersResponse]);
 
   /**
@@ -165,9 +200,12 @@ export function DriversPage() {
   /**
    * The licence, held until the driver has an id to file it against.
    *
-   * `licenseExpiry` used to be a date field defaulting to 2027 — a driver
-   * registered without a thought was licensed for another eighteen months
-   * because the form said so. The licence itself sets it now.
+   * The licence is the record. There was a `licenseExpiry` date field here,
+   * defaulting to 2027, so a driver registered without a thought was licensed
+   * for another eighteen months because the form said so — and then the column
+   * went entirely on 2026-09-02, because a Djibouti licence does not expire.
+   * What the paper does carry is an issue date, and that is captured on the
+   * upload beside the file.
    */
   const newDriverDocs = useStagedDocuments();
 
@@ -192,7 +230,6 @@ export function DriversPage() {
         phone: newDriver.phone || '+253 77 00 00 00',
         nationalId: `DJ-NID-${Math.floor(100000 + Math.random() * 900000)}`,
         drivingLicenseNumber: `DL-DJ-${Math.floor(10000 + Math.random() * 90000)}`,
-        licenseExpiry: licence.expiryDate,
         status: 'Available',
         joinDate: new Date().toISOString().slice(0, 10),
       },
@@ -287,7 +324,6 @@ export function DriversPage() {
         fullName: editForm.fullName || selectedDriver.fullName,
         phone: editForm.phone || selectedDriver.phone,
         drivingLicenseNumber: editForm.drivingLicenseNumber || selectedDriver.drivingLicenseNumber,
-        licenseExpiry: editForm.licenseExpiry || selectedDriver.licenseExpiry,
         nationalId: editForm.nationalId || selectedDriver.nationalId,
         status: editForm.status || selectedDriver.status,
       },
@@ -376,13 +412,13 @@ export function DriversPage() {
   const totalDrivers = drivers.length;
   const availableCount = drivers.filter((d) => d.status === 'Available').length;
   const inTransitCount = drivers.filter((d) => d.status === 'In Transit').length;
-  /* An ALERT is a licence that needs acting on — gone, or gone within a
-     fortnight. Those are exactly the two bands `ExpiryLabel` puts a plate
-     around, so the tile counts the rows a reader can see are marked. The old
-     rule counted anything inside 30 days, which folded the run-up in with the
-     emergencies and left the number high enough to stop meaning anything. */
-  const licenseAlerts = drivers.filter((d) =>
-    ['expired', 'critical'].includes(expiryBandOf(d.licenseExpiry)),
+  /* Papers, not licences. The tile counted driving licences falling due, and
+     that is not a thing: a Djibouti licence has no expiry. What a driver can
+     still be short of is the licence DOCUMENT — filed or not — so the tile now
+     counts drivers whose required papers are not all in order, which is the
+     same number the Documents column puts on each row. */
+  const licenseAlerts = drivers.filter(
+    (d) => (complianceByDriver.get(d.id)?.attention ?? 0) > 0,
   ).length;
 
   // Filtering & Sorting
@@ -411,7 +447,6 @@ export function DriversPage() {
     list.sort((a, b) => {
       if (sortBy === 'name-asc') return a.fullName.localeCompare(b.fullName);
       if (sortBy === 'partner-asc') return a.partnerName.localeCompare(b.partnerName);
-      if (sortBy === 'license-asc') return a.drivingLicenseNumber.localeCompare(b.drivingLicenseNumber);
       return 0;
     });
 
@@ -670,7 +705,6 @@ export function DriversPage() {
               options: [
                 { value: 'name-asc', label: 'Driver name' },
                 { value: 'partner-asc', label: 'Transporter' },
-                { value: 'license-asc', label: 'License no.' },
               ],
             },
           ]}
@@ -678,17 +712,20 @@ export function DriversPage() {
       </FilterBar>
       {/* Driver Drawer */}
       <Sheet open={Boolean(selectedDriver)} onOpenChange={(open) => !open && closeDriverDrawer()}>
-        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto p-6 bg-background border-l border-border space-y-6">
+        <SheetContent hideCloseButton side="right" className="flex w-full flex-col gap-0 overflow-hidden border-l border-border bg-background p-0 sm:max-w-md">
           <SheetTitle className="sr-only">Driver Profile Details & Documents</SheetTitle>
           <SheetDescription className="sr-only">Driver details and documents.</SheetDescription>
           {selectedDriver && (
-            <div className="space-y-6">
+            <>
               <DriverProfileHeader
+                withClose
                 driver={selectedDriver}
                 onEdit={() => setDrawerTab(drawerTab === 'edit' ? 'view' : 'edit')}
                 editing={drawerTab === 'edit'}
               />
 
+              {/* The body scrolls under the header, which stays put. */}
+              <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-5 sm:px-8">
               <RecordRaise
                 recordType="DRIVER"
                 recordId={selectedDriver.id}
@@ -781,14 +818,6 @@ export function DriversPage() {
                         placeholder="DL-DJ-44821"
                       />
                     </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-foreground block">License Expiry Date</label>
-                      <Input
-                        type="date"
-                        value={editForm.licenseExpiry || ''}
-                        onChange={(e) => setEditForm((prev) => ({ ...prev, licenseExpiry: e.target.value }))}
-                      />
-                    </div>
                   </div>
 
                   <div className="space-y-1.5">
@@ -839,7 +868,8 @@ export function DriversPage() {
                   />
                 </div>
               )}
-            </div>
+              </div>
+            </>
           )}
         </SheetContent>
       </Sheet>
@@ -877,7 +907,7 @@ export function DriversPage() {
             key: 'driver',
             label: 'Driver',
             icon: User,
-            width: 'w-[23%]',
+            width: 'w-[26%]',
             card: 'identity',
             cell: (driver) => (
               <div className="flex min-w-0 items-center gap-2.5">
@@ -913,7 +943,7 @@ export function DriversPage() {
             key: 'transporter',
             label: 'Transporter',
             icon: Building2,
-            width: 'w-[20%]',
+            width: 'w-[22%]',
             /* Mark **and** name. The mark alone, with the name hidden in a
                tooltip, is the one place the app breaks its own rule that a
                named company always shows its logo beside the name — and in a
@@ -937,20 +967,6 @@ export function DriversPage() {
             ),
           },
           {
-            key: 'license',
-            label: 'License',
-            icon: FileText,
-            width: 'w-[16%]',
-            cell: (driver) => (
-              <div className="min-w-0">
-                <span className="block truncate font-mono text-xs font-semibold text-foreground">
-                  {driver.drivingLicenseNumber}
-                </span>
-                <ExpiryLabel date={driver.licenseExpiry} />
-              </div>
-            ),
-          },
-          {
             /* The driver's mark, where the assigned truck used to be.
                The plate was a static fact that repeated the Vehicles page and
                told a reader nothing about the person whose row it was on. This
@@ -962,7 +978,7 @@ export function DriversPage() {
             key: 'rating',
             label: 'Rating',
             icon: Star,
-            width: 'w-[17%]',
+            width: 'w-[15%]',
             cardLabel: 'Rating',
             cell: (driver) => {
               const summary = performanceByDriver.get(driver.id) ?? UNRATED;
@@ -994,10 +1010,20 @@ export function DriversPage() {
             },
           },
           {
+            key: 'documents',
+            label: 'Documents',
+            icon: FileText,
+            width: 'w-[15%]',
+            cardLabel: 'Documents',
+            /* The same reading the Transporters list gives a haulier, for the
+               one owner this row is about — see `OwnerComplianceCell`. */
+            cell: (driver) => <OwnerComplianceCell tally={complianceByDriver.get(driver.id)} />,
+          },
+          {
             key: 'status',
             label: 'Status',
             icon: UserCheck,
-            width: 'w-[14%]',
+            width: 'w-[12%]',
             card: 'trailing',
             cell: (driver) => <StatusPill status={driver.status} />,
           },

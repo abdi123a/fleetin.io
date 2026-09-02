@@ -55,3 +55,20 @@ export { BulkActionBar } from './components/BulkActionBar';
 export { TaskBoard } from './views/TaskBoard';
 export { TaskWorkload } from './views/TaskWorkload';
 export { taskUrgency } from './components/taskUrgency';
+export { TicketList } from './components/TicketList';
+export { RecordTickets } from './components/RecordTickets';
+export { TicketPriorityBadge, TicketAge } from './components/TicketMarks';
+export { TicketActivity } from './components/TicketActivity';
+export { TicketStatusHistory } from './components/TicketStatusHistory';
+export { LogTicketDialog } from './components/LogTicketDialog';
+export { RaiseFromTicketDialog } from './components/RaiseFromTicketDialog';
+export { RecordPicker, type PickedRecord } from './components/RecordPicker';
+export {
+  useTickets,
+  useTicket,
+  useTicketSummary,
+  useCreateTicket,
+  useUpdateTicket,
+  useRaiseTicketTask,
+  useDeleteTicket,
+} from './api/ticketQueries';

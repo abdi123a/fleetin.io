@@ -36,7 +36,6 @@ function toQueryString(filters: DriverFilters): string {
 function normaliseDates(driver: EnrichedDriver): EnrichedDriver {
   return {
     ...driver,
-    licenseExpiry: toDateOnly(driver.licenseExpiry) ?? driver.licenseExpiry,
     nationalIdExpiry: toDateOnly(driver.nationalIdExpiry) ?? driver.nationalIdExpiry,
     joinDate: toDateOnly(driver.joinDate) ?? driver.joinDate,
   };
@@ -57,7 +56,6 @@ export interface CreateDriverPayload {
   phone: string;
   nationalId: string;
   drivingLicenseNumber: string;
-  licenseExpiry: string;
   nationalIdExpiry?: string;
   accessCards?: string[];
   status?: string;

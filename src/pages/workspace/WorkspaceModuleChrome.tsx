@@ -20,6 +20,7 @@ const VIEW_LABEL: Record<string, string> = {
      whose work it shows are said by the tab strip and the scope control on
      the page itself — repeating either here would be the same word twice. */
   [ROUTES.workspaceTasks]: 'Tasks',
+  [ROUTES.workspaceTickets]: 'Tickets',
   [ROUTES.workspaceMessages]: 'Slack',
 };
 
@@ -28,6 +29,7 @@ export function WorkspaceModuleChrome() {
 
   const label = VIEW_LABEL[location.pathname]
     ?? (location.pathname.startsWith('/workspace/task/') ? 'Task' : undefined)
+    ?? (location.pathname.startsWith('/workspace/ticket/') ? 'Ticket' : undefined)
     ?? (location.pathname.startsWith('/workspace/messages') ? 'Slack' : undefined);
 
   /*

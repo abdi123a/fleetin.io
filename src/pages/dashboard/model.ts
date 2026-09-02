@@ -569,7 +569,8 @@ function buildFleet(vehicles: EnrichedVehicle[], drivers: EnrichedDriver[], now:
     add(`${vehicle.id}-reg`, vehicle.plateNumber, 'Registration', vehicle.partnerName, vehicle.registrationExpiry);
   }
   for (const driver of drivers) {
-    add(`${driver.id}-lic`, driver.fullName, 'Driving licence', driver.partnerName, driver.licenseExpiry);
+    /* No driving-licence row. A Djibouti licence has no expiry, so it can never
+       fall due — see `isDriverVerified`. */
     add(`${driver.id}-nid`, driver.fullName, 'National ID', driver.partnerName, driver.nationalIdExpiry);
   }
 

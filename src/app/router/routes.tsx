@@ -97,6 +97,8 @@ const EmptyReturnModuleChrome = lazyWithRetry(
 );
 const WorkspaceModuleChrome = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceModuleChrome');
 const WorkspaceTasksPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceTasksPage');
+const WorkspaceTicketsPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceTicketsPage');
+const WorkspaceTicketDetailPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceTicketDetailPage');
 const WorkspaceTaskDetailPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceTaskDetailPage');
 const WorkspaceMessagesPage = lazyWithRetry(() => import('@/pages/workspace'), 'WorkspaceMessagesPage');
 const EmptyReturnControlTowerPage = lazyWithRetry(
@@ -272,6 +274,8 @@ export const routes: RouteObject[] = [
           { path: ROUTES.workspaceAssignedByMe, element: <Navigate to={`${ROUTES.workspaceTasks}?scope=raised`} replace /> },
           { path: ROUTES.workspaceAllTasks, element: <Navigate to={ROUTES.workspaceTasks} replace /> },
           { path: ROUTES.workspaceTaskDetail, element: <WorkspaceTaskDetailPage /> },
+          { path: ROUTES.workspaceTickets, element: <WorkspaceTicketsPage /> },
+          { path: ROUTES.workspaceTicketDetail, element: <WorkspaceTicketDetailPage /> },
           /* Recurring tasks were removed 2026-08-31 — one rule ever existed and
              it was a test one. The old path still lands somewhere real. */
           { path: '/workspace/automation', element: <Navigate to={ROUTES.workspaceTasks} replace /> },

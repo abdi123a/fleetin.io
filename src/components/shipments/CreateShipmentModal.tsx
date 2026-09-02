@@ -46,8 +46,8 @@ import {
 } from '@/design-system';
 import { useShippingLines } from '@/features/shipping-lines/shippingLines';
 import { ShippingLineManager } from './ShippingLineManager';
-import { LocationManager } from './LocationManager';
-import { loadLocations, resetLocations, saveLocations } from './locationCatalog';
+import { useDistance, type LocationKind, type LocationRecord } from '@/features/locations';
+import { ShipmentLocationField } from '@/features/locations/components/ShipmentLocationField';
 import { TransporterRecommendations } from './TransporterRecommendations';
 import { useShipmentStore } from '@/stores/shipment.store';
 import { ROUTES, buildPath } from '@/config/routes';
@@ -194,41 +194,21 @@ function describeContainerMix(groups: ContainerGroup[], separator = ' + '): stri
  * different name, produces a shipment nobody can match against a real gate
  * pass — so nothing is added here that was not asked for.
  */
-export const PICKUP_LOCATION_OPTIONS = [
-  { value: 'Port of Djibouti', label: 'Port of Djibouti' },
-  { value: 'Doraleh Container Terminal (SGTD)', label: 'Doraleh Container Terminal (SGTD)' },
-  { value: 'Doraleh Multipurpose Port (DMP)', label: 'Doraleh Multipurpose Port (DMP)' },
-  { value: 'Doraleh Oil Terminal / SJTP', label: 'Doraleh Oil Terminal / SJTP' },
-  { value: 'Port of Tadjourah', label: 'Port of Tadjourah' },
-  { value: 'Damerjog / DDID port infrastructure', label: 'Damerjog / DDID port infrastructure' },
-  { value: 'Damerjog Liquid Bulk Port (DLBP)', label: 'Damerjog Liquid Bulk Port (DLBP)' },
-];
+/** Floated to the top of the pickup picker. Everything else still follows. */
+const PICKUP_KINDS: LocationKind[] = ['port', 'depot'];
+/** Floated to the top of the drop-off picker. */
+const DROPOFF_KINDS: LocationKind[] = ['free_zone', 'yard', 'customer', 'depot'];
 
-/**
- * Road kilometres into each zone — an estimate the operator can overwrite.
+/*
+ * The corridor's ports and free zones no longer live here.
  *
- * A number, not a place. The location itself is whatever was picked from the
- * lists above, and nothing here renames it or derives a second name for it:
- * every job runs inside Djibouti, so the city is simply Djibouti.
+ * They were two frozen arrays and a `distanceForDropoff()` that returned 10,
+ * 15, 20 or 25 kilometres from a substring match on the drop-off's name — a
+ * guess that `Shipment.estimatedDistanceKm` carried into Finance's billing and
+ * BI's charts as though it had been measured. Both are gone: the places are
+ * rows in the `locations` table with real coordinates, and the distance between
+ * two of them is a road the Routes API measured. See `ShipmentLocationField`.
  */
-function distanceForDropoff(location: string): number {
-  if (location.includes('UKAB')) return 15;
-  if (location.includes("Jaban'as")) return 20;
-  if (location.includes('DIFTZ')) return 25;
-  return 10;
-}
-
-export const DROPOFF_LOCATION_OPTIONS = [
-  { value: 'UKAB Free Zone', label: 'UKAB Free Zone' },
-  { value: "Jaban'as Free Zone", label: "Jaban'as Free Zone" },
-  { value: 'Djibouti International Free Trade Zone (DIFTZ)', label: 'Djibouti International Free Trade Zone (DIFTZ)' },
-  { value: 'Djibouti Free Zone (DFZ)', label: 'Djibouti Free Zone (DFZ)' },
-];
-
-/* The corridor's own lists, as plain names — what a fresh account starts with
-   and what Reset puts back. See `locationCatalog`. */
-export const PICKUP_LOCATION_BUILT_INS = PICKUP_LOCATION_OPTIONS.map((o) => o.value);
-export const DROPOFF_LOCATION_BUILT_INS = DROPOFF_LOCATION_OPTIONS.map((o) => o.value);
 
 // Sentinel selected when the user picks "+ Add custom…" from a Combobox —
 // the entry field only reveals while the field's value equals this, the same
@@ -573,21 +553,18 @@ export function CreateShipmentModal() {
      commitment, so an unknown one stays empty. */
   const [deliveryDate, setDeliveryDate] = useState<string>('');
   const [deliveryTime, setDeliveryTime] = useState<string>('');
-  /* The catalogue itself, not a list of additions to a frozen one — every row
-     can be renamed or removed. See `locationCatalog`. */
-  const [pickupLocations, setPickupLocations] = useState<string[]>(() =>
-    loadLocations('pickup', PICKUP_LOCATION_BUILT_INS),
-  );
-  const [managingPickupLocations, setManagingPickupLocations] = useState(false);
-  const pickupLocationOptions = pickupLocations.map((l) => ({ value: l, label: l }));
+  /* Both ends of the route, as rows in the location catalogue.
+     The names are kept alongside the ids because a shipment SNAPSHOTS its
+     pickup and drop-off as text — renaming a location in 2027 must not rewrite
+     what a 2026 shipment said it was — and because a prefilled shipment can
+     arrive naming a place that was never catalogued. */
+  const [pickupLocationId, setPickupLocationId] = useState<string | null>(null);
   const [deliveryLocation, setDeliveryLocation] = useState<string>('');
   const [deliveryCity, setDeliveryCity] = useState<string>('Djibouti');
-  const [estimatedDistanceKm, setEstimatedDistanceKm] = useState<number>(25);
-  const [dropoffLocations, setDropoffLocations] = useState<string[]>(() =>
-    loadLocations('dropoff', DROPOFF_LOCATION_BUILT_INS),
-  );
-  const [managingDropoffLocations, setManagingDropoffLocations] = useState(false);
-  const dropoffLocationOptions = dropoffLocations.map((l) => ({ value: l, label: l }));
+  const [deliveryLocationId, setDeliveryLocationId] = useState<string | null>(null);
+  /* The operator's own figure, set only when they overrule the measurement.
+     Null means "whatever the road actually is", which is the normal case. */
+  const [distanceOverrideKm, setDistanceOverrideKm] = useState<number | null>(null);
 
   // Shipper — always a real, existing account; there is no "create a shipper
   // inline while creating a shipment" concept anywhere else in the product.
@@ -792,17 +769,13 @@ export function CreateShipmentModal() {
         const found = sampleShippers.find((s) => s.company.toLowerCase().includes(shipperCompany.toLowerCase()));
         if (found) setSelectedShipperId(found.id);
       }
-      const pickupLoc = prefillData.pickupLocation;
-      if (pickupLoc) {
-        const match = PICKUP_LOCATION_OPTIONS.find((p) => p.value.toLowerCase().includes(pickupLoc.toLowerCase()));
-        setPickupLocation(match?.value ?? pickupLoc);
-      }
+      /* A prefilled shipment carries place NAMES. They are set as the text
+         snapshot; matching them onto catalogue rows happens in the effect
+         below, once the catalogue has loaded — which it has not necessarily
+         done at the moment a prefill arrives. */
+      if (prefillData.pickupLocation) setPickupLocation(prefillData.pickupLocation);
       if (prefillData.pickupCity) setPickupCity(prefillData.pickupCity);
-      const delivLoc = prefillData.deliveryLocation;
-      if (delivLoc) {
-        const match = DROPOFF_LOCATION_OPTIONS.find((d) => d.value.toLowerCase().includes(delivLoc.toLowerCase()));
-        setDeliveryLocation(match?.value ?? delivLoc);
-      }
+      if (prefillData.deliveryLocation) setDeliveryLocation(prefillData.deliveryLocation);
       if (prefillData.deliveryCity) setDeliveryCity(prefillData.deliveryCity);
       if (prefillData.totalWeightKg) setTotalWeightKg(prefillData.totalWeightKg);
       // A prefilled shipment describes one container of one size, so it collapses
@@ -1116,15 +1089,47 @@ export function CreateShipmentModal() {
     setNewMachineryTypeName('');
   };
 
-  const applyPickupLocations = (next: string[]) => {
-    setPickupLocations(next);
-    saveLocations('pickup', next);
+  const choosePickup = (location: LocationRecord | null) => {
+    setPickupLocationId(location?.id ?? null);
+    setPickupLocation(location?.name ?? '');
+    setPickupCity(location?.city ?? 'Djibouti');
+    /* A new route means the old override no longer describes anything. */
+    setDistanceOverrideKm(null);
   };
 
-  const applyDropoffLocations = (next: string[]) => {
-    setDropoffLocations(next);
-    saveLocations('dropoff', next);
+  const chooseDelivery = (location: LocationRecord | null) => {
+    setDeliveryLocationId(location?.id ?? null);
+    setDeliveryLocation(location?.name ?? '');
+    setDeliveryCity(location?.city ?? 'Djibouti');
+    setDistanceOverrideKm(null);
   };
+
+  /**
+   * The road between the two places, measured.
+   *
+   * Server-cached, so a lane run before answers instantly and costs nothing;
+   * the first time down a new one it measures on Google and stores the result.
+   * Disabled until both ends are catalogued places — a typed name has no
+   * position, and there is nothing to measure between.
+   */
+  const {
+    data: measuredDistance,
+    isFetching: measuringDistance,
+    error: distanceError,
+  } = useDistance(pickupLocationId ?? undefined, deliveryLocationId ?? undefined);
+
+  /* What actually goes on the shipment. The operator's override wins when they
+     set one; otherwise the measurement; otherwise nothing has been established
+     yet and the field reads as such rather than showing a made-up number. */
+  const estimatedDistanceKm =
+    distanceOverrideKm ?? measuredDistance?.distanceKm ?? null;
+
+  const distanceSource: 'manual' | 'google' | 'estimate' =
+    distanceOverrideKm != null
+      ? 'manual'
+      : measuredDistance?.provider === 'google'
+        ? 'google'
+        : 'estimate';
 
   const handleNext = () => {
     setCompletedSteps((prev) => Array.from(new Set([...prev, currentStep])));
@@ -1211,15 +1216,28 @@ export function CreateShipmentModal() {
           bookingIds: a.bookingIds,
         })),
         preferredVehicleType: vehicleType,
+        pickupLocationId: pickupLocationId ?? undefined,
         pickupLocationName: pickupLocation,
         pickupLocationAddress: pickupLocation,
         pickupLocationCity: pickupCity,
         pickupGateOrTerminal: 'Terminal Gate 4A',
+        deliveryLocationId: deliveryLocationId ?? undefined,
         deliveryLocationName: deliveryLocation,
         deliveryLocationAddress: deliveryLocation,
         deliveryLocationCity: deliveryCity,
-        estimatedDistanceKm: estimatedDistanceKm,
-        estimatedDurationHours: '18h 30m',
+        /* The server re-measures this from the two location ids and its answer
+           wins — unless `estimatedDistanceSource` is 'manual', which is what an
+           operator's override sends. Zero only when neither end is catalogued
+           and nobody typed a figure; the server keeps it as-is and marks it
+           'estimate' rather than inventing one. */
+        estimatedDistanceKm: estimatedDistanceKm ?? 0,
+        estimatedDistanceSource: distanceSource,
+        /* Google's drive time when there is one. Was hardcoded '18h 30m' — a
+           value from no journey anybody has made, on a corridor whose longest
+           leg is under an hour, and BI computed each shipment's promised
+           delivery by adding it to the pickup time. */
+        estimatedDurationHours:
+          distanceOverrideKm == null ? (measuredDistance?.durationLabel ?? '') : '',
         cargoType: getResolvedCargoLabel(),
         shipmentCategory: shipmentCategory === 'machinery' ? 'bulky_goods' : shipmentCategory,
         machineryType: shipmentCategory === 'machinery' ? machineryClassification : undefined,
@@ -2110,35 +2128,12 @@ export function CreateShipmentModal() {
                     <div className="space-y-3">
                       <div className="space-y-1.5">
                         <label className="text-[11px] font-bold text-foreground block">Pickup Location *</label>
-                        <Combobox
-                          value={pickupLocation}
-                          options={[...pickupLocationOptions, { value: ADD_CUSTOM_OPTION, label: '+ Add or edit locations…' }]}
-                          onChange={(val) => {
-                            if (val === ADD_CUSTOM_OPTION) {
-                              setManagingPickupLocations(true);
-                              return;
-                            }
-                            setPickupLocation(val);
-                            setPickupCity('Djibouti');
-                          }}
+                        <ShipmentLocationField
+                          value={pickupLocationId}
+                          onChange={choosePickup}
+                          preferKinds={PICKUP_KINDS}
+                          placeholder="Where the box is collected"
                         />
-                        {managingPickupLocations && (
-                          <LocationManager
-                            title="Pickup locations"
-                            locations={pickupLocations}
-                            inUse={pickupLocation}
-                            onChange={applyPickupLocations}
-                            onReset={() =>
-                              setPickupLocations(resetLocations('pickup', PICKUP_LOCATION_BUILT_INS))
-                            }
-                            onClose={() => setManagingPickupLocations(false)}
-                            onAdded={(name) => {
-                              setPickupLocation(name);
-                              setPickupCity('Djibouti');
-                            }}
-                            onRenamed={setPickupLocation}
-                          />
-                        )}
                       </div>
 
                       <div className="space-y-1.5">
@@ -2176,40 +2171,12 @@ export function CreateShipmentModal() {
                     <div className="space-y-3 pt-3 border-t border-border/40">
                       <div className="space-y-1.5">
                         <label className="text-[11px] font-bold text-foreground block">Drop-off Location *</label>
-                        <Combobox
-                          value={deliveryLocation}
-                          options={[...dropoffLocationOptions, { value: ADD_CUSTOM_OPTION, label: '+ Add or edit locations…' }]}
-                          onChange={(val) => {
-                            if (val === ADD_CUSTOM_OPTION) {
-                              setManagingDropoffLocations(true);
-                              return;
-                            }
-                            setDeliveryLocation(val);
-                            setDeliveryCity('Djibouti');
-                            setEstimatedDistanceKm(distanceForDropoff(val));
-                          }}
+                        <ShipmentLocationField
+                          value={deliveryLocationId}
+                          onChange={chooseDelivery}
+                          preferKinds={DROPOFF_KINDS}
+                          placeholder="Where the load is delivered"
                         />
-                        {managingDropoffLocations && (
-                          <LocationManager
-                            title="Drop-off locations"
-                            locations={dropoffLocations}
-                            inUse={deliveryLocation}
-                            onChange={applyDropoffLocations}
-                            onReset={() =>
-                              setDropoffLocations(resetLocations('dropoff', DROPOFF_LOCATION_BUILT_INS))
-                            }
-                            onClose={() => setManagingDropoffLocations(false)}
-                            onAdded={(name) => {
-                              setDeliveryLocation(name);
-                              setDeliveryCity('Djibouti');
-                              setEstimatedDistanceKm(distanceForDropoff(name));
-                            }}
-                            onRenamed={(name) => {
-                              setDeliveryLocation(name);
-                              if (name) setEstimatedDistanceKm(distanceForDropoff(name));
-                            }}
-                          />
-                        )}
                       </div>
 
                       {/* When the shipper expects it. Sits under the drop-off
@@ -2237,9 +2204,81 @@ export function CreateShipmentModal() {
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between p-2.5 rounded-md bg-background/90 border border-border/40 text-[11px] text-muted-foreground">
-                        <span>Estimated Corridor Distance:</span>
-                        <span className="font-bold text-foreground">{estimatedDistanceKm} km</span>
+                      {/* The road, measured. Not a corridor average and not a
+                          guess from the drop-off's name — the Routes API's own
+                          answer for these two coordinates, cached after the
+                          first time this lane runs. Overridable, because a
+                          detour the operator knows about is a real thing this
+                          system cannot see. */}
+                      <div className="space-y-1.5 rounded-md border border-border/40 bg-background/90 p-2.5">
+                        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                          <span>Road Distance</span>
+                          <span className="flex items-center gap-2">
+                            {measuringDistance ? (
+                              <span className="text-muted-foreground">Measuring…</span>
+                            ) : estimatedDistanceKm == null ? (
+                              <span className="text-muted-foreground">
+                                Pick both ends to measure
+                              </span>
+                            ) : (
+                              <>
+                                <span className="font-bold text-foreground">
+                                  {estimatedDistanceKm} km
+                                </span>
+                                {measuredDistance?.durationLabel && distanceOverrideKm == null && (
+                                  <span className="text-muted-foreground">
+                                    · {measuredDistance.durationLabel}
+                                  </span>
+                                )}
+                              </>
+                            )}
+                          </span>
+                        </div>
+
+                        {/* Said once, and only when it changes what the number
+                            means: a straight-line fallback runs about a third
+                            short of the road, and an override is the
+                            operator's figure rather than a measurement. */}
+                        {distanceOverrideKm != null ? (
+                          <button
+                            type="button"
+                            onClick={() => setDistanceOverrideKm(null)}
+                            className="text-[10px] font-medium text-primary underline-offset-2 hover:underline"
+                          >
+                            Overridden — use the measured distance
+                          </button>
+                        ) : measuredDistance?.provider === 'haversine' ? (
+                          <p className="text-[10px] text-muted-foreground">
+                            Straight line — no Google Maps key on the server.
+                          </p>
+                        ) : distanceError ? (
+                          <p className="text-[10px] text-muted-foreground">
+                            Could not measure this lane. Enter the distance below.
+                          </p>
+                        ) : null}
+
+                        {/* Only once there is something to override or repair.
+                            Before both ends are picked there is no route to put
+                            a number on, and an empty box invites one anyway. */}
+                        {(distanceOverrideKm != null ||
+                          (Boolean(pickupLocationId) &&
+                            Boolean(deliveryLocationId) &&
+                            !measuringDistance &&
+                            (Boolean(distanceError) || estimatedDistanceKm == null))) && (
+                          <Input
+                            type="number"
+                            inputMode="decimal"
+                            min={0}
+                            step="0.1"
+                            value={distanceOverrideKm ?? ''}
+                            placeholder="Distance in km"
+                            onChange={(event) => {
+                              const parsed = Number.parseFloat(event.target.value);
+                              setDistanceOverrideKm(Number.isFinite(parsed) ? parsed : null);
+                            }}
+                            className="h-8 text-xs"
+                          />
+                        )}
                       </div>
 
                       {isContainer && (

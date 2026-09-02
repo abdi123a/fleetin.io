@@ -38,8 +38,18 @@ const STATUS_TONE: Record<TaskStatus, string> = {
 };
 
 export function TaskStatusBadge({
-  status, className, size = 'sm',
-}: { status: TaskStatus; className?: string; size?: 'sm' | 'md' }) {
+  status, className, size = 'sm', label,
+}: {
+  status: TaskStatus;
+  className?: string;
+  size?: 'sm' | 'md';
+  /**
+   * Say it in another vocabulary. Tickets share this ladder and this colour
+   * but not every word — a task is COMPLETED, the complaint behind it is
+   * *Resolved*. One enum, one tone map, two readings of it.
+   */
+  label?: string;
+}) {
   return (
     <span
       className={cn(
@@ -49,7 +59,7 @@ export function TaskStatusBadge({
         className,
       )}
     >
-      {TASK_STATUS_LABEL[status]}
+      {label ?? TASK_STATUS_LABEL[status]}
     </span>
   );
 }

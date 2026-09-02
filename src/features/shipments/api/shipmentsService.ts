@@ -44,6 +44,8 @@ export interface ShipmentRecord {
   vehicleCapacity: string | null;
   vehicleVerified: boolean | null;
 
+  /** The catalogued place, when this shipment was created from one. */
+  pickupLocationId: string | null;
   pickupLocationName: string;
   pickupLocationAddress: string;
   pickupLocationCity: string;
@@ -51,6 +53,7 @@ export interface ShipmentRecord {
   pickupContactPerson: string | null;
   pickupContactPhone: string | null;
 
+  deliveryLocationId: string | null;
   deliveryLocationName: string;
   deliveryLocationAddress: string;
   deliveryLocationCity: string;
@@ -59,6 +62,8 @@ export interface ShipmentRecord {
   deliveryContactPhone: string | null;
 
   estimatedDistanceKm: number;
+  /** `google` — a measured road. `estimate` — the pre-2026-09-02 guess. */
+  estimatedDistanceSource: 'google' | 'manual' | 'estimate';
   estimatedDurationHours: string;
   cargoType: string;
   shipmentCategory: string | null;
@@ -380,15 +385,22 @@ export interface CreateShipmentPayload {
   shipperId: string;
   transporterAssignments: { partnerId: string; vehicles: number; bookingIds?: string[] }[];
   preferredVehicleType: string;
+  /** The catalogued place, when one was picked. Buys the measured distance. */
+  pickupLocationId?: string;
   pickupLocationName: string;
   pickupLocationAddress: string;
   pickupLocationCity: string;
   pickupGateOrTerminal?: string;
+  deliveryLocationId?: string;
   deliveryLocationName: string;
   deliveryLocationAddress: string;
   deliveryLocationCity: string;
   deliveryGateOrTerminal?: string;
+  /* The server re-measures this from the two location ids and overwrites it,
+     unless `estimatedDistanceSource` is 'manual'. See the backend's
+     `ShipmentsService.resolveDistance`. */
   estimatedDistanceKm: number;
+  estimatedDistanceSource?: 'google' | 'manual' | 'estimate';
   estimatedDurationHours?: string;
   cargoType: string;
   shipmentCategory?: string;

@@ -34,6 +34,9 @@ export interface DocumentRecord {
   issuer: string | null;
   verifiedById: string | null;
   verifiedAt: string | null;
+  /** Resolved server-side — see `withPeople`. Null when the account is gone. */
+  uploadedByName?: string | null;
+  verifiedByName?: string | null;
   rejectionReason: string | null;
   version: number;
   downloadCount: number;
@@ -126,6 +129,60 @@ export async function uploadDocuments(
   return uploaded;
 }
 
+/**
+ * Approve or reject a filed document.
+ *
+ * The second half of the process, and the half that had no UI: every upload
+ * lands as `Pending Review`, and until this was wired nothing in the app could
+ * move it off that. The endpoint has existed since documents did — what was
+ * missing was anywhere to press it, so the only "Verified" documents in the
+ * system were the ones a seed script wrote that way.
+ *
+ * The reason is required on a rejection and refused on an approval by the
+ * backend's own DTO: a rejected paper somebody has to re-file is useless
+ * without being told what was wrong with it.
+ */
+export async function verifyDocument(
+  id: string,
+  status: 'Verified' | 'Rejected',
+  rejectionReason?: string,
+): Promise<DocumentRecord> {
+  const res = await apiClient.patch<DocumentRecord>(
+    `/documents/${id}/verify`,
+    status === 'Rejected' ? { status, rejectionReason } : { status },
+    token(),
+  );
+  return res.data;
+}
+
+/** One person taking one copy — see `DocumentDownload` on the backend. */
+export interface DocumentDownloadEntry {
+  id: string;
+  at: string;
+  userId: string;
+  /** Null when the account has since been deleted. */
+  name: string | null;
+  avatarUrl: string | null;
+}
+
+/**
+ * Who has taken a copy of this document.
+ *
+ * `total` is what the LOG holds, which can be fewer than the document's own
+ * `downloadCount`: the counter predates the log, so older downloads were
+ * counted without anybody's name attached. The panel says so rather than
+ * pretending the two agree.
+ */
+export async function fetchDocumentDownloads(
+  id: string,
+): Promise<{ items: DocumentDownloadEntry[]; total: number }> {
+  const res = await apiClient.get<{ items: DocumentDownloadEntry[]; total: number }>(
+    `/documents/${id}/downloads`,
+    token(),
+  );
+  return res.data;
+}
+
 export async function deleteDocument(id: string): Promise<void> {
   await apiClient.delete(`/documents/${id}`, token());
 }
@@ -167,11 +224,20 @@ export interface DisplayDocument {
   name: string;
   category: string;
   uploadDate: string;
+  /** The raw instant, for anything that needs to sort or count days.
+   *  Absent on a staged row — it has not been filed yet. */
+  uploadedAt?: string;
+  /** What the file actually is — decides whether it can be drawn. */
+  mimeType?: string;
   issueDate?: string;
   expiryDate?: string;
   issuer?: string;
   fileSize: string;
   status: string;
+  /** Who filed it and who checked it — the Activity tab's whole content. */
+  uploadedByName?: string;
+  verifiedByName?: string;
+  verifiedAt?: string;
   rejectionReason?: string;
   version?: number;
   downloadCount?: number;
@@ -183,6 +249,8 @@ export function toDisplayDocument(raw: DocumentRecord): DisplayDocument {
     name: raw.name,
     category: raw.category,
     uploadDate: formatDate(raw.uploadedAt),
+    uploadedAt: raw.uploadedAt,
+    mimeType: raw.mimeType,
     /* `YYYY-MM-DD`, not the raw instant. A licence expires on a DAY — the
        backend stores it as midnight UTC and printing that back gives
        "2026-09-14T12:35:46.691Z" in a column headed "Expires". */
@@ -191,6 +259,9 @@ export function toDisplayDocument(raw: DocumentRecord): DisplayDocument {
     issuer: raw.issuer ?? undefined,
     fileSize: formatFileSize(raw.fileSizeBytes),
     status: raw.status,
+    uploadedByName: raw.uploadedByName ?? undefined,
+    verifiedByName: raw.verifiedByName ?? undefined,
+    verifiedAt: raw.verifiedAt ?? undefined,
     rejectionReason: raw.rejectionReason ?? undefined,
     version: raw.version,
     downloadCount: raw.downloadCount,

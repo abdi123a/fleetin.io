@@ -193,6 +193,9 @@
   --color-tile-ink-foreground: var(--tile-ink-foreground);
 
   /* Container state — teal full, yellow empty, grey returned (see tokens.semantic.css) */
+  --color-folder-face: var(--folder-face);
+  --color-folder-fold: var(--folder-fold);
+
   --color-container-full: var(--container-full);
   --color-container-full-foreground: var(--container-full-foreground);
   --color-container-full-subtle: var(--container-full-subtle);

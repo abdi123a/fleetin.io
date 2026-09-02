@@ -321,3 +321,123 @@ export function isOverdue(task: Pick<WorkspaceTask, 'dueAt' | 'status'>): boolea
   if (!task.dueAt || isTaskClosed(task.status)) return false;
   return new Date(task.dueAt).getTime() < Date.now();
 }
+
+/* ── Tickets ─────────────────────────────────────────────────────────────── */
+
+/**
+ * How the problem reached us — worth recording because it is the first thing
+ * asked when a ticket is disputed later.
+ */
+export const TICKET_CHANNELS = ['PHONE', 'EMAIL', 'WHATSAPP', 'IN_PERSON', 'PORTAL'] as const;
+export const ticketChannelSchema = z.enum(TICKET_CHANNELS);
+
+/**
+ * A problem somebody outside Fleetin reported.
+ *
+ * It shares the task's status and priority ladders rather than owning its own:
+ * a ticket with a task takes that task's status, and two vocabularies for one
+ * state is how a customer ends up being told "OPEN" about work that finished
+ * last week.
+ */
+export const ticketSchema = z.object({
+  id: z.string(),
+  reference: z.string(),
+  subject: z.string(),
+  description: z.string(),
+  status: taskStatusSchema,
+  priority: taskPrioritySchema,
+  channel: ticketChannelSchema,
+  reporterName: z.string().nullable(),
+  reporterContact: z.string().nullable(),
+  /** What the complaint is about, in the task links' own vocabulary. */
+  recordType: recordTypeSchema.nullable(),
+  recordId: z.string().nullable(),
+  recordRef: z.string().nullable(),
+  recordLabel: z.string().nullable(),
+  /** Resolved live on every read, so a chip never wears a stale colour. */
+  recordStatus: z.string().nullable().optional(),
+  recordParentRef: z.string().nullable().optional(),
+  recordMissing: z.boolean().optional(),
+  /** The work raised to answer it. Null until somebody is given the job. */
+  task: z
+    .object({
+      id: z.string(),
+      reference: z.string(),
+      title: z.string(),
+      status: taskStatusSchema,
+      priority: taskPrioritySchema,
+      dueAt: z.string().nullable(),
+      assignee: personSchema.nullable(),
+    })
+    .nullable(),
+  openedBy: personSchema,
+  closedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const ticketPageSchema = z.object({
+  items: z.array(ticketSchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+  pageCount: z.number(),
+});
+
+export const ticketSummarySchema = z.object({
+  /** The ones whose task is on my desk. */
+  mine: z.number(),
+  open: z.number(),
+  unassigned: z.number(),
+  closed: z.number(),
+  all: z.number(),
+  urgent: z.number(),
+});
+
+export type WorkspaceTicket = z.infer<typeof ticketSchema>;
+export type TicketPage = z.infer<typeof ticketPageSchema>;
+export type TicketSummary = z.infer<typeof ticketSummarySchema>;
+export type TicketChannel = z.infer<typeof ticketChannelSchema>;
+
+/** The words the UI uses for a channel. */
+export const TICKET_CHANNEL_LABEL: Record<TicketChannel, string> = {
+  PHONE: 'Phone',
+  EMAIL: 'Email',
+  WHATSAPP: 'WhatsApp',
+  IN_PERSON: 'In person',
+  PORTAL: 'Portal',
+};
+
+/**
+ * A ticket's own words for the shared status ladder.
+ *
+ * The same five states a task has, said the way a customer-facing record says
+ * them: a task is COMPLETED, a complaint is *Resolved*. One enum underneath,
+ * because two enums is how a ticket ends up saying OPEN about work that
+ * finished last week — but the reader of a ticket is answering a person, not
+ * closing a job, and "Completed" is the wrong word for that.
+ */
+export const TICKET_STATUS_LABEL: Record<TaskStatus, string> = {
+  OPEN: 'Open',
+  IN_PROGRESS: 'In Progress',
+  WAITING: 'Waiting',
+  COMPLETED: 'Resolved',
+  CANCELLED: 'Cancelled',
+};
+
+/**
+ * And its words for priority.
+ *
+ * Same enum as a task's, same reasoning: `NORMAL` reads as *Medium* and
+ * `URGENT` as *Critical* on a ticket, which is the vocabulary a support queue
+ * uses. The task keeps its own words — nothing about the board changed.
+ */
+export const TICKET_PRIORITY_LABEL: Record<TaskPriority, string> = {
+  LOW: 'Low',
+  NORMAL: 'Medium',
+  HIGH: 'High',
+  URGENT: 'Critical',
+};
+
+/** The order the radios are drawn in, least to most urgent. */
+export const TICKET_PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'] as const;

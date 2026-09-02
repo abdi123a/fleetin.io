@@ -18,6 +18,20 @@ export interface CloseButtonProps extends ComponentPropsWithoutRef<'button'> {
   label?: string;
 }
 
+/**
+ * The look of a corner icon control: a bordered, white, 34px square.
+ *
+ * Exported because Close is not the only one. A panel's Edit sits beside it in
+ * the same corner, and when the two were styled separately they drifted — a
+ * borderless label next to a bordered box, reading as two unrelated controls.
+ * Anything that shares that corner wears this, so they cannot drift again.
+ */
+export const cornerActionClasses = cn(
+  'inline-flex shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border/80 bg-background p-2',
+  'text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground',
+  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+);
+
 export const CloseButton = forwardRef<HTMLButtonElement, CloseButtonProps>(
   function CloseButton({ className, label = 'Close', ...props }, ref) {
     return (
@@ -25,12 +39,7 @@ export const CloseButton = forwardRef<HTMLButtonElement, CloseButtonProps>(
         ref={ref}
         type="button"
         aria-label={label}
-        className={cn(
-          'shrink-0 cursor-pointer rounded-lg border border-border/80 bg-background p-2',
-          'text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground',
-          'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
-          className,
-        )}
+        className={cn(cornerActionClasses, className)}
         {...props}
       >
         <X className="h-4 w-4" />

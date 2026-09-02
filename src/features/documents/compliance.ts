@@ -174,3 +174,50 @@ export const DOCUMENT_STATE_LABEL: Record<DocumentState, string> = {
   expired: 'Expired',
   missing: 'Missing',
 };
+
+/**
+ * One line per kind of record: how many there are, and how many are short.
+ *
+ * A total of papers answers "how much is outstanding"; this answers "who do I
+ * call". Those are different questions and the second is the one a dispatcher
+ * has — three missing certificates spread over three trucks is three
+ * conversations, and the same three on one truck is one truck that cannot
+ * leave. Counting *owners* rather than papers is what tells them apart.
+ *
+ * An owner is short if any one of its required papers is not valid, whichever
+ * way it fails. The breakdown by state stays on the dossier; a list row only
+ * has room for the number of records that need a call.
+ */
+export interface ComplianceGroup {
+  /** Records of this kind on the carrier — 1 company, N trucks, N drivers. */
+  total: number;
+  /** How many of them are short at least one required paper. */
+  short: number;
+}
+
+export function summariseByOwner(
+  owners: ComplianceOwner[],
+  findings: ComplianceFinding[],
+): Record<'PARTNER' | 'VEHICLE' | 'DRIVER', ComplianceGroup> {
+  const groups: Record<'PARTNER' | 'VEHICLE' | 'DRIVER', ComplianceGroup> = {
+    PARTNER: { total: 0, short: 0 },
+    VEHICLE: { total: 0, short: 0 },
+    DRIVER: { total: 0, short: 0 },
+  };
+
+  const shortOwners = new Set<string>();
+  for (const finding of findings) {
+    if (finding.state !== 'valid') shortOwners.add(`${finding.ownerType}:${finding.ownerId}`);
+  }
+
+  for (const owner of owners) {
+    if (owner.ownerType !== 'PARTNER' && owner.ownerType !== 'VEHICLE' && owner.ownerType !== 'DRIVER') {
+      continue;
+    }
+    const group = groups[owner.ownerType];
+    group.total += 1;
+    if (shortOwners.has(`${owner.ownerType}:${owner.ownerId}`)) group.short += 1;
+  }
+
+  return groups;
+}

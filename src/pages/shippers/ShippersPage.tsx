@@ -61,6 +61,14 @@ import { useAllInvoices } from '@/features/finance';
 import { compactDjf } from '@/lib/finance/format';
 import { countryCode } from '@/lib/countryFlag';
 import { uploadDocument } from '@/features/documents/api/documentsService';
+import { useDocumentBook } from '@/features/documents/api/queries';
+import {
+  OwnerComplianceCell,
+  complianceFindings,
+  tallyFindings,
+  type ComplianceOwner,
+  type ComplianceTally,
+} from '@/features/documents';
 import type { ShipperRecord, ApprovalStatus } from '@/types/shipper';
 
 export type { ShipperRecord };
@@ -146,6 +154,27 @@ export function ShippersPage() {
   const navigate = useNavigate();
   const { data: shippersResponse, isLoading } = useShippers();
   const shippers = useMemo(() => shippersResponse?.items ?? [], [shippersResponse]);
+
+  /**
+   * Whether each shipper's papers are in order.
+   *
+   * The whole document book in one read, then a tally per row — the same trade
+   * the Transporters list makes, and deliberately the same request, so the two
+   * pages share one cached response instead of each fetching the register.
+   */
+  const { data: documentBook } = useDocumentBook();
+  const complianceByShipper = useMemo(() => {
+    const docs = documentBook ?? [];
+    const now = Date.now();
+    const map = new Map<string, ComplianceTally>();
+    for (const shipper of shippers) {
+      const owners: ComplianceOwner[] = [
+        { ownerType: 'SHIPPER', ownerId: shipper.id, ownerLabel: shipper.companyLegalName },
+      ];
+      map.set(shipper.id, tallyFindings(complianceFindings(owners, docs, now)));
+    }
+    return map;
+  }, [shippers, documentBook]);
   // activeShipments/pastShipments arrive already computed server-side (never
   // stored, joined against real Shipment rows per request) — no local
   // recomputation against a Shipments store needed here anymore.
@@ -571,6 +600,11 @@ export function ShippersPage() {
       {/* Slide-over Drawer for Create / Edit / Profile Quick View */}
       <Sheet open={drawerState.mode !== 'closed'} onOpenChange={(open) => !open && setDrawerState({ mode: 'closed' })}>
         <SheetContent
+          /* Only the profile view draws its own close, inside `PanelHeader`.
+             This one `SheetContent` also hosts the create and edit forms,
+             whose `SheetHeading` has no close of its own — hiding it outright
+             would leave those two with no way out but Escape. */
+          hideCloseButton={drawerState.mode === 'profile'}
           side="right"
           className="flex h-full w-full flex-col gap-0 overflow-hidden border-l border-border bg-background p-0 sm:max-w-md"
         >
@@ -621,9 +655,8 @@ export function ShippersPage() {
 
           {drawerState.mode === 'profile' && (
             <div className="flex h-full min-h-0 flex-col">
-              {/* Sticky Drawer Profile Header */}
-              <div className="shrink-0 border-b border-border/40 bg-background px-6 pt-6 pb-4 sm:px-8 sm:pt-8">
                 <PanelHeader
+                withClose
                   media={
                     <ShipperLogo
                       logoUrl={drawerState.shipper.logoUrl}
@@ -651,18 +684,15 @@ export function ShippersPage() {
                   }
                 />
 
-                <RecordRaise
-                  recordType="SHIPPER"
-                  recordId={drawerState.shipper.id}
-                  recordRef={drawerState.shipper.reference ?? drawerState.shipper.id}
-                  label={drawerState.shipper.companyLegalName}
-                  size="sm"
-                  className="mt-3"
-                />
-              </div>
-
               {/* Scrollable Profile Body */}
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5 sm:px-8 space-y-4">
+              <RecordRaise
+                recordType="SHIPPER"
+                recordId={drawerState.shipper.id}
+                recordRef={drawerState.shipper.reference ?? drawerState.shipper.id}
+                label={drawerState.shipper.companyLegalName}
+                size="sm"
+              />
               {/* Profile Details Cards */}
               <Card className="p-4 border border-border shadow-2xs space-y-3">
                 <div className="flex items-center gap-2 text-xs font-bold text-foreground pb-2 border-b border-border/40">
@@ -765,7 +795,7 @@ export function ShippersPage() {
             key: 'shipper',
             label: 'Shipper',
             icon: Building2,
-            width: canSeeMoney ? 'w-[30%]' : 'w-[38%]',
+            width: canSeeMoney ? 'w-[24%]' : 'w-[31%]',
             card: 'identity',
             cell: (shipper) => (
               <div className="flex min-w-0 items-center gap-2.5">
@@ -812,7 +842,7 @@ export function ShippersPage() {
             key: 'registration',
             label: 'Reg no',
             icon: FileText,
-            width: canSeeMoney ? 'w-[17%]' : 'w-[20%]',
+            width: canSeeMoney ? 'w-[14%]' : 'w-[17%]',
             cell: (shipper) => (
               <span className="block truncate font-mono text-xs font-semibold text-foreground">
                 {shipper.registrationNumber || '—'}
@@ -829,7 +859,7 @@ export function ShippersPage() {
             key: 'lastShipment',
             label: 'Last shipment',
             icon: Calendar,
-            width: 'w-[18%]',
+            width: 'w-[15%]',
             cardLabel: 'Last shipment',
             cell: (shipper) => {
               const raw = shipper.lastShipmentAt;
@@ -871,7 +901,7 @@ export function ShippersPage() {
               key: 'outstanding',
               label: 'Outstanding',
               icon: Clock,
-              width: 'w-[15%]',
+              width: 'w-[13%]',
               cardLabel: 'Outstanding',
               cell: (shipper) => {
                 const money = moneyByShipper.get(shipper.id);
@@ -907,6 +937,16 @@ export function ShippersPage() {
               ] satisfies DataColumn<ShipperRecord>[])
             : []),
           {
+            key: 'documents',
+            label: 'Documents',
+            icon: FileText,
+            width: 'w-[14%]',
+            cardLabel: 'Documents',
+            /* The same reading the Transporters list gives a haulier, for the
+               one owner this row is about — see `OwnerComplianceCell`. */
+            cell: (shipper) => <OwnerComplianceCell tally={complianceByShipper.get(shipper.id)} />,
+          },
+          {
             key: 'shipments',
             label: 'Active',
             icon: Truck,
@@ -929,7 +969,7 @@ export function ShippersPage() {
           {
             key: 'actions',
             label: 'Actions',
-            width: canSeeMoney ? 'w-[10%]' : 'w-[12%]',
+            width: canSeeMoney ? 'w-[10%]' : 'w-[11%]',
             card: 'trailing',
             /* The menu only. A "Profile" button beside it opened the same drawer
                the row itself opens and the menu's own first item opens — three

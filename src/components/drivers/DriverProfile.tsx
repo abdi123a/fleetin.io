@@ -62,6 +62,8 @@ export interface DriverProfileHeaderProps {
   /** Turns on the shared Edit control. Omitted where the panel is read-only. */
   onEdit?: () => void;
   editing?: boolean;
+  /** Draw the sheet's close beside Edit — see `PanelHeader`. */
+  withClose?: boolean;
   className?: string;
 }
 
@@ -69,11 +71,13 @@ export function DriverProfileHeader({
   driver,
   onEdit,
   editing,
+  withClose,
   className,
 }: DriverProfileHeaderProps) {
   return (
     <PanelHeader
       className={className}
+      withClose={withClose}
       media={
         <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/80 bg-muted">
           {driver.profilePictureUrl ? (
@@ -176,10 +180,6 @@ export function DriverProfileOverview({
               {driver.drivingLicenseNumber}
             </span>
           </div>
-          <div className="min-w-0">
-            <span className="block text-[10px] text-muted-foreground">License Expiry</span>
-            <DriverExpiryLabel date={driver.licenseExpiry} />
-          </div>
         </div>
       </section>
 
@@ -239,23 +239,27 @@ export function DriverProfileSheet({
   return (
     <Sheet open={Boolean(driver)} onOpenChange={(open) => !open && onClose()}>
       <SheetContent
+        hideCloseButton
         side="right"
-        className="w-full space-y-6 overflow-y-auto border-l border-border bg-background p-6 sm:max-w-md"
+        className="flex w-full flex-col gap-0 overflow-hidden border-l border-border bg-background p-0 sm:max-w-md"
       >
         <SheetTitle className="sr-only">Driver Profile</SheetTitle>
         <SheetDescription className="sr-only">
           Performance and details for this driver.
         </SheetDescription>
         {driver && (
-          <div className="space-y-6">
-            <DriverProfileHeader driver={driver} />
-            <DriverProfileOverview
-              driver={driver}
-              summary={summary}
-              transporter={transporter}
-              footer={footer}
-            />
-          </div>
+          <>
+            <DriverProfileHeader driver={driver} withClose />
+            {/* The body scrolls under the header, which stays put. */}
+            <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-5 sm:px-8">
+              <DriverProfileOverview
+                driver={driver}
+                summary={summary}
+                transporter={transporter}
+                footer={footer}
+              />
+            </div>
+          </>
         )}
       </SheetContent>
     </Sheet>

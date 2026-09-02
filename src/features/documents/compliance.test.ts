@@ -5,6 +5,7 @@ import {
   byUrgency,
   complianceFindings,
   documentState,
+  summariseByOwner,
   tallyFindings,
 } from './compliance';
 import type { DocumentRecord } from './api/documentsService';
@@ -147,5 +148,45 @@ describe('complianceFindings', () => {
     );
     const order = [...findings].sort(byUrgency).map((f) => f.state);
     expect(order).toEqual(['missing', 'expired', 'expiring']);
+  });
+});
+
+describe('summariseByOwner', () => {
+  const owners = [
+    { ownerType: 'PARTNER' as const, ownerId: 'p1', ownerLabel: 'Dita Transit' },
+    { ownerType: 'VEHICLE' as const, ownerId: 'v1', ownerLabel: 'DT-2238-DJ' },
+    { ownerType: 'VEHICLE' as const, ownerId: 'v2', ownerLabel: 'DT-9111-DJ' },
+    { ownerType: 'DRIVER' as const, ownerId: 'dr1', ownerLabel: 'Kamil' },
+  ];
+
+  it('counts records that need a call, not papers that are outstanding', () => {
+    /* Two gaps on ONE truck is one truck that cannot leave; two gaps across two
+       trucks is two conversations. A paper count cannot tell those apart. */
+    const findings = complianceFindings(owners, [], NOW);
+    const bothOnOneTruck = findings.filter((f) => f.ownerId !== 'v2' || f.category === 'Grey Card');
+    expect(summariseByOwner(owners, bothOnOneTruck).VEHICLE).toEqual({ total: 2, short: 2 });
+  });
+
+  it('counts an owner once however many of its papers fail', () => {
+    const findings = complianceFindings(owners, [], NOW);
+    expect(summariseByOwner(owners, findings)).toEqual({
+      PARTNER: { total: 1, short: 1 },
+      VEHICLE: { total: 2, short: 2 },
+      DRIVER: { total: 1, short: 1 },
+    });
+  });
+
+  it('leaves a fully papered carrier with nothing short', () => {
+    const held = [
+      doc({ ownerType: 'PARTNER', ownerId: 'p1', category: 'Business License' }),
+      doc({ ownerType: 'VEHICLE', ownerId: 'v1', category: 'Grey Card' }),
+      doc({ ownerType: 'VEHICLE', ownerId: 'v1', category: 'Insurance' }),
+      doc({ ownerType: 'VEHICLE', ownerId: 'v2', category: 'Grey Card' }),
+      doc({ ownerType: 'VEHICLE', ownerId: 'v2', category: 'Insurance' }),
+      doc({ ownerType: 'DRIVER', ownerId: 'dr1', category: 'Driver License' }),
+    ];
+    const groups = summariseByOwner(owners, complianceFindings(owners, held, NOW));
+    expect(groups.PARTNER.short + groups.VEHICLE.short + groups.DRIVER.short).toBe(0);
+    expect(groups.VEHICLE.total).toBe(2);
   });
 });

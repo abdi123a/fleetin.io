@@ -24,7 +24,7 @@ import {
   VerificationBadge,
 } from '@/design-system';
 import { ROUTES } from '@/config/routes';
-import { cn } from '@/utils';
+import { cn, isDriverVerified } from '@/utils';
 import { BookingPreviewSheet, type BookingPreviewItem, type EmptyReturnStage } from './components';
 import { CrewPicker, CrewStack } from '@/components/crew';
 import {
@@ -34,7 +34,7 @@ import {
   type DebriefDraft,
   type DebriefSubject,
 } from '@/components/bookings';
-import { RecordRaise } from '@/features/workspace';
+import { RecordRaise, RecordTickets } from '@/features/workspace';
 import { useSetShipmentCrew, useShipment, useShipmentRaw } from '@/features/shipments/api/queries';
 import { markShipmentSeen } from '@/features/shipments/seenShipments';
 import { useBookingsForShipment } from '@/features/bookings/api/queries';
@@ -145,7 +145,7 @@ function bookingToPreviewItem(booking: BookingRecord, cycle: EmptyReturnCycleRec
     driverPhone: booking.driver?.phone,
     // "Verified" reads as current documents, not expired — the closest honest
     // signal the real data has; there is no separate verified flag to fake.
-    driverVerified: booking.driver ? new Date(booking.driver.licenseExpiry).getTime() > now : false,
+    driverVerified: booking.driver ? isDriverVerified(booking.driver) : false,
     vehicleNumber: booking.vehicle?.plateNumber ?? '—',
     vehicleType: booking.vehicle?.truckType,
     vehicleVerified: booking.vehicle
@@ -1120,6 +1120,18 @@ export function ShipmentOverviewPage() {
       <ShipmentReportPanel
         bookings={bookingRecords ?? []}
         cyclesByBookingId={cyclesByBookingId}
+      />
+
+      {/* What has been reported about this shipment.
+          Below the report, because the report is what the shipment did and
+          this is what somebody outside says went wrong with it — the second
+          question is only asked once the first has been read. */}
+      <RecordTickets
+        recordType="SHIPMENT"
+        recordId={mission.id}
+        recordRef={id ?? mission.id}
+        label={mission.customer.company}
+        className="space-y-3 rounded-lg border border-border/80 bg-card p-4"
       />
 
       {/* BOOKING PREVIEW SIDE SHEET */}

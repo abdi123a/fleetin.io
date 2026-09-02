@@ -245,8 +245,10 @@ export function BookingPreviewSheet({
   const isVehicleVerified = (vehicle: { registrationExpiry: string; insuranceExpiry: string }) =>
     new Date(vehicle.registrationExpiry).getTime() > Date.now() &&
     new Date(vehicle.insuranceExpiry).getTime() > Date.now();
-  const isDriverVerified = (driver: { licenseExpiry: string }) =>
-    new Date(driver.licenseExpiry).getTime() > Date.now();
+  /* One rule, in `@/utils` — a driver is verified by holding a licence number,
+     not by a date. See `isDriverVerified`. */
+  const isDriverVerified = (driver: { drivingLicenseNumber?: string | null }) =>
+    Boolean(driver.drivingLicenseNumber?.trim());
 
   const assignableVehicles = [...(partnerVehicles?.items ?? [])].sort(
     (a, b) => Number(isVehicleVerified(b)) - Number(isVehicleVerified(a)),
@@ -281,7 +283,7 @@ export function BookingPreviewSheet({
             driverName: updated.driver?.fullName ?? 'Unassigned',
             driverPhone: updated.driver?.phone,
             driverVerified: updated.driver
-              ? new Date(updated.driver.licenseExpiry).getTime() > Date.now()
+              ? isDriverVerified(updated.driver)
               : false,
             status: updated.status,
             statusIntent: statusIntentOf(updated.status),
@@ -372,7 +374,7 @@ export function BookingPreviewSheet({
             driverId: updated.driverId ?? undefined,
             driverName: updated.driver?.fullName ?? 'Unassigned',
             driverPhone: updated.driver?.phone,
-            driverVerified: updated.driver ? new Date(updated.driver.licenseExpiry).getTime() > Date.now() : false,
+            driverVerified: updated.driver ? isDriverVerified(updated.driver) : false,
             status: updated.status,
             statusIntent: statusIntentOf(updated.status),
           });

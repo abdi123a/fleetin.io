@@ -40,6 +40,16 @@ export interface DocumentTypeSpec {
    * The others are issued by the state, which is not a question.
    */
   issuer?: { label: string; catalog: 'insurers' };
+  /**
+   * The paper carries no expiry date, so nothing may ask for one.
+   *
+   * Only the driving licence, and only because Djibouti issues them without
+   * one. It is a property of the DOCUMENT rather than of the driver: the record
+   * used to hold a `licenseExpiry` column, which meant the system invented a
+   * deadline, alerted on it, and withdrew a driver's verified tick when its own
+   * invention lapsed. Dropped 2026-09-02.
+   */
+  neverExpires?: boolean;
 }
 
 export const DOCUMENT_CATALOG: Readonly<
@@ -51,7 +61,7 @@ export const DOCUMENT_CATALOG: Readonly<
     { label: 'Grey Card', required: true },
     { label: 'Insurance', required: true, issuer: { label: 'Insurance company', catalog: 'insurers' } },
   ],
-  DRIVER: [{ label: 'Driver License', required: true }],
+  DRIVER: [{ label: 'Driver License', required: true, neverExpires: true }],
 };
 
 export function documentCatalogFor(ownerType: DocumentOwnerType): readonly DocumentTypeSpec[] {
@@ -85,6 +95,38 @@ export function documentValidity(expiryDate: string | null | undefined, now = Da
   if (Number.isNaN(at)) return 'undated';
   if (at <= now) return 'expired';
   return at - now <= EXPIRY_WARNING_DAYS * 86_400_000 ? 'expiring' : 'valid';
+}
+
+/**
+ * Newest first, where "newest" means the copy that is in force.
+ *
+ * A renewed paper is uploaded BESIDE the one it replaces, not over it — the old
+ * certificate is still the evidence for the period it covered, and a compliance
+ * file that overwrites its own history is not a compliance file. So a category
+ * holds several copies, and something has to say which one is current.
+ *
+ * Expiry decides it, because that is what "current" means for a licence: the
+ * copy that runs latest is the one in force. Upload time only breaks ties
+ * between undated copies — it is a fact about the office, and a certificate
+ * filed late is still the newer certificate.
+ *
+ * Mirrors `rank` in `compliance.ts`, which ranks the same way to decide a
+ * category's state. The two must agree: a folder showing one copy as current
+ * while the tally judged a different one would be reporting on a paper the
+ * reader cannot see.
+ */
+export function newestFirst(
+  a: { expiryDate?: string | null; uploadedAt?: string | null },
+  b: { expiryDate?: string | null; uploadedAt?: string | null },
+): number {
+  return rankOf(b) - rankOf(a);
+}
+
+function rankOf(doc: { expiryDate?: string | null; uploadedAt?: string | null }): number {
+  const expiry = doc.expiryDate ? new Date(doc.expiryDate).getTime() : NaN;
+  if (!Number.isNaN(expiry)) return expiry;
+  const uploaded = doc.uploadedAt ? new Date(doc.uploadedAt).getTime() : NaN;
+  return Number.isNaN(uploaded) ? 0 : uploaded;
 }
 
 /** Whole days until it lapses — negative once it has. */

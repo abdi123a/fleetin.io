@@ -103,6 +103,11 @@ export function DocumentCaptureDialog({
   const submit = () => {
     if (!file) return setOwnError('Choose the scanned document.');
     if (!issueDate) return setOwnError('Enter the registration date printed on it.');
+    /* A paper with no expiry cannot be asked for one — see `neverExpires`. */
+    if (spec.neverExpires) {
+      onSubmit({ file, issueDate, expiryDate: '', issuer: spec.issuer ? issuer.trim() : undefined });
+      return;
+    }
     if (!expiryDate) return setOwnError('Enter the date it expires.');
     if (new Date(expiryDate) <= new Date(issueDate)) {
       return setOwnError('It cannot expire on or before the day it was issued.');
@@ -167,10 +172,12 @@ export function DocumentCaptureDialog({
 
           {/* Both dates, side by side, because they are read off the same line
               of the same paper. */}
-          <div className="grid grid-cols-2 gap-2.5">
+          {/* One column when the paper never expires, so the form does not
+              leave a disabled or empty "Expires" box implying a date exists. */}
+          <div className={spec.neverExpires ? '' : 'grid grid-cols-2 gap-2.5'}>
             <label className="space-y-1">
               <span className="block text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-                Registered
+                {spec.neverExpires ? 'Issued' : 'Registered'}
               </span>
               <Input
                 type="date"
@@ -178,16 +185,18 @@ export function DocumentCaptureDialog({
                 onChange={(event) => setIssueDate(event.target.value)}
               />
             </label>
-            <label className="space-y-1">
-              <span className="block text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-                Expires
-              </span>
-              <Input
-                type="date"
-                value={expiryDate}
-                onChange={(event) => setExpiryDate(event.target.value)}
-              />
-            </label>
+            {!spec.neverExpires && (
+              <label className="space-y-1">
+                <span className="block text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                  Expires
+                </span>
+                <Input
+                  type="date"
+                  value={expiryDate}
+                  onChange={(event) => setExpiryDate(event.target.value)}
+                />
+              </label>
+            )}
           </div>
 
           {spec.issuer && (

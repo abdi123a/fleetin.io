@@ -1,419 +1,432 @@
-import React, { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { AlertTriangle, Info } from '@/design-system/icons';
+import { Button, Input, Select, Textarea } from '@/design-system';
 import {
-  Compass,
-  Maximize,
-  Minimize,
-  MapPin as MapPinIcon,
-} from '@/design-system/icons';
-import { Button, Card, Input, Select } from '@/design-system';
+  LOCATION_KINDS,
+  LOCATION_KIND_LABELS,
+  coordsOf,
+  useCreateLocation,
+  useMapsStatus,
+  useUpdateLocation,
+  type LocationKind,
+  type LocationRecord,
+  type PlaceCandidate,
+} from '@/features/locations';
+import { LocationMapPicker } from '@/features/locations/components/LocationMapPicker';
+import { PlaceSearchField } from '@/features/locations/components/PlaceSearchField';
 
-export interface LocationFormData {
-  city: string;
-  addressType1: string;
-  addressType2: string;
-  addressType3: string;
-  postalCode: string;
-  latitude: string;
-  longitude: string;
-}
-
-const CITY_OPTIONS = [
-  { value: 'Mogadishu', label: 'Mogadishu' },
-  { value: 'Nairobi', label: 'Nairobi' },
-  { value: 'Djibouti', label: 'Djibouti' },
-  { value: 'Addis Ababa', label: 'Addis Ababa' },
-  { value: 'Hargeisa', label: 'Hargeisa' },
-  { value: 'Kismayo', label: 'Kismayo' },
-  { value: 'Bossaso', label: 'Bossaso' },
-  { value: 'Garowe', label: 'Garowe' },
-  { value: 'Berbera', label: 'Berbera' },
-  { value: 'Mombasa', label: 'Mombasa' },
-  { value: 'Dar es Salaam', label: 'Dar es Salaam' },
-  { value: 'Kampala', label: 'Kampala' },
-  { value: 'Kigali', label: 'Kigali' },
-];
+/**
+ * Add a place to the catalogue by finding it on Google.
+ *
+ * What this replaces: a city dropdown of thirteen hardcoded names, three
+ * "Address Type" text boxes, and a fake map — a `<div>` whose click handler
+ * computed `lat = 15 − y × 20` from the pixel you hit. Nothing it produced was
+ * a real coordinate, and nothing downstream could measure to it.
+ *
+ * The shape now is one decision followed by confirmation: search Google, pick
+ * the place, check the pin. Everything else on the form is pre-filled from the
+ * result and editable — the name because this office calls SGTD "Doraleh
+ * Container Terminal (SGTD)" and Google does not, the kind because Google files
+ * half the free zones under "point_of_interest".
+ *
+ * Entering a place by hand is kept as a genuine path, not a degraded one: a
+ * private gate or a yard Google has never heard of is a real place a shipment
+ * goes to, and it is also the whole form when no API key is configured.
+ */
 
 export interface AddLocationFormProps {
-  onSuccess?: (data: LocationFormData) => void;
+  /** Present when editing rather than adding. */
+  location?: LocationRecord;
+  onSuccess?: (location: LocationRecord) => void;
   onCancel?: () => void;
   isCompact?: boolean;
 }
 
-export function AddLocationForm({ onSuccess, onCancel, isCompact = false }: AddLocationFormProps) {
-  const [formData, setFormData] = useState<LocationFormData>({
-    city: '',
-    addressType1: '',
-    addressType2: '',
-    addressType3: '',
-    postalCode: '',
-    latitude: '0',
-    longitude: '0',
-  });
+interface FormState {
+  name: string;
+  kind: LocationKind;
+  googlePlaceId: string | null;
+  formattedAddress: string;
+  city: string;
+  country: string;
+  gateOrTerminal: string;
+  contactPerson: string;
+  contactPhone: string;
+  notes: string;
+  latitude: number | null;
+  longitude: number | null;
+}
 
-  const [mapMode, setMapMode] = useState<'map' | 'satellite'>('map');
-  const [isMaximized, setIsMaximized] = useState(false);
-  const [pinPos, setPinPos] = useState<{ x: number; y: number } | null>(null);
-  const [errors, setErrors] = useState<{ city?: string; addressType1?: string }>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
+const EMPTY: FormState = {
+  name: '',
+  kind: 'other',
+  googlePlaceId: null,
+  formattedAddress: '',
+  city: 'Djibouti',
+  country: 'Djibouti',
+  gateOrTerminal: '',
+  contactPerson: '',
+  contactPhone: '',
+  notes: '',
+  latitude: null,
+  longitude: null,
+};
 
-  const handleInputChange = (field: keyof LocationFormData, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-    if (errors[field as keyof typeof errors]) {
-      setErrors((prev) => ({ ...prev, [field]: undefined }));
+const KIND_OPTIONS = LOCATION_KINDS.map((kind) => ({
+  value: kind,
+  label: LOCATION_KIND_LABELS[kind],
+}));
+
+function stateFrom(location: LocationRecord): FormState {
+  const { lat, lng } = coordsOf(location);
+  return {
+    name: location.name,
+    kind: location.kind,
+    googlePlaceId: location.googlePlaceId,
+    formattedAddress: location.formattedAddress ?? '',
+    city: location.city,
+    country: location.country,
+    gateOrTerminal: location.gateOrTerminal ?? '',
+    contactPerson: location.contactPerson ?? '',
+    contactPhone: location.contactPhone ?? '',
+    notes: location.notes ?? '',
+    latitude: lat,
+    longitude: lng,
+  };
+}
+
+export function AddLocationForm({
+  location,
+  onSuccess,
+  onCancel,
+  isCompact = false,
+}: AddLocationFormProps) {
+  const isEditing = Boolean(location);
+  const [form, setForm] = useState<FormState>(location ? stateFrom(location) : EMPTY);
+  const [errors, setErrors] = useState<{ name?: string; coords?: string }>({});
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  /* Set when the operator drags the pin or types a coordinate, so the form can
+     say the position is theirs now rather than Google's. */
+  const [pinMoved, setPinMoved] = useState(false);
+
+  const { data: mapsStatus } = useMapsStatus();
+  const googleReady = mapsStatus?.googleConfigured ?? false;
+
+  const createLocation = useCreateLocation();
+  const updateLocation = useUpdateLocation();
+  const isSubmitting = createLocation.isPending || updateLocation.isPending;
+
+  useEffect(() => {
+    if (location) setForm(stateFrom(location));
+  }, [location]);
+
+  const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    if (key === 'name' && errors.name) setErrors((prev) => ({ ...prev, name: undefined }));
+  };
+
+  /** A Google result, taken whole. The operator edits it afterwards if needed. */
+  const acceptCandidate = (candidate: PlaceCandidate) => {
+    setForm((prev) => ({
+      ...prev,
+      googlePlaceId: candidate.googlePlaceId,
+      /* Google's name only when the operator has not typed their own — an
+         existing name is a deliberate choice and must survive a re-search. */
+      name: prev.name.trim() ? prev.name : candidate.name,
+      kind: candidate.kind,
+      formattedAddress: candidate.formattedAddress,
+      city: candidate.city ?? prev.city,
+      country: candidate.country ?? prev.country,
+      latitude: candidate.latitude,
+      longitude: candidate.longitude,
+    }));
+    setPinMoved(false);
+    setErrors({});
+  };
+
+  const movePin = (coords: { latitude: number; longitude: number }) => {
+    setForm((prev) => ({ ...prev, latitude: coords.latitude, longitude: coords.longitude }));
+    setPinMoved(true);
+    setErrors((prev) => ({ ...prev, coords: undefined }));
+  };
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSubmitError(null);
+
+    const nextErrors: typeof errors = {};
+    if (!form.name.trim()) nextErrors.name = 'Give the location a name.';
+    if (form.latitude == null || form.longitude == null) {
+      nextErrors.coords =
+        'A location needs a position — search for it, or click the map to drop a pin.';
     }
-  };
-
-  const handleMapClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
-
-    const relX = clickX / rect.width;
-    const relY = clickY / rect.height;
-
-    const latVal = (15 - relY * 20).toFixed(6);
-    const lonVal = (32 + relX * 20).toFixed(6);
-
-    setPinPos({ x: (clickX / rect.width) * 100, y: (clickY / rect.height) * 100 });
-    setFormData((prev) => ({
-      ...prev,
-      latitude: latVal,
-      longitude: lonVal,
-    }));
-  };
-
-  const handleRecenter = () => {
-    setPinPos({ x: 58, y: 48 });
-    setFormData((prev) => ({
-      ...prev,
-      latitude: '11.8251',
-      longitude: '42.5903',
-    }));
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    const newErrors: { city?: string; addressType1?: string } = {};
-    if (!formData.city) newErrors.city = 'City is required';
-    if (!formData.addressType1) newErrors.addressType1 = 'Address Type 1 is required';
-
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors);
       return;
     }
 
-    setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
-      onSuccess?.(formData);
-    }, 600);
+    const payload = {
+      name: form.name.trim(),
+      kind: form.kind,
+      formattedAddress: form.formattedAddress || undefined,
+      city: form.city || undefined,
+      country: form.country || undefined,
+      gateOrTerminal: form.gateOrTerminal || undefined,
+      contactPerson: form.contactPerson || undefined,
+      contactPhone: form.contactPhone || undefined,
+      notes: form.notes || undefined,
+      latitude: form.latitude ?? undefined,
+      longitude: form.longitude ?? undefined,
+    };
+
+    try {
+      const saved = location
+        ? await updateLocation.mutateAsync({ id: location.id, payload })
+        : await createLocation.mutateAsync({
+            ...payload,
+            /* Sent only when the pin still sits where Google put it. A dragged
+               pin is the operator's position, and passing the place id would
+               have the server overwrite it with Google's own. */
+            googlePlaceId: pinMoved ? undefined : (form.googlePlaceId ?? undefined),
+          });
+      onSuccess?.(saved);
+    } catch (error) {
+      setSubmitError((error as Error).message || 'Could not save the location.');
+    }
   };
 
   return (
     <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5 sm:px-8">
-      <div className="space-y-5">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="space-y-1">
-          <div className="relative">
-            <Select
-              id="form-city-select"
-              value={formData.city}
-              placeholder="City *"
-              options={CITY_OPTIONS}
-              onChange={(e) => handleInputChange('city', e.target.value)}
-              hasError={Boolean(errors.city)}
-            />
-            {formData.city && (
-              <label
-                htmlFor="form-city-select"
-                className="absolute -top-2.5 left-3 z-20 bg-background px-1 text-[11px] font-medium text-muted-foreground"
-              >
-                City *
-              </label>
-            )}
-          </div>
-          {errors.city && <p className="text-xs text-destructive">{errors.city}</p>}
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-6 py-5 sm:px-8">
+        {/* ─ Find it on Google ─ */}
+        <div className="space-y-2">
+          <label className="block text-[11px] font-bold text-foreground">
+            Find the place
+          </label>
+          <PlaceSearchField onPick={acceptCandidate} enabled={googleReady} />
+          {!googleReady && (
+            <p className="flex items-start gap-2 rounded-md border border-border bg-secondary/40 px-3 py-2 text-[11px] text-muted-foreground">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                No Google Maps key on the server, so search is off. Drop the pin on the map
+                and fill the name in yourself — the location works either way, and distances
+                to it fall back to straight-line estimates until a key is set.
+              </span>
+            </p>
+          )}
         </div>
 
-        <div className="space-y-1">
-          <div className="relative">
+        {/* ─ The pin ─ */}
+        <div className="space-y-2">
+          <LocationMapPicker
+            latitude={form.latitude}
+            longitude={form.longitude}
+            onChange={movePin}
+            height={isCompact ? 240 : 320}
+          />
+          {errors.coords && <p className="text-xs text-destructive">{errors.coords}</p>}
+
+          <div className="grid grid-cols-2 gap-3">
+            <CoordinateInput
+              label="Latitude"
+              value={form.latitude}
+              onChange={(value) => {
+                setForm((prev) => ({ ...prev, latitude: value }));
+                setPinMoved(true);
+              }}
+            />
+            <CoordinateInput
+              label="Longitude"
+              value={form.longitude}
+              onChange={(value) => {
+                setForm((prev) => ({ ...prev, longitude: value }));
+                setPinMoved(true);
+              }}
+            />
+          </div>
+
+          {form.googlePlaceId && pinMoved && (
+            <p className="text-[11px] text-muted-foreground">
+              Pin moved off Google’s position — saved as this office’s own.
+            </p>
+          )}
+        </div>
+
+        {/* ─ What it is ─ */}
+        <div className="space-y-3 border-t border-border/40 pt-4">
+          <div className="space-y-1">
+            <label htmlFor="location-name" className="block text-[11px] font-bold text-foreground">
+              Name *
+            </label>
             <Input
-              id="form-addressType1"
-              type="text"
-              value={formData.addressType1}
-              placeholder={formData.addressType1 ? '' : 'Address Type 1 *'}
-              onChange={(e) => handleInputChange('addressType1', e.target.value)}
-              hasError={Boolean(errors.addressType1)}
+              id="location-name"
+              value={form.name}
+              onChange={(event) => set('name', event.target.value)}
+              placeholder="Doraleh Container Terminal (SGTD)"
+              hasError={Boolean(errors.name)}
             />
-            {formData.addressType1 && (
-              <label
-                htmlFor="form-addressType1"
-                className="absolute -top-2.5 left-3 z-20 bg-background px-1 text-[11px] font-medium text-muted-foreground"
-              >
-                Address Type 1 *
-              </label>
-            )}
+            {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
           </div>
-          {errors.addressType1 && (
-            <p className="text-xs text-destructive">{errors.addressType1}</p>
-          )}
-        </div>
 
-        <div className="relative">
-          <Input
-            id="form-addressType2"
-            type="text"
-            value={formData.addressType2}
-            placeholder={formData.addressType2 ? '' : 'Address Type 2'}
-            onChange={(e) => handleInputChange('addressType2', e.target.value)}
-          />
-          {formData.addressType2 && (
-            <label
-              htmlFor="form-addressType2"
-              className="absolute -top-2.5 left-3 z-20 bg-background px-1 text-[11px] font-medium text-muted-foreground"
-            >
-              Address Type 2
-            </label>
-          )}
-        </div>
-
-        <div className="relative">
-          <Input
-            id="form-addressType3"
-            type="text"
-            value={formData.addressType3}
-            placeholder={formData.addressType3 ? '' : 'Address Type 3'}
-            onChange={(e) => handleInputChange('addressType3', e.target.value)}
-          />
-          {formData.addressType3 && (
-            <label
-              htmlFor="form-addressType3"
-              className="absolute -top-2.5 left-3 z-20 bg-background px-1 text-[11px] font-medium text-muted-foreground"
-            >
-              Address Type 3
-            </label>
-          )}
-        </div>
-
-        <div className="relative sm:col-span-1">
-          <Input
-            id="form-postalCode"
-            type="text"
-            value={formData.postalCode}
-            placeholder={formData.postalCode ? '' : 'Postal Code'}
-            onChange={(e) => handleInputChange('postalCode', e.target.value)}
-          />
-          {formData.postalCode && (
-            <label
-              htmlFor="form-postalCode"
-              className="absolute -top-2.5 left-3 z-20 bg-background px-1 text-[11px] font-medium text-muted-foreground"
-            >
-              Postal Code
-            </label>
-          )}
-        </div>
-      </div>
-
-      <Card
-        className={`relative w-full border border-border bg-muted dark:bg-card overflow-hidden transition-all shadow-xs p-0 ${isMaximized ? 'h-[500px]' : isCompact ? 'h-[280px]' : 'h-[360px]'
-          }`}
-      >
-        <div className="absolute top-2.5 left-2.5 z-20 flex items-center bg-background/95 backdrop-blur border border-border rounded-md shadow-2xs p-0.5 text-xs font-medium">
-          <button
-            type="button"
-            onClick={() => setMapMode('map')}
-            className={`px-2.5 py-1 rounded-sm transition-all ${mapMode === 'map'
-              ? 'bg-primary/10 text-primary font-semibold'
-              : 'text-foreground hover:bg-muted'
-              }`}
-          >
-            Map
-          </button>
-          <button
-            type="button"
-            onClick={() => setMapMode('satellite')}
-            className={`px-2.5 py-1 rounded-sm transition-all ${mapMode === 'satellite'
-              ? 'bg-primary/10 text-primary font-semibold'
-              : 'text-foreground hover:bg-muted'
-              }`}
-          >
-            Satellite
-          </button>
-        </div>
-
-        <div className="absolute top-2.5 right-2.5 z-20">
-          <button
-            type="button"
-            onClick={() => setIsMaximized((prev) => !prev)}
-            aria-label="Toggle Fullscreen Map"
-            className="flex items-center justify-center h-8 w-8 bg-background/95 backdrop-blur border border-border rounded-md shadow-2xs text-foreground hover:bg-muted transition-colors"
-          >
-            {isMaximized ? <Minimize className="h-3.5 w-3.5" /> : <Maximize className="h-3.5 w-3.5" />}
-          </button>
-        </div>
-
-        <div
-          onClick={handleMapClick}
-          className="relative h-full w-full cursor-crosshair select-none overflow-hidden"
-        >
-          <svg className="h-full w-full" viewBox="0 0 1000 600" preserveAspectRatio="none">
-            <defs>
-              <linearGradient id="oceanGradFormDS" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor={mapMode === 'satellite' ? '#11293a' : '#77c3e5'} />
-                <stop offset="100%" stopColor={mapMode === 'satellite' ? '#0a1d2c' : '#5db3dc'} />
-              </linearGradient>
-
-              <linearGradient id="landGradFormDS" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor={mapMode === 'satellite' ? '#2d3b2a' : '#e6f3e6'} />
-                <stop offset="100%" stopColor={mapMode === 'satellite' ? '#243222' : '#d8ebd8'} />
-              </linearGradient>
-            </defs>
-
-            <rect width="1000" height="600" fill="url(#oceanGradFormDS)" />
-
-            <path
-              d="M0,0 L400,0 L350,150 L250,220 L180,300 L120,400 L0,500 Z"
-              fill="url(#landGradFormDS)"
-              stroke={mapMode === 'satellite' ? '#334433' : '#a8cca8'}
-              strokeWidth="1.5"
-            />
-            <path
-              d="M250,220 L480,180 L620,240 L800,280 L750,380 L650,450 L450,550 L350,600 L120,600 L180,300 Z"
-              fill="url(#landGradFormDS)"
-              stroke={mapMode === 'satellite' ? '#334433' : '#a8cca8'}
-              strokeWidth="1.5"
-            />
-            <path
-              d="M500,0 L1000,0 L1000,220 L750,230 L600,160 L500,100 Z"
-              fill="url(#landGradFormDS)"
-              stroke={mapMode === 'satellite' ? '#334433' : '#a8cca8'}
-              strokeWidth="1.5"
-            />
-
-            <path
-              d="M300,100 L350,150 M250,220 L350,250 L420,240 M420,240 L520,320 L580,380 M580,380 L680,480"
-              stroke="#666666"
-              strokeWidth="1.2"
-              strokeDasharray="4 3"
-            />
-
-            <g
-              className={`text-[12px] font-sans font-semibold ${mapMode === 'satellite' ? 'fill-muted' : 'fill-foreground'
-                }`}
-            >
-              <text x="90" y="160">Khartoum</text>
-              <text x="270" y="140">Eritrea</text>
-              <text x="630" y="150" className="text-[13px] font-bold">Yemen</text>
-              <text x="600" y="170">Sanaa</text>
-              <text x="450" y="240" className="text-[13px] font-bold">Djibouti</text>
-              <text x="320" y="320" className="text-[14px] font-bold">Ethiopia</text>
-              <text x="450" y="340">Dire Dawa</text>
-              <text x="60" y="420">Juba</text>
-              <text x="640" y="280" className="text-[12px] font-medium fill-info">
-                Gulf of Aden
-              </text>
-            </g>
-          </svg>
-
-          {pinPos ? (
-            <div
-              className="absolute z-30 -translate-x-1/2 -translate-y-full transition-all duration-300 pointer-events-none"
-              style={{ left: `${pinPos.x}%`, top: `${pinPos.y}%` }}
-            >
-              <div className="relative flex flex-col items-center">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-destructive text-white shadow-lg border-2 border-white animate-bounce">
-                  <MapPinIcon className="h-4 w-4 fill-white text-destructive-subtle-foreground" />
-                </div>
-                <div className="h-1.5 w-3 rounded-full bg-black/30 blur-xs mt-0.5" />
-              </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label htmlFor="location-kind" className="block text-[11px] font-bold text-foreground">
+                Type
+              </label>
+              <Select
+                id="location-kind"
+                value={form.kind}
+                options={KIND_OPTIONS}
+                onChange={(event) => set('kind', event.target.value as LocationKind)}
+              />
             </div>
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="rounded-full bg-background/95 backdrop-blur px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-md border border-border">
-                Click map to select coordinates pin
-              </div>
+            <div className="space-y-1">
+              <label htmlFor="location-city" className="block text-[11px] font-bold text-foreground">
+                City
+              </label>
+              <Input
+                id="location-city"
+                value={form.city}
+                onChange={(event) => set('city', event.target.value)}
+              />
             </div>
-          )}
+          </div>
+
+          <div className="space-y-1">
+            <label htmlFor="location-address" className="block text-[11px] font-bold text-foreground">
+              Address
+            </label>
+            <Input
+              id="location-address"
+              value={form.formattedAddress}
+              onChange={(event) => set('formattedAddress', event.target.value)}
+              placeholder="Filled in from Google when you pick a place"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label htmlFor="location-gate" className="block text-[11px] font-bold text-foreground">
+                Gate or Terminal
+              </label>
+              <Input
+                id="location-gate"
+                value={form.gateOrTerminal}
+                onChange={(event) => set('gateOrTerminal', event.target.value)}
+                placeholder="Gate 3"
+              />
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="location-country" className="block text-[11px] font-bold text-foreground">
+                Country
+              </label>
+              <Input
+                id="location-country"
+                value={form.country}
+                onChange={(event) => set('country', event.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label htmlFor="location-contact" className="block text-[11px] font-bold text-foreground">
+                Contact
+              </label>
+              <Input
+                id="location-contact"
+                value={form.contactPerson}
+                onChange={(event) => set('contactPerson', event.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="location-phone" className="block text-[11px] font-bold text-foreground">
+                Phone
+              </label>
+              <Input
+                id="location-phone"
+                value={form.contactPhone}
+                onChange={(event) => set('contactPhone', event.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label htmlFor="location-notes" className="block text-[11px] font-bold text-foreground">
+              Notes
+            </label>
+            <Textarea
+              id="location-notes"
+              rows={2}
+              value={form.notes}
+              onChange={(event) => set('notes', event.target.value)}
+              placeholder="Access hours, which gate trucks use, who to call on arrival"
+            />
+          </div>
         </div>
 
-        <div className="absolute bottom-2 left-2.5 z-20 flex items-center gap-2 text-[10px] text-foreground dark:text-muted-foreground font-sans pointer-events-none">
-          <span className="font-bold text-xs tracking-tighter text-foreground dark:text-white">
-            Google
-          </span>
-          <span className="hidden sm:inline">Map data ©2026 Google</span>
-        </div>
-
-        <div className="absolute bottom-2.5 right-2.5 z-20">
-          <button
-            type="button"
-            onClick={handleRecenter}
-            title="Recenter location pin"
-            className="flex items-center justify-center h-8 w-8 rounded-full bg-background/95 backdrop-blur border border-border text-foreground hover:bg-muted shadow-2xs transition-colors"
-          >
-            <Compass className="h-4 w-4 text-primary" />
-          </button>
-        </div>
-      </Card>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="relative">
-          <Input
-            id="form-latitude"
-            type="text"
-            value={formData.latitude}
-            onChange={(e) => handleInputChange('latitude', e.target.value)}
-          />
-          <label
-            htmlFor="form-latitude"
-            className="absolute -top-2.5 left-3 z-20 bg-background px-1 text-[11px] font-medium text-muted-foreground"
-          >
-            Latitude
-          </label>
-        </div>
-
-        <div className="relative">
-          <Input
-            id="form-longitude"
-            type="text"
-            value={formData.longitude}
-            onChange={(e) => handleInputChange('longitude', e.target.value)}
-          />
-          <label
-            htmlFor="form-longitude"
-            className="absolute -top-2.5 left-3 z-20 bg-background px-1 text-[11px] font-medium text-muted-foreground"
-          >
-            Longitude
-          </label>
-        </div>
-      </div>
-
-      </div>
+        {submitError && (
+          <p className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>{submitError}</span>
+          </p>
+        )}
       </div>
 
       <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border/40 bg-background px-6 py-4 sm:px-8">
         {onCancel && (
-          <Button
-            type="button"
-            onClick={onCancel}
-            variant="outline"
-            size="sm"
-            className="rounded-lg"
-          >
+          <Button type="button" onClick={onCancel} variant="outline" size="sm" className="rounded-lg">
             Cancel
           </Button>
         )}
-
         <Button
           type="submit"
           isLoading={isSubmitting}
           size="sm"
           className="rounded-lg bg-primary px-5 font-semibold text-primary-foreground"
         >
-          Save
+          {isEditing ? 'Save Changes' : 'Save Location'}
         </Button>
       </div>
     </form>
+  );
+}
+
+/**
+ * A coordinate, typed.
+ *
+ * Kept as free text while being edited rather than parsed on every keystroke:
+ * `parseFloat` on "11." gives 11, which snaps the pin across the map mid-typing
+ * and then fights the next character.
+ */
+function CoordinateInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number | null;
+  onChange: (value: number | null) => void;
+}) {
+  const [draft, setDraft] = useState(value == null ? '' : String(value));
+
+  useEffect(() => {
+    setDraft(value == null ? '' : String(value));
+  }, [value]);
+
+  return (
+    <div className="space-y-1">
+      <label className="block text-[11px] font-bold text-foreground">{label}</label>
+      <Input
+        inputMode="decimal"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => {
+          const parsed = Number.parseFloat(draft);
+          onChange(Number.isFinite(parsed) ? parsed : null);
+        }}
+        placeholder="—"
+      />
+    </div>
   );
 }

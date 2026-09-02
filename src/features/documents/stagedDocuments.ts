@@ -52,6 +52,7 @@ export function useStagedDocuments() {
         name: entry.capture.file.name,
         category: entry.category,
         uploadDate: 'Not filed yet',
+        mimeType: entry.capture.file.type || undefined,
         issueDate: entry.capture.issueDate,
         expiryDate: entry.capture.expiryDate,
         issuer: entry.capture.issuer,

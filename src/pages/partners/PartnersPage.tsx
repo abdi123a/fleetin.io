@@ -36,6 +36,7 @@ import { useDocumentBook } from '@/features/documents/api/queries';
 import {
   ComplianceCell,
   complianceFindings,
+  summariseByOwner,
   tallyFindings,
   type ComplianceOwner,
 } from '@/features/documents';
@@ -276,7 +277,10 @@ export function PartnersPage() {
   const complianceByPartner = useMemo(() => {
     const docs = documentBook ?? [];
     const now = Date.now();
-    const byPartner = new Map<string, ReturnType<typeof tallyFindings>>();
+    const byPartner = new Map<
+      string,
+      { tally: ReturnType<typeof tallyFindings>; groups: ReturnType<typeof summariseByOwner> }
+    >();
     for (const partner of partners) {
       const owners: ComplianceOwner[] = [
         { ownerType: 'PARTNER', ownerId: partner.id, ownerLabel: partner.companyLegalName },
@@ -291,7 +295,11 @@ export function PartnersPage() {
           ownerLabel: driver.fullName,
         })),
       ];
-      byPartner.set(partner.id, tallyFindings(complianceFindings(owners, docs, now)));
+      const findings = complianceFindings(owners, docs, now);
+      byPartner.set(partner.id, {
+        tally: tallyFindings(findings),
+        groups: summariseByOwner(owners, findings),
+      });
     }
     return byPartner;
   }, [partners, documentBook]);
@@ -667,15 +675,16 @@ export function PartnersPage() {
 
       {/* ── Profile Quick View Sheet ── */}
       <Sheet open={drawerState.mode === 'profile'} onOpenChange={(open) => !open && setDrawerState({ mode: 'closed' })}>
-        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto p-5 bg-background border-l border-border">
+        <SheetContent hideCloseButton side="right" className="flex w-full flex-col gap-0 overflow-hidden border-l border-border bg-background p-0 sm:max-w-md">
           <SheetTitle className="sr-only">Transporter Quick View</SheetTitle>
           <SheetDescription className="sr-only">Transporter profile preview</SheetDescription>
           {drawerState.mode === 'profile' && drawerState.partner && (
-            <div className="space-y-5">
+            <>
               {/* This panel had no way to edit at all — the only transporter
                   surface that did not. It opens the same form the list's Edit
                   action does, rather than inventing a second one. */}
               <PanelHeader
+                withClose
                 media={
                   <PartnerLogo
                     logoUrl={drawerState.partner.logoUrl}
@@ -694,6 +703,9 @@ export function PartnersPage() {
                 }
               />
 
+              {/* The body scrolls under the header, which stays put — the
+                  arrangement every form sheet already uses. */}
+              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5 sm:px-8">
               <RecordRaise
                 recordType="PARTNER"
                 recordId={drawerState.partner.id}
@@ -741,7 +753,8 @@ export function PartnersPage() {
               >
                 Open transporter dossier
               </Button>
-            </div>
+              </div>
+            </>
           )}
         </SheetContent>
       </Sheet>
@@ -803,7 +816,7 @@ export function PartnersPage() {
             key: 'fleet',
             label: 'Fleet',
             icon: Truck,
-            width: 'w-[12%]',
+            width: 'w-[11%]',
             cardLabel: 'Fleet / drivers',
             /* Two counts of the same kind, set the same way. The vehicles
                figure was mono and bold while the drivers figure was plain 11px
@@ -841,10 +854,10 @@ export function PartnersPage() {
                A carrier list is opened to decide what to do today, so it shows
                what is happening today. */
             key: 'active',
-            label: 'Active load',
+            label: 'Active bookings',
             icon: Package,
-            width: 'w-[16%]',
-            cardLabel: 'Active load',
+            width: 'w-[19%]',
+            cardLabel: 'Active bookings',
             cell: (partner) => {
               const load = workloadByPartner.get(partner.id);
               if (!load || load.running === 0) {
@@ -873,12 +886,12 @@ export function PartnersPage() {
             key: 'documents',
             label: 'Documents',
             icon: FileText,
-            width: 'w-[18%]',
+            width: 'w-[16%]',
             cardLabel: 'Documents',
             cell: (partner) => (
               <ComplianceCell
                 tally={
-                  complianceByPartner.get(partner.id) ?? {
+                  complianceByPartner.get(partner.id)?.tally ?? {
                     required: 0,
                     valid: 0,
                     expiring: 0,
@@ -887,8 +900,13 @@ export function PartnersPage() {
                     attention: 0,
                   }
                 }
-                vehicles={partner.vehicles?.length ?? 0}
-                drivers={partner.drivers?.length ?? 0}
+                groups={
+                  complianceByPartner.get(partner.id)?.groups ?? {
+                    PARTNER: { total: 0, short: 0 },
+                    VEHICLE: { total: 0, short: 0 },
+                    DRIVER: { total: 0, short: 0 },
+                  }
+                }
               />
             ),
           },

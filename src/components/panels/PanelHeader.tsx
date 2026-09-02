@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Pencil } from '@/design-system/icons';
-import { Button, VerificationBadge } from '@/design-system';
+import { CloseButton, cornerActionClasses, SheetClose, Tooltip, VerificationBadge } from '@/design-system';
 import { cn } from '@/utils';
 
 export interface PanelHeaderProps {
@@ -21,6 +21,14 @@ export interface PanelHeaderProps {
   editing?: boolean;
   /** Replaces the Edit control entirely, for a panel whose action is something else. */
   actions?: ReactNode;
+  /**
+   * Draw the sheet's close button as part of this header's action group.
+   *
+   * Pass `hideCloseButton` on the `SheetContent` when you turn this on, or the
+   * sheet renders its own on top of this one. See the note on the group below
+   * for why it belongs in the flow rather than floating over it.
+   */
+  withClose?: boolean;
   className?: string;
 }
 
@@ -49,6 +57,15 @@ export interface PanelHeaderProps {
  * immediately below leads with the same number. Whatever the body already
  * states, the header does not.
  *
+ * ## It is the same band as every other side sheet
+ *
+ * A peek panel and a form sheet are both "a side sheet with a top", and they
+ * had drifted into three different tops: one hand-rolled its own bordered
+ * band, two let the header float in the body's padding with nothing separating
+ * it from the content. This is now the same band `SheetHeading` renders for
+ * the form sheets — same gutters, same rule underneath, same close-button
+ * clearance — so the two kinds of sheet open the same way.
+ *
  * ## Names wrap; they are never cut
  *
  * A company name is the one thing on the panel the reader is checking they
@@ -66,56 +83,107 @@ export function PanelHeader({
   onEdit,
   editing = false,
   actions,
+  withClose = false,
   className,
 }: PanelHeaderProps) {
   const mark =
     badge ?? (verified === undefined ? null : <VerificationBadge state={verified ? 'verified' : 'unverified'} size="lg" />);
 
   return (
-    /* `pr-10` keeps the control clear of the sheet's own close button, which is
-       absolutely positioned in this same corner. */
-    <div className={cn('flex items-start justify-between gap-4 pr-10', className)}>
-      <div className="flex min-w-0 items-start gap-4">
-        {media}
+    /* The same band every other side sheet's top is: `border-b`, the same
+       gutters as the body under it, and `pr-14` to clear the sheet's own close
+       button — 34px of control inset 16px from the right edge.
+       See `SheetHeading`, which does this for the form sheets. */
+    <div
+      className={cn(
+        'flex shrink-0 items-start justify-between gap-4 border-b border-border bg-surface-sunken px-6 py-5 sm:px-8',
+        className,
+      )}
+    >
+      <div className="flex min-w-0 items-start gap-3">
+        {/* One size for every kind of mark.
+         *
+         * The four panels passed their own: a 64px driver avatar, a 56px
+         * company logo, a 44px icon chip. So the title started at a different
+         * x on each one and the header was a different height on each one —
+         * which is most of why they did not read as the same component. The
+         * box is fixed here and whatever is handed in fills it. */}
+        {media && <div className="size-11 shrink-0 [&>*]:size-full">{media}</div>}
         <div className="min-w-0 space-y-1">
           <div className="flex min-w-0 items-start gap-2">
-            <h3 className="min-w-0 text-xl font-extrabold leading-tight tracking-tight text-foreground [overflow-wrap:anywhere] line-clamp-2">
+            <h3 className="min-w-0 text-lg font-extrabold leading-tight tracking-tight text-foreground [overflow-wrap:anywhere] line-clamp-2">
               {title}
             </h3>
-            {/* `mt-1` centres the mark on the *first* line, so it reads the
+            {/* `mt-0.5` centres the mark on the *first* line, so it reads the
                 same beside a one-line plate and a two-line company name. */}
-            {mark && <span className="mt-1 shrink-0">{mark}</span>}
+            {mark && <span className="mt-0.5 shrink-0">{mark}</span>}
           </div>
-          {subtitle && (
-            <p className="text-xs leading-snug text-muted-foreground line-clamp-2">{subtitle}</p>
+
+          {/* Reference and status share a line.
+           *
+           * They were stacked, which — under a title and above the panel's
+           * first action — made four separate rows of small things marching
+           * down the top-left corner, none of them related to the one above
+           * it. They belong together: both answer "which record is this and
+           * what state is it in", and neither is wide. The dot only appears
+           * when there is something on each side of it. */}
+          {(subtitle || status) && (
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5">
+              {subtitle && (
+                <span className="min-w-0 text-xs leading-snug text-muted-foreground">
+                  {subtitle}
+                </span>
+              )}
+              {/* No separator between the two.
+               *
+               * A dot here was orphaned the moment the status wrapped to its
+               * own line — the reference ended "DRV-00063 ·" with nothing
+               * after it, and the pill sat underneath looking unattached. The
+               * pill already has an outline and a colour of its own; a dot in
+               * front of it was chrome doing a job the shape had done. */}
+              {status}
+            </div>
           )}
-          {status && <div className="pt-1">{status}</div>}
         </div>
       </div>
 
-      {actions ??
-        (onEdit && !editing && (
-          /* Editing is one control in the corner, not a destination in a tab
-             bar. `self-center`, not the row's `items-start`: the sheet's own
-             close button sits 8px higher than this row's content box, so
-             top-aligning left the two almost — but not quite — level, which
-             reads as a mistake. Centred on the media block it is deliberate. */
-          /* Ghost, not outlined. A bordered pill beside the record's own name
-             competed with it — two boxed things at the top of the panel, and
-             the louder one was the secondary action. Editing is available, not
-             announced: it recedes to a quiet glyph-and-word and comes forward
-             on hover, the way a corner action should. */
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={onEdit}
-            leadingIcon={<Pencil className="h-3.5 w-3.5" />}
-            className="h-8 shrink-0 self-center px-2 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            Edit
-          </Button>
-        ))}
+      {/* Edit and Close are one pair, in one shape.
+       *
+       * They were two unrelated controls that happened to land near each
+       * other: Edit a borderless label inside the band, Close a bordered box
+       * absolutely positioned at `top-4` over it — different shape, different
+       * weight, 4px apart vertically. Near-level reads as a mistake in a way
+       * that clearly-offset does not.
+       *
+       * Both are icon-only now and both wear `cornerActionClasses`, the close
+       * button's own style. Edit dropped its word rather than Close gaining a
+       * border: at this size a label made the pair lopsided, and a pencil in
+       * the corner of a record panel needs no caption. The name survives as
+       * the tooltip and the accessible name.
+       *
+       * They sit in the layout rather than floating over it, which is why the
+       * band no longer reserves a `pr-14` corner for the close to hover in. */}
+      {/* `mt-[5px]` centres the 34px pair on the 44px mark opposite them.
+          Anchored to the top rather than `items-center` on the row: a long
+          company name wraps to two lines, and a corner control that slid to
+          the middle of a taller block would stop reading as a corner. */}
+      <div className="mt-[5px] flex shrink-0 items-center gap-2">
+        {actions ??
+          (onEdit && !editing && (
+            <Tooltip content="Edit">
+              <button type="button" aria-label="Edit" onClick={onEdit} className={cornerActionClasses}>
+                <Pencil className="h-4 w-4" />
+              </button>
+            </Tooltip>
+          ))}
+
+        {withClose && (
+          <SheetClose asChild>
+            <CloseButton />
+          </SheetClose>
+        )}
+      </div>
+
     </div>
   );
 }

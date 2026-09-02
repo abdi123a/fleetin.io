@@ -82,7 +82,6 @@ export interface PartnerDriver {
   phone: string;
   nationalId: string;
   drivingLicenseNumber: string;
-  licenseExpiry: string;   // ISO date string or formatted
   nationalIdExpiry?: string;
   /**
    * Container runs driven — one per booking, cancelled and failed excluded,
@@ -351,26 +350,10 @@ export function deriveComplianceAlerts(partner: Partial<PartnerRecord>): Complia
     }
   });
 
-  // Driver license alerts
-  (partner.drivers || []).forEach((drv) => {
-    if (isExpired(drv.licenseExpiry)) {
-      alerts.push({
-        id: `alert-drv-license-${drv.id}`,
-        type: 'expired',
-        severity: 'critical',
-        message: `Driver "${drv.fullName}" driving license expired on ${drv.licenseExpiry}`,
-        date: drv.licenseExpiry,
-      });
-    } else if (isExpiringSoon(drv.licenseExpiry)) {
-      alerts.push({
-        id: `alert-drv-expiring-${drv.id}`,
-        type: 'expiring_soon',
-        severity: 'warning',
-        message: `Driver "${drv.fullName}" license expires on ${drv.licenseExpiry}`,
-        date: drv.licenseExpiry,
-      });
-    }
-  });
+  /* No driver-licence alerts. A Djibouti driving licence carries no expiry, so
+     there is no date to fall due — the only thing that can be wrong with one is
+     that it has not been filed, which the document compliance tally already
+     reports. Removed 2026-09-02. */
 
   // Vehicle insurance / registration alerts
   (partner.vehicles || []).forEach((veh) => {
@@ -418,10 +401,9 @@ export function computeComplianceScore(partner: Partial<PartnerRecord>): number 
   const verifiedDocs = docs.filter((d) => d.status === 'Verified').length;
   const totalDocs = Math.max(docs.length, 1);
 
-  const validDrivers = drivers.filter((d) => {
-    const exp = new Date(d.licenseExpiry);
-    return exp > new Date();
-  }).length;
+  /* A driver counts once they have a licence number on record. There is no
+     date to check — see the note on the alerts above. */
+  const validDrivers = drivers.filter((d) => Boolean(d.drivingLicenseNumber)).length;
   const totalDrivers = Math.max(drivers.length, 1);
 
   const validVehicles = vehicles.filter((v) => {

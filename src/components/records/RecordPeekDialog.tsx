@@ -517,7 +517,6 @@ function DriverPeek({ reference, label, status, recordId }: PeekPartProps) {
         { label: 'Transporter', value: driver?.partnerName },
         { label: 'Phone', value: driver?.phone },
         { label: 'Licence', value: driver?.drivingLicenseNumber },
-        { label: 'Licence to', value: dateOnly(driver?.licenseExpiry) },
         { label: 'Trips', value: driver?.trips != null ? String(driver.trips) : null },
       ]}
     />

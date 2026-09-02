@@ -22,7 +22,10 @@ export interface BookingDriverSummary {
   reference: string;
   fullName: string;
   phone: string;
-  licenseExpiry: string;
+  /* The API returns the whole driver row (`driver: true`), so this was already
+     on the wire — it is declared now because the verified tick reads it. It
+     used to read `licenseExpiry`, which stopped existing on 2026-09-02. */
+  drivingLicenseNumber: string;
 }
 
 /** The parent shipment, joined onto every booking the API returns — a booking on its own can't say who the shipper is or where it runs. */

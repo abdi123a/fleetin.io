@@ -1,5 +1,5 @@
 export { Button, type ButtonProps } from './Button';
-export { CloseButton, type CloseButtonProps } from './CloseButton';
+export { CloseButton, cornerActionClasses, type CloseButtonProps } from './CloseButton';
 export { ButtonGroup, ButtonGroupSeparator, type ButtonGroupProps } from './ButtonGroup';
 export {
   buttonVariants,

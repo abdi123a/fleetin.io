@@ -69,9 +69,9 @@ export const INITIAL_PARTNERS: PartnerRecord[] = [
       { id: 'DOC-00002', name: 'Fleet Insurance Certificate.pdf', category: 'Fleet Insurance', uploadDate: '05 Feb 2025', expiryDate: '2025-12-31', fileSize: '1.8 MB', status: 'Verified', version: 1 },
     ],
     drivers: [
-      { id: 'DRV-00001', fullName: 'Abdi Yusuf Mohamed', phone: '+253 77 55 11 22', nationalId: 'DJ-NID-882211', drivingLicenseNumber: 'DL-DJ-44821', licenseExpiry: '2026-08-15', status: 'Available', joinDate: '2022-03-01', accessCards: ['Port Gate A', 'Free Zone'], profilePictureUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=80&auto=format&fit=crop&q=80' },
-      { id: 'DRV-00002', fullName: 'Hassan Farah Jama', phone: '+253 77 66 22 33', nationalId: 'DJ-NID-991132', drivingLicenseNumber: 'DL-DJ-55932', licenseExpiry: '2025-09-30', status: 'In Transit', joinDate: '2021-07-15', accessCards: ['Port Gate B'] },
-      { id: 'DRV-00003', fullName: 'Ali Warsame Hussein', phone: '+253 77 99 44 55', nationalId: 'DJ-NID-337841', drivingLicenseNumber: 'DL-DJ-77342', licenseExpiry: '2027-02-28', status: 'Available', joinDate: '2023-11-01' },
+      { id: 'DRV-00001', fullName: 'Abdi Yusuf Mohamed', phone: '+253 77 55 11 22', nationalId: 'DJ-NID-882211', drivingLicenseNumber: 'DL-DJ-44821', status: 'Available', joinDate: '2022-03-01', accessCards: ['Port Gate A', 'Free Zone'], profilePictureUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=80&auto=format&fit=crop&q=80' },
+      { id: 'DRV-00002', fullName: 'Hassan Farah Jama', phone: '+253 77 66 22 33', nationalId: 'DJ-NID-991132', drivingLicenseNumber: 'DL-DJ-55932', status: 'In Transit', joinDate: '2021-07-15', accessCards: ['Port Gate B'] },
+      { id: 'DRV-00003', fullName: 'Ali Warsame Hussein', phone: '+253 77 99 44 55', nationalId: 'DJ-NID-337841', drivingLicenseNumber: 'DL-DJ-77342', status: 'Available', joinDate: '2023-11-01' },
     ],
     vehicles: [
       { id: 'VEH-00001', plateNumber: 'DJ-ABJ-1234', truckType: '40ft Container', containerCapacity: '40ft / 28 tons', trailerInfo: 'DRY-VAN-2020', ownershipType: 'Owned', insuranceExpiry: '2025-12-31', registrationExpiry: '2026-03-20', hasGPS: true, gpsDeviceId: 'GPS-4421', operationalStatus: 'Available', year: 2020, make: 'Volvo', model: 'FH16' },
@@ -108,9 +108,9 @@ export const INITIAL_PARTNERS: PartnerRecord[] = [
       { id: 'DOC-00101', name: 'Commercial Registration Certificate.pdf', category: 'Business License', uploadDate: '20 Feb 2025', expiryDate: '2026-02-20', fileSize: '1.9 MB', status: 'Verified', version: 1 },
     ],
     drivers: [
-      { id: 'DRV-00101', fullName: 'Bekele Haile', phone: '+251 91 111 2222', nationalId: 'ETH-NID-33441', drivingLicenseNumber: 'DL-ETH-88812', licenseExpiry: '2026-12-01', status: 'In Transit', joinDate: '2023-01-10', profilePictureUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=80&auto=format&fit=crop&q=80' },
-      { id: 'DRV-00102', fullName: 'Dawit Mulugeta', phone: '+251 91 555 6666', nationalId: 'ETH-NID-55123', drivingLicenseNumber: 'DL-ETH-99921', licenseExpiry: '2025-07-15', status: 'In Transit', joinDate: '2022-05-20' },
-      { id: 'DRV-00103', fullName: 'Meron Tadesse', phone: '+251 91 777 8888', nationalId: 'ETH-NID-77234', drivingLicenseNumber: 'DL-ETH-11132', licenseExpiry: '2026-09-30', status: 'Available', joinDate: '2023-08-14' },
+      { id: 'DRV-00101', fullName: 'Bekele Haile', phone: '+251 91 111 2222', nationalId: 'ETH-NID-33441', drivingLicenseNumber: 'DL-ETH-88812', status: 'In Transit', joinDate: '2023-01-10', profilePictureUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=80&auto=format&fit=crop&q=80' },
+      { id: 'DRV-00102', fullName: 'Dawit Mulugeta', phone: '+251 91 555 6666', nationalId: 'ETH-NID-55123', drivingLicenseNumber: 'DL-ETH-99921', status: 'In Transit', joinDate: '2022-05-20' },
+      { id: 'DRV-00103', fullName: 'Meron Tadesse', phone: '+251 91 777 8888', nationalId: 'ETH-NID-77234', drivingLicenseNumber: 'DL-ETH-11132', status: 'Available', joinDate: '2023-08-14' },
     ],
     vehicles: [
       { id: 'VEH-00101', plateNumber: 'ETH-AA-4421', truckType: '40ft Container', containerCapacity: '40ft', ownershipType: 'Owned', insuranceExpiry: '2026-06-30', registrationExpiry: '2026-01-15', hasGPS: true, gpsDeviceId: 'GPS-8891', operationalStatus: 'In Transit', year: 2021, make: 'Scania', model: 'R450' },
@@ -142,7 +142,7 @@ export const INITIAL_PARTNERS: PartnerRecord[] = [
     },
     uploadedDocuments: [],
     drivers: [
-      { id: 'DRV-00201', fullName: 'Mohamud Farah Rage', phone: '+252 61 888 9999', nationalId: 'SOM-NID-44001', drivingLicenseNumber: 'DL-SOM-10022', licenseExpiry: '2025-11-20', status: 'Available', joinDate: '2024-02-10' },
+      { id: 'DRV-00201', fullName: 'Mohamud Farah Rage', phone: '+252 61 888 9999', nationalId: 'SOM-NID-44001', drivingLicenseNumber: 'DL-SOM-10022', status: 'Available', joinDate: '2024-02-10' },
     ],
     vehicles: [
       { id: 'VEH-00201', plateNumber: 'SOM-MGS-991', truckType: 'Box Truck', containerCapacity: '10 tons', ownershipType: 'Owned', insuranceExpiry: '2024-12-31', registrationExpiry: '2025-06-30', hasGPS: false, operationalStatus: 'Available', year: 2017, make: 'Isuzu', model: 'NPR' },

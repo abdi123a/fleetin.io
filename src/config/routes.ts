@@ -94,6 +94,11 @@ export const ROUTES = {
   workspaceAssignedByMe: '/workspace/tasks/assigned-by-me',
   workspaceAllTasks: '/workspace/tasks/all',
   workspaceTaskDetail: '/workspace/task/:reference',
+  /* Tickets — the customer's side of the same work. Detail is `/ticket/`
+     singular for the same reason the task's is: a reference must never be
+     shadowed by a view name under the plural path. */
+  workspaceTickets: '/workspace/tickets',
+  workspaceTicketDetail: '/workspace/ticket/:reference',
   /*
    * Messages is ONE route, not a "Channels" page beside a "Direct Messages"
    * page. Both would open the same two-pane screen, and two nav rows for one
