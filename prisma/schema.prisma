@@ -120,7 +120,7 @@ model AppSettings {
   /// negotiation.
   ///
   /// The direction matters and is easy to get backwards: a partner's
-  /// `PricingTier` price is what the SHIPPER pays, already inclusive of this
+  /// The shipment's entered price is what the SHIPPER pays, already inclusive of this
   /// percentage. The transporter is paid that total MINUS this percentage.
   /// So the shipper sees one number, and Fleetin's margin is that number
   /// times this rate. Stored as a percentage (7.5 means 7.5%), not a
@@ -591,7 +591,6 @@ model Partner {
   users        User[]
   vehicles     Vehicle[]
   drivers      Driver[]
-  pricingTiers PricingTier[]
   bankAccount  PartnerBankAccount?
   shipments    Shipment[]
   bookings     Booking[]
@@ -621,22 +620,6 @@ model Contact {
   @@map("contacts")
 }
 
-model PricingTier {
-  id                   String   @id @default(uuid())
-  partnerId            String
-  partner              Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
-  route                String   @db.VarChar(255) // e.g. "Djibouti → Addis Ababa"
-  vehicleType          String   @db.VarChar(64)
-  basePriceMinorUnits  BigInt
-  currency             String   @db.VarChar(8)
-  fxRate               Float    @default(1.0)
-  baseAmountMinorUnits BigInt
-  pricePerKmMinorUnits BigInt?
-  createdAt            DateTime @default(now())
-
-  @@index([partnerId])
-  @@map("pricing_tiers")
-}
 
 /// A partner's payout bank details — distinct from finance's own
 /// BankAccount model, which represents FLEETIN's own accounts, not a
@@ -670,6 +653,11 @@ model Vehicle {
   containerCapacity  String?   @db.VarChar(32)
   trailerInfo        String?   @db.VarChar(120)
   ownershipType      String    @db.VarChar(16) // Owned | Leased | Rented
+  /// The three insurance columns are written FROM the vehicle's Insurance
+  /// document — see `DocumentsService.syncVehicleComplianceDates`. The policy
+  /// is the paper; these are the paper's facts, kept on the vehicle so a fleet
+  /// list can say when a truck falls out of cover without joining documents.
+  insuranceProvider  String?   @db.VarChar(160)
   insuranceStartDate DateTime?
   insuranceExpiry    DateTime
   registrationExpiry DateTime
@@ -696,6 +684,9 @@ model Vehicle {
 
   shipments Shipment[]
   bookings  Booking[]
+  /// The bookings whose empty return leg this truck ran — see
+  /// `Booking.returnVehicleId`.
+  returnBookings Booking[] @relation("BookingReturnVehicle")
 
   @@index([partnerId])
   @@index([operationalStatus])
@@ -728,6 +719,10 @@ model Driver {
   /// on `Vehicle.year` for why.
   shipments Shipment[]
   bookings  Booking[]
+  /// The bookings whose EMPTY RETURN leg this driver took. A container's round
+  /// trip is two jobs and often two people, so a driver can appear on a booking
+  /// through either relation — see `Booking.returnDriverId`.
+  returnBookings Booking[] @relation("BookingReturnDriver")
 
   @@index([partnerId])
   @@index([status])
@@ -762,7 +757,15 @@ model Document {
   status          String    @default("Pending Review") @db.VarChar(20) // Verified | Pending Review | Rejected | Expired
   uploadedAt      DateTime  @default(now())
   uploadedById    String
+  /// When the authority actually issued the paper — NOT when it was uploaded.
+  /// A grey card filed three years late still dates from the day it was
+  /// registered, and `uploadedAt` says nothing about that.
+  issueDate       DateTime?
   expiryDate      DateTime?
+  /// Who issued it. Asked for on a vehicle's insurance, where it is the
+  /// insurer — the one paper whose value depends on whose name is on it, since
+  /// a claim is made against the company, not against the certificate.
+  issuer          String?   @db.VarChar(160)
   verifiedById    String?
   verifiedAt      DateTime?
   rejectionReason String?   @db.Text
@@ -868,6 +871,13 @@ model Shipment {
   requiredDocuments       Json? // string[]
 
   scheduledPickupTime DateTime
+  /// When the shipper expects the goods at the drop-off. Optional, and
+  /// deliberately not derived from the pickup: on this corridor a 15km run and
+  /// a cross-border one both leave the same morning, and only the shipper
+  /// knows which day they have cleared to receive. Null on every shipment
+  /// created before 2026-09-01, so every reader must treat it as absent
+  /// rather than as "same day".
+  scheduledDeliveryTime DateTime?
   completedAt         DateTime?
 
   /// Money shape per convention. Currency is DJF ("FDJ") in practice — the
@@ -1088,6 +1098,26 @@ model Booking {
   driverId  String?
   driver    Driver?  @relation(fields: [driverId], references: [id])
 
+  /// Who takes the empty box back, when that is not who delivered it.
+  ///
+  /// A container's round trip is two jobs. The transporter sends a truck and a
+  /// driver to deliver the load, and days later — after the consignee has
+  /// stripped the box — sends a truck and a driver again to fetch the empty.
+  /// It is frequently not the same pair, and until this migration the second
+  /// pair was simply not recorded: the empty leg was credited to whoever had
+  /// driven the delivery, which is the wrong person's trip count and the wrong
+  /// person's stars.
+  ///
+  /// Null means the empty went back with the delivery crew — the ordinary case,
+  /// and the reason this is not required. Recorded on the `Empty Picked Up`
+  /// rung, which is the moment somebody actually knows who is fetching it.
+  /// Same transporter either way: `partnerId` covers both legs, because a
+  /// carrier who delivered a box is the carrier who owes its return.
+  returnDriverId  String?
+  returnDriver    Driver?  @relation("BookingReturnDriver", fields: [returnDriverId], references: [id])
+  returnVehicleId String?
+  returnVehicle   Vehicle? @relation("BookingReturnVehicle", fields: [returnVehicleId], references: [id])
+
   /// The return commitment for this specific container — per-booking, not
   /// per-shipment, because a 20-container shipment can carry 20 different
   /// return deadlines.
@@ -1160,6 +1190,26 @@ model Booking {
   driverRatedByName String?   @db.VarChar(255)
   driverRatedAt     DateTime?
 
+  /// The return driver's debrief, asked when the box is actually home.
+  ///
+  /// Same three axes, same 1-5, same rule as every other star in this product:
+  /// a person's answer or nothing. Kept apart from `driverRating*` because they
+  /// are answers about two different people doing two different jobs — averaging
+  /// them into one column would credit the delivery driver with the return
+  /// driver's punctuality and hide both. Only written when `returnDriverId` is
+  /// set; when the same driver did both legs the operator is asked once and the
+  /// answer lands on `driverRating*`, where that driver's other trips already
+  /// are.
+  returnDriverRating Int? @db.TinyInt
+  returnDriverRatingReliability     Int? @db.TinyInt
+  returnDriverRatingPunctuality     Int? @db.TinyInt
+  returnDriverRatingProfessionalism Int? @db.TinyInt
+  returnDriverNote   String? @db.Text
+  /// Stamped server-side from the token, like every other debrief signature.
+  returnDriverRatedById   String?   @db.VarChar(191)
+  returnDriverRatedByName String?   @db.VarChar(255)
+  returnDriverRatedAt     DateTime?
+
   /// The closing debrief — the shipper's half of the round trip, asked when the
   /// box is actually home. How fast they stripped and released it is what ran
   /// the detention clock, and it is otherwise charged to the carrier who only
@@ -1211,6 +1261,10 @@ model Booking {
   @@index([partnerId])
   @@index([vehicleId])
   @@index([driverId])
+  /// The return leg is queried the same way the delivery leg is — "what has
+  /// this driver done", "what has this truck run" — so it gets the same index.
+  @@index([returnVehicleId])
+  @@index([returnDriverId])
   @@index([status])
   @@index([containerNumber])
   @@map("bookings")

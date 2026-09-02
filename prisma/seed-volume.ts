@@ -563,7 +563,6 @@ async function main() {
     });
     await prisma.vehicle.deleteMany({ where: { partnerId: { in: partnerIds } } });
     await prisma.driver.deleteMany({ where: { partnerId: { in: partnerIds } } });
-    await prisma.pricingTier.deleteMany({ where: { partnerId: { in: partnerIds } } });
     await prisma.partnerBankAccount.deleteMany({ where: { partnerId: { in: partnerIds } } });
     await prisma.contact.deleteMany({ where: { ownerId: { in: [...shipperIds, ...partnerIds] } } });
     /* A user row points at its company, so the FK has to be released before the
@@ -612,14 +611,15 @@ async function main() {
      * a database seeded only with this file must still be able to attach a
      * grey card to a truck. Upserted, so it is a no-op where the baseline
      * seed already wrote it. */
+    /** The insurers writing motor cover in Djibouti — the picker's own list. */
+    const DJIBOUTI_INSURERS = ['GXA Assurances', 'AMERGA Insurance', 'Nyala Insurance', 'Africa Insurance'];
+
     const DOCUMENT_TYPES = [
       { ownerType: 'SHIPPER', label: 'Business License', required: true },
-      { ownerType: 'PARTNER', label: 'Grey Card (Carte Grise)', required: true },
-      { ownerType: 'PARTNER', label: 'Vehicle Registration', required: true },
-      { ownerType: 'VEHICLE', label: 'Vehicle Registration', required: true },
-      { ownerType: 'VEHICLE', label: 'Fleet Insurance', required: true },
+      { ownerType: 'PARTNER', label: 'Business License', required: true },
+      { ownerType: 'VEHICLE', label: 'Grey Card', required: true },
+      { ownerType: 'VEHICLE', label: 'Insurance', required: true },
       { ownerType: 'DRIVER', label: 'Driver License', required: true },
-      { ownerType: 'DRIVER', label: 'Access Card', required: true },
     ];
     for (const type of DOCUMENT_TYPES) {
       await prisma.documentType.upsert({
@@ -691,7 +691,7 @@ async function main() {
           vehicleTypes: [...TRUCK_TYPES],
           country: 'Djibouti',
           address: seed.address,
-          insuranceProvider: pick(['GXA Assurances', 'AMERGA Insurance', 'Nyala Insurance', 'Africa Insurance']),
+          insuranceProvider: pick(DJIBOUTI_INSURERS),
           insurancePolicyNumber: `POL-${int(100000, 999999)}`,
           insuranceExpiry: addDays(NOW, int(40, 420)),
           partnerStatus: 'Active',
@@ -711,34 +711,10 @@ async function main() {
         },
       });
 
-      /* The price grid: one row per truck type, every one of them inside the
-       * 45–49k DJF band the corridor bills per mission.
-       *
-       * This is the number the shipper is billed for one container — every
-       * booking in the book resolves its price from exactly this row
-       * (`resolvePartnerRateMinorUnitsFdj`), so the band here IS the band on
-       * every booking, every statement line and every cost-per-container
-       * chart. The transporter is paid it net of Fleetin's commission.
-       *
-       * The lane makes no difference to the price: a mission is a mission,
-       * whether the box came off Doraleh or the Port of Djibouti, so
-       * `pricePerKmMinorUnits` is deliberately left null rather than implying
-       * a distance-based tariff that nobody quotes. */
-      for (const truckType of TRUCK_TYPES) {
-        const base = int(PRICE_BAND_MIN, PRICE_BAND_MAX);
-        await prisma.pricingTier.create({
-          data: {
-            partnerId: partner.id,
-            route: 'Djibouti port → free zone — per mission',
-            vehicleType: truckType,
-            basePriceMinorUnits: BigInt(base),
-            currency: 'DJF',
-            fxRate: 1.0,
-            baseAmountMinorUnits: BigInt(base),
-            pricePerKmMinorUnits: null,
-          },
-        });
-      }
+      /* No price list. Partner pricing tiers were removed on 2026-08-31 —
+         a shipment's price is entered by the operator, so there is nothing
+         per-carrier left to seed. */
+
 
       const fleetCount = int(6, 10);
       const vehicles: { id: string; truckType: string }[] = [];
@@ -769,6 +745,10 @@ async function main() {
             truckType,
             containerCapacity: truckType === '40ft Container' ? '1 × 40ft' : truckType === '20ft Container' ? '2 × 20ft' : truckType === 'Tanker' ? '30,000 L' : '32t payload',
             ownershipType: pick(['Owned', 'Leased']),
+            /* The insurer, on the truck, because a claim is made against the
+               company — kept in step with the vehicle's Insurance document,
+               which is where an operator sets it. */
+            insuranceProvider: pick(DJIBOUTI_INSURERS),
             insuranceStartDate: addDays(NOW, -int(60, 320)),
             insuranceExpiry: addDays(NOW, int(30, 400)),
             registrationExpiry: addDays(NOW, int(60, 700)),
@@ -836,6 +816,7 @@ async function main() {
       label: string,
       issuedAt: Date,
       expiryDate: Date | null,
+      issuer?: string,
     ): Promise<void> {
       const storageKey = await keyFor(label);
       /* Most are checked and filed. A few are still on the desk, and one in
@@ -855,7 +836,9 @@ async function main() {
           fileSizeBytes: placeholderPdf.byteLength,
           status,
           uploadedById: actorId,
+          issueDate: issuedAt,
           expiryDate,
+          issuer: issuer ?? null,
           verifiedById: status === 'Verified' ? actorId : null,
           verifiedAt: status === 'Verified' ? addDays(issuedAt, int(1, 6)) : null,
           rejectionReason: status === 'Rejected' ? 'Scan is unreadable — please re-upload a clear copy.' : null,
@@ -871,15 +854,14 @@ async function main() {
     }
     for (const fleet of fleets) {
       const filedAt = addDays(WINDOW_START, -int(60, 400));
-      await attachDocument('PARTNER', fleet.partnerId, 'Grey Card (Carte Grise)', filedAt, addDays(NOW, int(-15, 500)));
-      await attachDocument('PARTNER', fleet.partnerId, 'Vehicle Registration', filedAt, addDays(NOW, int(30, 600)));
+      await attachDocument('PARTNER', fleet.partnerId, 'Business License', filedAt, addDays(NOW, int(-15, 500)));
       for (const vehicle of fleet.vehicles) {
         const row = await prisma.vehicle.findUniqueOrThrow({
           where: { id: vehicle.id },
-          select: { registrationExpiry: true, insuranceExpiry: true },
+          select: { registrationExpiry: true, insuranceExpiry: true, insuranceProvider: true },
         });
-        await attachDocument('VEHICLE', vehicle.id, 'Vehicle Registration', addDays(row.registrationExpiry, -365), row.registrationExpiry);
-        await attachDocument('VEHICLE', vehicle.id, 'Fleet Insurance', addDays(row.insuranceExpiry, -365), row.insuranceExpiry);
+        await attachDocument('VEHICLE', vehicle.id, 'Grey Card', addDays(row.registrationExpiry, -365), row.registrationExpiry);
+        await attachDocument('VEHICLE', vehicle.id, 'Insurance', addDays(row.insuranceExpiry, -365), row.insuranceExpiry, row.insuranceProvider ?? undefined);
       }
       for (const driver of fleet.drivers) {
         const row = await prisma.driver.findUniqueOrThrow({
@@ -887,7 +869,6 @@ async function main() {
           select: { licenseExpiry: true, joinDate: true },
         });
         await attachDocument('DRIVER', driver.id, 'Driver License', addDays(row.licenseExpiry, -1095), row.licenseExpiry);
-        await attachDocument('DRIVER', driver.id, 'Access Card', row.joinDate, addDays(NOW, int(-10, 400)));
       }
     }
     console.log(`\uD83D\uDCC4 ${documentCount} compliance documents filed`);
@@ -939,36 +920,6 @@ async function main() {
     });
     await backdate('credit_facilities', facility.id, { createdAt: addDays(WINDOW_START, -30) });
     console.log(`🏦 Operating account funded (${(openingFloat / 1000).toLocaleString()}k DJF) · facility ${facility.facilityNumber}`);
-
-    /* ── One price band, one currency ────────────────────────────────────── */
-
-    /**
-     * The baseline seed priced some transporters in USD, which resolves through
-     * a fixed peg into six-figure DJF missions sitting next to 45k ones. Since
-     * picking the transporter *is* picking the price, that single inconsistency
-     * propagates all the way out: the shipment total, the booking's transporter
-     * cost, the invoice, the payout and every cost-per-container chart. One
-     * band, one currency, so the money agrees with itself wherever it is read.
-     */
-    const strayTiers = await prisma.pricingTier.findMany({
-      where: { partnerId: { notIn: fleets.map((fleet) => fleet.partnerId) } },
-      select: { id: true },
-    });
-    for (const tier of strayTiers) {
-      const base = int(PRICE_BAND_MIN, PRICE_BAND_MAX);
-      await prisma.pricingTier.update({
-        where: { id: tier.id },
-        data: {
-          route: 'Djibouti port → free zone — per mission',
-          basePriceMinorUnits: BigInt(base),
-          baseAmountMinorUnits: BigInt(base),
-          currency: 'DJF',
-          fxRate: 1.0,
-          pricePerKmMinorUnits: null,
-        },
-      });
-    }
-    if (strayTiers.length > 0) console.log(`💱 ${strayTiers.length} stray price rows normalised to DJF ${PRICE_BAND_MIN / 1000}–${PRICE_BAND_MAX / 1000}k`);
 
     /* ── Projects ────────────────────────────────────────────────────────── */
 
@@ -1784,8 +1735,18 @@ async function main() {
 
       const podAt = road['POD Submitted']!;
       /* Booked ahead of the truck rolling — half a day to a day and a half,
-       * which is how far ahead a free-zone consignee actually books a slot. */
-      const createdAt = addHours(pickup, -int(12, 36));
+       * which is how far ahead a free-zone consignee actually books a slot.
+       *
+       * Capped at `NOW`, because a row cannot have been created in the future.
+       * The book deliberately runs a week or so past today — upcoming work is
+       * most of what an operator looks at — and without this cap those pickups
+       * dragged their creation timestamps along with them. Six shipments ended
+       * up stamped as created up to nine days from now, and since the Shipments
+       * directory sorts newest-created-first, nothing anybody actually created
+       * today could ever reach the top of the list. Reported 2026-09-01 as
+       * "I create a shipment and it disappears"; it was sitting at row seven,
+       * under a wall of work booked next week. */
+      const createdAt = new Date(Math.min(addHours(pickup, -int(12, 36)).getTime(), NOW.getTime()));
       const span =
         pace === 'clean'
           ? MISSION_DAYS_MIN + rnd() * (MISSION_DAYS_MAX - MISSION_DAYS_MIN)

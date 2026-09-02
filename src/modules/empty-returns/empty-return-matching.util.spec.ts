@@ -31,16 +31,19 @@ const load = (over: Partial<MatchLoad> = {}): MatchLoad => ({
   ...over,
 });
 
-describe('empty-return matching — the two hard gates', () => {
+describe('empty-return matching — the one hard gate', () => {
   it('accepts a same-line, same-size load inside the deadline', () => {
     expect(incompatibility(empty(), load(), NOW)).toEqual([]);
     expect(loadsFor(empty(), [load()], NOW)).toHaveLength(1);
   });
 
-  it('refuses a different shipping line — the gate v19 introduced', () => {
-    const issues = incompatibility(empty(), load({ line: 'CMA CGM' }), NOW);
-    expect(issues.join(' ')).toMatch(/Different shipping line/);
-    expect(loadsFor(empty(), [load({ line: 'CMA CGM' })], NOW)).toHaveLength(0);
+  it('ALLOWS a different shipping line — the gate v19 introduced, removed 2026-08-30', () => {
+    expect(incompatibility(empty(), load({ line: 'CMA CGM' }), NOW)).toEqual([]);
+    expect(loadsFor(empty(), [load({ line: 'CMA CGM' })], NOW)).toHaveLength(1);
+  });
+
+  it('allows a pairing when one side has no line recorded', () => {
+    expect(incompatibility(empty({ line: null }), load(), NOW)).toEqual([]);
   });
 
   it('refuses a different container size', () => {

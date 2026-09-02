@@ -7,6 +7,7 @@ import { RequirePermissions } from '../../../common/decorators/permissions.decor
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../../common/constants/permissions';
 import type { AuthenticatedUser } from '../../auth/jwt.strategy';
+import { contentDisposition } from '../../../common/helpers/content-disposition.util';
 
 /**
  * Writes a PDF to the response with a filename a person can read.
@@ -17,15 +18,11 @@ import type { AuthenticatedUser } from '../../auth/jwt.strategy';
  * `filename*` for the accented French the real names carry.
  */
 function sendPdf(res: Response, buffer: Buffer, fileName: string): void {
-  const ascii = fileName.replace(/[^\x20-\x7E]/g, '_').replace(/"/g, "'");
   res
     .status(200)
     .header('Content-Type', 'application/pdf')
     .header('Content-Length', String(buffer.length))
-    .header(
-      'Content-Disposition',
-      `inline; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
-    )
+    .header('Content-Disposition', contentDisposition(fileName, 'inline'))
     .send(buffer);
 }
 
@@ -149,7 +146,7 @@ export class GenerationController {
         'Content-Type',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       )
-      .header('Content-Disposition', `attachment; filename="${fileName}"`)
+      .header('Content-Disposition', contentDisposition(fileName))
       .send(buffer);
   }
 }

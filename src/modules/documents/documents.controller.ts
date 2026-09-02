@@ -23,6 +23,7 @@ import { RequirePermissions } from '../../common/decorators/permissions.decorato
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../common/constants/permissions';
 import type { AuthenticatedUser } from '../auth/jwt.strategy';
+import { contentDisposition } from '../../common/helpers/content-disposition.util';
 
 /**
  * Shared, polymorphic document storage for Shippers/Partners/Vehicles/Drivers.
@@ -95,7 +96,11 @@ export class DocumentsController {
     const { buffer, document } = await this.documentsService.download(id);
     res.set({
       'Content-Type': document.mimeType,
-      'Content-Disposition': `attachment; filename="${document.name}"`,
+      /* Never interpolate the raw name — see `contentDisposition`. A macOS
+         screenshot carries U+202F before its AM/PM and Node refuses to put it
+         in a header, which answered every such upload with a 500 and left the
+         viewer showing "Preview unavailable". */
+      'Content-Disposition': contentDisposition(document.name),
     });
     return new StreamableFile(buffer);
   }

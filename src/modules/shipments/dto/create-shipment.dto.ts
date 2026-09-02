@@ -175,6 +175,15 @@ export class CreateShipmentDto {
   scheduledPickupTime: string;
 
   @ApiPropertyOptional({
+    example: '2026-08-08T16:00:00.000Z',
+    description:
+      'When the shipper expects delivery. Optional — not every booking is taken with a date agreed.',
+  })
+  @IsOptional()
+  @IsDateString()
+  scheduledDeliveryTime?: string;
+
+  @ApiPropertyOptional({
     example: 650000,
     description:
       'What Fleetin bills the shipper, FDJ minor units — the revenue side. Distinct from the transporter-cost rate computed automatically from the pricing grid. Optional: the wizard does not collect this today, so a shipment created without it simply is not invoiceable until Finance sets it.',

@@ -23,46 +23,13 @@ export function toMinorUnits(amount: number, currency: string): bigint {
   return BigInt(Math.round(amount * 10 ** scaleForCurrency(currency)));
 }
 
-/**
- * What a shipment of `vehicles` trips of `vehicleType` COSTS THE SHIPPER on
- * this partner's price list, in FDJ minor units — containers times the
- * partner's own per-mission price, which is the whole pricing rule.
- *
- * This figure is shipper-facing and already includes Fleetin's commission;
- * the transporter is paid this minus that commission (`splitCommission`).
- * Ports `resolvePartnerRateFDJ()` from `CreateShipmentModal.tsx` server-side
- * (BR-2.6) — the wizard must display the price, never be the one setting it.
- * Same fuzzy vehicle-type match, same USD peg.
- *
- * Returns `null` — never an invented figure — when the partner has no
- * pricing tiers at all, or when none of their tiers matches the vehicle
- * type. Callers treat null as "unpriced" and leave the rate unset, so the
- * gap surfaces to an operator instead of being billed at a made-up price.
- *
- * Shared by `ShipmentsService` (summed across every assignment, for the
- * shipment total) and `BookingsService` (called once per booking) — one
- * resolution rule, not two copies that could drift.
- */
-export async function resolvePartnerRateMinorUnitsFdj(
-  prisma: PrismaService,
-  partnerId: string,
-  vehicleType: string,
-  vehicles: number,
-): Promise<bigint | null> {
-  const tiers = await prisma.pricingTier.findMany({ where: { partnerId } });
-  if (tiers.length === 0) return null;
+/* `resolvePartnerRateMinorUnitsFdj` was removed on 2026-08-31 along with the
+   `PricingTier` table it read. Nothing derives a shipment's price any more:
+   the operator enters it in the wizard and it arrives as
+   `clientRateMinorUnits`. What remains here is the commission split, which is
+   still Fleetin's to compute — the shipper's figure is the entered one, and
+   the transporter is paid it less the house percentage. */
 
-  const needle = vehicleType.toLowerCase();
-  const match = tiers.find(
-    (tier) => needle.includes(tier.vehicleType.toLowerCase()) || tier.vehicleType.toLowerCase().includes(needle),
-  );
-  if (!match) return null;
-
-  const scale = scaleForCurrency(match.currency);
-  const baseAmount = Number(match.basePriceMinorUnits) / 10 ** scale;
-  const amountFdj = match.currency === 'USD' ? baseAmount * USD_TO_DJF : baseAmount;
-  return BigInt(vehicles) * BigInt(Math.round(amountFdj));
-}
 
 /**
  * Fleetin's house commission, as a percentage. One rate for every

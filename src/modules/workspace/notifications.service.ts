@@ -47,6 +47,21 @@ export class WorkspaceNotificationsService {
     return this.prisma.workspaceNotification.count({ where: { userId, readAt: null } });
   }
 
+  /**
+   * Comments assigned to this person and not yet resolved.
+   *
+   * NOT a notification count. A notification is an event — it is read once and
+   * then it is history. An assigned comment is a standing obligation: it stays
+   * yours until you resolve it, and marking the bell read does not discharge
+   * it. The two are counted separately for that reason, and the bell shows
+   * them as separate things.
+   */
+  async openAssignmentCount(userId: string): Promise<number> {
+    return this.prisma.workspaceMessage.count({
+      where: { assigneeId: userId, resolvedAt: null, deletedAt: null },
+    });
+  }
+
   async list(userId: string, take = 30) {
     return this.prisma.workspaceNotification.findMany({
       where: { userId },

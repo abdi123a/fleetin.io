@@ -110,13 +110,6 @@ export class ShipmentsController {
     return this.shipmentsService.create(dto, `${user.firstName} ${user.lastName}`.trim(), user.id);
   }
 
-  @Patch('reprice-unpriced')
-  @RequirePermissions(PERMISSIONS.finance.update)
-  @ApiOperation({ summary: "Price every unpriced shipment off its transporters' price lists — clears the pre-existing unpriced backlog" })
-  @ApiQuery({ name: 'shipperId', required: false })
-  repriceUnpriced(@Query('shipperId') shipperId?: string) {
-    return this.shipmentsService.repriceUnpriced(shipperId);
-  }
 
   @Put(':id/assignees')
   @RequirePermissions(PERMISSIONS.shipments.update)
@@ -152,12 +145,6 @@ export class ShipmentsController {
     return this.shipmentsService.release(id, user.id, `${user.firstName} ${user.lastName}`.trim());
   }
 
-  @Patch(':id/reprice')
-  @RequirePermissions(PERMISSIONS.finance.update)
-  @ApiOperation({ summary: "Price one shipment off its transporters' price lists. Leaves an already-set rate alone." })
-  reprice(@Param('id') id: string) {
-    return this.shipmentsService.repriceFromPriceList(id);
-  }
 
   @Delete(':id')
   @RequirePermissions(PERMISSIONS.shipments.delete)

@@ -1,0 +1,12 @@
+-- Partner price lists are gone.
+--
+-- Every shipment on this corridor is negotiated, so the price is entered on the
+-- shipment (`shipments.clientRateMinorUnits`) and nothing derives it. A stored
+-- per-carrier rate that no code reads is a number that goes stale and then gets
+-- believed, so the table goes rather than lingering as dead weight.
+--
+-- The 40 rows this drops were backed up to
+-- `backups/pricing_tiers-before-removal-20260831.sql` first. Shipments and
+-- bookings already priced keep their figures: those live in their own columns
+-- and were never read back from here.
+DROP TABLE IF EXISTS `pricing_tiers`;

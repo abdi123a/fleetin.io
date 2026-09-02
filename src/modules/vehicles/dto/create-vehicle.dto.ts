@@ -47,6 +47,13 @@ export class CreateVehicleDto {
   @IsDateString()
   insuranceStartDate?: string;
 
+  /** The insurer. Set from the vehicle's Insurance certificate — see
+   *  `DocumentsService.syncVehicleComplianceDates` — and editable here. */
+  @ApiPropertyOptional({ example: 'GXA Assurances' })
+  @IsOptional()
+  @IsString()
+  insuranceProvider?: string;
+
   @ApiProperty()
   @IsDateString()
   insuranceExpiry: string;

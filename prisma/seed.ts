@@ -434,7 +434,6 @@ const SEED_PARTNERS: SeedPartner[] = [
     ],
     documents: [
       { name: 'Business License 2026.pdf', category: 'Business License' },
-      { name: 'Fleet Insurance Certificate.pdf', category: 'Fleet Insurance' },
     ],
     drivers: [
       { mockId: 'DRV-001', fullName: 'Abdi Yusuf Mohamed', phone: '+253 77 55 11 22', nationalId: 'DJ-NID-882211', drivingLicenseNumber: 'DL-DJ-44821', licenseExpiry: '2026-08-15', status: 'Available', joinDate: '2022-03-01', accessCards: ['Port Gate A', 'Free Zone'] },
@@ -806,14 +805,19 @@ const SEED_MISSIONS: SeedMission[] = [
   },
 ];
 
+/**
+ * The closed compliance catalog — four papers, each on the thing that holds it.
+ * Mirrors `COMPLIANCE_CATALOG` in src/modules/documents/document-owner-type.ts;
+ * the two must agree, and the migration
+ * `20260901140000_document_issue_date_and_catalog` installs the same list on an
+ * environment this seed will never be pointed at.
+ */
 const DOCUMENT_TYPE_SEEDS: { ownerType: string; label: string; required: boolean }[] = [
   { ownerType: 'SHIPPER', label: 'Business License', required: true },
-  { ownerType: 'PARTNER', label: 'Grey Card (Carte Grise)', required: true },
-  { ownerType: 'PARTNER', label: 'Vehicle Registration', required: true },
-  { ownerType: 'VEHICLE', label: 'Vehicle Registration', required: true },
-  { ownerType: 'VEHICLE', label: 'Fleet Insurance', required: true },
+  { ownerType: 'PARTNER', label: 'Business License', required: true },
+  { ownerType: 'VEHICLE', label: 'Grey Card', required: true },
+  { ownerType: 'VEHICLE', label: 'Insurance', required: true },
   { ownerType: 'DRIVER', label: 'Driver License', required: true },
-  { ownerType: 'DRIVER', label: 'Access Card', required: true },
 ];
 
 /** Parses the frontend's "YYYY-MM-DD HH:mm[:ss]" / "YYYY-MM-DD" timestamps. */
@@ -950,21 +954,6 @@ async function seedPartners(storage: StorageService, uploadedById: string) {
       await prisma.partnerBankAccount.create({ data: { partnerId: partner.id, ...seed.bankAccount } });
     }
 
-    for (const tier of seed.pricingGrid ?? []) {
-      const basePriceMinorUnits = BigInt(Math.round(tier.basePrice * 100));
-      await prisma.pricingTier.create({
-        data: {
-          partnerId: partner.id,
-          route: tier.route,
-          vehicleType: tier.vehicleType,
-          basePriceMinorUnits,
-          currency: tier.currency,
-          fxRate: 1.0,
-          baseAmountMinorUnits: basePriceMinorUnits,
-          pricePerKmMinorUnits: tier.pricePerKm ? BigInt(Math.round(tier.pricePerKm * 100)) : undefined,
-        },
-      });
-    }
 
     for (const doc of seed.documents) {
       const stored = await uploadPlaceholderDocument(storage, doc.name);

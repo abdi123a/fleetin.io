@@ -17,7 +17,6 @@ import { PartnersService } from './partners.service';
 import { CreatePartnerDto } from './dto/create-partner.dto';
 import { UpdatePartnerDto } from './dto/update-partner.dto';
 import { CreateDispatcherDto } from './dto/create-dispatcher.dto';
-import { CreatePricingTierDto } from './dto/create-pricing-tier.dto';
 import { UpsertBankAccountDto } from './dto/upsert-bank-account.dto';
 import { VehiclesService } from '../vehicles/vehicles.service';
 import { CreateVehicleDto } from '../vehicles/dto/create-vehicle.dto';
@@ -153,37 +152,9 @@ export class PartnersController {
 
   // ── Pricing grid ──
 
-  @Get(':id/pricing')
-  @RequirePermissions(PERMISSIONS.partners.view)
-  @ApiOperation({ summary: "List the partner's pricing grid" })
-  listPricingTiers(@Param('id') id: string) {
-    return this.partnersService.listPricingTiers(id);
-  }
 
-  @Post(':id/pricing')
-  @RequirePermissions(PERMISSIONS.partners.update)
-  @ApiOperation({ summary: 'Add a pricing tier' })
-  addPricingTier(@Param('id') id: string, @Body() dto: CreatePricingTierDto) {
-    return this.partnersService.addPricingTier(id, dto);
-  }
 
-  @Patch(':id/pricing/:tierId')
-  @RequirePermissions(PERMISSIONS.partners.update)
-  @ApiOperation({ summary: 'Update a pricing tier' })
-  updatePricingTier(
-    @Param('id') id: string,
-    @Param('tierId') tierId: string,
-    @Body() dto: Partial<CreatePricingTierDto>,
-  ) {
-    return this.partnersService.updatePricingTier(id, tierId, dto);
-  }
 
-  @Delete(':id/pricing/:tierId')
-  @RequirePermissions(PERMISSIONS.partners.update)
-  @ApiOperation({ summary: 'Remove a pricing tier' })
-  removePricingTier(@Param('id') id: string, @Param('tierId') tierId: string) {
-    return this.partnersService.removePricingTier(id, tierId);
-  }
 
   // ── Bank account (1:1 optional) ──
 

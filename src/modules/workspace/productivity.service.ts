@@ -7,12 +7,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { nextReference } from '../../common/helpers/reference.util';
 import type { AuthenticatedUser } from '../auth/jwt.strategy';
 import {
-  BulkTaskDto, CreateRecurrenceDto, CreateTemplateDto, SetChecklistDto,
-  SetFollowersDto, ToggleChecklistItemDto, UpdateRecurrenceDto, UseTemplateDto,
+  BulkTaskDto, SetChecklistDto, SetFollowersDto, ToggleChecklistItemDto,
 } from './dto/productivity.dto';
 import { WorkspaceNotificationsService } from './notifications.service';
 import { RecordAccessService } from './record-access.service';
-import { nextOccurrence, toDay } from './recurrence.util';
 
 const PERSON = { id: true, firstName: true, lastName: true, avatarUrl: true } as const;
 
@@ -167,137 +165,6 @@ export class ProductivityService {
     await this.notifications.notify({ userIds, kind, actorId, taskId });
   }
 
-  // ── Templates ─────────────────────────────────────────────────────────────
-
-  listTemplates() {
-    return this.prisma.workspaceTaskTemplate.findMany({
-      where: { archivedAt: null },
-      orderBy: { name: 'asc' },
-      include: { items: { orderBy: { position: 'asc' } } },
-    });
-  }
-
-  createTemplate(dto: CreateTemplateDto, user: AuthenticatedUser) {
-    return this.prisma.workspaceTaskTemplate.create({
-      data: {
-        name: dto.name.trim(),
-        title: dto.title.trim(),
-        description: dto.description?.trim() || null,
-        priority: dto.priority ?? undefined,
-        dueInDays: dto.dueInDays ?? null,
-        createdById: user.id,
-        items: { create: (dto.items ?? []).map((item, position) => ({ text: item.text, position })) },
-      },
-      include: { items: { orderBy: { position: 'asc' } } },
-    });
-  }
-
-  async archiveTemplate(id: string) {
-    return this.prisma.workspaceTaskTemplate.update({
-      where: { id },
-      data: { archivedAt: new Date() },
-    });
-  }
-
-  /** Mint a task from a template, optionally hung on a record. */
-  async useTemplate(templateId: string, dto: UseTemplateDto, user: AuthenticatedUser) {
-    const template = await this.prisma.workspaceTaskTemplate.findUnique({
-      where: { id: templateId },
-      include: { items: { orderBy: { position: 'asc' } } },
-    });
-    if (!template) throw new NotFoundException(`Template "${templateId}" not found`);
-
-    let link: { recordType: WorkspaceRecordType; recordId: string; recordRef: string; label: string | null } | null = null;
-    if (dto.recordType && dto.recordId) {
-      const summary = await this.records.resolve(dto.recordType as WorkspaceRecordType, dto.recordId);
-      link = {
-        recordType: summary.type,
-        recordId: summary.id,
-        recordRef: summary.reference,
-        label: summary.subtitle,
-      };
-    }
-
-    const task = await this.createTaskFrom({
-      title: template.title,
-      description: template.description,
-      priority: template.priority,
-      assigneeId: dto.assigneeId ?? null,
-      dueInDays: template.dueInDays,
-      createdById: user.id,
-      checklist: template.items.map((i) => i.text),
-      link,
-      event: { kind: WorkspaceTaskEventKind.TEMPLATE_USED, actorId: user.id, toValue: template.name },
-    });
-
-    if (task.assigneeId) {
-      await this.notifications.notify({
-        userIds: [task.assigneeId],
-        kind: WorkspaceNotificationKind.ASSIGNED,
-        actorId: user.id,
-        taskId: task.id,
-      });
-    }
-    return task;
-  }
-
-  // ── Recurrence ────────────────────────────────────────────────────────────
-
-  listRecurrences() {
-    return this.prisma.workspaceTaskRecurrence.findMany({
-      orderBy: [{ enabled: 'desc' }, { nextRunOn: 'asc' }],
-      include: {
-        assignee: { select: PERSON },
-        template: { select: { id: true, name: true } },
-        _count: { select: { occurrences: true } },
-      },
-    });
-  }
-
-  createRecurrence(dto: CreateRecurrenceDto, user: AuthenticatedUser) {
-    /* The first occurrence is the start date itself, so a rule set up for
-       today fires today rather than waiting a whole cycle. */
-    const startOn = toDay(dto.startOn ? new Date(dto.startOn) : new Date());
-    return this.prisma.workspaceTaskRecurrence.create({
-      data: {
-        title: dto.title.trim(),
-        description: dto.description?.trim() || null,
-        templateId: dto.templateId ?? null,
-        frequency: dto.frequency,
-        interval: dto.interval ?? 1,
-        weekday: dto.weekday ?? null,
-        dayOfMonth: dto.dayOfMonth ?? null,
-        priority: dto.priority ?? undefined,
-        assigneeId: dto.assigneeId ?? null,
-        createdById: user.id,
-        nextRunOn: startOn,
-      },
-      include: { assignee: { select: PERSON } },
-    });
-  }
-
-  updateRecurrence(id: string, dto: UpdateRecurrenceDto) {
-    return this.prisma.workspaceTaskRecurrence.update({
-      where: { id },
-      data: {
-        ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
-        ...(dto.description !== undefined ? { description: dto.description?.trim() || null } : {}),
-        ...(dto.frequency !== undefined ? { frequency: dto.frequency } : {}),
-        ...(dto.interval !== undefined ? { interval: dto.interval } : {}),
-        ...(dto.weekday !== undefined ? { weekday: dto.weekday } : {}),
-        ...(dto.dayOfMonth !== undefined ? { dayOfMonth: dto.dayOfMonth } : {}),
-        ...(dto.priority !== undefined ? { priority: dto.priority } : {}),
-        ...(dto.assigneeId !== undefined ? { assigneeId: dto.assigneeId || null } : {}),
-        ...(dto.enabled !== undefined ? { enabled: dto.enabled } : {}),
-      },
-      include: { assignee: { select: PERSON } },
-    });
-  }
-
-  deleteRecurrence(id: string) {
-    return this.prisma.workspaceTaskRecurrence.delete({ where: { id } });
-  }
-
   // ── Bulk ──────────────────────────────────────────────────────────────────
 
   /**
@@ -384,7 +251,10 @@ export class ProductivityService {
 
   /** One row per teammate: what they are carrying. */
   async workload() {
-    const today = toDay(new Date());
+    /* Midnight UTC today. `toDay` lived in the recurrence helper, which left
+       with that feature; this is the one caller that still needed it. */
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
     const weekEnd = new Date(today);
     weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
 
@@ -423,63 +293,6 @@ export class ProductivityService {
     };
   }
 
-  // ── shared ────────────────────────────────────────────────────────────────
-
-  /**
-   * The one place a task is minted from a spec — used by templates and by the
-   * recurrence processor, so a generated task is indistinguishable from a
-   * hand-raised one.
-   */
-  async createTaskFrom(spec: {
-    title: string;
-    description?: string | null;
-    priority?: Prisma.WorkspaceTaskCreateInput['priority'];
-    assigneeId?: string | null;
-    dueInDays?: number | null;
-    createdById: string;
-    checklist?: string[];
-    link?: { recordType: WorkspaceRecordType; recordId: string; recordRef: string; label: string | null } | null;
-    event?: { kind: WorkspaceTaskEventKind; actorId: string | null; toValue?: string | null };
-  }) {
-    const reference = await nextReference(this.prisma.workspaceTask as never, 'TSK');
-    const dueAt = spec.dueInDays == null ? null : (() => {
-      const due = new Date();
-      due.setDate(due.getDate() + spec.dueInDays!);
-      due.setHours(23, 59, 59, 0);
-      return due;
-    })();
-
-    return this.prisma.workspaceTask.create({
-      data: {
-        reference,
-        title: spec.title,
-        description: spec.description ?? null,
-        priority: spec.priority,
-        assigneeId: spec.assigneeId ?? null,
-        createdById: spec.createdById,
-        dueAt,
-        ...(spec.link ? { links: { create: [spec.link] } } : {}),
-        ...(spec.checklist?.length
-          ? { checklist: { create: spec.checklist.map((text, position) => ({ text, position })) } }
-          : {}),
-        events: {
-          create: [
-            { actorId: spec.event?.actorId ?? null, kind: WorkspaceTaskEventKind.CREATED, toValue: spec.title },
-            ...(spec.event && spec.event.kind !== WorkspaceTaskEventKind.CREATED
-              ? [{ actorId: spec.event.actorId, kind: spec.event.kind, toValue: spec.event.toValue ?? null }]
-              : []),
-          ],
-        },
-      },
-      include: {
-        assignee: { select: PERSON },
-        createdBy: { select: PERSON },
-        links: true,
-        checklist: { orderBy: { position: 'asc' } },
-      },
-    });
-  }
-
   private async findTask(idOrRef: string) {
     const task = await this.prisma.workspaceTask.findFirst({
       where: { OR: [{ id: idOrRef }, { reference: idOrRef }], deletedAt: null },
@@ -512,11 +325,4 @@ export class ProductivityService {
     return rows.map((r) => r.id);
   }
 
-  /** Exposed for the recurrence processor. */
-  get db() {
-    return this.prisma;
-  }
-
-  /** Exposed for the recurrence processor. */
-  step = nextOccurrence;
 }

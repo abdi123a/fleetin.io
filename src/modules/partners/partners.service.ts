@@ -6,7 +6,6 @@ import { nextReference } from '../../common/helpers/reference.util';
 import { CreatePartnerDto } from './dto/create-partner.dto';
 import { UpdatePartnerDto } from './dto/update-partner.dto';
 import { CreateDispatcherDto } from './dto/create-dispatcher.dto';
-import { CreatePricingTierDto } from './dto/create-pricing-tier.dto';
 import { UpsertBankAccountDto } from './dto/upsert-bank-account.dto';
 import { toMinorUnits } from '../../common/helpers/pricing.util';
 
@@ -91,7 +90,7 @@ export class PartnersService {
     }
 
     const [enriched] = await this.enrich([partner]);
-    const [vehicles, drivers, pricingGrid, bankAccount] = await Promise.all([
+    const [vehicles, drivers, bankAccount] = await Promise.all([
       /* `trips` alongside, because the transporter workspace prints it on every
          fleet card and every driver row. It used to print the standing driver
          a vehicle was paired with; that pairing is gone, and a trip count read
@@ -106,7 +105,6 @@ export class PartnersService {
         where: { partnerId: partner.id, deletedAt: null },
         include: { _count: { select: { bookings: { where: LIVE_BOOKINGS } } } },
       }),
-      this.prisma.pricingTier.findMany({ where: { partnerId: partner.id }, orderBy: { createdAt: 'desc' } }),
       this.prisma.partnerBankAccount.findUnique({ where: { partnerId: partner.id } }),
     ]);
 
@@ -114,7 +112,6 @@ export class PartnersService {
       ...enriched,
       vehicles: vehicles.map(withTrips),
       drivers: drivers.map(withTrips),
-      pricingGrid,
       bankAccount,
     };
   }
@@ -237,53 +234,9 @@ export class PartnersService {
     return contact;
   }
 
-  async listPricingTiers(partnerId: string) {
-    const existing = await this.findOne(partnerId, null);
-    return this.prisma.pricingTier.findMany({ where: { partnerId: existing.id }, orderBy: { createdAt: 'desc' } });
-  }
 
-  async addPricingTier(partnerId: string, dto: CreatePricingTierDto) {
-    const existing = await this.findOne(partnerId, null);
-    // At the currency's own scale, matching what `resolvePartnerRateMinorUnitsFdj`
-    // reads back — a flat ×100 stored a DJF tier 100× too high.
-    const basePriceMinorUnits = toMinorUnits(dto.basePrice, dto.currency);
-    return this.prisma.pricingTier.create({
-      data: {
-        partnerId: existing.id,
-        route: dto.route,
-        vehicleType: dto.vehicleType,
-        basePriceMinorUnits,
-        currency: dto.currency,
-        fxRate: 1.0,
-        baseAmountMinorUnits: basePriceMinorUnits,
-        pricePerKmMinorUnits: dto.pricePerKm !== undefined ? toMinorUnits(dto.pricePerKm, dto.currency) : undefined,
-      },
-    });
-  }
 
-  async updatePricingTier(partnerId: string, tierId: string, dto: Partial<CreatePricingTierDto>) {
-    const tier = await this.prisma.pricingTier.findFirst({ where: { id: tierId, partnerId } });
-    if (!tier) throw new NotFoundException(`Pricing tier with ID "${tierId}" not found`);
-    const currency = dto.currency ?? tier.currency;
-    const basePriceMinorUnits = dto.basePrice !== undefined ? toMinorUnits(dto.basePrice, currency) : undefined;
-    return this.prisma.pricingTier.update({
-      where: { id: tierId },
-      data: {
-        route: dto.route,
-        vehicleType: dto.vehicleType,
-        basePriceMinorUnits,
-        baseAmountMinorUnits: basePriceMinorUnits,
-        currency: dto.currency,
-        pricePerKmMinorUnits: dto.pricePerKm !== undefined ? toMinorUnits(dto.pricePerKm, currency) : undefined,
-      },
-    });
-  }
 
-  async removePricingTier(partnerId: string, tierId: string) {
-    const tier = await this.prisma.pricingTier.findFirst({ where: { id: tierId, partnerId } });
-    if (!tier) throw new NotFoundException(`Pricing tier with ID "${tierId}" not found`);
-    return this.prisma.pricingTier.delete({ where: { id: tierId } });
-  }
 
   async upsertBankAccount(partnerId: string, dto: UpsertBankAccountDto) {
     const existing = await this.findOne(partnerId, null);

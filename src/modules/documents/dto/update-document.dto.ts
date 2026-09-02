@@ -8,8 +8,19 @@ export class UpdateDocumentDto {
   @IsString()
   category?: string;
 
+  @ApiPropertyOptional({ example: '2025-01-01' })
+  @IsOptional()
+  @IsDateString()
+  issueDate?: string;
+
   @ApiPropertyOptional({ example: '2027-01-01' })
   @IsOptional()
   @IsDateString()
   expiryDate?: string;
+
+  /** Who issued it — the insurer, on a vehicle's insurance certificate. */
+  @ApiPropertyOptional({ example: 'GXA Assurances' })
+  @IsOptional()
+  @IsString()
+  issuer?: string;
 }

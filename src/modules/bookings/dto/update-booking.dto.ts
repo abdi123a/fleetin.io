@@ -57,40 +57,6 @@ export class UpdateBookingDto {
    * otherwise charged to the carrier who only fetched it. Same three axes, so
    * the two debriefs stay comparable.
    */
-  @ApiPropertyOptional({ description: 'Operator rating for the shipper on this booking, 1-5', minimum: 1, maximum: 5 })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(5)
-  shipperRating?: number;
-
-  @ApiPropertyOptional({ description: 'Was the cargo and paperwork as agreed, 1-5' })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(5)
-  shipperRatingReliability?: number;
-
-  @ApiPropertyOptional({ description: 'Did they strip and release the box promptly, 1-5' })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(5)
-  shipperRatingPunctuality?: number;
-
-  @ApiPropertyOptional({ description: 'How they were to deal with, 1-5' })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(5)
-  shipperRatingProfessionalism?: number;
-
-  @ApiPropertyOptional({ description: 'Free-text remark about the shipper on this booking' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(2000)
-  shipperNote?: string;
-
   @ApiPropertyOptional({ description: 'Assign or change the driver' })
   @IsOptional()
   @IsString()
@@ -100,6 +66,53 @@ export class UpdateBookingDto {
   @IsOptional()
   @IsString()
   vehicleId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      "The driver taking the empty container back, when that is not who delivered it. Recorded on the 'Empty Picked Up' rung; null means the delivery crew took it back.",
+  })
+  @IsOptional()
+  @IsString()
+  returnDriverId?: string;
+
+  @ApiPropertyOptional({ description: 'The vehicle running the empty return leg' })
+  @IsOptional()
+  @IsString()
+  returnVehicleId?: string;
+
+  @ApiPropertyOptional({ description: 'Overall 1-5 for the return driver', minimum: 1, maximum: 5 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  returnDriverRating?: number;
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 5 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  returnDriverRatingReliability?: number;
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 5 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  returnDriverRatingPunctuality?: number;
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 5 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  returnDriverRatingProfessionalism?: number;
+
+  @ApiPropertyOptional({ description: 'Free-text remark about the return driver on this booking' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  returnDriverNote?: string;
 
   @ApiPropertyOptional({ description: 'Reassign to a different transporter' })
   @IsOptional()

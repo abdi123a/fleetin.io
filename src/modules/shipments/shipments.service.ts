@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { BookingsService } from '../bookings/bookings.service';
 import { nextReference } from '../../common/helpers/reference.util';
-import { fleetinCommissionPct, resolvePartnerRateMinorUnitsFdj, splitCommission } from '../../common/helpers/pricing.util';
+import { fleetinCommissionPct, splitCommission } from '../../common/helpers/pricing.util';
 import { CreateShipmentDto } from './dto/create-shipment.dto';
 import { UpdateShipmentDto } from './dto/update-shipment.dto';
 import { UpdateShipmentStatusDto } from './dto/update-shipment-status.dto';
@@ -333,29 +333,6 @@ export class ShipmentsService {
     return { total, active, delayed, pendingAssignment };
   }
 
-  /**
-   * Prices a shipment off the chosen transporters' own price lists:
-   * containers times each partner's per-mission rate, summed. That total is
-   * what the shipper pays; Fleetin's commission comes out of it and the
-   * transporter is paid the remainder — see `splitCommission`.
-   *
-   * There is no separate shipper-side price list and no manual rate entry:
-   * picking the transporter IS picking the price.
-   *
-   * Returns `null` when any assignment's partner has no resolvable rate —
-   * the shipment is then left unpriced rather than priced off an invented
-   * figure, and `InvoicesService` already leaves unpriced shipments off
-   * every statement rather than estimating.
-   */
-  private async priceFromPartnerGrids(assignments: { partnerId: string; vehicles: number }[], vehicleType: string) {
-    let totalFdj = 0n;
-    for (const assignment of assignments) {
-      const rateFdj = await resolvePartnerRateMinorUnitsFdj(this.prisma, assignment.partnerId, vehicleType, assignment.vehicles);
-      if (rateFdj == null) return null;
-      totalFdj += rateFdj;
-    }
-    return splitCommission(totalFdj, await fleetinCommissionPct(this.prisma));
-  }
 
   async create(dto: CreateShipmentDto, actorName: string, actorId?: string) {
     const shipper = await this.prisma.shipper.findFirst({ where: { id: dto.shipperId, deletedAt: null } });
@@ -375,13 +352,19 @@ export class ShipmentsService {
       this.prisma.contact.findFirst({ where: { ownerType: 'PARTNER', ownerId: primaryPartner.id, isPrimary: true } }),
     ]);
 
-    // One price list, two sides of it: the shipper is billed the partners'
-    // own figure, the transporters are paid it net of Fleetin's commission.
-    // A null price (no resolvable rate) leaves the shipment unpriced.
-    const price = await this.priceFromPartnerGrids(dto.transporterAssignments, dto.preferredVehicleType);
-    // An explicitly-passed rate still wins — a negotiated one-off overrides
-    // the price list rather than being silently replaced by it.
-    const clientRateMinorUnits = dto.clientRateMinorUnits != null ? BigInt(dto.clientRateMinorUnits) : (price?.totalMinorUnits ?? null);
+    // The price the operator entered, and nothing else. Partner price lists
+    // were removed on 2026-08-31: every shipment on this corridor is
+    // negotiated, so the figure arrives on the request rather than being
+    // resolved from a stored rate that goes stale and then gets believed.
+    // A shipment created without one is left unpriced, exactly as an
+    // unresolvable rate used to be — `InvoicesService` keeps unpriced
+    // shipments off every statement rather than estimating.
+    const clientRateMinorUnits =
+      dto.clientRateMinorUnits != null ? BigInt(dto.clientRateMinorUnits) : null;
+    const price =
+      clientRateMinorUnits != null
+        ? splitCommission(clientRateMinorUnits, await fleetinCommissionPct(this.prisma))
+        : null;
     // The transporter-cost column is non-nullable, so an unresolvable rate
     // lands as a visibly-wrong 0 — never an invented figure — until
     // `repriceFromPriceList` can resolve it. No payout reads this aggregate;
@@ -494,6 +477,9 @@ export class ShipmentsService {
         requiredDocuments: dto.requiredDocuments,
 
         scheduledPickupTime: new Date(dto.scheduledPickupTime),
+        scheduledDeliveryTime: dto.scheduledDeliveryTime
+          ? new Date(dto.scheduledDeliveryTime)
+          : undefined,
 
         rateMinorUnits,
         rateCurrency: 'FDJ',
@@ -614,68 +600,12 @@ export class ShipmentsService {
     return shipment;
   }
 
-  /**
-   * Prices an existing shipment off its transporters' price lists — the fix
-   * for the backlog of shipments created before the wizard resolved a price,
-   * the ones Finance lists as "unpriced".
-   *
-   * Its bookings are the container count (that is what a booking is), so the
-   * arithmetic is the same containers × per-mission-price rule `create` uses;
-   * a shipment with no bookings yet prices as a single trip on its own
-   * partner. Never overwrites a rate that is already set — a negotiated
-   * figure is not the price list's to revise.
-   */
-  async repriceFromPriceList(id: string) {
-    const existing = await this.findOne(id, null);
-    if (existing.clientRateMinorUnits != null) return existing;
+  /* `repriceFromPriceList` and `repriceUnpriced` were removed on 2026-08-31
+     with the partner price lists they read. There is nothing left to reprice
+     *from*: an unpriced shipment now needs a person to enter a figure, which
+     `PATCH /shipments/:id` already accepts as `clientRateMinorUnits`. Finance
+     still lists unpriced shipments; the fix is typing the price. */
 
-    const bookings = await this.prisma.booking.findMany({
-      where: { shipmentId: existing.id, deletedAt: null, status: { notIn: ['Cancelled', 'Failed'] } },
-      select: { partnerId: true },
-    });
-    const byPartner = new Map<string, number>();
-    for (const { partnerId } of bookings) {
-      if (partnerId) byPartner.set(partnerId, (byPartner.get(partnerId) ?? 0) + 1);
-    }
-    const assignments =
-      byPartner.size > 0
-        ? [...byPartner].map(([partnerId, vehicles]) => ({ partnerId, vehicles }))
-        : [{ partnerId: existing.partnerId, vehicles: 1 }];
-
-    const price = await this.priceFromPartnerGrids(assignments, existing.vehicleTypeSnapshot ?? '');
-    // No resolvable rate — the shipment stays unpriced rather than being
-    // priced off an invented figure; it keeps showing up in "unpriced".
-    if (price == null) return existing;
-
-    return this.prisma.shipment.update({
-      where: { id: existing.id },
-      data: {
-        clientRateMinorUnits: price.totalMinorUnits,
-        clientRateCurrency: 'FDJ',
-        clientRateFxRate: 1.0,
-        clientRateBaseAmountMinorUnits: price.totalMinorUnits,
-        rateMinorUnits: price.transporterMinorUnits,
-        rateBaseAmountMinorUnits: price.transporterMinorUnits,
-      },
-      include: { timeline: { orderBy: { createdAt: 'asc' } } },
-    });
-  }
-
-  /** `repriceFromPriceList` across every unpriced shipment, optionally narrowed to one shipper. */
-  async repriceUnpriced(shipperId?: string) {
-    const unpriced = await this.prisma.shipment.findMany({
-      where: { deletedAt: null, clientRateMinorUnits: null, ...(shipperId ? { shipperId } : {}) },
-      select: { id: true },
-    });
-
-    let priced = 0;
-    for (const { id } of unpriced) {
-      const result = await this.repriceFromPriceList(id);
-      if (result.clientRateMinorUnits != null) priced += 1;
-    }
-
-    return { considered: unpriced.length, priced };
-  }
 
   /**
    * Cancels or fails a whole shipment. It is no longer a general status

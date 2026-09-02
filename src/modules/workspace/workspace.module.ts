@@ -1,10 +1,7 @@
-import { Module, OnModuleInit } from '@nestjs/common';
-import { BullModule, InjectQueue } from '@nestjs/bullmq';
-import type { Queue } from 'bullmq';
+import { Module } from '@nestjs/common';
 import { ChannelsService } from './channels.service';
 import { ProductivityService } from './productivity.service';
 import { WorkspaceProductivityController } from './productivity.controller';
-import { WORKSPACE_RECURRENCE_QUEUE, WorkspaceRecurrenceProcessor } from './recurrence.processor';
 import { WorkspaceChannelsController } from './channels.controller';
 import { InboxService } from './inbox.service';
 import { MessagesService } from './messages.service';
@@ -24,7 +21,6 @@ import { WorkspaceController } from './workspace.controller';
  * recompute anything about them.
  */
 @Module({
-  imports: [BullModule.registerQueue({ name: WORKSPACE_RECURRENCE_QUEUE })],
   controllers: [
     WorkspaceTasksController,
     WorkspaceMessagesController,
@@ -37,36 +33,20 @@ import { WorkspaceController } from './workspace.controller';
     MessagesService,
     ChannelsService,
     ProductivityService,
-    WorkspaceRecurrenceProcessor,
     InboxService,
     WorkspaceNotificationsService,
     RecordAccessService,
   ],
   exports: [TasksService, WorkspaceNotificationsService],
 })
-export class WorkspaceModule implements OnModuleInit {
-  constructor(@InjectQueue(WORKSPACE_RECURRENCE_QUEUE) private readonly recurrence: Queue) {}
-
-  /**
-   * One repeatable job, registered on boot.
-   *
-   * Hourly rather than daily: a rule created this morning for today should
-   * produce its task within the hour, not tomorrow. Running more often than a
-   * rule is due costs nothing — `resolveDueOccurrence` returns null for a rule
-   * that is not due, and the occurrence index refuses anything that slips past.
-   *
-   * `jobId` is fixed so a restart re-registers the same schedule instead of
-   * stacking a second one on every deploy.
-   */
-  async onModuleInit(): Promise<void> {
-    await this.recurrence.add(
-      'generate-due',
-      {},
-      {
-        jobId: 'workspace-recurrence-hourly',
-        repeat: { pattern: '5 * * * *' },
-        removeOnComplete: true,
-      },
-    );
-  }
-}
+/*
+ * No queue, and no `onModuleInit`.
+ *
+ * Recurring tasks were removed on 2026-08-31 — one rule ever existed and it
+ * was a test one. Their processor was this application's only BullMQ job, and
+ * it registered itself here with an unguarded `await queue.add(...)` on a
+ * connection configured `maxRetriesPerRequest: null`. An unreachable Redis at
+ * boot therefore did not degrade recurring tasks: it hung Nest's bootstrap
+ * forever and the whole API never came up. That risk leaves with the feature.
+ */
+export class WorkspaceModule {}

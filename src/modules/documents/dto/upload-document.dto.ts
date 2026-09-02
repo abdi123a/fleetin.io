@@ -17,8 +17,24 @@ export class UploadDocumentDto {
   @IsNotEmpty()
   category: string;
 
+  /**
+   * The day the authority issued it. Optional at the API, asked for at every
+   * upload surface — a paper with no issue date cannot be told apart from a
+   * renewal of itself.
+   */
+  @ApiPropertyOptional({ example: '2025-01-01' })
+  @IsOptional()
+  @IsDateString()
+  issueDate?: string;
+
   @ApiPropertyOptional({ example: '2027-01-01' })
   @IsOptional()
   @IsDateString()
   expiryDate?: string;
+
+  /** Who issued it — the insurer, on a vehicle's insurance certificate. */
+  @ApiPropertyOptional({ example: 'GXA Assurances' })
+  @IsOptional()
+  @IsString()
+  issuer?: string;
 }

@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { nextReference } from '../../common/helpers/reference.util';
 import { isValidShipmentStatusTransition, timelineKeyForStatus } from '../shipments/shipment-status.util';
 import { syncShipmentFromBookings } from '../shipments/shipment-sync';
-import { cycleStatusForBookingStatus, DELIVERED_STATUSES } from './empty-return-status.util';
+import { DELIVERED_STATUSES, cycleStatusForBookingStatus, hasProofOfReturn } from './empty-return-status.util';
 import { CreateCycleDto } from './dto/create-cycle.dto';
 import { emptiesFor, emptyFromBooking, loadFromBooking, loadsFor } from './empty-return-matching.util';
 
@@ -454,6 +454,22 @@ export class EmptyReturnsService {
     }
     if (!booking.emptyReturnException) {
       throw new ConflictException(`Booking "${booking.reference}" isn't flagged for a standalone return`);
+    }
+    /* The depot's receipt, or it did not come back.
+     *
+     * This is the moment the box is declared home: detention stops here, the
+     * cycle closes here, and the booking that owed the container is completed
+     * here. All three are settled on one person's word unless the paper the
+     * depot handed them is behind it. Same rule, and the same reason, as the
+     * proof of delivery at the other end of the job.
+     *
+     * The frontend asks for it in the dialog that confirms the return, so the
+     * file and the confirmation are one action rather than two screens. */
+    if (!(await hasProofOfReturn(this.prisma, booking.id))) {
+      throw new ConflictException(
+        `Booking "${booking.reference}" cannot be closed without its proof of return. ` +
+          'Attach the depot receipt for the empty container and confirm again.',
+      );
     }
     const existing = await this.prisma.emptyReturnCycle.findUnique({ where: { bookingId: booking.id } });
     if (existing) throw new ConflictException(`Booking "${booking.reference}" already has a cycle`);

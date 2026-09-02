@@ -29,6 +29,7 @@ import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../../common/constants/permissions';
 import { HrAuditService } from '../hr-audit.service';
 import type { AuthenticatedUser } from '../../auth/jwt.strategy';
+import { contentDisposition } from '../../../common/helpers/content-disposition.util';
 
 @ApiTags('HR — Employees')
 @ApiBearerAuth()
@@ -171,15 +172,11 @@ export class EmployeesController {
     @Res() res: Response,
   ) {
     const { buffer, fileName, mimeType } = await this.employees.documentFile(user, documentId);
-    const ascii = fileName.replace(/[^\x20-\x7E]/g, '_').replace(/"/g, "'");
     res
       .status(200)
       .header('Content-Type', mimeType || 'application/octet-stream')
       .header('Content-Length', String(buffer.length))
-      .header(
-        'Content-Disposition',
-        `inline; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
-      )
+      .header('Content-Disposition', contentDisposition(fileName, 'inline'))
       .send(buffer);
   }
 

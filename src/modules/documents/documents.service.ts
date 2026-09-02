@@ -4,7 +4,7 @@ import { StorageService } from '../storage/storage.service';
 import { UploadDocumentDto } from './dto/upload-document.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { VerifyDocumentDto } from './dto/verify-document.dto';
-import { PROOF_OF_DELIVERY } from './document-owner-type';
+import { BOOKING_PROOFS } from './document-owner-type';
 
 /** A booking whose record is settled — see `remove` below. */
 const CLOSED_BOOKING_STATUSES = ['Completed', 'Cancelled', 'Failed'];
@@ -56,36 +56,102 @@ export class DocumentsService {
     // DocumentType exists to power the "one row per known type" upload UI,
     // not to gate every possible upload path.
 
+    /* Multer hands `originalname` back as latin1-decoded bytes, so anything
+     * outside ASCII arrives mangled — a macOS screenshot is named with a
+     * narrow no-break space (U+202F) and came through as
+     * "Screenshot 2026-08-31 at 1.42.57âÄ¯PM.png". The bytes are right; only
+     * the decoding was wrong, so re-read them as UTF-8. Left alone when that
+     * round-trip is lossy, which is what a genuinely latin1 name looks like. */
+    const originalname = decodeMulterFilename(file.originalname);
+
     const stored = await this.storage.upload(
-      { originalname: file.originalname, buffer: file.buffer, mimetype: file.mimetype, size: file.size },
+      { originalname, buffer: file.buffer, mimetype: file.mimetype, size: file.size },
       { folder: 'documents' },
     );
 
-    return this.prisma.document.create({
+    const created = await this.prisma.document.create({
       data: {
         ownerType: dto.ownerType,
         ownerId: dto.ownerId,
         category: dto.category,
-        name: file.originalname,
+        name: originalname,
         storageKey: stored.key,
         mimeType: stored.mimetype,
         fileSizeBytes: stored.size,
         status: 'Pending Review',
         uploadedById,
+        issueDate: dto.issueDate ? new Date(dto.issueDate) : undefined,
         expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : undefined,
+        issuer: dto.issuer?.trim() || undefined,
       },
     });
+
+    await this.syncVehicleComplianceDates(created);
+    return created;
+  }
+
+  /**
+   * A truck's compliance dates come FROM its papers.
+   *
+   * `Vehicle.registrationExpiry` and the three insurance columns existed before
+   * documents did, and were typed by hand on the vehicle form — so a truck
+   * could carry an insurance certificate expiring in March and a column saying
+   * it was covered until December, with nothing reconciling the two. Every
+   * verification check in the app reads the columns (`isVehicleVerified`,
+   * the compliance alerts, the fleet list), so the columns have to be the
+   * paper's own facts rather than a second opinion about them.
+   *
+   * The document is therefore the source and this is the write-through, run on
+   * every vehicle upload. Silent when the upload carries no dates: an
+   * undated certificate should not blank out what the vehicle already knew.
+   */
+  private async syncVehicleComplianceDates(document: {
+    ownerType: string;
+    ownerId: string;
+    category: string;
+    issueDate: Date | null;
+    expiryDate: Date | null;
+    issuer: string | null;
+  }) {
+    if (document.ownerType !== 'VEHICLE') return;
+
+    if (document.category === 'Insurance') {
+      await this.prisma.vehicle.updateMany({
+        where: { id: document.ownerId },
+        data: {
+          ...(document.issuer ? { insuranceProvider: document.issuer } : {}),
+          ...(document.issueDate ? { insuranceStartDate: document.issueDate } : {}),
+          ...(document.expiryDate ? { insuranceExpiry: document.expiryDate } : {}),
+        },
+      });
+      return;
+    }
+
+    /* The grey card IS the registration, so its expiry is the registration's. */
+    if (document.category === 'Grey Card' && document.expiryDate) {
+      await this.prisma.vehicle.updateMany({
+        where: { id: document.ownerId },
+        data: { registrationExpiry: document.expiryDate },
+      });
+    }
   }
 
   async update(id: string, dto: UpdateDocumentDto) {
     await this.findOne(id);
-    return this.prisma.document.update({
+    const updated = await this.prisma.document.update({
       where: { id },
       data: {
         category: dto.category,
+        issueDate: dto.issueDate ? new Date(dto.issueDate) : undefined,
         expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : undefined,
+        issuer: dto.issuer?.trim() || undefined,
       },
     });
+
+    /* Correcting a certificate's expiry has to move the truck's cover with it,
+       or the correction is only half made. */
+    await this.syncVehicleComplianceDates(updated);
+    return updated;
   }
 
   async verify(id: string, dto: VerifyDocumentDto, verifiedById: string) {
@@ -113,15 +179,16 @@ export class DocumentsService {
     const document = await this.findOne(id);
 
     /**
-     * A closed job's proof of delivery is not deletable.
+     * A closed job's proofs are not deletable.
      *
-     * It is the evidence the booking was closed on — the thing that let its
-     * container start home and its payout be released — so removing it after
-     * the fact would leave the record asserting a delivery with nothing behind
-     * it. While the job is still running the POD is ordinary working paperwork
-     * and can be corrected freely.
+     * They are the evidence the booking was closed on — the delivery note that
+     * let its container start home and its payout be released, and the depot
+     * receipt that ended the job — so removing either after the fact would
+     * leave the record asserting events with nothing behind them. While the job
+     * is still running they are ordinary working paperwork and can be
+     * corrected freely.
      */
-    if (document.ownerType === 'BOOKING' && document.category === PROOF_OF_DELIVERY) {
+    if (document.ownerType === 'BOOKING' && BOOKING_PROOFS.includes(document.category as never)) {
       const booking = await this.prisma.booking.findUnique({
         where: { id: document.ownerId },
         select: { reference: true, status: true },
@@ -136,4 +203,19 @@ export class DocumentsService {
     await this.storage.delete(document.storageKey);
     return this.prisma.document.delete({ where: { id } });
   }
+}
+
+/**
+ * The filename as the person who made the file sees it.
+ *
+ * Busboy (under Multer) decodes multipart field values as latin1, which is
+ * lossless at the byte level but wrong for every non-ASCII name. Re-encoding
+ * those bytes and decoding them as UTF-8 recovers the original. A name that is
+ * actually latin1 will not survive that round trip — the re-decode produces
+ * U+FFFD — so the original is kept in that case rather than replacing a
+ * readable name with question marks.
+ */
+function decodeMulterFilename(name: string): string {
+  const decoded = Buffer.from(name, 'latin1').toString('utf8');
+  return decoded.includes('\uFFFD') ? name : decoded;
 }

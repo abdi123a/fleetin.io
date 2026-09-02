@@ -9,22 +9,26 @@
  * the same code — which is what stops the board and a container's own dialog
  * from recommending different things about the same pair.
  *
- * ## Two hard gates
+ * ## One hard gate
  *
- * 1. **Same shipping line.** A Maersk box cannot go back under a CMA CGM
- *    booking; the line owns the equipment.
- * 2. **Same container size.** A 40HC chassis is not a 20' chassis. Physics.
+ * **Same container size.** A 40HC chassis is not a 20' chassis. Physics.
+ *
+ * There were two until 2026-08-30. Same shipping line was the other, on the
+ * argument that the line owns the equipment — the user removed it the day
+ * after it was introduced: a pairing across two lines is still a pairing, and
+ * refusing it costs a trip nobody needed to drive. The line is still reported
+ * on the pairing, it just does not veto.
  *
  * Plus one window rule: the load's appointment must fall between *now* and the
  * empty's own return deadline. A slot in the past cannot be driven, and a slot
  * after the deadline does not save the detention it exists to avoid.
  *
- * > Deliberate departure from the previous engine, decided by the user on
- * > 2026-08-29: transporter is **no longer** a gate and line **is**. The old
- * > rule (same transporter, line irrelevant) came from wanting one truck to run
- * > both legs. v19 inverts it — the equipment's owner is what actually
- * > constrains a return, and dispatch can re-assign a truck. Anything that
- * > reads a transporter here is reading the wrong field.
+ * > History, because this gate has now moved twice. Before 2026-08-29 the rule
+ * > was "same transporter, line irrelevant" — one truck runs both legs. v19
+ * > inverted it on 2026-08-29: transporter out, line in. On 2026-08-30 the
+ * > user took the line out too, leaving size alone. Transporter has not gated
+ * > since v19 and does not now; anything that reads a transporter here is
+ * > reading the wrong field.
  *
  * ## Score is an argument, not a number
  *
@@ -95,13 +99,14 @@ function fmtSpan(ms: number): string {
 export function incompatibility(empty: MatchEmpty, load: MatchLoad, now: number): string[] {
   const issues: string[] = [];
   if (load.slots - load.taken <= 0) issues.push('This load has no container slot left');
-  if (!empty.line || !load.line || empty.line !== load.line) {
-    issues.push(
-      load.line && empty.line
-        ? `Different shipping line (${empty.line} → ${load.line})`
-        : 'Shipping line not recorded on one side',
-    );
-  }
+  /* The shipping line does NOT gate — removed 2026-08-30 at the user's
+     direction, one day after v19 introduced it. A pairing across two lines is
+     still a pairing, and refusing it costs a trip that did not need driving.
+     The difference is still surfaced to the operator as a note by the
+     frontend's `pairingReasons`; it simply cannot refuse the pair here.
+     The frontend's `matching.ts` carries the identical change — these two are
+     one engine, and if they disagree the board offers pairings this API
+     refuses. */
   if (!empty.size || !load.size || empty.size !== load.size) {
     issues.push(
       load.size && empty.size

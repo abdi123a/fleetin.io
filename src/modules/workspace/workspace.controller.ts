@@ -32,7 +32,11 @@ export class WorkspaceController {
   @ApiOperation({ summary: "The bell's badge — deliberately cheap, it is polled" })
   async unread(@CurrentUser() user: AuthenticatedUser) {
     assertInternal(user);
-    return { unread: await this.notifications.unreadCount(user.id) };
+    const [unread, assigned] = await Promise.all([
+      this.notifications.unreadCount(user.id),
+      this.notifications.openAssignmentCount(user.id),
+    ]);
+    return { unread, assigned };
   }
 
   @Get('notifications')

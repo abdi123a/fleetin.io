@@ -1,4 +1,4 @@
-import { PROOF_OF_DELIVERY } from '../documents/document-owner-type';
+import { PROOF_OF_DELIVERY, PROOF_OF_RETURN } from '../documents/document-owner-type';
 
 /**
  * A booking counts as "delivered" — eligible to become an empty — at exactly
@@ -52,8 +52,37 @@ export async function hasProofOfDelivery(
   prisma: { document: { count(args: unknown): Promise<number> } },
   bookingId: string,
 ): Promise<boolean> {
+  return hasBookingProof(prisma, bookingId, PROOF_OF_DELIVERY);
+}
+
+/**
+ * Has this booking's empty box been signed back in at the depot?
+ *
+ * The mirror of the POD, at the other end of the job. A container is home
+ * because the depot took it, and the depot's receipt is the only thing that
+ * says so — a dispatcher clicking "Empty Returned" is reporting, not proving.
+ * Detention stops on this document and the whole job closes on it, so it is
+ * gated exactly as hard as the delivery is.
+ *
+ * Only a box that actually goes BACK owes one. An empty matched to an outbound
+ * load never sees the depot — it is reloaded where it stands — and is proven
+ * by that load's own delivery instead.
+ */
+export async function hasProofOfReturn(
+  prisma: { document: { count(args: unknown): Promise<number> } },
+  bookingId: string,
+): Promise<boolean> {
+  return hasBookingProof(prisma, bookingId, PROOF_OF_RETURN);
+}
+
+/** One count, two callers — the proofs differ only in which category they name. */
+async function hasBookingProof(
+  prisma: { document: { count(args: unknown): Promise<number> } },
+  bookingId: string,
+  category: string,
+): Promise<boolean> {
   const count = await prisma.document.count({
-    where: { ownerType: 'BOOKING', ownerId: bookingId, category: PROOF_OF_DELIVERY },
+    where: { ownerType: 'BOOKING', ownerId: bookingId, category },
   });
   return count > 0;
 }
