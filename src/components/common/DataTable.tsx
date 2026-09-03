@@ -124,6 +124,16 @@ export interface DataTableProps<T> {
    * a designed card wires its own click, and wrapping it would double-fire.
    */
   renderCard?: (row: T) => ReactNode;
+  /**
+   * Extra classes for one row, from the row itself — a ground that carries
+   * meaning the columns cannot.
+   *
+   * Applied last, so it can override the base and the hover both: a tinted row
+   * whose hover reverts to the neutral `surface-sunken` flashes back to
+   * "ordinary" under the cursor, which is the one moment the reader is paying
+   * it most attention. Return the hover with the tint.
+   */
+  rowClassName?: (row: T) => string | undefined;
   className?: string;
 }
 
@@ -136,6 +146,7 @@ export function DataTable<T>({
   emptyAction,
   breakpoint,
   renderCard,
+  rowClassName,
   className,
 }: DataTableProps<T>) {
   const identity = columns.find((column) => column.card === 'identity');
@@ -183,6 +194,7 @@ export function DataTable<T>({
                 '@container/card rounded-card-nested border border-border bg-card p-3 transition-colors',
                 onRowClick &&
                   'cursor-pointer hover:bg-surface-sunken/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring',
+                rowClassName?.(row),
               )}
             >
               {(identity || trailing.length > 0) && (
@@ -334,6 +346,7 @@ export function DataTable<T>({
                   'border-b border-border-subtle transition-colors last:border-0',
                   '[&>td]:border-r [&>td]:border-border-subtle [&>td:last-child]:border-r-0',
                   onRowClick && 'cursor-pointer hover:bg-surface-sunken/60',
+                  rowClassName?.(row),
                 )}
               >
                 {columns.map((column) => (

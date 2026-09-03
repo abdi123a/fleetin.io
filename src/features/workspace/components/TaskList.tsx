@@ -120,6 +120,36 @@ export interface TaskListProps {
   emptyCopy?: string;
 }
 
+/**
+ * The ground for a task that came in from outside.
+ *
+ * A ticket is somebody else's problem arriving — a shipper or a transporter
+ * raised it — and that is a different kind of row from work Fleetin raised for
+ * itself. `TaskOriginRef` already marks the difference in the reference's ink;
+ * this carries it to the whole row so the distinction survives a scan down the
+ * list rather than needing the reader to inspect one small mark per line.
+ *
+ * The warning hue and not `container-empty` or `impact`: those two yellows are
+ * spoken for — one means an empty box, the other means carbon avoided — and a
+ * third meaning on the same hue would make all three vaguer. This is the amber
+ * whose ink the ticket mark already uses.
+ *
+ * A LOW-ALPHA WASH of `--warning`, not `bg-warning-subtle`. Everywhere else in
+ * the app that token travels with `text-warning-subtle-foreground`, because in
+ * dark mode the ground is a translucent orange and only `orange-300` reads on
+ * it. A row cannot take that ink — it would repaint the title, the owner and
+ * the date — so using the ground alone put light text on a light wash and made
+ * three rows unreadable in dark mode. A wash tints whatever ground it lands on
+ * and leaves every foreground exactly as it was, so contrast is preserved in
+ * both themes by construction rather than by a second matching token.
+ *
+ * The hover deepens rather than reverting: a tinted row that flashes back to
+ * the neutral hover reads as losing its meaning at the moment the reader is
+ * pointing at it.
+ */
+const ticketRowSkin = (task: WorkspaceTask) =>
+  task.ticket ? 'bg-warning/10 hover:bg-warning/20' : undefined;
+
 export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }: TaskListProps) {
   const navigate = useNavigate();
   const me = useAuthStore((state) => state.user?.id);
@@ -491,6 +521,7 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
             columns={columns}
             rows={rows}
             rowKey={(task) => task.id}
+            rowClassName={ticketRowSkin}
             /*
              * A designed card, not the one assembled from column slots.
              *
@@ -522,7 +553,10 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
                     navigate(buildPath(ROUTES.workspaceTaskDetail, { reference: task.reference }));
                   }
                 }}
-                className="flex w-full cursor-pointer flex-col gap-1.5 rounded-card-nested border border-border bg-card px-3 py-2.5 text-left transition-colors duration-fast hover:bg-surface-sunken/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+                className={cn(
+                  'flex w-full cursor-pointer flex-col gap-1.5 rounded-card-nested border border-border bg-card px-3 py-2.5 text-left transition-colors duration-fast hover:bg-surface-sunken/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring',
+                  ticketRowSkin(task),
+                )}
               >
                 <div className="flex min-w-0 items-start gap-2">
                   <SelectBox
