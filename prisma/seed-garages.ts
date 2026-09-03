@@ -104,7 +104,7 @@ export async function seedGarages(prisma: PrismaService, impact: CarbonImpactSer
  * truck that went home in between — and the impact record refuses all of
  * them, correctly.
  *
- * For each closed pairing whose two bookings share a transporter, this moves
+ * For each closed pairing — one carrier or two — this moves
  * the empty's collection to one to three hours before the load's gate-in and
  * its return to a few hours after that, on the booking, its rungs and the
  * cycle alike — the same three stamps the live rungs write. The load's road
@@ -143,7 +143,9 @@ export async function alignSeededContinuations(prisma: PrismaService): Promise<v
   for (const cycle of cycles) {
     const empty = cycle.booking;
     const next = cycle.nextBooking;
-    if (!next || !empty.partnerId || empty.partnerId !== next.partnerId) continue;
+    /* Any two carriers: a handover is welded the same way — the box left the
+       free zone on the next load's truck, hours before that truck gated in. */
+    if (!next || !empty.partnerId || !next.partnerId) continue;
 
     const collectedStep = empty.timeline.find((s) => s.key === 'empty_picked_up' && s.timestamp);
     const closedStep = empty.timeline.find((s) => s.key === 'completion' && s.timestamp);

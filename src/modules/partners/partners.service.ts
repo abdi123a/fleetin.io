@@ -144,6 +144,13 @@ export class PartnersService {
         insuranceExpiry: dto.insuranceExpiry ? new Date(dto.insuranceExpiry) : undefined,
         partnerStatus: dto.partnerStatus ?? 'Pending',
         registrationDate: dto.registrationDate ? new Date(dto.registrationDate) : new Date(),
+        /* `undefined` leaves the stored deal alone; an explicit `null` clears
+           it and hands the record back to the house rate. DJF has no subunit,
+           so the fee typed IS the minor-unit figure. */
+        commissionMode: dto.commissionMode,
+        commissionPct: dto.commissionPct,
+        commissionFixedMinorUnits:
+          dto.commissionFixedAmount == null ? dto.commissionFixedAmount : BigInt(Math.round(dto.commissionFixedAmount)),
         garageLocationId: await this.resolveGarage(dto.garageLocationId),
       },
     });
@@ -179,6 +186,13 @@ export class PartnersService {
         insuranceExpiry: dto.insuranceExpiry ? new Date(dto.insuranceExpiry) : undefined,
         partnerStatus: dto.partnerStatus,
         registrationDate: dto.registrationDate ? new Date(dto.registrationDate) : undefined,
+        /* `undefined` leaves the stored deal alone; an explicit `null` clears
+           it and hands the record back to the house rate. DJF has no subunit,
+           so the fee typed IS the minor-unit figure. */
+        commissionMode: dto.commissionMode,
+        commissionPct: dto.commissionPct,
+        commissionFixedMinorUnits:
+          dto.commissionFixedAmount == null ? dto.commissionFixedAmount : BigInt(Math.round(dto.commissionFixedAmount)),
         /* `undefined` leaves the garage alone; null or '' clears it. */
         ...(dto.garageLocationId === undefined
           ? {}

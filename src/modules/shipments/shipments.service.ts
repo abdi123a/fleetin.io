@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { BookingsService } from '../bookings/bookings.service';
 import { LocationsService } from '../locations/locations.service';
 import { nextReference } from '../../common/helpers/reference.util';
-import { fleetinCommissionPct, splitCommission } from '../../common/helpers/pricing.util';
+import { resolveCommission, splitCommission } from '../../common/helpers/pricing.util';
 import { CreateShipmentDto } from './dto/create-shipment.dto';
 import { UpdateShipmentDto } from './dto/update-shipment.dto';
 import { UpdateShipmentStatusDto } from './dto/update-shipment-status.dto';
@@ -435,9 +435,19 @@ export class ShipmentsService {
     // shipments off every statement rather than estimating.
     const clientRateMinorUnits =
       dto.clientRateMinorUnits != null ? BigInt(dto.clientRateMinorUnits) : null;
+    /* The deal that applies to THIS job — the client's, else the haulier's,
+       else the house rate. A fixed deal is per container, so the split is
+       given the number of boxes being created. */
     const price =
       clientRateMinorUnits != null
-        ? splitCommission(clientRateMinorUnits, await fleetinCommissionPct(this.prisma))
+        ? splitCommission(
+            clientRateMinorUnits,
+            await resolveCommission(this.prisma, {
+              shipperId: shipper.id,
+              partnerId: primaryAssignment.partnerId,
+            }),
+            dto.bookings?.length ?? 1,
+          )
         : null;
     // The transporter-cost column is non-nullable, so an unresolvable rate
     // lands as a visibly-wrong 0 — never an invented figure — until
@@ -773,39 +783,71 @@ export class ShipmentsService {
   }
 
   /**
-   * The one gate that turns "delivered" into "payable" — deliberately its
-   * own explicit action, never implied by a status change. Guards on the
-   * same delivered-statuses vocabulary Empty Return already uses (BR: no
-   * separate "proof" model exists yet), plus no open `PayoutHold`.
+   * Records that the transporter has been paid for this shipment.
+   *
+   * ONE payment per shipment, never per booking: a haulier who carried ten of
+   * a shipment's containers is paid once, for the lot. The previous module got
+   * this wrong and turned a twenty-container job into twenty transfers.
+   *
+   * Two guards, and only two:
+   *
+   *   - The work has to be delivered. Paying for a container still on the road
+   *     is not an early payment, it is a mistake.
+   *   - The shipment has to be priced. There is no amount to pay otherwise,
+   *     and paying 0 would record a settled job that was never settled.
+   *
+   * Notably NOT a guard: whether the client has paid. Fleetin funds the gap —
+   * that is the business — so the haulier's money is not held behind the
+   * shipper's. Idempotent: a shipment already paid is returned unchanged
+   * rather than paid twice.
    */
-  async release(id: string, actorId: string, actorName: string) {
+  async payTransporter(id: string, actorId: string, actorName: string) {
     const shipment = await this.prisma.shipment.findFirst({
       where: { OR: [{ id }, { reference: id }], deletedAt: null },
       include: { bookings: { where: { deletedAt: null } } },
     });
     if (!shipment) throw new NotFoundException(`Shipment with ID "${id}" not found`);
-    if (shipment.payoutReleasedAt) {
-      throw new BadRequestException(`Shipment "${shipment.reference}" is already released`);
-    }
+    if (shipment.transporterPaidAt) return shipment;
 
-    const unproven = shipment.bookings.filter(
-      (b) => !['POD Submitted', 'Completed'].includes(b.status) && !['Cancelled', 'Failed'].includes(b.status),
-    );
-    if (unproven.length > 0) {
+    if (shipment.clientRateMinorUnits == null) {
       throw new BadRequestException(
-        `Cannot release "${shipment.reference}" — ${unproven.length} booking(s) not yet delivered: ${unproven.map((b) => b.reference).join(', ')}`,
+        `Shipment "${shipment.reference}" has no price — set one before paying the transporter.`,
       );
     }
 
-    const openHold = await this.prisma.payoutHold.findFirst({ where: { shipmentId: shipment.id, clearedAt: null } });
-    if (openHold) {
-      throw new BadRequestException(`Cannot release "${shipment.reference}" — an open hold (${openHold.category}) is blocking it`);
+    const undelivered = shipment.bookings.filter(
+      (booking) =>
+        !['POD Submitted', 'Completed'].includes(booking.status) &&
+        !['Cancelled', 'Failed'].includes(booking.status),
+    );
+    if (undelivered.length > 0) {
+      throw new BadRequestException(
+        `Cannot pay "${shipment.reference}" — ${undelivered.length} container(s) not yet delivered: ${undelivered
+          .map((booking) => booking.reference)
+          .join(', ')}`,
+      );
     }
+
+    /* The haulier's share is the job less Fleetin's cut, worked out from the
+       deal as it stands now and then FROZEN on the row. */
+    const commission = await resolveCommission(this.prisma, {
+      shipperId: shipment.shipperId,
+      partnerId: shipment.partnerId,
+    });
+    const split = splitCommission(
+      shipment.clientRateMinorUnits,
+      commission,
+      shipment.bookings.length || 1,
+    );
 
     return this.prisma.shipment.update({
       where: { id: shipment.id },
-      data: { payoutReleasedAt: new Date(), payoutReleasedById: actorId, payoutReleasedByName: actorName },
-      include: { timeline: { orderBy: { createdAt: 'asc' } } },
+      data: {
+        transporterPaidAt: new Date(),
+        transporterPaidMinorUnits: split.transporterMinorUnits,
+        transporterPaidById: actorId,
+        transporterPaidByName: actorName,
+      },
     });
   }
 

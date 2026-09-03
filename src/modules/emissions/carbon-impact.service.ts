@@ -7,10 +7,13 @@ import {
   ARRIVAL_KEY,
   EMPTY_COLLECTED_KEY,
   PICKUP_EVIDENCE_KEYS,
+  avoidedMetres,
   avoidedProvider,
   classifyContinuation,
   earliestTimestamp,
+  modelOf,
   pickCounted,
+  type ImpactModel,
   type ImpactSource,
   type ImpactStatus,
 } from './carbon-impact.util';
@@ -75,27 +78,34 @@ export class CarbonImpactService {
       return null;
     }
 
-    const partner = next.partner ?? empty.partner;
-    const garageId = partner?.garageLocationId ?? null;
-    const garage = garageId ? await this.prisma.location.findUnique({ where: { id: garageId }, select: { id: true, name: true } }) : null;
+    /* Two carriers, possibly one: A owns the empty and its return, B runs the
+       next load. On a continuation they are the same company and the same
+       garage. */
+    const emptyPartner = empty.partner;
+    const nextPartner = next.partner;
+    const garageAId = emptyPartner?.garageLocationId ?? null;
+    const garageBId = nextPartner?.garageLocationId ?? null;
+    const [garageA, garageB] = await Promise.all([
+      garageAId ? this.prisma.location.findUnique({ where: { id: garageAId }, select: { id: true, name: true } }) : null,
+      garageBId ? this.prisma.location.findUnique({ where: { id: garageBId }, select: { id: true, name: true } }) : null,
+    ]);
 
-    /* Case 3, on record: a positioning leg through the garage after the empty
-       leg, or one out of the garage before the next load. Operators enter
+    /* Case 3, on record: a positioning leg through A's garage after the empty
+       leg, or one out of B's garage before the next load. Operators enter
        these through `replaceRoute`; nothing derives them. */
     const lastEmptyLeg = empty.routeLegs
       .filter((leg) => leg.purpose === 'empty_return')
       .reduce((max, leg) => Math.max(max, leg.sequence), 0);
     const garageStopRecorded =
-      Boolean(garageId) &&
-      (empty.routeLegs.some(
-        (leg) =>
-          leg.purpose === 'positioning' &&
-          leg.destinationLocationId === garageId &&
-          leg.sequence > lastEmptyLeg,
-      ) ||
-        next.routeLegs.some(
-          (leg) => leg.purpose === 'positioning' && leg.originLocationId === garageId,
-        ));
+      (Boolean(garageAId) &&
+        empty.routeLegs.some(
+          (leg) =>
+            leg.purpose === 'positioning' &&
+            leg.destinationLocationId === garageAId &&
+            leg.sequence > lastEmptyLeg,
+        )) ||
+      (Boolean(garageBId) &&
+        next.routeLegs.some((leg) => leg.purpose === 'positioning' && leg.originLocationId === garageBId));
 
     const emptyCollectedAt = earliestTimestamp(empty.timeline, [EMPTY_COLLECTED_KEY]);
 
@@ -114,7 +124,10 @@ export class CarbonImpactService {
     const verdict = classifyContinuation({
       emptyPartnerId: empty.partnerId,
       nextPartnerId: next.partnerId,
-      emptyVehicleId: empty.returnVehicleId ?? empty.vehicleId,
+      /* Only a truck somebody actually recorded as fetching the empty. The
+         delivery truck on the empty's booking is not that — it is who
+         delivered the load days earlier. */
+      emptyVehicleId: empty.returnVehicleId,
       nextVehicleId: next.vehicleId,
       emptyCollectedAt,
       nextCollectedAt,
@@ -126,13 +139,15 @@ export class CarbonImpactService {
     let source: ImpactSource = 'automatic';
     let decidedBy: string | null = null;
     const notes: string[] = [];
+    /* Which saving this is does not depend on who decided it. */
+    const model: ImpactModel | null = verdict.model ?? modelOf(empty.partnerId, next.partnerId);
 
     if (decision) {
-      /* A person can say the truck continued when the rungs could not see
-         it; nobody can make two carriers into one truck's trip. */
-      if (decision.realized && (!next.partnerId || empty.partnerId !== next.partnerId)) {
+      /* A person can say the truck came through when the rungs could not see
+         it; the kind of saving still follows from the two carriers. */
+      if (decision.realized && (!next.partnerId || !empty.partnerId)) {
         throw new ConflictException(
-          `Cycle "${cycle.reference}" pairs two different transporters — a continuation needs one`,
+          `Cycle "${cycle.reference}" has a booking with no transporter — nothing to credit the saving to`,
         );
       }
       status = decision.realized ? 'realized' : 'not_realized';
@@ -154,13 +169,11 @@ export class CarbonImpactService {
       if (pickupNote) notes.push(pickupNote);
     }
 
-    /* The truck is only ever the one both legs name — an operator's word
-       confirms the continuation, not which lorry made it. */
-    const vehicleId =
-      status === 'realized' && empty.returnVehicleId !== undefined
-        ? sameTruck(empty.returnVehicleId ?? empty.vehicleId, next.vehicleId)
-        : null;
-    const vehicle = vehicleId ? (next.vehicle?.id === vehicleId ? next.vehicle : null) : null;
+    /* The truck that made the continuation is the next load's — the one that
+       gated in at the port. An operator's word confirms the continuation, not
+       which lorry made it, so the same rule prices both. */
+    const vehicleId = status === 'realized' ? (next.vehicleId ?? null) : null;
+    const vehicle = vehicleId && next.vehicle?.id === vehicleId ? next.vehicle : null;
 
     const realizedAt =
       status === 'realized'
@@ -174,33 +187,57 @@ export class CarbonImpactService {
             : null))
         : null;
 
-    /* ── The two roads that were not driven ── */
+    /* ── The roads that were not driven ── */
     const from = empty.shipment?.deliveryLocationId
       ? { id: empty.shipment.deliveryLocationId, name: empty.shipment.deliveryLocationName }
       : null;
     const to = next.shipment?.pickupLocationId
       ? { id: next.shipment.pickupLocationId, name: next.shipment.pickupLocationName }
       : null;
+    /* The garage the record names: A's — the carrier whose driving was saved. */
+    const garage = garageA;
 
     let measured: Measured | null = null;
-    if (status === 'realized') {
-      if (!garage) {
+    if (status === 'realized' && model) {
+      if (!garageA) {
         notes.push(
-          `No garage recorded for ${partner?.companyLegalName ?? 'the transporter'} — distance not measured`,
+          `No garage recorded for ${emptyPartner?.companyLegalName ?? 'the empty’s transporter'} — distance not measured`,
+        );
+      } else if (model === 'handover' && !garageB) {
+        notes.push(
+          `No garage recorded for ${nextPartner?.companyLegalName ?? 'the next load’s transporter'} — distance not measured`,
         );
       } else if (!from || !to) {
         notes.push('A shipment end is not a catalogue location — distance not measured');
       } else {
         try {
-          const toGarage = await this.measure(from.id, garage.id);
-          const fromGarage = await this.measure(garage.id, to.id);
-          measured = {
-            toGarageMeters: toGarage.distanceMeters,
-            fromGarageMeters: fromGarage.distanceMeters,
-            provider: avoidedProvider(toGarage.provider, fromGarage.provider),
-          };
+          if (model === 'continuation') {
+            /* One truck at the free zone: home and back out, not driven. */
+            const toGarage = await this.measure(from.id, garageA.id);
+            const fromGarage = await this.measure(garageA.id, to.id);
+            measured = {
+              toGarageMeters: toGarage.distanceMeters,
+              fromGarageMeters: fromGarage.distanceMeters,
+              detourMeters: null,
+              provider: avoidedProvider(toGarage.provider, fromGarage.provider),
+            };
+          } else {
+            /* A never came out for its box; B came through the free zone. */
+            const aOut = await this.measure(garageA.id, from.id);
+            const aHome = await this.measure(to.id, garageA.id);
+            const bViaZone = await this.measure(garageB!.id, from.id);
+            const bDirect = await this.measure(garageB!.id, to.id);
+            measured = {
+              toGarageMeters: aHome.distanceMeters,
+              fromGarageMeters: aOut.distanceMeters,
+              detourMeters: bViaZone.distanceMeters - bDirect.distanceMeters,
+              provider: [aOut, aHome, bViaZone, bDirect].some((leg) => leg.provider === 'haversine')
+                ? 'haversine'
+                : 'google',
+            };
+          }
         } catch (error) {
-          notes.push('The garage round trip could not be measured');
+          notes.push('The garage trip could not be measured');
           this.logger.warn(
             `Could not measure the avoided trip for cycle ${cycle.reference}: ${String(error)}`,
           );
@@ -209,27 +246,56 @@ export class CarbonImpactService {
     }
 
     const avoidedKm =
-      measured === null ? null : round2((measured.toGarageMeters + measured.fromGarageMeters) / 1000);
-    /* The factor the continuation ran under: the next load's own snapshot,
-       which is the same truck's factor as it stood when it was assigned. */
-    const factor =
-      avoidedKm !== null && vehicleId
-        ? (numberOrNull(next.co2FactorUsed) ?? numberOrNull(vehicle?.co2PerKm))
-        : null;
+      measured === null || model === null
+        ? null
+        : round2(
+            avoidedMetres({
+              model,
+              toGarage: measured.toGarageMeters,
+              fromGarage: measured.fromGarageMeters,
+              detour: measured.detourMeters,
+            }) / 1000,
+          );
+
+    /* Whose factor prices it. A continuation is the next load's truck — the
+       one that gated in. A handover is the trip A would have made, and the
+       truck A would have sent is, by this app's own convention, the crew that
+       delivered the box (`returnVehicleId` null means "same crew"); failing
+       a factor on it, A's fleet average — a transporter-level figure, which
+       is the level the user said this is judged at. */
+    let factor: number | null = null;
+    let factorBasis: FactorBasis | null = null;
+    if (avoidedKm !== null) {
+      if (model === 'continuation') {
+        factor = vehicleId ? (numberOrNull(next.co2FactorUsed) ?? numberOrNull(vehicle?.co2PerKm)) : null;
+        factorBasis = factor === null ? null : 'next_load_truck';
+      } else {
+        factor = numberOrNull(empty.co2FactorUsed) ?? numberOrNull(empty.vehicle?.co2PerKm);
+        factorBasis = factor === null ? null : 'delivery_truck';
+        if (factor === null && emptyPartner) {
+          factor = await this.fleetAverageFactor(emptyPartner.id);
+          factorBasis = factor === null ? null : 'fleet_average';
+        }
+        if (factor === null) notes.push('No factor on the empty’s crew or fleet — carbon not priced');
+      }
+    }
     const avoidedCo2 = avoidedKm !== null && factor !== null ? round2(avoidedKm * factor) : null;
 
     await this.prisma.emptyReturnCycle.update({
       where: { id: cycle.id },
       data: {
         impactStatus: status,
+        impactModel: status === 'realized' ? model : null,
         impactEvaluatedAt: new Date(),
         impactSource: source,
         impactDecidedBy: decidedBy,
         impactNote: notes.length ? notes.join(' · ').slice(0, 255) : null,
         impactRealizedAt: realizedAt,
         impactContinuationMinutes: continuationMinutes,
-        impactPartnerId: partner?.id ?? null,
-        impactPartnerName: partner?.companyLegalName ?? null,
+        impactPartnerId: emptyPartner?.id ?? null,
+        impactPartnerName: emptyPartner?.companyLegalName ?? null,
+        impactNextPartnerId: nextPartner?.id ?? null,
+        impactNextPartnerName: nextPartner?.companyLegalName ?? null,
         impactVehicleId: vehicleId,
         impactVehiclePlate: vehicle?.plateNumber ?? null,
         impactFromLocationId: from?.id ?? null,
@@ -240,9 +306,11 @@ export class CarbonImpactService {
         impactToName: to?.name ?? null,
         avoidedToGarageMeters: measured?.toGarageMeters ?? null,
         avoidedFromGarageMeters: measured?.fromGarageMeters ?? null,
+        avoidedDetourMeters: measured?.detourMeters ?? null,
         avoidedDistanceKm: avoidedKm,
         avoidedDistanceProvider: measured?.provider ?? null,
         avoidedCo2FactorUsed: factor,
+        avoidedFactorBasis: factorBasis,
         avoidedCo2Kg: avoidedCo2,
       },
     });
@@ -498,6 +566,16 @@ export class CarbonImpactService {
     );
   }
 
+  /** The mean factor of a carrier's fleet — the transporter-level figure for a truck that was never named. */
+  private async fleetAverageFactor(partnerId: string): Promise<number | null> {
+    const fleet = await this.prisma.vehicle.aggregate({
+      where: { partnerId, deletedAt: null, co2PerKm: { not: null } },
+      _avg: { co2PerKm: true },
+    });
+    const avg = numberOrNull(fleet._avg.co2PerKm);
+    return avg === null ? null : Math.round(avg * 1000) / 1000;
+  }
+
   /** A leg of the avoided trip. The same place twice is a zero-length road, not an error. */
   private async measure(originId: string, destinationId: string): Promise<{ distanceMeters: number; provider: string }> {
     if (originId === destinationId) return { distanceMeters: 0, provider: 'google' };
@@ -527,8 +605,15 @@ export class CarbonImpactService {
     return {
       nextBookingId: { not: null },
       impactStatus: { not: null },
-      ...(transporterId ? { impactPartnerId: transporterId } : {}),
-      ...(scopedPartner ? { impactPartnerId: scopedPartner } : {}),
+      /* A saving belongs to both carriers of a handover: the one whose trip
+         was not driven and the one whose truck came through. Either filter
+         finds it. */
+      ...(transporterId
+        ? { OR: [{ impactPartnerId: transporterId }, { impactNextPartnerId: transporterId }] }
+        : {}),
+      ...(scopedPartner
+        ? { OR: [{ impactPartnerId: scopedPartner }, { impactNextPartnerId: scopedPartner }] }
+        : {}),
       ...(vehicleId ? { impactVehicleId: vehicleId } : {}),
       ...(truckType ? { nextBooking: { vehicle: { truckType } } } : {}),
       ...(shipmentId
@@ -586,6 +671,8 @@ export interface CycleImpactView {
   /** Which end of the continuation the asking booking is, when one asked. */
   role: 'empty' | 'next_load' | null;
   status: ImpactStatus;
+  /** Which saving it is — see `ImpactModel`. Null until realized. */
+  model: ImpactModel | null;
   source: ImpactSource | null;
   decidedBy: string | null;
   note: string | null;
@@ -598,7 +685,10 @@ export interface CycleImpactView {
   countedOn: string | null;
   /** Whether a continuation is even possible — one transporter on both bookings. */
   continuable: boolean;
+  /** The empty's carrier — whose driving was saved. */
   transporter: { id: string; name: string } | null;
+  /** The next load's carrier. The same company on a continuation. */
+  nextTransporter: { id: string; name: string } | null;
   vehicle: { id: string; plate: string } | null;
   empty: { bookingId: string; reference: string; container: string | null; shipmentReference: string | null };
   nextLoad: { bookingId: string; reference: string; container: string | null; shipmentReference: string | null };
@@ -608,13 +698,19 @@ export interface CycleImpactView {
   avoided: {
     toGarageKm: number;
     fromGarageKm: number;
+    /** Handover only: the next load's truck's extra kilometres to come through the free zone. */
+    detourKm: number | null;
     distanceKm: number;
     /** `google` is a road; `haversine` is the straight line, and says so. */
     provider: string;
     co2FactorUsed: number | null;
+    /** next_load_truck | delivery_truck | fleet_average — whose factor priced it. */
+    factorBasis: string | null;
     co2Kg: number | null;
   } | null;
 }
+
+type FactorBasis = 'next_load_truck' | 'delivery_truck' | 'fleet_average';
 
 export interface ImpactSeriesPoint {
   month: string;
@@ -660,6 +756,7 @@ export interface ShipmentImpact {
 interface Measured {
   toGarageMeters: number;
   fromGarageMeters: number;
+  detourMeters: number | null;
   provider: 'google' | 'haversine';
 }
 
@@ -677,8 +774,10 @@ const CYCLE_INCLUDE = {
       partnerId: true,
       vehicleId: true,
       returnVehicleId: true,
+      co2FactorUsed: true,
       shipment: { select: { deliveryLocationId: true, deliveryLocationName: true } },
       partner: { select: { id: true, companyLegalName: true, garageLocationId: true } },
+      vehicle: { select: { id: true, plateNumber: true, co2PerKm: true } },
       timeline: TIMELINE_SELECT,
       routeLegs: LEG_SELECT,
     },
@@ -735,6 +834,7 @@ function toView(c: ViewRow, role: CycleImpactView['role']): CycleImpactView {
     chainReference: c.chain?.reference ?? null,
     role,
     status: isImpactStatus(c.impactStatus) ? c.impactStatus : 'matched',
+    model: c.impactModel === 'continuation' || c.impactModel === 'handover' ? c.impactModel : null,
     source: (c.impactSource as ImpactSource | null) ?? null,
     decidedBy: c.impactDecidedBy,
     note: c.impactNote,
@@ -744,9 +844,13 @@ function toView(c: ViewRow, role: CycleImpactView['role']): CycleImpactView {
     continuationMinutes: c.impactContinuationMinutes,
     countedAt: c.impactCountedAt,
     countedOn: null,
-    continuable: Boolean(c.booking.partnerId) && c.booking.partnerId === (next?.partnerId ?? null),
+    continuable: Boolean(c.booking.partnerId) && Boolean(next?.partnerId),
     transporter:
       c.impactPartnerId && c.impactPartnerName ? { id: c.impactPartnerId, name: c.impactPartnerName } : null,
+    nextTransporter:
+      c.impactNextPartnerId && c.impactNextPartnerName
+        ? { id: c.impactNextPartnerId, name: c.impactNextPartnerName }
+        : null,
     vehicle: c.impactVehicleId && c.impactVehiclePlate ? { id: c.impactVehicleId, plate: c.impactVehiclePlate } : null,
     empty: {
       bookingId: c.booking.id,
@@ -769,9 +873,11 @@ function toView(c: ViewRow, role: CycleImpactView['role']): CycleImpactView {
         : {
             toGarageKm: round2((c.avoidedToGarageMeters ?? 0) / 1000),
             fromGarageKm: round2((c.avoidedFromGarageMeters ?? 0) / 1000),
+            detourKm: c.avoidedDetourMeters === null ? null : round2(c.avoidedDetourMeters / 1000),
             distanceKm: km,
             provider: c.avoidedDistanceProvider ?? 'google',
             co2FactorUsed: numberOrNull(c.avoidedCo2FactorUsed),
+            factorBasis: c.avoidedFactorBasis,
             co2Kg: numberOrNull(c.avoidedCo2Kg),
           },
   };
@@ -780,6 +886,7 @@ function toView(c: ViewRow, role: CycleImpactView['role']): CycleImpactView {
 /** Everything the evaluation writes, unsaid. */
 const CLEARED = {
   impactStatus: null,
+  impactModel: null,
   impactEvaluatedAt: null,
   impactSource: null,
   impactDecidedBy: null,
@@ -788,6 +895,8 @@ const CLEARED = {
   impactContinuationMinutes: null,
   impactPartnerId: null,
   impactPartnerName: null,
+  impactNextPartnerId: null,
+  impactNextPartnerName: null,
   impactVehicleId: null,
   impactVehiclePlate: null,
   impactFromLocationId: null,
@@ -798,9 +907,11 @@ const CLEARED = {
   impactToName: null,
   avoidedToGarageMeters: null,
   avoidedFromGarageMeters: null,
+  avoidedDetourMeters: null,
   avoidedDistanceKm: null,
   avoidedDistanceProvider: null,
   avoidedCo2FactorUsed: null,
+  avoidedFactorBasis: null,
   avoidedCo2Kg: null,
   impactCountedAt: null,
 } satisfies Prisma.EmptyReturnCycleUpdateInput;
@@ -812,10 +923,6 @@ const MAX_LISTED = 200;
 
 function place(id: string | null, name: string | null): ImpactPlace | null {
   return id && name ? { locationId: id, name } : null;
-}
-
-function sameTruck(a: string | null, b: string | null): string | null {
-  return a && b && a === b ? a : null;
 }
 
 function isImpactStatus(value: string | null | undefined): value is ImpactStatus {

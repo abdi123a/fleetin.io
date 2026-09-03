@@ -38,13 +38,8 @@ import { ShipmentsService } from '../src/modules/shipments/shipments.service';
 import { BookingsService } from '../src/modules/bookings/bookings.service';
 import { EmptyReturnsService } from '../src/modules/empty-returns/empty-returns.service';
 import { InvoicesService } from '../src/modules/invoices/invoices.service';
-import { PaymentOrdersService } from '../src/modules/payment-orders/payment-orders.service';
-import { HoldsService } from '../src/modules/holds/holds.service';
 import { ProjectsService } from '../src/modules/projects/projects.service';
-import { BankAccountsService } from '../src/modules/funding/bank-accounts.service';
-import { CreditFacilitiesService } from '../src/modules/funding/credit-facilities.service';
-import { DrawdownsService } from '../src/modules/funding/drawdowns.service';
-import { LedgerService } from '../src/modules/ledger/ledger.service';
+import { BankAccountsService } from '../src/modules/bank-accounts/bank-accounts.service';
 import { StorageService } from '../src/modules/storage/storage.service';
 import { nextReferenceField } from '../src/common/helpers/reference.util';
 import { syncShipmentFromBookings } from '../src/modules/shipments/shipment-sync';
@@ -373,21 +368,6 @@ function pickLane(kind: CargoKind): Lane {
   };
 }
 
-/**
- * Fleetin's own running costs, sized against what Fleetin actually earns:
- * its revenue is the commission line, not the freight total. Roughly 380k DJF
- * a month against a ~450k commission on this volume — a thin but real margin,
- * rather than the wildly loss-making P&L that billing-sized office costs
- * against a percentage-sized income would draw.
- */
-const EXPENSE_TEMPLATES = [
-  { category: 'SALARY', description: 'Monthly staff payroll — Djibouti head office', amount: 196_000, method: 'bank_transfer' },
-  { category: 'RENT', description: 'Head office lease — Plateau du Serpent', amount: 82_000, method: 'bank_transfer' },
-  { category: 'UTILITIES', description: 'Electricity, water and connectivity', amount: 31_000, method: 'bank_transfer' },
-  { category: 'FUEL', description: 'Fuel card settlement — operations vehicles', amount: 47_000, method: 'bank_transfer' },
-  { category: 'TECHNOLOGY', description: 'Software subscriptions and hosting', amount: 24_000, method: 'bank_transfer' },
-] as const;
-
 /* ── Small builders ──────────────────────────────────────────────────────── */
 
 let containerCounter = 400000;
@@ -459,13 +439,8 @@ async function main() {
   const bookings = app.get(BookingsService);
   const emptyReturns = app.get(EmptyReturnsService);
   const invoices = app.get(InvoicesService);
-  const paymentOrders = app.get(PaymentOrdersService);
-  const holds = app.get(HoldsService);
   const projects = app.get(ProjectsService);
   const bankAccounts = app.get(BankAccountsService);
-  const facilities = app.get(CreditFacilitiesService);
-  const drawdowns = app.get(DrawdownsService);
-  const ledger = app.get(LedgerService);
   const storage = app.get(StorageService);
 
   /** Rewrites the `@default(now())`/`@updatedAt` columns the client cannot set. */
@@ -478,16 +453,6 @@ async function main() {
       return value ? sqlDate(value) : null;
     });
     await prisma.$executeRawUnsafe(`UPDATE \`${table}\` SET ${assignments} WHERE id = ?`, ...values, id);
-  }
-
-  /** Every ledger entry a service wrote for one source record, moved to when it really happened. */
-  async function backdateLedgerFor(sourceId: string, when: Date): Promise<void> {
-    await prisma.$executeRawUnsafe(
-      'UPDATE `ledger_entries` SET `entryDate` = ?, `postedAt` = ? WHERE `sourceId` = ?',
-      sqlDate(when),
-      sqlDate(when),
-      sourceId,
-    );
   }
 
   /**
@@ -542,7 +507,9 @@ async function main() {
     await prisma.payment.deleteMany({ where: { allocations: { none: {} } } });
     await prisma.payoutHold.deleteMany({ where: { shipmentId: { in: shipmentIds } } });
 
-    /* Finance tables the baseline seed never writes — safe to clear whole. */
+    /* The retired working-capital tables. Nothing writes to them any more —
+     * they are cleared so a --reset leaves no orphaned ledger, facility or
+     * payout rows behind the simple billing screens. */
     await prisma.drawdown.deleteMany({});
     await prisma.creditFacility.deleteMany({});
     await prisma.expenseEntry.deleteMany({});
@@ -883,7 +850,7 @@ async function main() {
     }
     console.log(`\uD83D\uDCC4 ${documentCount} compliance documents filed`);
 
-    /* ── Fleetin's own money: account, facility, opening float ───────────── */
+    /* ── Fleetin's own money: the account an invoice points at ──────────── */
 
     let operatingAccount = await prisma.bankAccount.findFirst({ where: { isPrimary: true, isActive: true } });
     if (!operatingAccount) {
@@ -903,10 +870,9 @@ async function main() {
       });
     }
 
-    /* Fleetin funds the whole month out of its own money and is repaid at
-     * month end — so the account has to actually hold enough to pay every
-     * transporter before a single statement is settled. `payTransporter`
-     * refuses to overdraw, which is exactly the behaviour worth exercising. */
+    /* The account an invoice tells the client to pay into. It carries an
+     * opening float so the balance on screen is a real number rather than a
+     * zero, but nothing in the billing model draws against it any more. */
     const openingFloat = 40_000_000;
     const openingDeposit = await bankAccounts.deposit(
       operatingAccount.id,
@@ -918,18 +884,7 @@ async function main() {
       await backdate('bank_movements', String(openingDeposit.id), { createdAt: WINDOW_START });
     }
 
-    const facility = await facilities.create({
-      bankName: 'CAC International Bank',
-      bankAccountId: operatingAccount.id,
-      limitMinorUnits: 30_000_000,
-      currency: 'DJF',
-      startDate: addDays(WINDOW_START, -30).toISOString(),
-      endDate: addDays(NOW, 300).toISOString(),
-      isRevolving: true,
-      feeDescription: '1.5% arrangement fee, 9% p.a. on drawn balance',
-    });
-    await backdate('credit_facilities', facility.id, { createdAt: addDays(WINDOW_START, -30) });
-    console.log(`🏦 Operating account funded (${(openingFloat / 1000).toLocaleString()}k DJF) · facility ${facility.facilityNumber}`);
+    console.log(`🏦 Operating account funded (${(openingFloat / 1000).toLocaleString()}k DJF)`);
 
     /* ── Projects ────────────────────────────────────────────────────────── */
 
@@ -989,6 +944,8 @@ async function main() {
       status: string;
       bookings: SeededBooking[];
       monthIndex: number;
+      /** What the client pays for the whole job. Null means it was never priced — never billable. */
+      clientRateMinorUnits: bigint | null;
       /** The lane's road distance — what the transit leg is drawn from. */
       km: number;
       /** Kept so the job can be re-dated after its containers finally close. */
@@ -1018,7 +975,6 @@ async function main() {
      * abandoned drafts.
      */
     let lookaheadBudget = 12;
-    let holdCount = 0;
 
     for (const [monthIndex, month] of MONTHS.entries()) {
       const count = SHIPMENTS_PER_MONTH[monthIndex]!;
@@ -1199,6 +1155,7 @@ async function main() {
           completedAt: null,
           status: 'Pending',
           monthIndex,
+          clientRateMinorUnits: created.clientRateMinorUnits,
           km: lane.km,
           schedule: null,
           containerized: cargo.containerized,
@@ -2137,211 +2094,144 @@ async function main() {
     );
     console.log(`🚛 ${standaloneReturns} empties sent back standalone`);
 
-    /* ── Payout holds ────────────────────────────────────────────────────── */
+    /* ── Billing: a proforma before the job, an invoice after it ─────────── */
+
+    /*
+     * The whole money model, seeded exactly as an operator would work it.
+     *
+     * Every shipment that has a price gets a PROFORMA — the quote the client
+     * sees. Shipments that actually completed then get an INVOICE raised from
+     * the same shipment, and most of the older ones are settled. The recent
+     * tail is deliberately left unpaid, and a slice of completed work is left
+     * uninvoiced: that backlog is the billing desk's daily job, and a seed
+     * where everything is already done shows an empty screen.
+     *
+     * No ledger, no payout orders, no holds, no drawdowns. `commissionPct` is
+     * resolved and stored by the service itself, so the seeded documents carry
+     * whatever rate the shipper/transporter/house chain actually produces.
+     */
 
     const completed = allShipments.filter((shipment) => shipment.status === 'Completed');
-    const heldShipmentIds = new Set<string>();
-    const holdCandidates = completed.filter((_, index) => index % 23 === 7).slice(0, 6);
-    for (const [index, shipment] of holdCandidates.entries()) {
-      const hold = await holds.raise(
-        shipment.id,
-        {
-          category: pick(['weight_mismatch', 'damage', 'documentation'] as const),
-          reason: pick([
-            'Weighbridge ticket is 1.8t under the manifest — awaiting the transporter\'s explanation.',
-            'Container arrived with a damaged door seal; survey report pending.',
-            'PoD is unsigned by the consignee — chasing a countersigned copy.',
-          ]),
-        },
-        actorId,
-        actorName,
-      );
-      const raisedAt = addDays(shipment.completedAt ?? shipment.pickupTime, 1);
-      await backdate('payout_holds', hold.id, { raisedAt });
-      holdCount += 1;
-      /* Half are resolved and let the money through; the rest stay open, which
-       * is what a real payout queue looks like. */
-      if (index % 2 === 0) {
-        await holds.clear(hold.id, actorId, actorName, 'Resolved with the transporter — released for payout.');
-        await backdate('payout_holds', hold.id, { clearedAt: addDays(raisedAt, int(2, 6)) });
-      } else {
-        heldShipmentIds.add(shipment.id);
-      }
-    }
-    console.log(`🛑 ${holdCount} payout holds (${heldShipmentIds.size} still open)`);
+    const priced = allShipments.filter((shipment) => shipment.clientRateMinorUnits != null);
 
-    /* ── Release and pay ─────────────────────────────────────────────────── */
-
-    let releasedCount = 0;
-    let paidOrders = 0;
-    for (const shipment of completed) {
-      if (heldShipmentIds.has(shipment.id)) continue;
-      /* A slice of the most recent deliveries is deliberately left unreleased —
-       * that backlog is the finance desk's actual daily work. */
-      if (shipment.monthIndex === MONTHS.length - 1 && chance(0.4)) continue;
-
-      const releasedAt = addDays(shipment.completedAt ?? shipment.pickupTime, int(1, 3));
-      await shipments.release(shipment.id, actorId, actorName);
-      await backdate('shipments', shipment.id, { payoutReleasedAt: releasedAt });
-      releasedCount += 1;
-
-      /* Not everything released is paid yet — the tail of the queue is what
-       * the payout screen exists to show. */
-      if (chance(0.12)) continue;
-
-      for (const partnerId of shipment.partnerIds) {
-        const paidAt = addDays(releasedAt, int(1, 5));
+    /*
+     * Quotations, written the way an operator writes them: by hand, for a
+     * client, before any of this ran. They carry no shipment link — a quote
+     * predates the job — so the seed composes lines rather than deriving them.
+     */
+    let proformaCount = 0;
+    for (const shipper of shipperIds) {
+      for (let n = 0; n < int(1, 3); n += 1) {
+        const boxes = int(1, 6);
+        const unit = int(42, 49) * 1000;
+        const quotedAt = addDays(NOW, -int(3, 80));
         try {
-          const order = await paymentOrders.payTransporter(
-            { shipmentId: shipment.id, transporterId: partnerId, bankAccountId: operatingAccount.id, paymentMethod: 'bank_transfer' },
+          const proforma = await invoices.createProforma(
+            {
+              shipperId: shipper.id,
+              description: pick([
+                'Quotation — container haulage, Doraleh to free zone',
+                'Quotation — reefer haulage, port to warehouse',
+                'Quotation — project cargo movement',
+              ]),
+              lines: [
+                {
+                  description: `${boxes} × ${pick(['20ft', '40ft'])} container, port → free zone`,
+                  qty: boxes,
+                  unitAmount: unit,
+                },
+              ],
+            },
             actorId,
             actorName,
           );
-          await backdate('payment_orders', order.id, { createdAt: paidAt, updatedAt: paidAt, approvedAt: paidAt, paidAt });
-          await prisma.$executeRawUnsafe(
-            'UPDATE `payments` p JOIN `payment_allocations` a ON a.`paymentId` = p.`id` SET p.`paidAt` = ?, p.`createdAt` = ? WHERE a.`paymentOrderId` = ?',
-            sqlDate(paidAt),
-            sqlDate(paidAt),
-            order.id,
-          );
-          await backdateLedgerFor(order.id, paidAt);
-          paidOrders += 1;
-        } catch (error) {
-          console.warn(`   ⚠️  payout skipped for ${shipment.reference}: ${(error as Error).message}`);
-        }
-      }
-    }
-    console.log(`💸 ${releasedCount} shipments released, ${paidOrders} transporter payment orders paid`);
-
-    /* ── Monthly statements ──────────────────────────────────────────────── */
-
-    let statementCount = 0;
-    let settledCount = 0;
-    for (const [monthIndex, month] of MONTHS.entries()) {
-      for (const shipper of shipperIds) {
-        const statement = await invoices.issueMonthlyStatement(
-          { shipperId: shipper.id, year: month.year, month: month.month },
-          actorId,
-          actorName,
-        );
-        if (!statement) continue;
-        statementCount += 1;
-
-        const issuedAt = month.isCurrent ? NOW : addDays(month.end, 1);
-        await backdate('invoices', statement.id, { createdAt: issuedAt, updatedAt: issuedAt, issueDate: issuedAt, sentAt: issuedAt });
-        await prisma.invoice.update({ where: { id: statement.id }, data: { status: 'Sent' } });
-
-        /* Everything older than last month is settled; last month is still
-         * out, and the current month has not been billed for real yet. */
-        const isSettled = monthIndex < MONTHS.length - 2 ? chance(0.94) : monthIndex === MONTHS.length - 2 ? chance(0.45) : false;
-        if (!isSettled) continue;
-
-        const paidAt = addDays(issuedAt, int(5, 22));
-        await invoices.markPaid(statement.id, operatingAccount.id, actorId, actorName);
-        await backdate('invoices', statement.id, { updatedAt: paidAt });
-        await prisma.$executeRawUnsafe(
-          'UPDATE `payments` p JOIN `payment_allocations` a ON a.`paymentId` = p.`id` SET p.`paidAt` = ?, p.`createdAt` = ? WHERE a.`invoiceId` = ?',
-          sqlDate(paidAt),
-          sqlDate(paidAt),
-          statement.id,
-        );
-        await backdateLedgerFor(statement.id, paidAt);
-
-        /* The shipments on a settled statement are paid, and say so. */
-        const missionIds = Array.isArray(statement.missionIds) ? (statement.missionIds as string[]) : [];
-        if (missionIds.length > 0) {
-          await prisma.shipment.updateMany({ where: { id: { in: missionIds } }, data: { paymentStatus: 'Paid' } });
-        }
-        settledCount += 1;
-      }
-    }
-    console.log(`🧾 ${statementCount} monthly statements (${settledCount} settled)`);
-
-    /* ── Drawdowns against the facility ──────────────────────────────────── */
-
-    for (const [monthIndex, month] of MONTHS.entries()) {
-      if (monthIndex % 2 !== 0) continue;
-      const amount = int(3, 7) * 1_000_000;
-      const disbursedAt = addDays(month.start, int(2, 8));
-      const drawdown = await drawdowns.create({ facilityId: facility.id, amountMinorUnits: amount, daysUntilDue: 45 }, actorId, actorName);
-      await backdate('drawdowns', drawdown.id, { createdAt: disbursedAt, disbursedAt, dueAt: addDays(disbursedAt, 45) });
-      await backdateLedgerFor(drawdown.id, disbursedAt);
-
-      /* The older ones have been repaid; the most recent is still outstanding. */
-      if (monthIndex < MONTHS.length - 2) {
-        const repaidAt = addDays(disbursedAt, int(30, 44));
-        await drawdowns.repay(drawdown.id, { amountMinorUnits: amount }, actorId, actorName);
-        await prisma.$executeRawUnsafe(
-          'UPDATE `ledger_entries` SET `entryDate` = ?, `postedAt` = ? WHERE `sourceId` = ? AND `type` = ?',
-          sqlDate(repaidAt),
-          sqlDate(repaidAt),
-          drawdown.id,
-          'drawdown_repayment',
-        );
-      }
-    }
-    console.log('🏦 Facility drawdowns recorded');
-
-    /* ── Internal expenses ───────────────────────────────────────────────── */
-
-    let expenseCount = 0;
-    for (const month of MONTHS) {
-      for (const template of EXPENSE_TEMPLATES) {
-        const incurredAt = new Date(Date.UTC(month.year, month.month - 1, template.category === 'SALARY' ? 28 : int(3, 20), 10));
-        if (incurredAt > NOW) continue;
-        const amount = Math.round(template.amount * (0.94 + rnd() * 0.12));
-        const paid = !month.isCurrent || chance(0.5);
-        const expense = await prisma.expenseEntry.create({
-          data: {
-            number: await nextReferenceField(prisma.expenseEntry, 'number', 'EXP'),
-            category: template.category,
-            description: template.description,
-            amountMinorUnits: BigInt(amount),
-            currency: 'DJF',
-            fxRate: 1.0,
-            baseAmountMinorUnits: BigInt(amount),
-            incurredAt,
-            paidById: actorId,
-            paidByName: actorName,
-            method: template.method,
-            status: paid ? 'Paid' : 'Pending',
-            isRecurring: true,
-            createdById: actorId,
-            createdByName: actorName,
-            approvedById: paid ? actorId : null,
-            approvedByName: paid ? actorName : null,
-            approvedAt: paid ? incurredAt : null,
-            paidAt: paid ? incurredAt : null,
-          },
-        });
-        await backdate('expense_entries', expense.id, { createdAt: incurredAt, updatedAt: incurredAt });
-
-        if (paid) {
-          const entry = await ledger.append({
-            entryDate: incurredAt,
-            type: 'expense',
-            direction: 'OUT',
-            amountMinorUnits: BigInt(amount),
-            currency: 'DJF',
-            fxRate: 1.0,
-            baseAmountMinorUnits: BigInt(amount),
-            counterpartyType: 'VENDOR',
-            counterpartyId: expense.id,
-            counterpartyName: template.description,
-            sourceType: 'expense',
-            sourceId: expense.id,
-            description: `${template.category} — ${template.description}`,
-            createdById: actorId,
-            createdByName: actorName,
+          await backdate('invoices', proforma.id, {
+            createdAt: quotedAt,
+            updatedAt: quotedAt,
+            issueDate: quotedAt,
+            sentAt: quotedAt,
           });
-          if (entry && typeof entry === 'object' && 'id' in entry) {
-            await backdate('ledger_entries', String(entry.id), { postedAt: incurredAt });
-          }
+          await prisma.invoice.update({ where: { id: proforma.id }, data: { status: 'Sent' } });
+          proformaCount += 1;
+        } catch {
+          /* A shipper that vanished mid-seed — nothing to quote. */
         }
-        expenseCount += 1;
       }
     }
-    console.log(`🧮 ${expenseCount} internal expense entries`);
+
+    let invoiceCount = 0;
+    let settledCount = 0;
+    for (const shipment of completed) {
+      if (shipment.clientRateMinorUnits == null) continue;
+      /* The most recent month's deliveries are still being billed. */
+      if (shipment.monthIndex === MONTHS.length - 1 && chance(0.35)) continue;
+
+      let invoice;
+      try {
+        invoice = await invoices.issueForShipment(shipment.id, actorId, actorName);
+      } catch {
+        continue;
+      }
+
+      const issuedAt = addDays(shipment.completedAt ?? shipment.pickupTime, int(1, 4));
+      await backdate('invoices', invoice.id, {
+        createdAt: issuedAt,
+        updatedAt: issuedAt,
+        issueDate: issuedAt,
+        sentAt: issuedAt,
+      });
+      await prisma.invoice.update({ where: { id: invoice.id }, data: { status: 'Sent' } });
+      invoiceCount += 1;
+
+      /* Older invoices are settled; the last month is mostly still out. */
+      const isSettled =
+        shipment.monthIndex < MONTHS.length - 2
+          ? chance(0.93)
+          : shipment.monthIndex === MONTHS.length - 2
+            ? chance(0.5)
+            : chance(0.1);
+      if (!isSettled) continue;
+
+      const paidAt = addDays(issuedAt, int(4, 26));
+      await invoices.markPaid(invoice.id);
+      await backdate('invoices', invoice.id, { updatedAt: paidAt, paidAt });
+      await prisma.shipment.update({ where: { id: shipment.id }, data: { paymentStatus: 'Paid' } });
+      settledCount += 1;
+    }
+
+    console.log(
+      `🧾 ${proformaCount} quotations · ${invoiceCount} invoices (${settledCount} paid, ${invoiceCount - settledCount} outstanding)`,
+    );
+
+    /* ── Paying the hauliers ─────────────────────────────────────────────── */
+
+    /*
+     * The other half of the money. The shipper is invoiced the whole job;
+     * the transporter is paid that less Fleetin's share, and the service works
+     * the split out and freezes it on the row.
+     *
+     * Not every delivered job is paid: the recent tail is left outstanding on
+     * purpose, because "who is still waiting for their money" is the question
+     * the Billing screen exists to answer, and a book where everyone has been
+     * paid shows an empty one.
+     */
+    let paidTransporters = 0;
+    for (const shipment of completed) {
+      if (shipment.clientRateMinorUnits == null) continue;
+      if (shipment.monthIndex === MONTHS.length - 1 && chance(0.55)) continue;
+      if (chance(0.08)) continue;
+
+      try {
+        await shipments.payTransporter(shipment.id, actorId, actorName);
+        await backdate('shipments', shipment.id, {
+          transporterPaidAt: addDays(shipment.completedAt ?? shipment.pickupTime, int(2, 9)),
+        });
+        paidTransporters += 1;
+      } catch {
+        /* Undelivered or unpriced — the guards doing their job. */
+      }
+    }
+    console.log(`💸 ${paidTransporters} transporters paid (${completed.length - paidTransporters} still owed)`);
 
     /* ── Portal logins point at real counterparties ──────────────────────── */
 
@@ -2377,21 +2267,21 @@ async function main() {
 
     /* ── What landed ─────────────────────────────────────────────────────── */
 
-    const [shipmentTotal, bookingTotal, cycleTotal, chainTotal, invoiceTotal, orderTotal, ledgerTotal, account] = await Promise.all([
-      prisma.shipment.count(),
-      prisma.booking.count(),
-      prisma.emptyReturnCycle.count(),
-      prisma.emptyReturnChain.count(),
-      prisma.invoice.count(),
-      prisma.paymentOrder.count(),
-      prisma.ledgerEntry.count(),
-      prisma.bankAccount.findUnique({ where: { id: operatingAccount.id } }),
-    ]);
+    const [shipmentTotal, bookingTotal, cycleTotal, chainTotal, proformaTotal, invoiceTotal, paidTotal, projectTotal] =
+      await Promise.all([
+        prisma.shipment.count(),
+        prisma.booking.count(),
+        prisma.emptyReturnCycle.count(),
+        prisma.emptyReturnChain.count(),
+        prisma.invoice.count({ where: { kind: 'proforma' } }),
+        prisma.invoice.count({ where: { kind: 'invoice' } }),
+        prisma.invoice.count({ where: { kind: 'invoice', status: 'Paid' } }),
+        prisma.project.count(),
+      ]);
 
     console.log('\n🎉 Volume seed complete');
     console.log(`   shipments ${shipmentTotal} · bookings ${bookingTotal} · cycles ${cycleTotal} in ${chainTotal} chains`);
-    console.log(`   invoices ${invoiceTotal} · payment orders ${orderTotal} · ledger entries ${ledgerTotal}`);
-    console.log(`   operating account balance: ${Number(account?.currentBalance ?? 0n).toLocaleString()} DJF`);
+    console.log(`   ${projectTotal} projects · ${proformaTotal} proformas · ${invoiceTotal} invoices (${paidTotal} paid)`);
   } finally {
     await app.close();
   }

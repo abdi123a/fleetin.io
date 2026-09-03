@@ -131,18 +131,21 @@ export class ShipmentsController {
     return this.shipmentsService.update(id, dto);
   }
 
+  @Patch(':id/pay-transporter')
+  @RequirePermissions(PERMISSIONS.finance.approve)
+  @ApiOperation({
+    summary:
+      "Record that the transporter has been paid for this shipment — one payment per shipment, never per container. Idempotent; refuses undelivered or unpriced work.",
+  })
+  payTransporter(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.shipmentsService.payTransporter(id, user.id, `${user.firstName} ${user.lastName}`.trim());
+  }
+
   @Patch(':id/status')
   @RequirePermissions(PERMISSIONS.shipments.update)
   @ApiOperation({ summary: 'Move the shipment to its next status — validated server-side against the status ladder (BR-2.1/2.2/2.3)' })
   updateStatus(@Param('id') id: string, @Body() dto: UpdateShipmentStatusDto) {
     return this.shipmentsService.updateStatus(id, dto);
-  }
-
-  @Patch(':id/release')
-  @RequirePermissions(PERMISSIONS.finance.approve)
-  @ApiOperation({ summary: 'Release this shipment for payout — the one gate that turns delivered into payable' })
-  release(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.shipmentsService.release(id, user.id, `${user.firstName} ${user.lastName}`.trim());
   }
 
 

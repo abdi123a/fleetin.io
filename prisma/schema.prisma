@@ -262,9 +262,60 @@ model InvoiceCounter {
   @@map("invoice_counters")
 }
 
+/// A bill, or the quote that precedes it — one document type, two faces.
+///
+/// Both are built from exactly one shipment and its bookings, and that is the
+/// whole billing model: no monthly statement, no multi-shipment roll-up. A
+/// proforma tells the client what the job will be and what it will cost
+/// before it runs; the invoice is the same paper once the work is real. The
+/// proforma is issued first, the invoice is raised from the same shipment
+/// after, and `proformaId` links the two so the client can see they match.
 model Invoice {
-  id                   String    @id @default(uuid())
-  number               String    @unique @db.VarChar(32)
+  id     String @id @default(uuid())
+  number String @unique @db.VarChar(32)
+
+  /// `proforma` (a quote — nothing is owed) or `invoice` (a bill). The two
+  /// print on the same paper with a different title and a different closing
+  /// line, and only an `invoice` can be marked paid.
+  kind String @default("invoice") @db.VarChar(16)
+
+  /// The one shipment this document bills. The old `missionIds` array is kept
+  /// below for the historical rows written when a document could cover a
+  /// whole month; nothing writes more than one id into it any more.
+  shipmentId String?
+  shipment   Shipment? @relation(fields: [shipmentId], references: [id])
+
+  /// The document's own line items, snapshotted from the shipment's bookings
+  /// at issue time: `[{ reference, containerNo, description, qty,
+  /// unitMinorUnits, totalMinorUnits }]`.
+  ///
+  /// A snapshot rather than a live join on purpose — a container added to the
+  /// shipment next week must not silently rewrite a document the client has
+  /// already been sent and may have already paid.
+  lines Json?
+
+  /// How Fleetin's cut was worked out on THIS document, and what it came to.
+  ///
+  /// `commissionMode` is `percent` or `fixed`; `commissionPct` carries the
+  /// percentage and `commissionFixedMinorUnits` the per-container fee, with
+  /// only the relevant one meaningful. `commissionSource` records which deal
+  /// won — `shipper`, `transporter` or `house` — so an operator reading the
+  /// document can see why the rate is what it is.
+  ///
+  /// All four are SNAPSHOTS, for the same reason as `lines`: renegotiating a
+  /// rate must never restate what Fleetin earned on work already billed.
+  commissionMode            String @default("percent") @db.VarChar(8)
+  commissionSource          String @default("house") @db.VarChar(12)
+  commissionPct             Float  @default(0)
+  commissionFixedMinorUnits BigInt @default(0)
+  commissionMinorUnits      BigInt @default(0)
+
+  /// Set when the shipper's money actually arrived.
+  paidAt DateTime?
+
+  /// The quote this bill was raised from, when there was one.
+  proformaId String?
+
   shipperId            String
   shipperName          String    @db.VarChar(255)
   shipperCompany       String    @db.VarChar(255)
@@ -313,6 +364,8 @@ model Invoice {
   @@index([contractDeadline])
   @@index([shipperId, periodStart])
   @@index([projectId])
+  @@index([shipmentId])
+  @@index([kind])
   @@map("invoices")
 }
 
@@ -538,23 +591,41 @@ model RecurringExpenseTemplate {
 // ─── 8. Counterparties: Shippers & Partners ───────────────────────────────
 
 model Shipper {
-  id                 String    @id @default(uuid())
+  id                 String @id @default(uuid())
   /// Preserves the frontend's display id, e.g. "SHP-101".
-  reference          String    @unique @db.VarChar(32)
-  companyLegalName   String    @db.VarChar(255)
-  registrationNumber String    @db.VarChar(64)
-  industry           String    @db.VarChar(120)
-  companySize        String    @db.VarChar(32) // Micro (1-10) | Small (11-50) | Medium (51-250) | Large (251-1000) | Enterprise (1000+)
-  country            String    @db.VarChar(120)
-  address            String    @db.Text
-  projectsCount      Int       @default(0)
-  approvalStatus     String    @default("Pending") @db.VarChar(16) // Verified | Pending | Suspended | Canceled
-  registrationDate   DateTime
+  reference          String @unique @db.VarChar(32)
+  companyLegalName   String @db.VarChar(255)
+  registrationNumber String @db.VarChar(64)
+  industry           String @db.VarChar(120)
+  companySize        String @db.VarChar(32) // Micro (1-10) | Small (11-50) | Medium (51-250) | Large (251-1000) | Enterprise (1000+)
+  country            String @db.VarChar(120)
+  address            String @db.Text
+  projectsCount      Int    @default(0)
+  approvalStatus     String @default("Pending") @db.VarChar(16) // Verified | Pending | Suspended | Canceled
+
+  /// ── The deal struck with THIS client ──
+  ///
+  /// Fleetin's cut can be negotiated two ways, and both are in use:
+  ///
+  ///   - `percent` — a share of what the client is billed. `commissionPct`
+  ///     carries it (7.5 means 7.5%).
+  ///   - `fixed` — a flat fee PER BOOKING, i.e. per container.
+  ///     `commissionFixedMinorUnits` carries it, and a document multiplies it
+  ///     by the number of containers on the shipment.
+  ///
+  /// `commissionMode` NULL is the normal state and means "no special deal":
+  /// the house rate under Settings applies. Nullable rather than defaulted,
+  /// because a copied default would stop tracking the house rate the day
+  /// somebody changed it. See `resolveCommission`.
+  commissionMode            String?   @db.VarChar(8)
+  commissionPct             Float?
+  commissionFixedMinorUnits BigInt?
+  registrationDate          DateTime
   /// StorageService key, not a URL — the URL is derived per request.
-  logoKey            String?   @db.VarChar(512)
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  deletedAt          DateTime?
+  logoKey                   String?   @db.VarChar(512)
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+  deletedAt                 DateTime?
 
   users     User[]
   shipments Shipment[]
@@ -585,6 +656,17 @@ model Partner {
   logoKey               String?   @db.VarChar(512)
   registrationDate      DateTime
 
+  /// ── The deal struck with THIS haulier ──
+  ///
+  /// Same two modes and same nullable-means-house-rate contract as
+  /// `Shipper.commissionMode` — a percentage of the job, or a flat fee per
+  /// container. Lower priority than the client's deal: a rate agreed with the
+  /// client wins, because the client's number is the one on the invoice.
+  /// See `resolveCommission`.
+  commissionMode            String? @db.VarChar(8)
+  commissionPct             Float?
+  commissionFixedMinorUnits BigInt?
+
   /// Where this transporter's trucks sleep.
   ///
   /// The one place the Fleetin Impact arithmetic needs that nothing else in
@@ -605,9 +687,9 @@ model Partner {
   garageLocationId String?
   garageLocation   Location? @relation("PartnerGarage", fields: [garageLocationId], references: [id])
 
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
-  deletedAt             DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   users       User[]
   vehicles    Vehicle[]
@@ -718,18 +800,18 @@ model Vehicle {
   ///
   /// Nullable only for the moment between a row existing and the backfill
   /// reaching it; every live write sets it.
-  co2PerKm       Decimal?  @db.Decimal(6, 3)
+  co2PerKm        Decimal?  @db.Decimal(6, 3)
   /// One line saying how the number above was reached ("40ft Container ·
   /// Diesel · 2022 (Euro VI-E)"), stored so a reader never has to run the
   /// model in their head, and `CO2_MODEL_VERSION` so a factor computed under
   /// an older table stays identifiable after the table moves.
-  co2FactorBasis String?   @db.VarChar(255)
-  co2ModelVersion String?  @db.VarChar(32)
-  co2FactorAt    DateTime?
+  co2FactorBasis  String?   @db.VarChar(255)
+  co2ModelVersion String?   @db.VarChar(32)
+  co2FactorAt     DateTime?
 
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  deletedAt          DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   shipments      Shipment[]
   bookings       Booking[]
@@ -877,8 +959,22 @@ model DriveFolder {
   name     String  @db.VarChar(120)
   /// Null at the root of the Files section.
   parentId String?
-  parent   DriveFolder?  @relation("DriveFolderTree", fields: [parentId], references: [id], onDelete: Cascade)
-  children DriveFolder[] @relation("DriveFolderTree")
+
+  /// The record this folder hangs under, when it hangs under one.
+  ///
+  /// Both null is the Files section — a free tree somebody made. Set, and the
+  /// folder lives inside that company's own folder on the compliance drive,
+  /// beside the derived Company / Vehicles / Drivers folders. That is where
+  /// people actually want to file a contract: they are already looking at the
+  /// haulier when they think of it.
+  ///
+  /// Deliberately NOT a relation, the same rule `Document.ownerId` follows: a
+  /// folder can hang off a partner or a shipper, and two nullable foreign keys
+  /// to express "one of these" is two indexes and two joins to read a name.
+  ownerType String?       @db.VarChar(16)
+  ownerId   String?       @db.VarChar(64)
+  parent    DriveFolder?  @relation("DriveFolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  DriveFolder[] @relation("DriveFolderTree")
 
   /// Plain column, not a relation — the same rule as `Document.uploadedById`:
   /// a folder outlives the account that made it.
@@ -887,6 +983,8 @@ model DriveFolder {
   updatedAt   DateTime @updatedAt
 
   @@index([parentId])
+  /// "What has this company filed?" — the company folder's own listing.
+  @@index([ownerType, ownerId])
   @@map("drive_folders")
 }
 
@@ -1168,12 +1266,32 @@ model Shipment {
   clientRateFxRate               Float?  @default(1.0)
   clientRateBaseAmountMinorUnits BigInt?
 
-  /// Set once by `PATCH /shipments/:id/release` — the one gate that turns
-  /// "delivered" into "payable." Never set automatically alongside a status
-  /// change; it is its own explicit action.
+  /// Dead since 2026-09-03: the payout-release gate went with the
+  /// working-capital module. Columns kept because historical rows carry real
+  /// dates; nothing reads or writes them. See `transporterPaidAt` below for
+  /// what replaced them.
   payoutReleasedAt     DateTime?
   payoutReleasedById   String?
   payoutReleasedByName String?   @db.VarChar(255)
+
+  /// ── Paying the haulier ──
+  ///
+  /// The money side of this business runs one way: the shipper pays Fleetin,
+  /// Fleetin pays the transporter. `Invoice.paidAt` records the first half;
+  /// this records the second.
+  ///
+  /// One payment per shipment, not per booking — a haulier who carried ten of
+  /// a shipment's containers is paid once. The amount is SNAPSHOTTED rather
+  /// than derived at read time, because it is what actually left the account:
+  /// renegotiating a commission next month must not restate a transfer that
+  /// already happened.
+  ///
+  /// Null is the normal state for work still running, and for delivered work
+  /// nobody has paid yet — which is exactly the queue the Billing page shows.
+  transporterPaidAt            DateTime?
+  transporterPaidMinorUnits    BigInt?
+  transporterPaidById          String?
+  transporterPaidByName        String?   @db.VarChar(255)
 
   /// A commercial-agreement grouping over shipments for one shipper — see
   /// `Project`'s own doc comment. Null is a normal, common state.
@@ -1192,6 +1310,8 @@ model Shipment {
   /// rather than replacing them yet.
   bookings  Booking[]
   holds     PayoutHold[]
+  /// Its proforma and its invoice — at most one of each in practice.
+  invoices  Invoice[]
   /// The shipment's conversation — including the comments scoped to one of
   /// its bookings, which hang off the shipment too so the whole thread can be
   /// read in one query. See `Comment`.
@@ -1608,8 +1728,8 @@ model BookingRouteLeg {
   destinationLocationId String?
   /// What the leg is called on screen. Denormalised so a route still reads
   /// after a location is renamed or retired.
-  originName      String @db.VarChar(255)
-  destinationName String @db.VarChar(255)
+  originName            String  @db.VarChar(255)
+  destinationName       String  @db.VarChar(255)
 
   /// Metres and seconds, as the Routes API returns them — kilometres are
   /// presentation, formatted at the edge. Same rule as `LocationDistance`.
@@ -1762,6 +1882,17 @@ model EmptyReturnCycle {
   /// None of this touches `Booking.co2EmissionsKg`. What was driven was
   /// driven; this is the separate account of what was not.
   impactStatus              String?   @db.VarChar(16) // matched|realized|not_realized
+  /// Which saving this is, once realized. `continuation`: one carrier's truck
+  /// finished at the free zone and went straight to the port for its own next
+  /// load — the garage round trip `Free Zone → Garage → Port` was not driven.
+  /// `handover`: the empty's carrier (A) and the next load's carrier (B)
+  /// differ, so B's truck detoured through the free zone on its way to the
+  /// port and A never sent a truck for the box — A's `Garage → Free Zone` and
+  /// `Port → Garage` were not driven, less B's detour (`Garage → Free Zone`
+  /// minus `Garage → Port`). Both are real road not driven; they are kept
+  /// apart because they are two different arguments. The user's ruling of
+  /// 2026-09-03: "you have to count them".
+  impactModel               String?   @db.VarChar(16) // continuation|handover
   impactEvaluatedAt         DateTime?
   /// automatic — derived from the bookings' own rungs. operator — a person
   /// said what happened, and automatic passes never overrule them.
@@ -1773,8 +1904,13 @@ model EmptyReturnCycle {
   /// zone that was. The window between them is the evidence.
   impactRealizedAt          DateTime?
   impactContinuationMinutes Int?
+  /// The carrier whose driving was saved — the empty's carrier. On a
+  /// continuation it is also the next load's carrier; on a handover the next
+  /// load's carrier is named separately below.
   impactPartnerId           String?
   impactPartnerName         String?   @db.VarChar(255)
+  impactNextPartnerId       String?
+  impactNextPartnerName     String?   @db.VarChar(255)
   impactVehicleId           String?
   impactVehiclePlate        String?   @db.VarChar(32)
   impactFromLocationId      String?
@@ -1783,13 +1919,24 @@ model EmptyReturnCycle {
   impactGarageName          String?   @db.VarChar(255)
   impactToLocationId        String?
   impactToName              String?   @db.VarChar(255)
-  /// The two halves of the round trip that was not driven, in metres.
+  /// The two halves of the round trip that was not driven, in metres. On a
+  /// continuation: `Free Zone → Garage` and `Garage → Port`. On a handover:
+  /// the empty's carrier's `Port → Garage` and `Garage → Free Zone`.
   avoidedToGarageMeters     Int?
   avoidedFromGarageMeters   Int?
+  /// Handover only: what the next load's truck drove extra to come through
+  /// the free zone — `Garage → Free Zone` less `Garage → Port` — subtracted
+  /// from the two halves above. Negative when the free zone is on its way.
+  avoidedDetourMeters       Int?
   avoidedDistanceKm         Decimal?  @db.Decimal(9, 2)
   /// google|haversine — a straight line is marked, never passed off as a road.
   avoidedDistanceProvider   String?   @db.VarChar(16)
   avoidedCo2FactorUsed      Decimal?  @db.Decimal(6, 3)
+  /// Whose factor priced it: `next_load_truck` (continuation — the truck that
+  /// gated in), `delivery_truck` (handover — the empty's own crew, who would
+  /// have fetched it), `fleet_average` (that carrier's fleet, when the crew
+  /// carries no factor).
+  avoidedFactorBasis        String?   @db.VarChar(24)
   avoidedCo2Kg              Decimal?  @db.Decimal(10, 2)
   impactCountedAt           DateTime?
 

@@ -20,14 +20,11 @@ import { ShipmentsModule } from './modules/shipments/shipments.module';
 import { BiModule } from './modules/bi/bi.module';
 import { EmptyReturnsModule } from './modules/empty-returns/empty-returns.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
-import { HoldsModule } from './modules/holds/holds.module';
 import { WorkspaceModule } from './modules/workspace/workspace.module';
 import { LocationsModule } from './modules/locations/locations.module';
 import { EmissionsModule } from './modules/emissions/emissions.module';
-import { LedgerModule } from './modules/ledger/ledger.module';
-import { FundingModule } from './modules/funding/funding.module';
+import { BankAccountsModule } from './modules/bank-accounts/bank-accounts.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
-import { PaymentOrdersModule } from './modules/payment-orders/payment-orders.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { HrModule } from './modules/hr/hr.module';
 import { SettingsModule } from './modules/settings/settings.module';
@@ -82,11 +79,8 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     BiModule,
     EmptyReturnsModule,
     BookingsModule,
-    HoldsModule,
-    LedgerModule,
-    FundingModule,
+    BankAccountsModule,
     InvoicesModule,
-    PaymentOrdersModule,
     ProjectsModule,
     SettingsModule,
     HrModule,

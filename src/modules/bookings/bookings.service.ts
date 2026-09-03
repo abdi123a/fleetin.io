@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, Logger, NotFoundExc
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { nextReference } from '../../common/helpers/reference.util';
-import { fleetinCommissionPct, splitCommission } from '../../common/helpers/pricing.util';
+import { resolveCommission, splitCommission } from '../../common/helpers/pricing.util';
 import { EmptyReturnsService } from '../empty-returns/empty-returns.service';
 import { EmissionsService } from '../emissions/emissions.service';
 import { CarbonImpactService } from '../emissions/carbon-impact.service';
@@ -193,8 +193,20 @@ export class BookingsService {
         item.partnerId && shipment.clientRateMinorUnits != null && dto.bookings.length > 0
           ? BigInt(shipment.clientRateMinorUnits) / BigInt(dto.bookings.length)
           : null;
+      /* One booking's share, split by the deal that applies to it. Booking
+         count is 1 because `rateFdj` is already this container's slice — a
+         fixed fee is charged once per container, which is exactly this row. */
       const transporterCostMinorUnits =
-        rateFdj != null ? splitCommission(rateFdj, await fleetinCommissionPct(this.prisma)).transporterMinorUnits : null;
+        rateFdj != null
+          ? splitCommission(
+              rateFdj,
+              await resolveCommission(this.prisma, {
+                shipperId: shipment.shipperId,
+                partnerId: item.partnerId,
+              }),
+              1,
+            ).transporterMinorUnits
+          : null;
 
       const booking = await this.prisma.booking.create({
         data: {

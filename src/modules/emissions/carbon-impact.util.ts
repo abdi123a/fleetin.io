@@ -45,12 +45,18 @@
  *
  * ## Transporter-level, not vehicle-level
  *
- * Matching is done per transporter, and the truck that took the empty away is
- * not assumed to be the truck that ran the next load. The *distance* avoided
- * does not depend on which truck it was. The *carbon* avoided does — it needs
- * a factor — so the vehicle is used only when both legs name the same one,
- * and a continuation whose truck cannot be established keeps its kilometres
- * and leaves the carbon unpriced rather than inventing a factor.
+ * Matching is done per transporter, and the truck that delivered the empty's
+ * load is not assumed to be the truck that ran the next one. The *distance*
+ * avoided does not depend on which truck it was. The *carbon* avoided does —
+ * it needs a factor — and the truck that performed the continuation is the
+ * one that gated in at the port with the next load: that is the truck which
+ * was at the free zone and did not go home. Its factor prices the saving. A
+ * continuation whose next load has no truck on it keeps its kilometres and
+ * leaves the carbon unpriced rather than inventing a factor.
+ *
+ * The first cut required the empty's own truck to match the next load's and
+ * left most savings unpriced — the empty's booking names the truck that
+ * *delivered* it days earlier, which says nothing about who fetched it.
  */
 
 /**
@@ -85,14 +91,33 @@ export const ARRIVAL_KEY = 'arrival';
 export type ImpactStatus = 'matched' | 'realized' | 'not_realized';
 export type ImpactSource = 'automatic' | 'operator';
 
+/**
+ * Which saving a realized pairing is.
+ *
+ * `continuation` — one carrier: its truck finished at the free zone and went
+ * straight to the port for its own next load. Not driven: `Free Zone →
+ * Garage → Port`.
+ *
+ * `handover` — two carriers: the next load's carrier (B) took the empty's
+ * carrier's (A) box through the free zone on its way to the port, and A never
+ * sent a truck for it. Not driven: A's `Garage → Free Zone` and `Port →
+ * Garage`, less the detour B drove to come through the free zone.
+ *
+ * The first cut refused every cross-carrier pairing as "not a continuation".
+ * On this book that was most of them, and the user ruled on 2026-09-03 that
+ * they count — they are real road not driven, just a different argument, so
+ * they are kept as their own kind rather than folded into the first.
+ */
+export type ImpactModel = 'continuation' | 'handover';
+
 export interface ContinuationInput {
   /** Transporter that delivered the empty and owes its return. */
   emptyPartnerId: string | null;
   /** Transporter assigned to the next load. */
   nextPartnerId: string | null;
-  /** The truck that fetched the empty: the return truck, else the delivery truck. */
+  /** The truck recorded as having fetched the empty, when somebody recorded one. */
   emptyVehicleId: string | null;
-  /** The truck on the next load. */
+  /** The truck on the next load — the one that made the continuation. */
   nextVehicleId: string | null;
   /** Epoch ms — when the empty left the free zone on a truck. */
   emptyCollectedAt: number | null;
@@ -106,31 +131,41 @@ export interface ContinuationInput {
 
 export interface ContinuationVerdict {
   status: ImpactStatus;
+  /** Which saving it is. Set once both carriers are known; null while pending. */
+  model: ImpactModel | null;
   /** Why, in the operator's words. Null for a clean realization. */
   note: string | null;
   /** Epoch ms — the continuation moment. Only on `realized`. */
   realizedAt: number | null;
   /** Minutes between the empty leaving and the next load being collected. */
   continuationMinutes: number | null;
-  /** The truck that ran both legs, when both legs name the same one. */
+  /** The truck that made the continuation — the next load's — when it has one. */
   vehicleId: string | null;
 }
 
-const pending = (note: string): ContinuationVerdict => ({
+const pending = (note: string, model: ImpactModel | null = null): ContinuationVerdict => ({
   status: 'matched',
+  model,
   note,
   realizedAt: null,
   continuationMinutes: null,
   vehicleId: null,
 });
 
-const refused = (note: string): ContinuationVerdict => ({
+const refused = (note: string, model: ImpactModel | null = null): ContinuationVerdict => ({
   status: 'not_realized',
+  model,
   note,
   realizedAt: null,
   continuationMinutes: null,
   vehicleId: null,
 });
+
+/** One carrier on both bookings is a continuation; two carriers is a handover. */
+export function modelOf(emptyPartnerId: string | null, nextPartnerId: string | null): ImpactModel | null {
+  if (!emptyPartnerId || !nextPartnerId) return null;
+  return emptyPartnerId === nextPartnerId ? 'continuation' : 'handover';
+}
 
 /**
  * Did the truck really continue from the free zone to the port?
@@ -144,34 +179,67 @@ const refused = (note: string): ContinuationVerdict => ({
 export function classifyContinuation(input: ContinuationInput): ContinuationVerdict {
   if (!input.nextPartnerId) return pending('The next load has no transporter yet');
   if (!input.emptyPartnerId) return pending('The empty has no transporter recorded');
-  if (input.emptyPartnerId !== input.nextPartnerId) {
-    return refused('Different transporters — the next load was not a continuation of this truck’s trip');
-  }
-  if (input.garageStopRecorded) return refused('A garage stop is recorded between the two jobs');
-  if (input.emptyCollectedAt === null) return pending('The empty has not been collected yet');
-  if (!input.nextDelivered) return pending('The next load has not been delivered yet');
-  if (input.nextCollectedAt === null) return pending('The next load’s pickup time is not recorded');
+  const model = modelOf(input.emptyPartnerId, input.nextPartnerId) as ImpactModel;
+
+  if (input.garageStopRecorded) return refused('A garage stop is recorded between the two jobs', model);
+  if (input.emptyCollectedAt === null) return pending('The empty has not been collected yet', model);
+  if (!input.nextDelivered) return pending('The next load has not been delivered yet', model);
+  if (input.nextCollectedAt === null) return pending('The next load’s pickup time is not recorded', model);
 
   const gapMs = input.nextCollectedAt - input.emptyCollectedAt;
-  if (gapMs < 0) return refused('The next load was collected before the empty left the free zone');
+  if (gapMs < 0) return refused('The next load was collected before the empty left the free zone', model);
   if (gapMs > CONTINUITY_WINDOW_MS) {
     return refused(
-      `The next load was collected ${formatHours(gapMs)} after the empty left — no direct continuation`,
+      `The next load was collected ${formatHours(gapMs)} after the empty left — not the same trip`,
+      model,
     );
   }
 
-  const sameTruck =
-    Boolean(input.emptyVehicleId) &&
-    Boolean(input.nextVehicleId) &&
-    input.emptyVehicleId === input.nextVehicleId;
+  /* The next load's truck is the one that came through the free zone. On a
+     continuation, a return truck recorded on the empty that is not that
+     truck is worth saying — two lorries met at the port — but it does not
+     change whose factor prices the garage trip. */
+  const note = !input.nextVehicleId
+    ? 'No truck on the next load — distance kept, carbon not priced'
+    : model === 'continuation' && input.emptyVehicleId && input.emptyVehicleId !== input.nextVehicleId
+      ? 'The empty was fetched by a different truck than the one that loaded next'
+      : null;
 
   return {
     status: 'realized',
-    note: sameTruck ? null : 'Different trucks on the two legs — distance kept, carbon not priced',
+    model,
+    note,
     realizedAt: input.nextCollectedAt,
     continuationMinutes: Math.round(gapMs / 60_000),
-    vehicleId: sameTruck ? input.nextVehicleId : null,
+    vehicleId: input.nextVehicleId,
   };
+}
+
+/**
+ * How many metres of road a pairing kept off it.
+ *
+ * Continuation — one truck, already at the free zone, that did not go home
+ * and come back out:
+ *
+ *     Free Zone → Garage  +  Garage → Port
+ *
+ * Handover — carrier A did not send a truck for its empty, because carrier
+ * B's truck came through the free zone on its way to the port. A's trip out
+ * and home are not driven; B's detour is:
+ *
+ *     (Garage A → Free Zone  +  Port → Garage A)  −  (Garage B → Free Zone  −  Garage B → Port)
+ *
+ * Floored at zero: a detour longer than the trip it replaced is a pairing that
+ * saved nothing, which is a fact worth recording rather than a negative saving.
+ */
+export function avoidedMetres(legs: {
+  model: ImpactModel;
+  toGarage: number;
+  fromGarage: number;
+  detour: number | null;
+}): number {
+  if (legs.model === 'continuation') return legs.toGarage + legs.fromGarage;
+  return Math.max(0, legs.toGarage + legs.fromGarage - (legs.detour ?? 0));
 }
 
 /**

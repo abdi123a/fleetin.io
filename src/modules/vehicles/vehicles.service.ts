@@ -32,6 +32,13 @@ interface FindAllParams {
  */
 const LIVE_BOOKINGS = { deletedAt: null, status: { notIn: ['Cancelled', 'Failed'] } };
 
+interface VehicleCarbon {
+  co2EmissionsKg: number | null;
+  co2DistanceKm: number | null;
+  /** How many of its runs carry a figure — the rest have not been driven yet. */
+  pricedTrips: number;
+}
+
 const VEHICLE_INCLUDE = {
   partner: true,
   _count: { select: { bookings: { where: LIVE_BOOKINGS } } },
@@ -76,7 +83,9 @@ export class VehiclesService {
       this.prisma.vehicle.count({ where }),
     ]);
 
-    const items = await Promise.all(rows.map((row) => this.enrich(row)));
+    /* One grouped query for the page's carbon, not one per truck. */
+    const carbon = await this.carbonByVehicle(rows.map((row) => row.id));
+    const items = await Promise.all(rows.map((row) => this.enrich(row, carbon.get(row.id))));
     return { items, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
   }
 
@@ -87,6 +96,37 @@ export class VehiclesService {
     });
     if (!vehicle) throw new NotFoundException(`Vehicle with ID "${id}" not found`);
     return this.enrich(vehicle);
+  }
+
+  /**
+   * What each truck has generated: the sum of its bookings' stored carbon.
+   *
+   * Read, never recomputed — every booking's figure was priced once from the
+   * factor the truck carried at the time (see `EmissionsService`), and the
+   * fleet list adds those up. A truck whose runs have not been driven yet has
+   * no figure at all rather than a zero. The return leg of a booking is
+   * priced on the booking as a whole, so it lands on the delivery truck.
+   */
+  private async carbonByVehicle(ids: string[]): Promise<Map<string, VehicleCarbon>> {
+    if (ids.length === 0) return new Map();
+    const rows = await this.prisma.booking.groupBy({
+      by: ['vehicleId'],
+      where: { vehicleId: { in: ids }, ...LIVE_BOOKINGS, co2EmissionsKg: { not: null } },
+      _sum: { co2EmissionsKg: true, actualDistanceKm: true },
+      _count: { _all: true },
+    });
+    return new Map(
+      rows
+        .filter((row) => row.vehicleId !== null)
+        .map((row) => [
+          row.vehicleId as string,
+          {
+            co2EmissionsKg: row._sum.co2EmissionsKg === null ? null : Number(row._sum.co2EmissionsKg),
+            co2DistanceKm: row._sum.actualDistanceKm === null ? null : Number(row._sum.actualDistanceKm),
+            pricedTrips: row._count._all,
+          },
+        ]),
+    );
   }
 
   /** The only creation path — DD-02: a vehicle always belongs to a partner from the moment it exists. */
@@ -210,10 +250,18 @@ export class VehiclesService {
     return this.findOne(existing.id, null);
   }
 
-  private async enrich(vehicle: Prisma.VehicleGetPayload<{ include: typeof VEHICLE_INCLUDE }>) {
+  private async enrich(
+    vehicle: Prisma.VehicleGetPayload<{ include: typeof VEHICLE_INCLUDE }>,
+    carbon?: VehicleCarbon,
+  ) {
     const { partner, _count, photoKey, co2PerKm, ...rest } = vehicle;
+    const totals = carbon ?? (await this.carbonByVehicle([vehicle.id])).get(vehicle.id);
     return {
       ...rest,
+      /** What this truck has put out across its priced runs — see `carbonByVehicle`. */
+      co2EmissionsKg: totals?.co2EmissionsKg ?? null,
+      co2DistanceKm: totals?.co2DistanceKm ?? null,
+      pricedTrips: totals?.pricedTrips ?? 0,
       /* Decimal crosses the wire as a string; the factor is a small number
          every consumer does arithmetic with, so it is sent as one. */
       co2PerKm: co2PerKm === null ? null : Number(co2PerKm),

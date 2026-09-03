@@ -23,28 +23,101 @@ export function toMinorUnits(amount: number, currency: string): bigint {
   return BigInt(Math.round(amount * 10 ** scaleForCurrency(currency)));
 }
 
-/* `resolvePartnerRateMinorUnitsFdj` was removed on 2026-08-31 along with the
-   `PricingTier` table it read. Nothing derives a shipment's price any more:
-   the operator enters it in the wizard and it arrives as
-   `clientRateMinorUnits`. What remains here is the commission split, which is
-   still Fleetin's to compute — the shipper's figure is the entered one, and
-   the transporter is paid it less the house percentage. */
-
+/** Whole DJF from a USD figure, at the fixed peg above. */
+export function usdToDjf(usd: number): number {
+  return usd * USD_TO_DJF;
+}
 
 /**
- * Fleetin's house commission, as a percentage. One rate for every
- * transporter — deliberately not a per-partner negotiation — read from the
- * single `AppSettings` row. Defaults to 0 when nobody has set one yet, which
- * makes the transporter payout equal the shipment total: visibly wrong to an
- * operator, rather than quietly skimming an invented percentage.
+ * Where Fleetin's cut comes from, and in what order.
+ *
+ * Three sources, most specific first:
+ *
+ *   1. **The client's own deal.** The rate negotiated with this shipper. It
+ *      wins because the invoice is the client's document — the number they
+ *      agreed to is the number that must apply to their bill.
+ *   2. **The haulier's deal.** The rate negotiated with this transporter, for
+ *      jobs they carry where the client has no deal of their own.
+ *   3. **The house rate** under Settings, which is what almost every job uses.
+ *
+ * A deal is present when its `commissionMode` is set — never inferred from the
+ * amount. That distinction is the whole point: a negotiated **0%** or a
+ * **0-franc** fee is a real commercial decision (a favour, a first job, a
+ * loss-leader) and must not be mistaken for an unset field that quietly falls
+ * back to the house rate.
+ *
+ * The house rate is percentage-only and defaults to 0 when nobody has set one,
+ * which makes the transporter payout equal the shipment total — visibly wrong
+ * to an operator, rather than quietly skimming an invented percentage.
  */
+export type CommissionMode = 'percent' | 'fixed';
+export type CommissionOrigin = 'shipper' | 'transporter' | 'house';
+
+export interface ResolvedCommission {
+  mode: CommissionMode;
+  /** Meaningful in `percent` mode: 7.5 means 7.5%. */
+  pct: number;
+  /** Meaningful in `fixed` mode: the fee for ONE booking (one container). */
+  fixedMinorUnits: bigint;
+  /** Which deal won. Stored on the document so a reader can see why. */
+  source: CommissionOrigin;
+}
+
+/** A row carrying a negotiated deal — either counterparty has the same shape. */
+interface DealRow {
+  commissionMode: string | null;
+  commissionPct: number | null;
+  commissionFixedMinorUnits: bigint | null;
+}
+
+function dealOf(row: DealRow | null, source: CommissionOrigin): ResolvedCommission | null {
+  if (!row?.commissionMode) return null;
+  if (row.commissionMode === 'fixed') {
+    return {
+      mode: 'fixed',
+      pct: 0,
+      fixedMinorUnits: row.commissionFixedMinorUnits ?? 0n,
+      source,
+    };
+  }
+  return { mode: 'percent', pct: row.commissionPct ?? 0, fixedMinorUnits: 0n, source };
+}
+
+export async function resolveCommission(
+  prisma: PrismaService,
+  params: { shipperId?: string | null; partnerId?: string | null },
+): Promise<ResolvedCommission> {
+  const select = { commissionMode: true, commissionPct: true, commissionFixedMinorUnits: true };
+
+  if (params.shipperId) {
+    const shipper = await prisma.shipper.findUnique({ where: { id: params.shipperId }, select });
+    const deal = dealOf(shipper, 'shipper');
+    if (deal) return deal;
+  }
+
+  if (params.partnerId) {
+    const partner = await prisma.partner.findUnique({ where: { id: params.partnerId }, select });
+    const deal = dealOf(partner, 'transporter');
+    if (deal) return deal;
+  }
+
+  const settings = await prisma.appSettings.findUnique({ where: { id: 'SINGLETON' } });
+  return {
+    mode: 'percent',
+    pct: settings?.fleetinCommissionPct ?? 0,
+    fixedMinorUnits: 0n,
+    source: 'house',
+  };
+}
+
+/** The house rate on its own, for callers with no shipment in hand. */
 export async function fleetinCommissionPct(prisma: PrismaService): Promise<number> {
   const settings = await prisma.appSettings.findUnique({ where: { id: 'SINGLETON' } });
   return settings?.fleetinCommissionPct ?? 0;
 }
 
 export interface CommissionSplit {
-  /** What the shipper is billed — the partner's price list figure, unchanged. */
+  /** What the shipper is billed — the shipment's entered price, unchanged. */
   totalMinorUnits: bigint;
   /** What Fleetin keeps out of that total. */
   fleetinMinorUnits: bigint;
@@ -55,15 +128,42 @@ export interface CommissionSplit {
 /**
  * Splits a shipment total into the transporter's payout and Fleetin's cut.
  *
- * The total is the number the shipper sees and pays; Fleetin's percentage is
- * already inside it. Rounding is applied to Fleetin's side and the
- * transporter takes the remainder, so the two parts always add back to
- * exactly the total — a payout must never be a rounded figure that leaves an
- * unexplained franc behind.
+ * The total is the number the shipper sees and pays; Fleetin's share comes out
+ * of it either way. In `percent` mode the cut is a share of the total; in
+ * `fixed` mode it is the agreed fee times the number of containers on the job,
+ * which is why `bookingCount` is required rather than defaulted — a fixed deal
+ * silently applied once to a twenty-container shipment would under-charge by
+ * nineteen fees.
+ *
+ * Two guards, both deliberate:
+ *
+ *   - A percentage is clamped to 0–100, so a nonsense rate cannot invert the
+ *     payout.
+ *   - A fixed fee is capped at the total. A flat fee larger than the job it is
+ *     charged against would otherwise pay the transporter a NEGATIVE amount;
+ *     taking the whole total is wrong too, but it is wrong in a direction an
+ *     operator can see and fix, rather than a minus sign nobody reads.
+ *
+ * Rounding falls on Fleetin's side and the transporter takes the remainder, so
+ * the two parts always add back to exactly the total — a payout must never
+ * leave an unexplained franc behind.
  */
-export function splitCommission(totalMinorUnits: bigint, pct: number): CommissionSplit {
-  const safePct = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
-  const fleetinMinorUnits = BigInt(Math.round((Number(totalMinorUnits) * safePct) / 100));
+export function splitCommission(
+  totalMinorUnits: bigint,
+  commission: { mode: CommissionMode; pct: number; fixedMinorUnits: bigint },
+  bookingCount: number,
+): CommissionSplit {
+  let fleetinMinorUnits: bigint;
+
+  if (commission.mode === 'fixed') {
+    const boxes = BigInt(Math.max(1, Math.trunc(bookingCount) || 1));
+    const raw = (commission.fixedMinorUnits < 0n ? 0n : commission.fixedMinorUnits) * boxes;
+    fleetinMinorUnits = raw > totalMinorUnits ? totalMinorUnits : raw;
+  } else {
+    const safePct = Number.isFinite(commission.pct) ? Math.min(100, Math.max(0, commission.pct)) : 0;
+    fleetinMinorUnits = BigInt(Math.round((Number(totalMinorUnits) * safePct) / 100));
+  }
+
   return {
     totalMinorUnits,
     fleetinMinorUnits,

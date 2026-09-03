@@ -38,7 +38,47 @@ export class ProjectsService {
       include: { shipments: { where: { deletedAt: null }, orderBy: { createdAt: 'desc' } } },
     });
     if (!project) throw new NotFoundException(`Project with ID "${id}" not found`);
-    return project;
+    return { ...project, totals: await this.totals(project.id, project.shipments) };
+  }
+
+  /**
+   * What the project is worth, counted two different ways on purpose.
+   *
+   * `contracted` is the sum of what the shipments are priced at — the work
+   * itself, whether or not anybody has raised a document for it. `billed` is
+   * what has actually been invoiced, and `paid` what has actually come in.
+   * The gap between the first two is the operator's to-do list; the gap
+   * between the last two is the client's.
+   *
+   * Proformas are excluded from `billed` throughout. A quote is not a bill,
+   * and counting one as revenue is how a project reads as fully invoiced when
+   * nothing has been sent.
+   */
+  private async totals(projectId: string, shipments: Array<{ clientRateMinorUnits: bigint | null }>) {
+    const invoices = await this.prisma.invoice.findMany({
+      where: { projectId, kind: 'invoice', status: { not: 'Cancelled' } },
+      select: { totalMinorUnits: true, commissionMinorUnits: true, status: true },
+    });
+
+    const contracted = shipments.reduce((sum, s) => sum + (s.clientRateMinorUnits ?? 0n), 0n);
+    const billed = invoices.reduce((sum, i) => sum + i.totalMinorUnits, 0n);
+    const paid = invoices
+      .filter((i) => i.status === 'Paid')
+      .reduce((sum, i) => sum + i.totalMinorUnits, 0n);
+    const commission = invoices.reduce((sum, i) => sum + i.commissionMinorUnits, 0n);
+
+    return {
+      shipmentCount: shipments.length,
+      /* Priced but not yet billed — the number that tells an operator there is
+         work to do here, which is why it is computed rather than left to the
+         client to subtract. */
+      unpricedCount: shipments.filter((s) => s.clientRateMinorUnits == null).length,
+      contractedMinorUnits: contracted.toString(),
+      billedMinorUnits: billed.toString(),
+      paidMinorUnits: paid.toString(),
+      outstandingMinorUnits: (billed - paid).toString(),
+      commissionMinorUnits: commission.toString(),
+    };
   }
 
   async create(dto: CreateProjectDto) {
@@ -76,14 +116,33 @@ export class ProjectsService {
     });
   }
 
-  /** Marks the project completed and issues invoices for any of its shipments that don't have one yet — a no-op per shipment when it has no client rate set. */
+  /**
+   * Closes the project, billing whatever is left to bill on the way out.
+   *
+   * Every priced shipment that has no invoice yet gets one — `issueForShipment`
+   * is idempotent, so shipments already billed are returned unchanged rather
+   * than billed twice. Unpriced shipments are SKIPPED and counted, never
+   * billed at zero, and the count comes back in the response so the operator
+   * can see that closing the project did not quietly bill nothing.
+   */
   async close(id: string, actorId: string, actorName: string) {
     const project = await this.findOne(id);
 
+    let issued = 0;
+    let skipped = 0;
     for (const shipment of project.shipments) {
+      if (shipment.clientRateMinorUnits == null) {
+        skipped += 1;
+        continue;
+      }
       await this.invoices.issueForShipment(shipment.id, actorId, actorName);
+      issued += 1;
     }
 
-    return this.prisma.project.update({ where: { id: project.id }, data: { status: 'completed' } });
+    const closed = await this.prisma.project.update({
+      where: { id: project.id },
+      data: { status: 'completed' },
+    });
+    return { ...closed, issued, skippedUnpriced: skipped };
   }
 }

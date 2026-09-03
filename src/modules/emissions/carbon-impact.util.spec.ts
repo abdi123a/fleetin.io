@@ -1,6 +1,7 @@
 import {
   CONTINUITY_WINDOW_MS,
   avoidanceRate,
+  avoidedMetres,
   avoidedProvider,
   classifyContinuation,
   earliestTimestamp,
@@ -16,7 +17,7 @@ function continuation(overrides: Partial<ContinuationInput> = {}): ContinuationI
   return {
     emptyPartnerId: 'PTR-A',
     nextPartnerId: 'PTR-A',
-    emptyVehicleId: 'VEH-1',
+    emptyVehicleId: null,
     nextVehicleId: 'VEH-1',
     emptyCollectedAt: T0,
     nextCollectedAt: T0 + 2 * HOUR,
@@ -36,19 +37,43 @@ describe('classifyContinuation', () => {
     expect(verdict.note).toBeNull();
   });
 
-  it('is transporter-level: two different trucks still realize, but the truck is not established', () => {
-    // Case from the spec — Vehicle 1 delivered, Vehicle 2 continued. The
-    // distance is a fact about the transporter; the factor needs a truck.
-    const verdict = classifyContinuation(continuation({ emptyVehicleId: 'VEH-1', nextVehicleId: 'VEH-2' }));
+  it('prices with the truck that made the continuation — the next load’s', () => {
+    // Case from the spec — Vehicle 1 delivered, Vehicle 2 continued. Vehicle 2
+    // is the truck on the next load; its factor prices the garage trip.
+    const verdict = classifyContinuation(continuation({ emptyVehicleId: null, nextVehicleId: 'VEH-2' }));
     expect(verdict.status).toBe('realized');
-    expect(verdict.vehicleId).toBeNull();
-    expect(verdict.note).toMatch(/carbon not priced/);
+    expect(verdict.vehicleId).toBe('VEH-2');
+    expect(verdict.note).toBeNull();
   });
 
-  it('never links two bookings merely because a load exists — different transporters are not a continuation', () => {
-    const verdict = classifyContinuation(continuation({ nextPartnerId: 'PTR-B' }));
+  it('notes a recorded return truck that is not the next load’s, and still prices with the latter', () => {
+    const verdict = classifyContinuation(continuation({ emptyVehicleId: 'VEH-9', nextVehicleId: 'VEH-2' }));
+    expect(verdict.status).toBe('realized');
+    expect(verdict.vehicleId).toBe('VEH-2');
+    expect(verdict.note).toMatch(/different truck/);
+  });
+
+  it('keeps the kilometres and leaves the carbon unpriced when the next load has no truck', () => {
+    const verdict = classifyContinuation(continuation({ nextVehicleId: null }));
+    expect(verdict.status).toBe('realized');
+    expect(verdict.vehicleId).toBeNull();
+    expect(verdict.note).toMatch(/not priced/);
+  });
+
+  it('calls one carrier a continuation and two carriers a handover, on the same evidence', () => {
+    expect(classifyContinuation(continuation()).model).toBe('continuation');
+    const handover = classifyContinuation(continuation({ nextPartnerId: 'PTR-B', nextVehicleId: 'VEH-B' }));
+    expect(handover.status).toBe('realized');
+    expect(handover.model).toBe('handover');
+    expect(handover.vehicleId).toBe('VEH-B');
+  });
+
+  it('holds a handover to the same window as a continuation', () => {
+    const verdict = classifyContinuation(
+      continuation({ nextPartnerId: 'PTR-B', nextCollectedAt: T0 + CONTINUITY_WINDOW_MS + HOUR }),
+    );
     expect(verdict.status).toBe('not_realized');
-    expect(verdict.note).toMatch(/Different transporters/);
+    expect(verdict.model).toBe('handover');
   });
 
   it('refuses a match whose truck went back to the garage anyway', () => {
@@ -63,7 +88,7 @@ describe('classifyContinuation', () => {
       continuation({ emptyCollectedAt: T0, nextCollectedAt: T0 + CONTINUITY_WINDOW_MS + 4 * HOUR }),
     );
     expect(verdict.status).toBe('not_realized');
-    expect(verdict.note).toMatch(/no direct continuation/);
+    expect(verdict.note).toMatch(/not the same trip/);
   });
 
   it('accepts a pickup exactly at the edge of the window', () => {
@@ -96,6 +121,19 @@ describe('classifyContinuation', () => {
       expect(verdict.status).toBe('matched');
       expect(verdict.note).toMatch(/pickup time/);
     });
+  });
+});
+
+describe('avoidedMetres', () => {
+  it('is the garage round trip on a continuation', () => {
+    expect(avoidedMetres({ model: 'continuation', toGarage: 9200, fromGarage: 19400, detour: null })).toBe(28600);
+  });
+
+  it('is the empty carrier’s two legs less the other carrier’s detour on a handover, never below zero', () => {
+    expect(avoidedMetres({ model: 'handover', toGarage: 12000, fromGarage: 15000, detour: 4000 })).toBe(23000);
+    // A free zone on the way to the port is a negative detour — a bonus.
+    expect(avoidedMetres({ model: 'handover', toGarage: 12000, fromGarage: 15000, detour: -1500 })).toBe(28500);
+    expect(avoidedMetres({ model: 'handover', toGarage: 2000, fromGarage: 1000, detour: 9000 })).toBe(0);
   });
 });
 

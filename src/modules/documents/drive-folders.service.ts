@@ -42,16 +42,27 @@ export class DriveFoldersService {
   async create(dto: CreateDriveFolderDto, createdById: string) {
     const name = cleanName(dto.name);
     const parentId = dto.parentId ?? null;
-    if (parentId) await this.findOne(parentId);
-    await this.assertNameFree(name, parentId);
+    /* A nested folder inherits its parent's owner rather than being told one:
+       the owner is a property of the whole branch, and letting a caller send a
+       different one is how a company's folder ends up holding somebody else's
+       subtree. Only a root folder carries what it was sent. */
+    const parent = parentId ? await this.findOne(parentId) : null;
+    const ownerType = parent ? parent.ownerType : (dto.ownerType ?? null);
+    const ownerId = parent ? parent.ownerId : (dto.ownerId ?? null);
+    if ((ownerType === null) !== (ownerId === null)) {
+      throw new BadRequestException('A folder owner needs both a type and an id.');
+    }
+    await this.assertNameFree(name, parentId, undefined, { ownerType, ownerId });
 
-    return this.prisma.driveFolder.create({ data: { name, parentId, createdById } });
+    return this.prisma.driveFolder.create({
+      data: { name, parentId, ownerType, ownerId, createdById },
+    });
   }
 
   async rename(id: string, dto: RenameDriveFolderDto) {
     const folder = await this.findOne(id);
     const name = cleanName(dto.name);
-    await this.assertNameFree(name, folder.parentId, id);
+    await this.assertNameFree(name, folder.parentId, id, folder);
 
     return this.prisma.driveFolder.update({ where: { id }, data: { name } });
   }
@@ -92,9 +103,22 @@ export class DriveFoldersService {
    * case-insensitively here rather than left to the column's collation, so the
    * rule holds whatever the database is set to.
    */
-  private async assertNameFree(name: string, parentId: string | null, exceptId?: string) {
+  /* Scoped by owner as well as by parent. Two companies may both keep a
+     "Contracts" folder at their own root, and at the root `parentId` is null
+     for both — without the owner in the where-clause the second one is
+     refused as a duplicate of the first. */
+  private async assertNameFree(
+    name: string,
+    parentId: string | null,
+    exceptId?: string,
+    owner?: { ownerType: string | null; ownerId: string | null },
+  ) {
     const siblings = await this.prisma.driveFolder.findMany({
-      where: { parentId, ...(exceptId ? { id: { not: exceptId } } : {}) },
+      where: {
+        parentId,
+        ...(parentId ? {} : { ownerType: owner?.ownerType ?? null, ownerId: owner?.ownerId ?? null }),
+        ...(exceptId ? { id: { not: exceptId } } : {}),
+      },
       select: { name: true },
     });
     const wanted = name.toLowerCase();

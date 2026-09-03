@@ -1,42 +1,62 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { nextReferenceField } from '../../common/helpers/reference.util';
-import { LedgerService } from '../ledger/ledger.service';
-import { BankAccountsService } from '../funding/bank-accounts.service';
+import { resolveCommission, splitCommission } from '../../common/helpers/pricing.util';
+import { CreateProformaDto } from './dto/create-proforma.dto';
 
 interface FindAllParams {
   shipperId?: string;
+  projectId?: string;
+  kind?: string;
   status?: string;
   page: number;
   limit: number;
 }
 
+/** One printed line: a container the shipper is being charged for. */
+interface DocumentLine {
+  reference: string;
+  containerNo: string | null;
+  category: string | null;
+  description: string;
+  qty: number;
+  unitMinorUnits: string;
+  totalMinorUnits: string;
+}
+
 /**
- * Accounts receivable.
+ * Billing, in one file. Two documents, same paper, and they are made
+ * DIFFERENTLY — which is the thing to understand before changing anything here.
  *
- * The normal path is `issueMonthlyStatement` — one invoice per shipper per
- * month, listing every shipment that ran in it. `issueForShipment` bills a
- * single shipment on its own and stays for the one-off cases (a project
- * closing mid-month, a shipment billed outside its month's statement); it is
- * no longer fired automatically on delivery, because a shipment that already
- * carries its own invoice would then be missing from the month's statement.
+ *   - **Proforma** — a quotation, for work that has not happened. It is
+ *     composed by hand: the operator picks the client and types the lines,
+ *     because at the moment a client asks "what would this cost?" there is no
+ *     shipment in the system to build an answer from. `createProforma`.
  *
+ *   - **Invoice** — the bill for work that HAS happened. Built from exactly one
+ *     shipment, its lines are that shipment's bookings, one container each, and
+ *     its total is the price already agreed on the job. `issueForShipment`.
+ *
+ * An earlier cut of this raised proformas from shipment rows too. That was
+ * backwards and the user said so: quoting a job that is already delivered is
+ * not a quote. If you are about to add a "raise proforma" button to a list of
+ * existing shipments, this is the mistake that was removed.
+ *
+ * There is no monthly statement, no multi-shipment roll-up and no ledger.
  * Neither path ever estimates: a shipment with no `clientRateMinorUnits` is
- * left off rather than billed at zero.
+ * refused rather than billed at zero.
  */
 @Injectable()
 export class InvoicesService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly ledger: LedgerService,
-    private readonly bankAccounts: BankAccountsService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async findAll(params: FindAllParams) {
-    const { shipperId, status, page, limit } = params;
+    const { shipperId, projectId, kind, status, page, limit } = params;
     const where = {
       ...(shipperId ? { shipperId } : {}),
+      ...(kind && kind !== 'all' ? { kind } : {}),
       ...(status && status !== 'all' ? { status } : {}),
+      ...(projectId ? { shipment: { projectId } } : {}),
     };
     const skip = (page - 1) * limit;
 
@@ -50,229 +70,289 @@ export class InvoicesService {
 
   async findOne(id: string) {
     const invoice = await this.prisma.invoice.findFirst({ where: { OR: [{ id }, { number: id }] } });
-    if (!invoice) throw new NotFoundException(`Invoice with ID "${id}" not found`);
+    if (!invoice) throw new NotFoundException(`Document with ID "${id}" not found`);
     return invoice;
   }
 
-  /**
-   * Idempotent — returns the existing invoice if this shipment already has
-   * one. Returns `null`, does not throw, when the shipment has no
-   * `clientRateMinorUnits` yet: an unpriced shipment is not invoiceable,
-   * never estimated as 0. Callers (the booking-status hook, `ProjectsService`
-   * on close-out) both rely on this null-means-skip contract.
-   */
-  async issueForShipment(shipmentId: string, actorId: string, actorName: string) {
+  /** Both documents a shipment carries, newest first. */
+  async findForShipment(shipmentId: string) {
     const shipment = await this.prisma.shipment.findFirst({
       where: { OR: [{ id: shipmentId }, { reference: shipmentId }], deletedAt: null },
+      select: { id: true },
     });
     if (!shipment) throw new NotFoundException(`Shipment with ID "${shipmentId}" not found`);
-    if (shipment.clientRateMinorUnits == null) return null;
+    return this.prisma.invoice.findMany({
+      where: { shipmentId: shipment.id },
+      orderBy: { issueDate: 'desc' },
+    });
+  }
 
-    const existing = await this.prisma.invoice.findFirst({ where: { missionIds: { array_contains: shipment.id } } });
+  /**
+   * Turns a shipment's containers into printed lines.
+   *
+   * The shipment carries ONE price — what the client pays for the whole job —
+   * and the bookings split it evenly, with the rounding remainder going to the
+   * first line so the lines always re-add to exactly the total. A document
+   * whose lines sum to one franc less than its total is a document somebody
+   * has to explain.
+   *
+   * A shipment with no bookings yet still prints: one line for the job itself.
+   * That is the normal case for a proforma raised before the containers are
+   * booked, which is exactly when a client wants a quote.
+   */
+  private buildLines(
+    bookings: Array<{ reference: string; containerNumber: string | null; shipmentCategory: string | null }>,
+    totalMinorUnits: bigint,
+    shipmentReference: string,
+  ): DocumentLine[] {
+    if (bookings.length === 0) {
+      return [
+        {
+          reference: shipmentReference,
+          containerNo: null,
+          category: null,
+          description: `Container haulage — ${shipmentReference}`,
+          qty: 1,
+          unitMinorUnits: totalMinorUnits.toString(),
+          totalMinorUnits: totalMinorUnits.toString(),
+        },
+      ];
+    }
+
+    const each = totalMinorUnits / BigInt(bookings.length);
+    const remainder = totalMinorUnits - each * BigInt(bookings.length);
+
+    return bookings.map((booking, index) => {
+      const line = index === 0 ? each + remainder : each;
+      return {
+        reference: booking.reference,
+        containerNo: booking.containerNumber,
+        category: booking.shipmentCategory,
+        description: booking.containerNumber
+          ? `Container ${booking.containerNumber}`
+          : `Container — ${booking.reference}`,
+        qty: 1,
+        unitMinorUnits: line.toString(),
+        totalMinorUnits: line.toString(),
+      };
+    });
+  }
+
+  /**
+   * Writes a quotation by hand.
+   *
+   * The lines are the operator's own — description, how many, price each — and
+   * the total is their sum. Nothing is looked up, because nothing exists yet:
+   * that is what makes this a quote rather than a bill.
+   *
+   * The commission is still resolved and stored, from the client's deal or the
+   * house rate. There is no transporter to fall back to — nobody has been
+   * assigned to a job that has not been agreed — so the middle step of the
+   * resolution chain is simply absent here, not skipped.
+   *
+   * Not idempotent, unlike `issueForShipment`: two quotes to the same client
+   * for different work are two real documents, and there is no shipment to
+   * key them by. The operator chooses when to write one.
+   */
+  async createProforma(dto: CreateProformaDto, actorId: string, actorName: string) {
+    const shipper = await this.prisma.shipper.findFirst({
+      where: { id: dto.shipperId, deletedAt: null },
+    });
+    if (!shipper) throw new NotFoundException(`Shipper with ID "${dto.shipperId}" not found`);
+
+    const lines: DocumentLine[] = dto.lines.map((line, index) => {
+      const total = BigInt(Math.round(line.unitAmount)) * BigInt(line.qty);
+      return {
+        reference: `L${index + 1}`,
+        containerNo: null,
+        category: null,
+        description: line.description,
+        qty: line.qty,
+        unitMinorUnits: BigInt(Math.round(line.unitAmount)).toString(),
+        totalMinorUnits: total.toString(),
+      };
+    });
+
+    const total = lines.reduce((sum, line) => sum + BigInt(line.totalMinorUnits), 0n);
+    const commission = await resolveCommission(this.prisma, { shipperId: shipper.id });
+    /* Containers quoted, not lines — a single line of "5 × 40ft" is five
+       containers, and a fixed per-container deal has to charge five fees. */
+    const containers = dto.lines.reduce((sum, line) => sum + line.qty, 0);
+    const split = splitCommission(total, commission, containers);
+
+    const contact = await this.prisma.contact.findFirst({
+      where: { ownerType: 'SHIPPER', ownerId: shipper.id, isPrimary: true },
+    });
+
+    const number = await nextReferenceField(this.prisma.invoice, 'number', 'PRO');
+    const issueDate = new Date();
+    // A quote that never expires is a quote you cannot reprice.
+    const validUntil = dto.validUntil
+      ? new Date(dto.validUntil)
+      : new Date(issueDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    return this.prisma.invoice.create({
+      data: {
+        number,
+        kind: 'proforma',
+        shipmentId: null,
+        shipperId: shipper.id,
+        shipperName: contact?.name ?? shipper.companyLegalName,
+        shipperCompany: shipper.companyLegalName,
+        missionIds: [],
+        description: dto.description?.trim() || 'Quotation for container haulage',
+        lines: lines as unknown as object,
+        notes: dto.notes,
+        subtotalMinorUnits: total,
+        taxMinorUnits: 0n,
+        totalMinorUnits: total,
+        commissionMode: commission.mode,
+        commissionSource: commission.source,
+        commissionPct: commission.pct,
+        commissionFixedMinorUnits: commission.fixedMinorUnits,
+        commissionMinorUnits: split.fleetinMinorUnits,
+        currency: 'FDJ',
+        fxRate: 1.0,
+        baseAmountMinorUnits: total,
+        contractDeadline: validUntil,
+        issueDate,
+        status: 'Draft',
+        remainingMinorUnits: total,
+        issuedById: actorId,
+        issuedByName: actorName,
+      },
+    });
+  }
+
+  /**
+   * Raises an invoice from one shipment.
+   *
+   * Idempotent per shipment: asking twice returns the invoice that already
+   * exists rather than issuing a second one with a new number. That matters —
+   * a client who has been sent INV-00012 must not receive INV-00013 for the
+   * same job because somebody double-clicked.
+   *
+   * The commission rate is resolved once, here, and STORED. Renegotiating a
+   * client's percentage tomorrow must not restate what Fleetin earned on work
+   * already billed today.
+   */
+  async issueForShipment(shipmentId: string, actorId: string, actorName: string) {
+    const kind = 'invoice';
+    const shipment = await this.prisma.shipment.findFirst({
+      where: { OR: [{ id: shipmentId }, { reference: shipmentId }], deletedAt: null },
+      include: {
+        bookings: {
+          where: { deletedAt: null, status: { notIn: ['Cancelled', 'Failed'] } },
+          orderBy: { reference: 'asc' },
+        },
+        shipper: { select: { companyLegalName: true } },
+      },
+    });
+    if (!shipment) throw new NotFoundException(`Shipment with ID "${shipmentId}" not found`);
+    if (shipment.clientRateMinorUnits == null) {
+      throw new BadRequestException(
+        `Shipment "${shipment.reference}" has no price yet — set one before billing it.`,
+      );
+    }
+
+    const existing = await this.prisma.invoice.findFirst({ where: { shipmentId: shipment.id, kind } });
     if (existing) return existing;
+
+    const total = shipment.clientRateMinorUnits;
+    const lines = this.buildLines(shipment.bookings, total, shipment.reference);
+    const commission = await resolveCommission(this.prisma, {
+      shipperId: shipment.shipperId,
+      partnerId: shipment.partnerId,
+    });
+    /* A fixed deal is charged PER CONTAINER, so the split needs the line count
+       the document actually prints — not the raw booking count, which differs
+       when a shipment has none and falls back to a single job line. */
+    const split = splitCommission(total, commission, lines.length);
 
     const number = await nextReferenceField(this.prisma.invoice, 'number', 'INV');
     const issueDate = new Date();
-    // No per-shipper payment-terms field exists on the real Shipper model
-    // yet — net-30 is a generic placeholder deadline, not a modeled business
-    // rule. Revisit once Shipper carries its own terms.
     const contractDeadline = new Date(issueDate.getTime() + 30 * 24 * 60 * 60 * 1000);
 
     return this.prisma.invoice.create({
       data: {
         number,
+        kind,
+        shipmentId: shipment.id,
         shipperId: shipment.shipperId,
         shipperName: shipment.customerName,
-        shipperCompany: shipment.customerCompany,
+        shipperCompany: shipment.shipper?.companyLegalName ?? shipment.customerCompany,
         missionIds: [shipment.id],
+        projectId: shipment.projectId,
         description: `Shipment ${shipment.reference}`,
-        subtotalMinorUnits: shipment.clientRateMinorUnits,
+        lines: lines as unknown as object,
+        subtotalMinorUnits: total,
         taxMinorUnits: 0n,
-        totalMinorUnits: shipment.clientRateMinorUnits,
+        totalMinorUnits: total,
+        commissionMode: commission.mode,
+        commissionSource: commission.source,
+        commissionPct: commission.pct,
+        commissionFixedMinorUnits: commission.fixedMinorUnits,
+        commissionMinorUnits: split.fleetinMinorUnits,
         currency: shipment.clientRateCurrency ?? 'FDJ',
         fxRate: shipment.clientRateFxRate ?? 1.0,
-        baseAmountMinorUnits: shipment.clientRateBaseAmountMinorUnits ?? shipment.clientRateMinorUnits,
+        baseAmountMinorUnits: shipment.clientRateBaseAmountMinorUnits ?? total,
         contractDeadline,
         issueDate,
         status: 'Draft',
-        remainingMinorUnits: shipment.clientRateMinorUnits,
+        remainingMinorUnits: total,
         issuedById: actorId,
         issuedByName: actorName,
       },
     });
   }
 
-  /**
-   * The shipper's single end-of-month bill.
-   *
-   * This is how a shipper is billed, and the per-shipment invoice above is
-   * the exception rather than the rule. The commercial arrangement it
-   * implements: Fleetin funds the whole month out of its own money, paying
-   * transporters as each shipment is released, and the shipper settles once,
-   * at the end of the month, against one document that lists every shipment
-   * and its total. Nothing about that is a credit check — the shipper keeps
-   * shipping all month regardless of how large the running total gets.
-   *
-   * Idempotent on (shipper, period, project): re-running it returns the
-   * statement already issued rather than billing the month twice. Shipments
-   * already sitting on another invoice are skipped for the same reason, and
-   * unpriced ones are left off entirely — never billed at 0 — so they show up
-   * as a gap to fix rather than as revenue quietly lost.
-   */
-  async issueMonthlyStatement(
-    params: { shipperId: string; year: number; month: number; projectId?: string },
-    actorId: string,
-    actorName: string,
-  ) {
-    const { shipperId, year, month, projectId } = params;
-    const shipper = await this.prisma.shipper.findFirst({ where: { id: shipperId, deletedAt: null } });
-    if (!shipper) throw new NotFoundException(`Shipper with ID "${shipperId}" not found`);
-
-    // `month` is 1-based to match how a person says it; Date's is 0-based.
-    const periodStart = new Date(Date.UTC(year, month - 1, 1));
-    const periodEnd = new Date(Date.UTC(year, month, 1));
-
-    const existing = await this.prisma.invoice.findFirst({
-      where: { shipperId: shipper.id, periodStart, projectId: projectId ?? null },
-    });
-    if (existing) return existing;
-
-    const shipments = await this.prisma.shipment.findMany({
-      where: {
-        shipperId: shipper.id,
-        deletedAt: null,
-        ...(projectId ? { projectId } : {}),
-        scheduledPickupTime: { gte: periodStart, lt: periodEnd },
-        clientRateMinorUnits: { not: null },
-        status: { notIn: ['Cancelled', 'Failed'] },
-      },
-      orderBy: { scheduledPickupTime: 'asc' },
-    });
-
-    // A shipment that already carries its own invoice is not re-billed here.
-    const billable = [];
-    for (const shipment of shipments) {
-      const alreadyBilled = await this.prisma.invoice.findFirst({
-        where: { missionIds: { array_contains: shipment.id } },
-      });
-      if (!alreadyBilled) billable.push(shipment);
-    }
-    if (billable.length === 0) return null;
-
-    const totalMinorUnits = billable.reduce((sum, s) => sum + (s.clientRateMinorUnits ?? 0n), 0n);
-    const monthLabel = periodStart.toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
-    const number = await nextReferenceField(this.prisma.invoice, 'number', 'INV');
-
-    return this.prisma.invoice.create({
-      data: {
-        number,
-        shipperId: shipper.id,
-        shipperName: billable[0]!.customerName,
-        shipperCompany: shipper.companyLegalName,
-        missionIds: billable.map((s) => s.id),
-        description: `Monthly statement — ${monthLabel} · ${billable.length} shipment${billable.length === 1 ? '' : 's'}`,
-        subtotalMinorUnits: totalMinorUnits,
-        taxMinorUnits: 0n,
-        totalMinorUnits,
-        currency: 'FDJ',
-        fxRate: 1.0,
-        baseAmountMinorUnits: totalMinorUnits,
-        // Payable at the close of the month it covers — that is the whole
-        // arrangement, not a net-N term derived from the issue date.
-        contractDeadline: new Date(periodEnd.getTime() - 1),
-        issueDate: new Date(),
-        periodStart,
-        periodEnd,
-        projectId: projectId ?? null,
-        status: 'Draft',
-        remainingMinorUnits: totalMinorUnits,
-        issuedById: actorId,
-        issuedByName: actorName,
-      },
+  /** Records that the document was sent to the client. */
+  async markSent(id: string) {
+    const invoice = await this.findOne(id);
+    if (invoice.sentAt) return invoice;
+    return this.prisma.invoice.update({
+      where: { id: invoice.id },
+      data: { sentAt: new Date(), status: invoice.status === 'Draft' ? 'Sent' : invoice.status },
     });
   }
 
   /**
-   * Full amount only — the frontend this backend was built for never does
-   * partial payment. Requires the real account the money landed in.
+   * The shipper's money arrived. Full amount only — this business does not do
+   * partial settlement, and a half-paid invoice was a concept the old module
+   * carried and nobody used.
    *
-   * One transaction from the status guard to the ledger entry: the balance
-   * credit, the invoice flip, the payment, its allocation and the ledger row
-   * all land together or not at all — a mid-sequence failure can't strand a
-   * credited balance, and two concurrent requests can't both pass the guard.
+   * A proforma cannot be paid. It is a quote: there is nothing owed against it,
+   * and letting one be settled would leave the real invoice unbilled.
    */
-  async markPaid(id: string, bankAccountId: string, actorId: string, actorName: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const invoice = await tx.invoice.findFirst({ where: { OR: [{ id }, { number: id }] } });
-      if (!invoice) throw new NotFoundException(`Invoice with ID "${id}" not found`);
-      if (invoice.status === 'Paid') return invoice;
-      if (invoice.status === 'Written Off') {
-        throw new BadRequestException(`Invoice "${invoice.number}" has been written off and cannot be marked paid`);
-      }
-
-      // Money in — before touching the invoice, so a bad account id fails
-      // before anything else is recorded.
-      await this.bankAccounts.adjustBalance(bankAccountId, invoice.totalMinorUnits, tx);
-
-      const updated = await tx.invoice.update({
-        where: { id: invoice.id },
-        data: { status: 'Paid', allocatedMinorUnits: invoice.totalMinorUnits, remainingMinorUnits: 0n },
-      });
-
-      const payment = await tx.payment.create({
-        data: {
-          number: await nextReferenceField(tx.payment, 'number', 'PAY'),
-          direction: 'IN',
-          counterpartyType: 'SHIPPER',
-          counterpartyId: invoice.shipperId,
-          counterpartyName: invoice.shipperCompany,
-          amountMinorUnits: invoice.totalMinorUnits,
-          currency: invoice.currency,
-          fxRate: invoice.fxRate,
-          baseAmountMinorUnits: invoice.baseAmountMinorUnits,
-          unallocatedMinorUnits: 0n,
-          paidAt: new Date(),
-          method: 'bank_transfer',
-          bankAccountId,
-          createdById: actorId,
-          createdByName: actorName,
-        },
-      });
-
-      await tx.paymentAllocation.create({
-        data: {
-          paymentId: payment.id,
-          targetType: 'INVOICE',
-          targetId: invoice.id,
-          amountMinorUnits: invoice.totalMinorUnits,
-          invoiceId: invoice.id,
-        },
-      });
-
-      const missionIds = Array.isArray(invoice.missionIds) ? invoice.missionIds : [];
-      await this.ledger.append(
-        {
-          entryDate: new Date(),
-          type: 'invoice_payment',
-          direction: 'IN',
-          amountMinorUnits: invoice.totalMinorUnits,
-          currency: invoice.currency,
-          fxRate: invoice.fxRate,
-          baseAmountMinorUnits: invoice.baseAmountMinorUnits,
-          counterpartyType: 'SHIPPER',
-          counterpartyId: invoice.shipperId,
-          counterpartyName: invoice.shipperCompany,
-          sourceType: 'invoice',
-          sourceId: invoice.id,
-          missionId: missionIds.length > 0 ? String(missionIds[0]) : undefined,
-          description: `Invoice ${invoice.number} paid`,
-          createdById: actorId,
-          createdByName: actorName,
-        },
-        tx,
+  async markPaid(id: string) {
+    const invoice = await this.findOne(id);
+    if (invoice.kind === 'proforma') {
+      throw new BadRequestException(
+        `${invoice.number} is a proforma — raise the invoice from its shipment before recording payment.`,
       );
+    }
+    if (invoice.status === 'Paid') return invoice;
 
-      return updated;
+    return this.prisma.invoice.update({
+      where: { id: invoice.id },
+      data: {
+        status: 'Paid',
+        paidAt: new Date(),
+        allocatedMinorUnits: invoice.totalMinorUnits,
+        remainingMinorUnits: 0n,
+      },
+    });
+  }
+
+  /** Withdraws a document raised in error. Paid invoices cannot be cancelled. */
+  async cancel(id: string, reason: string) {
+    const invoice = await this.findOne(id);
+    if (invoice.status === 'Paid') {
+      throw new BadRequestException(`${invoice.number} has been paid and cannot be cancelled.`);
+    }
+    return this.prisma.invoice.update({
+      where: { id: invoice.id },
+      data: { status: 'Cancelled', notes: reason },
     });
   }
 }
