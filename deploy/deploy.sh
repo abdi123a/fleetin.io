@@ -110,8 +110,21 @@ say "6/6  Restart and verify"
 run "$SSH '${RESTART_CMD}'"
 if [[ -n "${HEALTH_URL:-}" ]]; then
   if $APPLY; then
-    sleep 5
-    code="$(curl -s -o /dev/null -m 15 -w '%{http_code}' "$HEALTH_URL" || true)"
+    # Poll, don't guess. A single probe after a fixed five seconds called a
+    # perfectly good release dead on 2026-09-03: the API had grown two modules
+    # and took a beat longer to bind, so the check hit nginx before the app was
+    # listening, printed 502 and told the operator to restore a database dump
+    # over a release that had in fact applied cleanly. A health check that
+    # cries wolf is worse than none, because the remedy it advises is
+    # destructive.
+    code=""
+    for attempt in $(seq 1 20); do
+      code="$(curl -s -o /dev/null -m 10 -w '%{http_code}' "$HEALTH_URL" || true)"
+      [[ "$code" =~ ^(200|204|401)$ ]] && break
+      printf '   \033[2mwaiting for the API (%s) — attempt %s/20\033[0m\r' "${code:-no answer}" "$attempt"
+      sleep 3
+    done
+    printf '\033[K'
     if [[ "$code" =~ ^(200|204|401)$ ]]; then
       printf '   \033[1;32m✓ %s → %s\033[0m\n' "$HEALTH_URL" "$code"
     else
