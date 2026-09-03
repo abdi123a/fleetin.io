@@ -37,12 +37,18 @@ import { Mono } from './marks';
  * the one outside it, already say which box is which — and they say it in
  * words, which is where that distinction belongs.
  *
- * ## One size, whatever is on it
+ * ## Width says how long the box is
  *
- * Fixed width and a floor on the height, so a row of these lines up on all
- * three lines no matter how long a shipping line's name runs. They were sized
- * by their content before, which made a chain of four cycles a ragged fence —
- * and made the height of a card look like it meant something.
+ * A 20ft container is drawn shorter than a 40ft one — three quarters of it, not
+ * the true half, which at these sizes would leave the short card too narrow to
+ * hold a container number. Every card was one width before, which threw away
+ * the one property of a shipping container a picture of it can carry for free,
+ * and made "20 ft" a string you had to stop and read on every row.
+ *
+ * The width is never set by CONTENT, only by the box. That distinction is the
+ * whole reason a row of these lines up: they were content-sized once, which
+ * made a chain of four cycles a ragged fence and made the size of a card look
+ * like it meant something when it did not. Now it does.
  *
  * ## What may go inside, and what may not
  *
@@ -60,9 +66,20 @@ import { Mono } from './marks';
  */
 export type ContainerCardState = 'full' | 'empty' | 'returned';
 
+/**
+ * A 20-footer, off the raw size string the API stores (`20'`, `40'`, `40HC`).
+ *
+ * Anything unrecognised is drawn full length: a box of unknown size is more
+ * likely to be a 40 on this corridor, and guessing short makes the card too
+ * narrow for the number it has to hold.
+ */
+function isTwentyFoot(size: string | null | undefined): boolean {
+  return (size ?? '').trim().startsWith('20');
+}
+
 const STATE: Record<
   ContainerCardState,
-  { label: string; Icon: typeof Package; skin: string; paint: string }
+  { label: string; Icon: typeof Package; skin: string; paint: string; plate: string }
 > = {
   /* Green, filled — the box is loaded and moving. Its opposite number is the
      container yellow: one meaning, one hue, in every place this card lands. */
@@ -71,6 +88,10 @@ const STATE: Record<
     Icon: Package,
     skin: 'fl-container-skin',
     paint: 'border-2 border-transparent bg-stage-loaded text-stage-loaded-foreground',
+    /* Green-800 on the card surface, not the card's own white-on-green: a plate
+       exists to be read, and its whole point is to stop being the card for one
+       line. Inverts to green-200 in dark, where the surface is dark too. */
+    plate: '[--fl-plate-ink:var(--stage-loaded-subtle-foreground)]',
   },
   /* Dashed, because an empty box is an open one — and because colour must never
      be the only channel carrying the pair. */
@@ -80,6 +101,7 @@ const STATE: Record<
     skin: 'fl-container-skin fl-container-skin--pale',
     paint:
       'border-2 border-dashed border-container-empty-border bg-container-empty-subtle text-container-empty-subtle-foreground',
+    plate: '[--fl-plate-ink:var(--container-empty-subtle-foreground)]',
   },
   /* Home, and quiet about it: the one state that carries no hue at all, because
      nothing is owed on a box that is back at the depot. */
@@ -89,6 +111,7 @@ const STATE: Record<
     skin: 'fl-container-skin fl-container-skin--pale',
     paint:
       'border-2 border-container-returned-border bg-container-returned-subtle text-container-returned-subtle-foreground',
+    plate: '[--fl-plate-ink:var(--container-returned-subtle-foreground)]',
   },
 };
 
@@ -99,35 +122,65 @@ export function ContainerCard({
   line,
   /** Overrides the state's own word, for a card that names the moment instead. */
   label,
+  /** The raw size string — `20'`, `40'`, `40HC`. Sets how long the box is drawn. */
+  size,
+  /**
+   * How much room the surface has.
+   *
+   * `strip` is the dialog's flow, where three boxes and two connectors share a
+   * dialog — a 40ft is 176px there. `list` is a column of one box per row, where
+   * it is 384px. Two scales, one ratio: a 20-footer is three quarters of a
+   * 40-footer on both.
+   */
+  scale = 'strip',
   aside,
   children,
   onClick,
+  /** Mirrors `aria-pressed` when the card is itself the selection control. */
+  pressed,
   className,
 }: {
   state: ContainerCardState;
   container?: string | null;
   line?: string | null;
   label?: string;
+  size?: string | null;
+  scale?: 'strip' | 'list';
   /** One mark in the top-right corner — a risk badge, a state chip. */
   aside?: ReactNode;
   /** Extra lines under the three. See the note above before reaching for it. */
   children?: ReactNode;
   onClick?: () => void;
+  pressed?: boolean;
   className?: string;
 }) {
   const meta = STATE[state];
+  const short = isTwentyFoot(size);
 
   const body = (
     <>
-      <div className="flex items-center gap-1.5 text-[9px] font-extrabold uppercase tracking-widest opacity-90">
+      {/* Sizes and opacities raised across the board. Every line was 9px at
+          75–90% opacity, which is legible on a flat fill and not on the ribbed
+          one these cards actually wear — the shipping line in particular
+          disappeared into the corrugation. */}
+      <div className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-widest">
         <meta.Icon className="size-3 shrink-0" aria-hidden />
         <span className="min-w-0 truncate">{label ?? meta.label}</span>
         {aside && <span className="ml-auto shrink-0">{aside}</span>}
       </div>
-      <Mono className="mt-0.5 block truncate text-sm font-bold">{container || '—'}</Mono>
+      <Mono className="mt-0.5 block truncate text-[15px] font-bold leading-tight">
+        {container || '—'}
+      </Mono>
       {/* Held even when there is no line on file, so the third line is always a
           third line and the row keeps its shape. */}
-      <div className="truncate text-[9px] opacity-75">{line || '—'}</div>
+      {/* On its own plate — see `.fl-container-skin__plate`. At 11px over the
+          corrugation this line lost its shape entirely; opacity was never the
+          problem, the ribs behind the glyphs were. */}
+      <div className="mt-0.5 flex min-w-0">
+        <span className="fl-container-skin__plate truncate text-[11px] font-semibold">
+          {line || '—'}
+        </span>
+      </div>
       {children}
     </>
   );
@@ -147,9 +200,29 @@ export function ContainerCard({
      * a rung the theme does not define compiles to NOTHING rather than falling
      * back — which is exactly how the bracket around these cards came to have
      * square corners while looking like it asked for round ones. */
-    'w-44 max-w-[24rem] min-h-[4.25rem] shrink-0 rounded-lg px-3 py-2 text-left',
+    'min-h-[4.25rem] shrink-0 rounded-lg px-3 py-2 text-left',
+    /* An exact width, from the BOX — never `w-full`.
+     *
+     * Every stretched-container bug in this module came from a width that asked
+     * the parent how wide to be: 500px in a stacked dialog, 790px in the
+     * matching pane, and then 324px for a 40-footer whose column happened to be
+     * narrower than the cap, sitting beside a 288px 20-footer that had reached
+     * its own. The same box came out a different length depending on where you
+     * were standing.
+     *
+     * `max-w-full` is the only concession: a pane narrower than the box still
+     * has to fit it. */
+    'max-w-full',
+    scale === 'list'
+      ? short
+        ? 'w-[18rem]'
+        : 'w-[24rem]'
+      : short
+        ? 'w-[8.25rem]'
+        : 'w-44',
     meta.skin,
     meta.paint,
+    meta.plate,
     onClick &&
       'transition-shadow duration-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
     className,
@@ -158,7 +231,7 @@ export function ContainerCard({
   if (!onClick) return <div className={shell}>{body}</div>;
 
   return (
-    <button type="button" onClick={onClick} className={shell}>
+    <button type="button" onClick={onClick} aria-pressed={pressed} className={shell}>
       {body}
     </button>
   );

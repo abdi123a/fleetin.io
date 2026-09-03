@@ -42,8 +42,20 @@ export function ViewTabs<K extends string>({
     <div
       /* `items-end`, so the tabs reach the rule their underline has to meet.
          The action is lifted off it by its own `pb-1.5` below — sitting a
-         pill directly on a hairline reads as an accident. */
-      className={cn('flex min-w-0 items-end gap-1 border-b border-border', className)}
+         pill directly on a hairline reads as an accident.
+
+         `flex-wrap-reverse`, the same answer `FilterBar` uses and for the same
+         reason: when the action and the tabs cannot share a line, the action
+         takes a line of its own ABOVE and the tabs stay on the bottom one,
+         still touching the rule their underline belongs to. Without it the
+         action is `shrink-0` and wins, so the tablist scrolls instead — which
+         on a phone hid the second tab behind a scrollbar nobody would think to
+         drag. Wrapping beats guessing a breakpoint: the band reflows at
+         whatever width its own contents actually stop fitting. */
+      className={cn(
+        'flex min-w-0 flex-wrap-reverse items-end gap-x-1 gap-y-2 border-b border-border',
+        className,
+      )}
     >
       <div role="tablist" aria-label={label} className="flex min-w-0 items-center gap-1 overflow-x-auto">
         {tabs.map(({ key, label: text, icon: Icon }) => {
@@ -69,7 +81,9 @@ export function ViewTabs<K extends string>({
       </div>
 
       {actions ? (
-        <div className="ml-auto flex shrink-0 items-center gap-2 pb-1.5 pl-3">{actions}</div>
+        <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2 pb-1.5 pl-3">
+          {actions}
+        </div>
       ) : null}
     </div>
   );

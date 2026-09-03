@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { ROUTES } from '@/config/routes';
@@ -43,13 +43,16 @@ import {
   riskOf,
   useEmptyReturnStore,
 } from '@/stores/emptyReturn.store';
-import type { EmptyReturnRecord } from '@/types/emptyReturn';
+import type { EmptyReturnRecord, PairingSuggestion } from '@/types/emptyReturn';
 import { cn } from '@/utils';
+
+import { formatContainerSize } from '@/data/emptyReturnData';
 
 import { OperationFlow } from './OperationFlow';
 import { IdentityFact, IdentityStrip, PartyName } from '@/components/common';
 
-import { ContainerSizeTag, Mono, RecordStateTag, SectionLabel } from './marks';
+import { ContainerSizeTag, EmptyTag, Mono, RecordStateTag, SectionLabel } from './marks';
+import { SuggestionCard } from './SuggestionCard';
 
 /**
  * One container — its history, and one door into the module's one decision
@@ -74,6 +77,7 @@ export function ContainerDetailDialog() {
   const openRecordId = useEmptyReturnStore((state) => state.openRecordId);
   const closeRecord = useEmptyReturnStore((state) => state.closeRecord);
   const rejected = useEmptyReturnStore((state) => state.rejected);
+  const rejectPairing = useEmptyReturnStore((state) => state.rejectPairing);
   const selectEmpty = useEmptyReturnStore((state) => state.selectEmpty);
 
   const navigate = useNavigate();
@@ -90,6 +94,11 @@ export function ContainerDetailDialog() {
      initials where the Control Tower showed a logo. One call: the dialog is a
      singleton, so this is not the forty-rows problem the queue table avoids. */
   useShippingLines();
+
+  /* Which screen of the dialog is showing. Resets whenever the dialog opens on
+     a different container — otherwise the next one opened arrives mid-flow. */
+  const [step, setStep] = useState<'detail' | 'find'>('detail');
+  useEffect(() => setStep('detail'), [openRecordId]);
 
   const rejectedIds = useMemo(
     () => (record ? rejectedLoadsFor(rejected, record.id) : []),
@@ -110,6 +119,40 @@ export function ContainerDetailDialog() {
 
   return (
     <Dialog open onOpenChange={(next) => !next && close()}>
+      {/* ── TWO STEPS, ONE DIALOG ──
+       *
+       * `Find Full Load` used to select this container, close the dossier and
+       * navigate to the Matching page. The operator was reading a container,
+       * asked to pair it, and got sent to a different screen that then had to
+       * re-establish which container they meant — losing the dialog, the row
+       * they clicked from, and their place in the queue.
+       *
+       * The Control Tower can now finish the job where it started. Matching is
+       * not replaced: it stays the wide workbench for going through the yard,
+       * and this is the contextual path for one box you are already looking at.
+       * Both confirm through the same action and draw the same
+       * `SuggestionCard`, so the two are one product with two doors. */}
+      {step === 'find' ? (
+        <FindLoadStep
+          record={record}
+          now={now}
+          risk={risk}
+          overdue={overdue}
+          busy={actions.isBusy}
+          suggestions={suggestions}
+          onBack={() => setStep('detail')}
+          onConfirm={async (suggestion) => {
+            const ok = await actions.confirmPairing(record, suggestion.load);
+            if (ok) setStep('detail');
+          }}
+          onReject={(suggestion) => rejectPairing(suggestion.load.id, record.id)}
+          onPlanReturn={() => {
+            selectEmpty(record.id);
+            close();
+            navigate(`${ROUTES.emptyReturnsMatching}?plan=${record.id}`);
+          }}
+        />
+      ) : (
       <DetailStep
         record={record}
         now={now}
@@ -117,8 +160,9 @@ export function ContainerDetailDialog() {
         overdue={overdue}
         busy={actions.isBusy}
         suggestions={suggestions}
-        /* Matching is a page now, not a popup (2026-08-29). Select the
-           container so the page opens on it, close the dossier, and navigate. */
+        onFindLoad={() => setStep('find')}
+        /* Planning a return is still the Matching page's dialog — it asks for a
+           date and a time, and that form has one home. */
         onOpenMatching={(intent) => {
           selectEmpty(record.id);
           close();
@@ -130,8 +174,139 @@ export function ContainerDetailDialog() {
         onConfirmReturn={() => returnProof.prompt(record)}
         onCancelPairing={() => actions.cancelPairing(record)}
       />
+      )}
       {returnProof.dialog}
     </Dialog>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Find Full Load — the contextual half of Matching
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Every full load this container could travel out under, offered here.
+ *
+ * The same engine, the same ranking and the same `SuggestionCard` the Matching
+ * page draws — the difference is the frame, not the content. Matching asks
+ * "which of the yard's empties shall I place?"; this asks "where can THIS one
+ * go?", which is the question somebody already has open a container to answer.
+ */
+function FindLoadStep({
+  record,
+  now,
+  risk,
+  overdue,
+  busy,
+  suggestions,
+  onBack,
+  onConfirm,
+  onReject,
+  onPlanReturn,
+}: {
+  record: EmptyReturnRecord;
+  now: number;
+  risk: ReturnType<typeof riskOf>;
+  overdue: boolean;
+  busy: boolean;
+  suggestions: ReturnType<typeof suggestLoadsFor>;
+  onBack: () => void;
+  onConfirm: (suggestion: PairingSuggestion) => void;
+  onReject: (suggestion: PairingSuggestion) => void;
+  onPlanReturn: () => void;
+}) {
+  const clock = record.deadline
+    ? overdue
+      ? `${formatSpan(now - record.deadline)} overdue`
+      : `${formatSpan(record.deadline - now)} to deadline`
+    : 'no deadline';
+
+  return (
+    <DialogContent size="xl" aria-describedby={undefined}>
+      <DialogHeader
+        title={
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-base font-bold">Find Full Load</span>
+          </span>
+        }
+      >
+        {/* Which box this is about, on the header rather than repeated over
+            each option — the answer is the same for all of them. */}
+        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          <EmptyTag small />
+          <Mono className="font-bold text-foreground">
+            {record.container || record.bookingReference}
+          </Mono>
+          <span>
+            {record.line} · {formatContainerSize(record.size)} · {record.locationName}
+          </span>
+          <Mono className={cn('font-bold', riskTextClass(risk))}>{clock}</Mono>
+        </div>
+      </DialogHeader>
+
+      <DialogBody className="space-y-2">
+        {suggestions.length === 0 ? (
+          /* No load, and therefore only one thing left to do — so the return
+             stops being the alternative and becomes the recommendation. */
+          <Card className="rounded-card border-2 border-border p-6 text-center">
+            <p className="text-sm font-bold text-foreground">No viable full load found</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              No compatible full load can take this container before its return deadline.
+            </p>
+            <Button
+              size="sm"
+              onClick={onPlanReturn}
+              disabled={busy}
+              className="mt-3 bg-stage-returning text-stage-returning-foreground hover:brightness-105"
+            >
+              <RotateCcw className="size-3.5" /> Plan Empty Return
+            </Button>
+          </Card>
+        ) : (
+          suggestions.map((suggestion, index) => (
+            <Fragment key={suggestion.load.id}>
+              {index === 0 && (
+                <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-primary">
+                  Recommended Shipment
+                </h4>
+              )}
+              {index === 1 && (
+                <div className="flex items-center gap-2 pt-1.5">
+                  <span className="text-[10px] font-extrabold uppercase tracking-widest text-muted-foreground">
+                    Other compatible Shipments
+                  </span>
+                  <span aria-hidden className="h-px flex-1 bg-border" />
+                </div>
+              )}
+              <SuggestionCard
+                suggestion={suggestion}
+                featured={index === 0}
+                disabled={busy}
+                onConfirm={() => onConfirm(suggestion)}
+                onReject={() => onReject(suggestion)}
+              />
+            </Fragment>
+          ))
+        )}
+
+        <div className="flex justify-between pt-1">
+          <Button variant="ghost" size="sm" onClick={onBack} className="text-muted-foreground">
+            Back to container
+          </Button>
+          {suggestions.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onPlanReturn}
+              disabled={busy}
+              className="border-warning text-warning-subtle-foreground hover:bg-warning-subtle"
+            >
+              <RotateCcw className="size-3.5" /> Plan Empty Return
+            </Button>
+          )}
+        </div>
+      </DialogBody>
+    </DialogContent>
   );
 }
 
@@ -146,6 +321,8 @@ interface DetailStepProps {
   overdue: boolean;
   busy: boolean;
   suggestions: ReturnType<typeof suggestLoadsFor>;
+  /** Opens the dialog's own Find Full Load step — no navigation. */
+  onFindLoad: () => void;
   /** Selects this container and navigates to the Matching page. */
   onOpenMatching: (intent: 'match' | 'return') => void;
   onConfirmReturn: () => void;
@@ -159,6 +336,7 @@ function DetailStep({
   overdue,
   busy,
   suggestions,
+  onFindLoad,
   onOpenMatching,
   onConfirmReturn,
   onCancelPairing,
@@ -319,11 +497,11 @@ function DetailStep({
                 <Button
                   variant="primary"
                   size="sm"
-                  onClick={() => onOpenMatching('match')}
+                  onClick={onFindLoad}
                   disabled={busy}
                   className="shrink-0 gap-1.5"
                 >
-                  <ArrowLeftRight className="size-3.5" /> Open in Matching
+                  <ArrowLeftRight className="size-3.5" /> Find Full Load
                 </Button>
               </div>
             )}

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { format, parse } from 'date-fns';
 
@@ -36,12 +36,13 @@ import {
   useEmptyContainers,
 } from '@/features/empty-returns';
 import { formatSpan, formatStamp, rejectedLoadsFor, riskOf, useEmptyReturnStore } from '@/stores/emptyReturn.store';
-import type { EmptyReturnRecord, PairingSuggestion, SuggestionLabel } from '@/types/emptyReturn';
+import type { EmptyReturnRecord, PairingSuggestion } from '@/types/emptyReturn';
 import { cn } from '@/utils';
 
 import { TablePager, usePagedRows } from '@/components';
 import { ContainerCard } from './components/ContainerCard';
-import { CompanyName, EmptyTag, FullTag, Mono, RiskBadge } from './components/marks';
+import { SuggestionCard } from './components/SuggestionCard';
+import { EmptyTag, FullTag, Mono, RiskBadge } from './components/marks';
 import { PairingCelebration } from './components/PairingCelebration';
 
 /**
@@ -64,13 +65,6 @@ import { PairingCelebration } from './components/PairingCelebration';
  * and adding one would be a second place the truth could live.
  */
 
-const LABEL_STYLE: Record<SuggestionLabel, string> = {
-  RECOMMENDED: 'bg-primary-bold text-primary-bold-foreground border-primary-bold',
-  ALTERNATIVE: 'bg-card text-muted-foreground border-border',
-  /* Amber, not red: a tight pairing is a real option somebody may have to take,
-     and colouring it as a failure pushes them into a worse one. */
-  'LAST OPTION': 'bg-stage-returning-subtle text-stage-returning-subtle-foreground border-stage-returning-border',
-};
 
 export function MatchingPage() {
   const { onBoard, loads, now } = useEmptyContainers();
@@ -234,77 +228,72 @@ export function MatchingPage() {
             const risk = riskOf(record, now);
             const active = selected?.id === record.id;
             return (
-              <button
+              <ContainerCard
                 key={record.id}
-                type="button"
+                state="empty"
+                container={record.container || record.bookingReference}
+                line={record.line}
+                size={record.size}
                 onClick={() => selectEmpty(record.id)}
-                aria-pressed={active}
-                className={cn(
-                  'w-full min-w-0 cursor-pointer rounded-card border p-1.5 text-left transition',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  /* The ROW is neutral now; the amber is on the box.
-                     Every card in this column used to sit on
-                     `--container-empty-subtle` so the reader could see which
-                     half of the workbench was supply before reading a word.
-                     The container card carries that hue itself now — eight
-                     amber boxes down the column say it at least as plainly —
-                     and keeping it on the row as well put amber on amber and
-                     flattened the card back into its own background.
+                pressed={active}
+                scale="list"
+                /* The card IS the row.
+                   It used to sit inside a bordered, padded wrapper that was
+                   also a card — two nested frames, and a sliver of the outer
+                   one showing down the right of every row because the inner one
+                   caps its width. One frame, and the cap now reads as what it
+                   is: a 20ft box is shorter than a 40ft box.
 
-                     Selection is a border job, not a fill job — sky, the v19
-                     "available" hue — so picking one does not read as the same
-                     signal as the load it might carry. */
-                  'border-border bg-card',
-                  active
-                    ? 'border-2 border-stage-available shadow-sm'
-                    : 'hover:border-stage-available hover:shadow-sm',
+                   Selection is a ring rather than a fourth border, so it does
+                   not compete with the dashed edge that means EMPTY. */
+                className={cn(
+                  active && 'ring-2 ring-stage-available ring-offset-1 ring-offset-background',
                 )}
-              >
-                {active && (
-                  <div className="mb-1 text-[9px] font-extrabold tracking-widest text-stage-available-subtle-foreground">
-                    ✓ SELECTED
-                  </div>
-                )}
-                {/* The row IS the box.
-                    It was a hand-rolled amber tile — the identical container in
-                    three places wearing three different shapes, which is what
-                    made the module feel like three modules. The first pass put
-                    the shared card beside the facts instead, and in a 390px
-                    column that left the card at 176px and squeezed the rest into
-                    a strip narrow enough to truncate the yard's name and break
-                    "1d 21h remaining" over two lines. So the card takes the
-                    row and the facts go on it: every card in this column
-                    carries the same lines, so they all still match each other,
-                    which is the rule the flow strip's cards obey too. */}
-                <ContainerCard
-                  state="empty"
-                  container={record.container || record.bookingReference}
-                  line={record.line}
+                aside={
                   /* On its own white ground. `RiskBadge` tints itself with
                      `--urgency-*-bg`, which is the hue at 10% over transparent
                      — calibrated for a white page and all but invisible once it
                      is composited over the card's amber ribbing. WATCH vanished
                      outright. The backing restores the surface those alphas
                      were mixed against. */
-                  aside={
+                  <span className="inline-flex items-center gap-1.5">
+                    {active && (
+                      <span className="rounded-md bg-stage-available px-1.5 py-0.5 text-[9px] font-extrabold tracking-wider text-stage-available-foreground">
+                        Selected
+                      </span>
+                    )}
                     <span className="inline-flex rounded-md bg-card">
                       <RiskBadge risk={risk} />
                     </span>
-                  }
-                  className="w-full"
-                >
-                  <div className="mt-1.5 truncate text-[11px] font-medium">
+                  </span>
+                }
+              >
+                {/* Every line on a container gets a plate — see
+                    `.fl-container-skin__plate`. These two sat on the bare
+                    corrugation while the shipping line above them did not, so
+                    the card had one legible row and two the ribs ran through. */}
+                <div className="mt-1 flex min-w-0">
+                  <span className="fl-container-skin__plate truncate text-[11px] font-medium">
                     {formatContainerSize(record.size)} · {record.locationName}
-                  </div>
-                  <div className={cn('font-mono text-[11px] font-bold', riskTextClass(risk))}>
+                  </span>
+                </div>
+                <div className="mt-1 flex min-w-0">
+                  <span
+                    className={cn(
+                      'fl-container-skin__plate truncate font-mono text-[11px] font-bold',
+                      /* The countdown keeps its urgency colour, so it overrides
+                         the plate's ink rather than inheriting it. */
+                      riskTextClass(risk),
+                    )}
+                  >
                     {record.deadline === null
                       ? 'No deadline recorded'
                       : record.deadline < now
                         ? `${formatSpan(now - record.deadline)} past return deadline`
                         : `${formatSpan(record.deadline - now)} remaining`}
-                  </div>
-                </ContainerCard>
-              </button>
+                  </span>
+                </div>
+              </ContainerCard>
             );
           })}
 
@@ -370,24 +359,41 @@ export function MatchingPage() {
             </div>
           )}
 
-          {selected && (
-            <h4 className="pt-1 text-[9px] font-extrabold uppercase tracking-widest text-muted-foreground">
-              Shipment opportunities
-            </h4>
+          {/* ── ONE heading, and it counts ──
+           *
+           * There were three, stacked with nothing between them: "Shipment
+           * opportunities", then "System recommendation" directly under it,
+           * then "Other shipment opportunities" — the section's own name said
+           * twice and a sub-heading whose whole content the first card already
+           * wears as a `RECOMMENDED` chip. Three labels for one list.
+           *
+           * So: the section names itself once and says how many there are,
+           * which is the thing none of the three were saying. The first card is
+           * the recommendation because it is first and because it is chipped;
+           * the rest get a short rule that separates them without renaming the
+           * section they are already in. It matches the yard column opposite,
+           * heading left and count right. */}
+          {selected && suggestions.length > 0 && (
+            <div className="flex items-baseline justify-between gap-2 pt-1">
+              <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                Shipment opportunities
+              </h4>
+              <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
+                {suggestions.length}
+              </span>
+            </div>
           )}
 
           {selected &&
             suggestions.map((suggestion, index) => (
               <Fragment key={suggestion.load.id}>
-                {index === 0 && (
-                  <h4 className="text-[9px] font-extrabold uppercase tracking-widest text-primary">
-                    System recommendation
-                  </h4>
-                )}
                 {index === 1 && (
-                  <h4 className="pt-1.5 text-[9px] font-extrabold uppercase tracking-widest text-muted-foreground">
-                    Other shipment opportunities
-                  </h4>
+                  <div className="flex items-center gap-2 pt-1.5">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                      Other options
+                    </span>
+                    <span aria-hidden className="h-px flex-1 bg-border" />
+                  </div>
                 )}
                 <SuggestionCard
                   suggestion={suggestion}
@@ -608,259 +614,5 @@ function PlanReturnDialog({
  * One opportunity
  * ------------------------------------------------------------------------- */
 
-/**
- * The compatibility checklist — what this particular pairing turns on.
- *
- * The shipping line is **read**, not asserted. It used to be hardcoded to
- * `Same shipping line ✓`, which was safe only while the line was a gate: once
- * it stopped being one (2026-08-30, see `incompatibilityReasons`) a cross-line
- * pairing started reaching this card, and a hardcoded tick would have printed
- * a claim about the paperwork that was simply false. It now says which case it
- * is — and when the lines differ that is a *note*, not a warning, because
- * nothing is wrong: the tone stays with the passing items and only the wording
- * changes.
- *
- * Size and the deadline are still the gates, so those two can be asserted:
- * nothing incompatible on either reaches a suggestion at all.
- */
-function CompatChecklist({ suggestion }: { suggestion: PairingSuggestion }) {
-  const tight = suggestion.tight;
-  const { line: emptyLine } = suggestion.record;
-  const { line: loadLine } = suggestion.load;
-  const sameLine = Boolean(emptyLine) && emptyLine === loadLine;
-  const items: { ok: boolean; label: string }[] = [
-    {
-      ok: true,
-      label: sameLine
-        ? 'Same shipping line'
-        : `Across lines — ${emptyLine ?? 'unrecorded'} → ${loadLine ?? 'unrecorded'}`,
-    },
-    { ok: true, label: 'Same container size' },
-    { ok: !tight, label: tight ? 'Tight window — under 6h of margin' : 'Pickup beats the deadline' },
-  ];
-  return (
-    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-      {items.map((item) => (
-        <span
-          key={item.label}
-          className={cn(
-            'inline-flex items-center gap-1 text-[10px] font-semibold',
-            item.ok ? 'text-stage-closed-subtle-foreground' : 'text-stage-returning-subtle-foreground',
-          )}
-        >
-          {item.ok ? (
-            <CheckCircle2 className="size-3 shrink-0" aria-hidden />
-          ) : (
-            <AlertTriangle className="size-3 shrink-0" aria-hidden />
-          )}
-          {item.label}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-/**
- * One datum on a suggestion card — label and value on the SAME line.
- *
- * Stacked was tried and made the card twice as tall as it needed to be: six
- * facts became twelve lines, and a card that is one row of a scannable list
- * cannot afford that. Inline halves the height and still keeps the label, which
- * matters — "4646" and "+3d 18h" mean nothing on their own.
- */
-/**
- * One fact, label inline.
- *
- * A ruled label-left/value-right sheet was tried here and reverted: this card
- * is a row in a list the operator scans, and five ruled rows made it three
- * times as tall to align values nobody compares across cards. Height is the
- * scarce resource on this page, not alignment.
- */
-function SpecRow({
-  label,
-  children,
-  className,
-}: {
-  label: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={cn('flex min-w-0 items-baseline gap-1.5', className)}>
-      <dt className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </dt>
-      <dd className="min-w-0 truncate text-[11px]">{children}</dd>
-    </div>
-  );
-}
-
-function SuggestionCard({
-  suggestion,
-  featured,
-  disabled,
-  onConfirm,
-  onReject,
-}: {
-  suggestion: PairingSuggestion;
-  featured: boolean;
-  disabled: boolean;
-  onConfirm: () => void;
-  onReject: () => void;
-}) {
-  const { load, score, label, marginMs, tight } = suggestion;
-
-  return (
-    <Card
-      className={cn(
-        /* The other half of the workbench, and the other half of the pairing:
-           every card here is a FULL load, so it sits on the full ground. Empty
-           on the left, full on the right — the trade the page exists to make is
-           legible from across the room.
-
-           Padding lives on the bands below, not here: the card used one `p-4`
-           box with everything inside a single column, so the header, the facts
-           and the actions all shared one undifferentiated block and the reader
-           had to find the structure themselves. */
-        /* Every card here is a FULL load, so it sits on the full ground —
-           empty on the left, full on the right, and the trade the page exists
-           to make is legible from across the room. At full strength: the border
-           carried a `/40` and the rules a `/25`, which is what made this side
-           look faded next to the other.
-
-           Violet stays the pairing hue and rides on top as the border: a
-           pairing is the product's whole point, not a shade of "full". */
-        'min-w-0 overflow-hidden rounded-card border bg-container-full-subtle',
-        featured
-          ? 'border-stage-paired ring-1 ring-stage-paired'
-          : 'border-container-full-border',
-      )}
-    >
-      {/* ── WHAT THIS IS ──
-          The same box the empty column opposite draws, so the two halves of the
-          pairing are the same kind of object. It was a header band of chips and
-          text: a full container described in words, facing a column of empty
-          containers drawn as containers.
-
-          The card's own word is the RECOMMENDATION, not "Full" — the green
-          ground and the package glyph already say full, and which of these to
-          take is the only question this side of the page asks. */}
-      {/* ── IDENTITY AND FACTS, ONE ROW ──
-          The card is 384px and this pane is 630px, so stacking the specs under
-          it left a quarter of the band empty beside the container. They sit
-          next to it instead: the box keeps the size it has in the yard column
-          opposite, and the row has no hole in it. `flex-wrap` drops the specs
-          below the card when the pane is too narrow to hold both. */}
-      <div className="flex flex-wrap items-start gap-x-4 gap-y-2 border-b border-container-full-border p-2">
-        <ContainerCard
-          state="full"
-          container={load.container}
-          line={`${load.line} · ${formatContainerSize(load.size)}`}
-          /* The RECOMMENDATION, keeping its own colour.
-             Making it the card's header word instead flattened three states
-             into one uppercase string on a green ground — RECOMMENDED and
-             ALTERNATIVE became indistinguishable, and LAST OPTION lost the
-             amber that says "a real option, but a tight one". The `bg-card`
-             backing is the same fix the risk badges opposite needed: these
-             chips are calibrated against a white page, not against a card. */
-          aside={
-            <span
-              className={cn(
-                'rounded-sm border bg-card px-1.5 py-0.5 text-[9px] font-extrabold tracking-wider',
-                LABEL_STYLE[label],
-              )}
-            >
-              {label}
-            </span>
-          }
-          /* `basis-[24rem]` so it lands on the SAME 384px the yard column's
-             cards do — the component's own `max-w-[24rem]` stops it there and
-             the spec list takes whatever is left. Sharing the row as an equal
-             flex child made it 313px: no dead space, but a full container a
-             different size from every empty one beside it. */
-          className="w-full flex-1 basis-[24rem]"
-        >
-          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
-            <span className="flex min-w-0 items-center gap-1.5">
-              <span className="shrink-0 opacity-75">Shipment</span>
-              <Mono className="truncate font-bold">{load.shipmentReference ?? load.id}</Mono>
-            </span>
-            <span className="shrink-0 rounded-full bg-card px-2 py-0.5 text-[10px] font-bold text-stage-paired-subtle-foreground">
-              Match {score}%
-            </span>
-          </div>
-        </ContainerCard>
-
-      {/* ── THE FACTS ──
-          Label left, value right, ruled between — the same spec sheet the empty
-          cards opposite now use, so the two halves of the pairing are read the
-          same way. Inline `label value` pairs in a two-column grid put every
-          value at a different x, which is exactly the thing that makes a card
-          feel unorganised: nothing to run the eye down. */}
-        <dl className="grid min-w-0 flex-1 basis-[12rem] grid-cols-1 gap-y-1 py-1">
-        <SpecRow label="Pickup">
-          <Mono className="font-semibold text-foreground">{formatStamp(load.pickupAt)}</Mono>
-        </SpecRow>
-        <SpecRow label="From">
-          <span className="truncate font-semibold text-foreground" title={load.pickupHub}>
-            {load.pickupHub}
-          </span>
-        </SpecRow>
-        <SpecRow label="Margin">
-          <Mono
-            className={cn(
-              'font-bold',
-              tight
-                ? 'text-stage-returning-subtle-foreground'
-                : 'text-stage-closed-subtle-foreground',
-            )}
-          >
-            +{formatSpan(marginMs)}
-          </Mono>
-        </SpecRow>
-        <SpecRow label="Transporter">
-          {load.transporter ? (
-            <CompanyName name={load.transporter} className="min-w-0 font-semibold text-foreground" />
-          ) : (
-            <span className="font-semibold text-foreground">Not assigned yet</span>
-          )}
-        </SpecRow>
-        </dl>
-      </div>
-
-      {/* ── WHY, AND WHAT TO DO ──
-          The reasons sit on the same line as the decision they justify, and the
-          actions are a normal card footer: secondary left, primary right. They
-          used to be a column pinned to the top-right of a tall card, which left
-          "Not this one" floating halfway up beside the facts. */}
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-t border-container-full-border px-3 py-1.5">
-        <CompatChecklist suggestion={suggestion} />
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={disabled}
-            onClick={onReject}
-            className="h-7 px-2 text-xs text-muted-foreground"
-          >
-            Not this one
-          </Button>
-          {/* The button that makes the pairing wears the pairing's colour —
-              `cn` runs `twMerge`, so these replace the variant's own fill
-              rather than racing it. */}
-          <Button
-            size="sm"
-            variant="primary"
-            disabled={disabled}
-            onClick={onConfirm}
-            className="h-7 bg-stage-paired px-3 text-stage-paired-foreground hover:bg-stage-paired/90 active:bg-stage-paired/80"
-          >
-            Confirm pairing
-          </Button>
-        </div>
-      </div>
-    </Card>
-  );
-}
 
 export default MatchingPage;

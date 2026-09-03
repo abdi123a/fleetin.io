@@ -86,3 +86,31 @@
   --fl-skin-groove: color-mix(in srgb, black 18%, transparent);
   --fl-skin-crest: color-mix(in srgb, white 8%, transparent);
 }
+
+/* ── A plate for small type ──
+ *
+ * The corrugation is what makes these cards read as containers and it is also
+ * what makes 11px type on them hard: the ribs run straight through the letters,
+ * so a shipping line's name sat in alternating light and shade and lost its
+ * shape. Raising the size or the opacity does not fix that — the stripes are
+ * still behind the glyphs.
+ *
+ * So the text gets its own flat ground — an OPAQUE one. The first cut tinted it
+ * with `currentColor` at 14%, which on the green card meant white at 14% over
+ * green: the ribs stopped, and the line was still washed out because the plate
+ * had barely any colour of its own. A plate you can see through is not a plate.
+ *
+ * The ground is the card surface and the ink comes from `--fl-plate-ink`, which
+ * each card sets for its own state. That indirection is what lets a CALLER put
+ * a plate on a line it renders into the card's children — the matching page's
+ * size, yard and countdown rows — without knowing which state the card is in.
+ * The alternative was passing three colour classes down per call site, and the
+ * lines that did not get them stayed on the bare corrugation. */
+.fl-container-skin__plate {
+  display: inline-block;
+  max-width: 100%;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  background: var(--card);
+  color: var(--fl-plate-ink, currentColor);
+}

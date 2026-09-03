@@ -421,6 +421,7 @@ export function OperationFlow({ record, className }: OperationFlowProps) {
               state="full"
               container={record.container}
               line={record.line}
+              size={record.size}
             />
           </Leg>
 
@@ -435,6 +436,7 @@ export function OperationFlow({ record, className }: OperationFlowProps) {
               state="empty"
               container={record.container}
               line={record.line}
+              size={record.size}
             />
           </Leg>
         </Group>
@@ -460,6 +462,7 @@ export function OperationFlow({ record, className }: OperationFlowProps) {
                 state="full"
                 container={next.container}
                 line={next.line}
+                size={next.size}
               />
             </Leg>
           </Group>
@@ -472,6 +475,7 @@ export function OperationFlow({ record, className }: OperationFlowProps) {
                 state="returned"
                 container={record.container}
                 line={record.line}
+                size={record.size}
               />
             </Leg>
           </Group>
@@ -498,6 +502,7 @@ export function OperationFlow({ record, className }: OperationFlowProps) {
                 label="Going back"
                 container={record.container}
                 line={record.line}
+                size={record.size}
               />
             </Leg>
           </Group>

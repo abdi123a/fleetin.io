@@ -4,10 +4,9 @@ import { RotateCcw } from 'lucide-react';
 import {
   ArrowLeftRight,
   ArrowLeftToLine,
+  BarChart3,
   FolderOpen,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Package,
   PackageCheck,
   Route,
@@ -15,7 +14,6 @@ import {
 import {
   Badge,
   Button,
-  Card,
   ContainerStateTag,
   CornerBadge,
   IconChip,
@@ -36,8 +34,8 @@ import {
   type DebriefDraft,
   type DebriefSubject,
 } from '@/components/bookings';
-import { RecordRaise, RecordTickets } from '@/features/workspace';
-import { SHINE_HOST, ShineBorder } from '@/components';
+import { RecordRaise } from '@/features/workspace';
+import { SHINE_HOST, ShineBorder, ViewTabs } from '@/components';
 import { Co2CardStrip } from '@/features/emissions';
 import { useSetShipmentCrew, useShipment, useShipmentRaw } from '@/features/shipments/api/queries';
 import { markShipmentSeen } from '@/features/shipments/seenShipments';
@@ -72,7 +70,11 @@ import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
  * which sent the fourth container of a four-container shipment to page two and
  * left a hole beside the third.
  */
-const PAGE_SIZE = 6;
+const SHIPMENT_VIEWS = [
+  { key: 'bookings' as const, label: 'Bookings', icon: Package },
+  { key: 'analytics' as const, label: 'Analytics', icon: BarChart3 },
+];
+type ShipmentView = (typeof SHIPMENT_VIEWS)[number]['key'];
 
 /**
  * Compact mark for the booking card's own row — the full sentence lives in the
@@ -165,6 +167,16 @@ function bookingToPreviewItem(booking: BookingRecord, cycle: EmptyReturnCycleRec
     driverNote: booking.driverNote,
     driverRatedByName: booking.driverRatedByName,
     driverRatedAt: booking.driverRatedAt,
+    /* The empty return's half of the same closing. Both are asked in one
+       sitting; both have to come back or the sheet shows one and implies the
+       other was never given. */
+    returnDriverRating: booking.returnDriverRating,
+    returnDriverRatingReliability: booking.returnDriverRatingReliability,
+    returnDriverRatingPunctuality: booking.returnDriverRatingPunctuality,
+    returnDriverRatingProfessionalism: booking.returnDriverRatingProfessionalism,
+    returnDriverNote: booking.returnDriverNote,
+    returnDriverRatedByName: booking.returnDriverRatedByName,
+    returnDriverRatedAt: booking.returnDriverRatedAt,
   };
 }
 
@@ -211,6 +223,18 @@ export function ShipmentOverviewPage() {
      Container dossier's own "Open in Matching" does. */
   const selectEmptyForMatching = useEmptyReturnStore((state) => state.selectEmpty);
   const [searchParams, setSearchParams] = useSearchParams();
+
+  const viewParam = searchParams.get('view');
+  const view: ShipmentView = viewParam === 'analytics' ? 'analytics' : 'bookings';
+  const setView = (next: ShipmentView) =>
+    setSearchParams(
+      (params) => {
+        if (next === 'bookings') params.delete('view');
+        else params.set('view', next);
+        return params;
+      },
+      { replace: true },
+    );
   const { data: mission, isLoading, isError } = useShipment(id);
   const { data: shipmentRaw } = useShipmentRaw(mission?.id);
   const { data: bookingRecords } = useBookingsForShipment(mission?.id);
@@ -226,7 +250,18 @@ export function ShipmentOverviewPage() {
   }, [cycles]);
   const [selectedBooking, setSelectedBooking] = useState<BookingPreviewItem | null>(null);
   const [isBookingSheetOpen, setIsBookingSheetOpen] = useState(false);
-  const [bookingPage, setBookingPage] = useState(1);
+  /**
+   * Which half of this page you are looking at.
+   *
+   * The containers and the analysis were stacked, so reaching the report meant
+   * scrolling past every booking — and on a shipment with a dozen containers
+   * the analysis was effectively hidden. They are two questions about one
+   * consignment ("what is each box doing" and "how did the whole thing go"),
+   * which is a tab strip, not a scroll.
+   *
+   * In the URL, so a colleague can be sent the analysis rather than the top of
+   * the page. An unrecognised value falls back rather than blanking the page.
+   */
 
   // One card per real Booking (Phase 2) — a local overlay on top of the live
   // query so the sheet's cosmetic-only edits (POD upload, schedule fields,
@@ -354,9 +389,11 @@ export function ShipmentOverviewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openBookingId, bookings]);
 
-  const totalPages = Math.ceil(bookings.length / PAGE_SIZE);
-  const pagedBookings = bookings.slice((bookingPage - 1) * PAGE_SIZE, bookingPage * PAGE_SIZE);
-  const hasPagination = bookings.length > PAGE_SIZE;
+  /* Every booking, always. It was paged six at a time, which split a
+     consignment's containers across pages nobody knew to look at — and this is
+     the one screen whose whole job is showing all of them at once. The grid
+     already reflows, so twelve cards cost a scroll, not a control. */
+  const pagedBookings = bookings;
 
   /**
    * How this shipment's boxes split — counted over every booking, not just the
@@ -607,8 +644,24 @@ export function ShipmentOverviewPage() {
             are ~550px and `shrink-0`, and the identity block needs ~400px for
             its route line. Below that the two stack and each gets the full
             width — which at `sm` left the route 79px and at `lg` 234px, for a
-            route that is 322. */}
-        <div className="flex flex-col gap-4 p-4 sm:p-5 @[62rem]/page:flex-row @[62rem]/page:items-center @[62rem]/page:justify-between @[62rem]/page:gap-6">
+            route that is 322.
+
+            **Re-measured, and 62rem was stale.** The actions side is a crew
+            stack and one button: 128px, not 550. It had been sized for a row
+            that has since lost most of its contents, which left a 20rem dead
+            band — every container between ~40rem and 62rem stacked a 128px
+            control under a full-width identity block and left the whole right
+            half of the slab empty. The two now sit side by side from 40rem,
+            which is 512px of identity (its natural width, route line included)
+            + 128 + the gap and padding; under that they stack, and the route
+            truncates as it is built to.
+
+            Container queries throughout, not `sm:`. The pane is what changes
+            width here — collapsing the sidebar moves this header without the
+            viewport moving at all — so a viewport breakpoint hides the icon on
+            a wide window with a narrow pane and shows it on a phone-width
+            window with the pane full. */}
+        <div className="flex flex-col gap-4 p-4 @[30rem]/page:p-5 @[40rem]/page:flex-row @[40rem]/page:items-center @[40rem]/page:justify-between @[40rem]/page:gap-6">
           {/* `flex-1`, because the actions opposite are `shrink-0`: without it
               this block sizes to its own wrapped content and settles at ~230px
               on a 930px masthead, which is how the route line ended up 99px
@@ -618,14 +671,14 @@ export function ShipmentOverviewPage() {
               icon={containerSplit.done ? PackageCheck : Package}
               tint="on-teal"
               size={44}
-              className="hidden sm:flex"
+              className="hidden @[30rem]/page:flex"
             />
             <div className="min-w-0">
               <p className={`text-[11px] font-semibold uppercase tracking-[0.11em] ${slab.fgMuted}`}>
                 Shipment Overview
               </p>
               <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                <h1 className={`font-mono text-2xl font-extrabold leading-none tracking-tight ${slab.fg} sm:text-[28px]`}>
+                <h1 className={`font-mono text-2xl font-extrabold leading-none tracking-tight ${slab.fg} @[30rem]/page:text-[28px]`}>
                   {id ?? mission.id}
                 </h1>
                 <Badge
@@ -674,7 +727,7 @@ export function ShipmentOverviewPage() {
                     on hover. */}
                 {shipmentTransporters.length > 0 && (
                   <>
-                    <span aria-hidden className={`hidden h-3 w-px sm:inline-block ${slab.rule}`} />
+                    <span aria-hidden className={`hidden h-3 w-px @[30rem]/page:inline-block ${slab.rule}`} />
                     <Tooltip
                       content={
                         shipmentTransporters.length === 1
@@ -708,7 +761,7 @@ export function ShipmentOverviewPage() {
                 )}
                 {linkedProject && (
                   <>
-                    <span aria-hidden className={`hidden h-3 w-px sm:inline-block ${slab.rule}`} />
+                    <span aria-hidden className={`hidden h-3 w-px @[30rem]/page:inline-block ${slab.rule}`} />
                     <span className="inline-flex min-w-0 items-center gap-1.5">
                       <FolderOpen className="w-3.5 h-3.5 shrink-0" aria-hidden />
                       <span className="truncate font-semibold">{linkedProject.name}</span>
@@ -777,40 +830,61 @@ export function ShipmentOverviewPage() {
         </div>
       </header>
 
-      {/* ── BOOKINGS CARD ── */}
-      <Card className="p-4 sm:p-5 rounded-lg border border-border/80 bg-card space-y-3">
-        {/* Header — the count, then the split that matters: how many of these
-            boxes are still carrying cargo and how many are waiting to go back.
-            Same two colours as the cards under it. */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-bold text-foreground text-sm sm:text-base">Bookings</h3>
-          <div className="flex items-center gap-1.5">
-            {containerSplit.full > 0 && (
-              <Badge variant="subtle" intent="primary" size="sm" className="font-bold">
-                {containerSplit.full} Full
+      {/* One band, under the masthead the title lives in — the house idiom for
+          "which view of this page am I on". */}
+      <ViewTabs
+        label="Shipment view"
+        tabs={SHIPMENT_VIEWS}
+        value={view}
+        onChange={setView}
+        /* The split rides in the band's far end — the slot `ViewTabs` keeps for
+           the page's own thing. It is the one part of the old card header worth
+           keeping: "Bookings" was already said by the tab, but how many of
+           these boxes still carry cargo and how many are waiting to go back is
+           a fact no tab carries. Only on the tab it describes; the analysis has
+           its own container counts and would be stating them twice. */
+        actions={
+          view === 'bookings' ? (
+            <div className="flex items-center gap-1.5">
+              {containerSplit.full > 0 && (
+                <Badge variant="subtle" intent="primary" size="sm" className="font-bold">
+                  {containerSplit.full} Full
+                </Badge>
+              )}
+              {containerSplit.empty > 0 && (
+                <Badge variant="subtle" intent="accent" size="sm" className="font-bold">
+                  {containerSplit.empty} Empty
+                </Badge>
+              )}
+              {containerSplit.returned > 0 && (
+                <Badge
+                  variant="subtle"
+                  intent="default"
+                  size="sm"
+                  className="font-bold text-container-returned-subtle-foreground"
+                >
+                  {containerSplit.returned} Returned
+                </Badge>
+              )}
+              <Badge variant="solid" intent="primary" size="sm">
+                {bookings.length}
               </Badge>
-            )}
-            {containerSplit.empty > 0 && (
-              <Badge variant="subtle" intent="accent" size="sm" className="font-bold">
-                {containerSplit.empty} Empty
-              </Badge>
-            )}
-            {containerSplit.returned > 0 && (
-              <Badge
-                variant="subtle"
-                intent="default"
-                size="sm"
-                className="font-bold text-container-returned-subtle-foreground"
-              >
-                {containerSplit.returned} Returned
-              </Badge>
-            )}
-            <Badge variant="solid" intent="primary" size="sm">
-              {bookings.length}
-            </Badge>
-          </div>
-        </div>
+            </div>
+          ) : undefined
+        }
+      />
 
+      {/* ── THE BOOKINGS ──
+       *
+       * No card around them and no heading above them. The tab strip already
+       * names this region and draws its edge, so a bordered panel titled
+       * "Bookings" directly under a selected tab called "Bookings" was the same
+       * word twice inside two frames — and a bordered box holding a grid of
+       * bordered boxes is a frame that only adds an inset. The container split
+       * that used to sit in that header now rides in the band above.
+       */}
+      {view === 'bookings' && (
+      <div className="space-y-3">
         {/* No shipment-level carbon total here.
          *
          * It sat at the top of this card for one revision and was moved: a
@@ -1156,50 +1230,8 @@ export function ShipmentOverviewPage() {
           })}
         </div>
 
-        {/* Pagination — only shown when there are more items than PAGE_SIZE */}
-        {hasPagination && (
-          <div className="pt-1 border-t border-border/50 flex items-center justify-between gap-2">
-            <span className="text-[11px] text-muted-foreground">
-              Page <span className="font-semibold text-foreground">{bookingPage}</span> of {totalPages}
-            </span>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                disabled={bookingPage === 1}
-                onClick={() => setBookingPage(p => p - 1)}
-                className="w-7 h-7 rounded-md flex items-center justify-center border border-border/70 bg-secondary/40 text-muted-foreground hover:text-foreground hover:bg-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                aria-label="Previous page"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-              </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(pg => (
-                <button
-                  key={pg}
-                  type="button"
-                  onClick={() => setBookingPage(pg)}
-                  className={`w-7 h-7 rounded-md text-[11px] font-semibold border transition-colors cursor-pointer
-                    ${pg === bookingPage
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'border-border/70 bg-secondary/40 text-muted-foreground hover:text-foreground hover:bg-secondary'
-                    }`}
-                  aria-label={`Page ${pg}`}
-                >
-                  {pg}
-                </button>
-              ))}
-              <button
-                type="button"
-                disabled={bookingPage === totalPages}
-                onClick={() => setBookingPage(p => p + 1)}
-                className="w-7 h-7 rounded-md flex items-center justify-center border border-border/70 bg-secondary/40 text-muted-foreground hover:text-foreground hover:bg-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                aria-label="Next page"
-              >
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        )}
-      </Card>
+      </div>
+      )}
 
       {/* ── SHIPMENT REPORT ── */}
       {/* The whole reporting system for this consignment: every container's
@@ -1207,22 +1239,12 @@ export function ShipmentOverviewPage() {
           overview, timeline, transport KPIs, container return, responsibility,
           exceptions. Computed from recorded timestamps only, and downloadable
           as PDF. The panel owns its heading, so there is none here. */}
-      <ShipmentReportPanel
-        bookings={bookingRecords ?? []}
-        cyclesByBookingId={cyclesByBookingId}
-      />
-
-      {/* What has been reported about this shipment.
-          Below the report, because the report is what the shipment did and
-          this is what somebody outside says went wrong with it — the second
-          question is only asked once the first has been read. */}
-      <RecordTickets
-        recordType="SHIPMENT"
-        recordId={mission.id}
-        recordRef={id ?? mission.id}
-        label={mission.customer.company}
-        className="space-y-3 rounded-lg border border-border/80 bg-card p-4"
-      />
+      {view === 'analytics' && (
+        <ShipmentReportPanel
+          bookings={bookingRecords ?? []}
+          cyclesByBookingId={cyclesByBookingId}
+        />
+      )}
 
       {/* BOOKING PREVIEW SIDE SHEET */}
       <BookingPreviewSheet

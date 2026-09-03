@@ -146,6 +146,7 @@ export function EmptyReturnCyclesPage() {
                 state="empty"
                 container={record.container || record.bookingReference}
                 line={record.line}
+                size={record.size}
                 onClick={() => openRecord(record.id)}
                 /* The one place the card is not a fixed tile: these sit in a
                    responsive grid rather than a strip, so they take the cell. */
@@ -580,6 +581,7 @@ function ChainLink({
               state="full"
               container={cycle.container}
               line={cycle.line}
+              size={cycle.size}
               onClick={() => onOpen(cycle.id)}
             />
             <UnloadMark />
@@ -587,6 +589,7 @@ function ChainLink({
               state="empty"
               container={cycle.container}
               line={cycle.line}
+              size={cycle.size}
               onClick={() => onOpen(cycle.id)}
             />
           </div>
@@ -679,6 +682,7 @@ function ChainLink({
                    said a second time in a weaker green — see `ContainerCard`. */
                 container={cycle.nextFull.container}
                 line={cycle.nextFull.line}
+                size={cycle.nextFull.size}
                 onClick={() => onOpen(cycle.id)}
               />
             )}

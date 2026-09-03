@@ -152,6 +152,17 @@ export interface BookingPreviewItem {
   driverRatingReliability?: number | null;
   driverRatingPunctuality?: number | null;
   driverRatingProfessionalism?: number | null;
+  /* The empty return's own answers. The closing rung asks about BOTH legs when
+     a second driver fetched the box, and until now only the delivery half was
+     ever read back — so the second debrief was collected, stored, and shown
+     nowhere. */
+  returnDriverRating?: number | null;
+  returnDriverRatingReliability?: number | null;
+  returnDriverRatingPunctuality?: number | null;
+  returnDriverRatingProfessionalism?: number | null;
+  returnDriverNote?: string | null;
+  returnDriverRatedByName?: string | null;
+  returnDriverRatedAt?: string | null;
   driverNote?: string | null;
   driverRatedByName?: string | null;
   driverRatedAt?: string | null;
@@ -167,12 +178,106 @@ interface BookingPreviewSheetProps {
   shipmentRef?: string;
 }
 
-/** The three axes the debrief asks for, in the order `BookingStatusPicker` asks them. */
-const DEBRIEF_READOUT = [
-  { key: 'driverRatingReliability', label: 'Reliability' },
-  { key: 'driverRatingPunctuality', label: 'Punctuality' },
-  { key: 'driverRatingProfessionalism', label: 'Professionalism' },
-] as const;
+/** The three axes the debrief asks for, in the order the closing rung asks them. */
+const DEBRIEF_AXIS_LABELS = ['Reliability', 'Punctuality', 'Professionalism'] as const;
+
+/**
+ * One leg's debrief, read back.
+ *
+ * A round trip is two jobs and the closing rung asks about both — the driver
+ * who brought the load, and the driver who fetched the empty. Only the delivery
+ * half was ever rendered, so on a booking where a second crew took the box back
+ * the operator answered two dialogs and then found one answer: it read as if
+ * the rating belonged to the delivery and the return had none.
+ *
+ * Same component for both, because they are the same three questions about the
+ * same kind of work — printing them differently would make one carrier's two
+ * answers look incomparable when the whole point is that they are not.
+ */
+function DebriefReadout({
+  leg,
+  who,
+  axes,
+  overall,
+  note,
+  byName,
+  at,
+}: {
+  leg: string;
+  who?: string | null;
+  axes: readonly (number | null | undefined)[];
+  overall?: number | null;
+  note?: string | null;
+  byName?: string | null;
+  at?: string | null;
+}) {
+  if (!note && !overall && !axes.some(Boolean)) return null;
+  const stars = (score: number) => (
+    <span className="flex shrink-0 items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <Star
+          key={star}
+          aria-hidden
+          className={cn(
+            'size-3.5',
+            star <= score ? 'fill-warning text-warning' : 'text-border-strong',
+          )}
+        />
+      ))}
+      <span className="sr-only">{score} out of 5</span>
+    </span>
+  );
+
+  return (
+    <div className="rounded-lg border border-border/80 bg-card p-3 shadow-2xs">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+        <span className="text-xs font-bold text-foreground">
+          {leg} debrief
+          {/* Whose record this lands on. With two debriefs on one booking the
+              leg alone does not say which driver was being answered about. */}
+          {who ? <span className="ml-1.5 font-medium text-muted-foreground">· {who}</span> : null}
+        </span>
+        {/* The person, not "the operator". A debrief is somebody's opinion, and
+            an opinion with no name on it is worth less — you cannot go and ask
+            an anonymous one what they meant. */}
+        <span className="text-[10px] text-muted-foreground">
+          {byName ? `by ${byName}` : 'recorded by the operator'}
+          {at ? ` · ${formatDate(at, 'dateTime')}` : ''}
+        </span>
+      </div>
+
+      {axes.map((score, index) =>
+        score ? (
+          <div
+            key={DEBRIEF_AXIS_LABELS[index]}
+            className="mt-2 flex items-center justify-between gap-3"
+          >
+            <span className="text-[11px] text-muted-foreground">
+              {DEBRIEF_AXIS_LABELS[index]}
+            </span>
+            {stars(score)}
+          </div>
+        ) : null,
+      )}
+
+      {/* A booking scored before the debrief asked per-axis has only the
+          overall. Showing it as "Overall" is the honest label — the alternative
+          was a rating that exists in the record and nowhere on the screen. */}
+      {!axes.some(Boolean) && overall ? (
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <span className="text-[11px] text-muted-foreground">Overall</span>
+          {stars(overall)}
+        </div>
+      ) : null}
+
+      {note ? (
+        <p className="mt-2.5 border-t border-border/60 pt-2.5 text-xs leading-relaxed text-foreground">
+          “{note}”
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 export function BookingPreviewSheet({
   open,
@@ -839,87 +944,46 @@ export function BookingPreviewSheet({
             status={booking.status}
           />
 
-          {/* ── THE DELIVERY DEBRIEF ──
-              What the operator said when they marked this delivered. Read here
-              because this sheet is where one booking is examined; the rating
-              also has to be *findable*, or asking for it was pointless.
+          {/* ── THE DEBRIEFS, ONE PER LEG ──
+              What the operator said at the closing rung. Read here because
+              this sheet is where one booking is examined; the rating also has
+              to be *findable*, or asking for it was pointless.
+
+              TWO of them when a second driver fetched the empty, one when the
+              same crew ran both legs — exactly the pair the closing rung asks
+              for. The return half used to be asked and then never shown, which
+              made the surviving answer look like it belonged to the delivery.
 
               Deliberately labelled as somebody's opinion. The stars elsewhere
               in the app are computed from timestamps (`@/lib/rating`), and a
-              hand-entered score sitting in the same visual language as a derived
-              one would quietly claim to be the same kind of fact. */}
-          {(booking.driverNote || booking.driverRating) && (
-            <div className="rounded-lg border border-border/80 bg-card p-3 shadow-2xs">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-bold text-foreground">Delivery debrief</span>
-                {/* The person, not "the operator". A debrief is somebody's
-                    opinion, and an opinion with no name on it is worth less —
-                    you cannot go and ask an anonymous one what they meant. */}
-                <span className="text-[10px] text-muted-foreground">
-                  {booking.driverRatedByName
-                    ? `by ${booking.driverRatedByName}`
-                    : 'recorded by the operator'}
-                  {booking.driverRatedAt
-                    ? ` · ${formatDate(booking.driverRatedAt, 'dateTime')}`
-                    : ''}
-                </span>
-              </div>
-
-              {DEBRIEF_READOUT.map((axis) => {
-                const score = booking[axis.key];
-                if (!score) return null;
-                return (
-                  <div key={axis.key} className="mt-2 flex items-center justify-between gap-3">
-                    <span className="text-[11px] text-muted-foreground">{axis.label}</span>
-                    <span className="flex shrink-0 items-center gap-0.5">
-                      {[1, 2, 3, 4, 5].map((star) => (
-                        <Star
-                          key={star}
-                          aria-hidden
-                          className={cn(
-                            'size-3.5',
-                            star <= score ? 'fill-warning text-warning' : 'text-border-strong',
-                          )}
-                        />
-                      ))}
-                      <span className="sr-only">{score} out of 5</span>
-                    </span>
-                  </div>
-                );
-              })}
-
-              {/* A booking scored before the debrief asked per-axis has only the
-                  overall. Showing it as "Overall" is the honest label — the
-                  alternative was a rating that exists in the record and nowhere
-                  on the screen. */}
-              {!DEBRIEF_READOUT.some((axis) => booking[axis.key]) && booking.driverRating ? (
-                <div className="mt-2 flex items-center justify-between gap-3">
-                  <span className="text-[11px] text-muted-foreground">Overall</span>
-                  <span className="flex shrink-0 items-center gap-0.5">
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <Star
-                        key={star}
-                        aria-hidden
-                        className={cn(
-                          'size-3.5',
-                          star <= (booking.driverRating ?? 0)
-                            ? 'fill-warning text-warning'
-                            : 'text-border-strong',
-                        )}
-                      />
-                    ))}
-                    <span className="sr-only">{booking.driverRating} out of 5</span>
-                  </span>
-                </div>
-              ) : null}
-
-              {booking.driverNote && (
-                <p className="mt-2.5 border-t border-border/60 pt-2.5 text-xs leading-relaxed text-foreground">
-                  “{booking.driverNote}”
-                </p>
-              )}
-            </div>
-          )}
+              hand-entered score sitting in the same visual language as a
+              derived one would quietly claim to be the same kind of fact. */}
+          <DebriefReadout
+            leg="Delivery"
+            who={booking.driverName}
+            axes={[
+              booking.driverRatingReliability,
+              booking.driverRatingPunctuality,
+              booking.driverRatingProfessionalism,
+            ]}
+            overall={booking.driverRating}
+            note={booking.driverNote}
+            byName={booking.driverRatedByName}
+            at={booking.driverRatedAt}
+          />
+          <DebriefReadout
+            leg="Empty return"
+            who={booking.returnDriverName}
+            axes={[
+              booking.returnDriverRatingReliability,
+              booking.returnDriverRatingPunctuality,
+              booking.returnDriverRatingProfessionalism,
+            ]}
+            overall={booking.returnDriverRating}
+            note={booking.returnDriverNote}
+            byName={booking.returnDriverRatedByName}
+            at={booking.returnDriverRatedAt}
+          />
 
           {/* Toast / Feedback Messages */}
           {statusSuccessMsg && (
