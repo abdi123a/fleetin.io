@@ -20,7 +20,36 @@ const TASK_INCLUDE = {
   assignee: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } },
   createdBy: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } },
   links: true,
+  /* The complaint this task answers, when there is one.
+   *
+   * Cheap — one nullable row over the `taskId @unique`, no fan-out — and it
+   * settles the question the board could not answer at all: whether a row is
+   * internal work or somebody outside Fleetin waiting for an answer. Those
+   * two are read differently and were indistinguishable in the list. */
+  ticket: { select: { id: true, reference: true, subject: true } },
 } satisfies Prisma.WorkspaceTaskInclude;
+
+/**
+ * How the board is stacked.
+ *
+ * Newest first is the default: the list is opened to see what has come in, and
+ * a task raised this morning sitting below one from last week reads as if
+ * nothing happened today. The old default sorted by status, then deadline,
+ * then age — a sensible work order, and completely opaque to a reader who had
+ * no control over it and no way to ask "what is new". It survives as `due`.
+ */
+export const TASK_SORTS = ['newest', 'oldest', 'due', 'priority'] as const;
+export type TaskSort = (typeof TASK_SORTS)[number];
+
+const TASK_ORDER: Record<TaskSort, Prisma.WorkspaceTaskOrderByWithRelationInput[]> = {
+  newest: [{ createdAt: 'desc' }],
+  oldest: [{ createdAt: 'asc' }],
+  /* Open work first, then the soonest deadline. A board sorted this way never
+     buries the thing that is late — which is why it was the only ordering for
+     so long. */
+  due: [{ status: 'asc' }, { dueAt: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }],
+  priority: [{ priority: 'desc' }, { dueAt: { sort: 'asc', nulls: 'last' } }],
+};
 
 /** Start of today, local to the server — the boundary "due today" is read against. */
 function startOfToday(): Date {
@@ -169,9 +198,7 @@ export class TasksService {
       this.prisma.workspaceTask.findMany({
         where,
         include: TASK_INCLUDE,
-        /* Open work first, then the soonest deadline, then newest. A board
-           sorted by creation date buries the thing that is late. */
-        orderBy: [{ status: 'asc' }, { dueAt: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }],
+        orderBy: TASK_ORDER[query.sort && TASK_SORTS.includes(query.sort) ? query.sort : 'newest'],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),

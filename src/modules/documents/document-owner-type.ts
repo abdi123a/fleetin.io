@@ -4,8 +4,12 @@
  * `BOOKING` carries the two proofs a job produces — see `BOOKING_PROOFS`. They
  * are documents about a *job* rather than about a counterparty or an asset,
  * which is why they did not fit the original four.
+ *
+ * `FOLDER` is a file somebody put in a drive folder of their own — see
+ * `DriveFolder`. It has no catalogue: nothing in one is required, expires, or
+ * is reviewed. It is just a file, kept.
  */
-export const DOCUMENT_OWNER_TYPES = ['SHIPPER', 'PARTNER', 'VEHICLE', 'DRIVER', 'BOOKING'] as const;
+export const DOCUMENT_OWNER_TYPES = ['SHIPPER', 'PARTNER', 'VEHICLE', 'DRIVER', 'BOOKING', 'FOLDER'] as const;
 export type DocumentOwnerType = (typeof DOCUMENT_OWNER_TYPES)[number];
 
 /**
@@ -44,7 +48,7 @@ export const BOOKING_PROOFS = [PROOF_OF_DELIVERY, PROOF_OF_RETURN] as const;
  * A transporter is onboarded with its business licence and nothing else; the
  * vehicle and driver papers are asked for when those records are created.
  */
-export const COMPLIANCE_CATALOG: Readonly<Record<Exclude<DocumentOwnerType, 'BOOKING'>, readonly string[]>> = {
+export const COMPLIANCE_CATALOG: Readonly<Record<Exclude<DocumentOwnerType, 'BOOKING' | 'FOLDER'>, readonly string[]>> = {
   SHIPPER: ['Business License'],
   PARTNER: ['Business License'],
   VEHICLE: ['Grey Card', 'Insurance'],

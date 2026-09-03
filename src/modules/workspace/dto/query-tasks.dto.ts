@@ -54,6 +54,13 @@ export class QueryTasksDto {
   @IsOptional() @IsString()
   createdTo?: string;
 
+  @ApiPropertyOptional({
+    enum: ['newest', 'oldest', 'due', 'priority'],
+    description: 'How the board is stacked. Newest first when absent',
+  })
+  @IsOptional() @IsString()
+  sort?: 'newest' | 'oldest' | 'due' | 'priority';
+
   @ApiPropertyOptional({ default: 1 })
   @IsOptional() @Type(() => Number) @IsInt() @Min(1)
   page?: number;

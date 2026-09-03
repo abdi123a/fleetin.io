@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestj
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { EmptyReturnsService } from './empty-returns.service';
 import { CreateCycleDto } from './dto/create-cycle.dto';
+import { ImpactDecisionDto } from './dto/impact-decision.dto';
 import { PlanEmptyReturnDto } from './dto/plan-empty-return.dto';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { PERMISSIONS } from '../../common/constants/permissions';
@@ -85,6 +86,20 @@ export class EmptyReturnsController {
   @ApiOperation({ summary: 'Cancel a pairing — the container goes back to Empty Ready and the outbound load is released' })
   cancelCycle(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.emptyReturnsService.cancelCycle(id, cycleOwnerScope(user));
+  }
+
+  @Patch('cycles/:id/impact')
+  @RequirePermissions(PERMISSIONS.emptyReturns.update)
+  @ApiOperation({ summary: 'Say whether the pairing was physically realized — the truck continued to the port, or went back to the garage' })
+  decideImpact(@Param('id') id: string, @Body() dto: ImpactDecisionDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.emptyReturnsService.decideImpact(id, dto, user, cycleOwnerScope(user));
+  }
+
+  @Delete('cycles/:id/impact')
+  @RequirePermissions(PERMISSIONS.emptyReturns.update)
+  @ApiOperation({ summary: 'Withdraw the operator’s verdict on a pairing’s impact and let the bookings’ rungs decide again' })
+  clearImpactDecision(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.emptyReturnsService.clearImpactDecision(id, cycleOwnerScope(user));
   }
 
   @Patch('bookings/:bookingId/standalone')

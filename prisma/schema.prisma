@@ -584,6 +584,27 @@ model Partner {
   partnerStatus         String    @default("Pending") @db.VarChar(16) // Active | Suspended | Pending | Inactive
   logoKey               String?   @db.VarChar(512)
   registrationDate      DateTime
+
+  /// Where this transporter's trucks sleep.
+  ///
+  /// The one place the Fleetin Impact arithmetic needs that nothing else in
+  /// the system recorded: the garage a truck goes back to between two jobs.
+  /// Without a realized match the normal cycle is
+  ///
+  ///     Free Zone → Garage → Port
+  ///
+  /// and the two legs either side of the garage are what a continuation
+  /// eliminates — so their length has to be measured from a real place, not a
+  /// city name. A catalogue `Location` rather than a free-text address for the
+  /// same reason a shipment's ends are: only a pin can be measured to.
+  ///
+  /// Nullable, and honestly so: a transporter with no garage recorded still
+  /// has its continuations *recognised* (the match was realized), they are
+  /// just not *measured* until somebody sets this. Never guessed from the
+  /// address. See `EmptyReturnCycle.impactStatus`.
+  garageLocationId String?
+  garageLocation   Location? @relation("PartnerGarage", fields: [garageLocationId], references: [id])
+
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
   deletedAt             DateTime?
@@ -596,6 +617,7 @@ model Partner {
   bookings    Booking[]
 
   @@index([partnerStatus])
+  @@index([garageLocationId])
   @@map("partners")
 }
 
@@ -766,7 +788,7 @@ model Driver {
 
 model DocumentType {
   id        String   @id @default(uuid())
-  ownerType String   @db.VarChar(16) // SHIPPER | PARTNER | VEHICLE | DRIVER
+  ownerType String   @db.VarChar(16) // SHIPPER | PARTNER | VEHICLE | DRIVER | BOOKING
   label     String   @db.VarChar(120)
   required  Boolean  @default(false)
   createdAt DateTime @default(now())
@@ -777,7 +799,9 @@ model DocumentType {
 
 model Document {
   id              String    @id @default(uuid())
-  ownerType       String    @db.VarChar(16) // SHIPPER | PARTNER | VEHICLE | DRIVER
+  /// SHIPPER | PARTNER | VEHICLE | DRIVER | BOOKING — or FOLDER, for a file
+  /// somebody put in a drive folder of their own (see `DriveFolder`).
+  ownerType       String    @db.VarChar(16)
   ownerId         String
   /// Free string, validated against the live DocumentType catalog for the
   /// same ownerType at the service layer — not a DB-level FK (matches the
@@ -829,6 +853,41 @@ model DocumentDownload {
 
   @@index([documentId, at])
   @@map("document_downloads")
+}
+
+/// A folder somebody made in Fleetin Drive, to hold whatever they like.
+///
+/// Everything else in the drive is derived: a transporter's folder exists
+/// because the transporter does, and holds the four papers the catalogue asks
+/// for. That tree cannot hold a signed contract, a tender, a photograph of a
+/// damaged box — the things people actually wanted to file — so this is the
+/// other half of the drive: folders that exist because somebody created them,
+/// nested as deep as they like, holding files the catalogue has no opinion on.
+///
+/// The files themselves are ordinary `Document` rows with `ownerType = FOLDER`
+/// and `ownerId` pointing here, so upload, download, preview and the download
+/// log are the same code as for a grey card. What they lack is a catalogue:
+/// nothing in one of these folders is required, expires, or is reviewed.
+///
+/// Deleting a folder cascades to its sub-folders at the database; the files
+/// inside have no foreign key (documents never do — see `Document`) and are
+/// removed by the service, storage and rows both.
+model DriveFolder {
+  id       String  @id @default(uuid())
+  name     String  @db.VarChar(120)
+  /// Null at the root of the Files section.
+  parentId String?
+  parent   DriveFolder?  @relation("DriveFolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children DriveFolder[] @relation("DriveFolderTree")
+
+  /// Plain column, not a relation — the same rule as `Document.uploadedById`:
+  /// a folder outlives the account that made it.
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([parentId])
+  @@map("drive_folders")
 }
 
 // ─── 11. Shipments ──────────────────────────────────────────────────────
@@ -900,6 +959,8 @@ model Location {
   distancesTo       LocationDistance[] @relation("DistanceDestination")
   pickupShipments   Shipment[]         @relation("ShipmentPickupLocation")
   deliveryShipments Shipment[]         @relation("ShipmentDeliveryLocation")
+  /// The transporters whose trucks are based here — see `Partner.garageLocationId`.
+  garageOf          Partner[]          @relation("PartnerGarage")
 
   @@index([kind])
   @@index([active])
@@ -1662,6 +1723,76 @@ model EmptyReturnCycle {
   /// keeps the price that was in force when it closed.
   detentionFee Decimal? @db.Decimal(12, 2)
 
+  /// ── Fleetin Impact ────────────────────────────────────────────────────
+  ///
+  /// What this pairing did to the road, once it had actually been driven.
+  ///
+  /// A cycle is already the link between the operation that ended at the
+  /// free zone (`booking`, the empty) and the one that continued from it
+  /// (`nextBooking`, the load collected at the port) — which is exactly the
+  /// relationship a repositioning saving has to hang on, so the evidence
+  /// lives here rather than on a second table that would repeat the link.
+  ///
+  /// The lifecycle is the match's own:
+  ///
+  ///     matched → realized → (counted)      the truck really continued
+  ///     matched → not_realized              it went back to the garage anyway
+  ///
+  /// `matched` is a plan. Nothing below is a claim about the world until
+  /// `impactStatus` reads `realized`, and nothing reaches a total until
+  /// `impactCountedAt` is stamped — one continuation trip is counted exactly
+  /// once, however many empties rode out under the load.
+  ///
+  /// What was avoided is the garage round trip the normal workflow would have
+  /// driven between the two jobs — `Free Zone → Garage` plus `Garage → Port`
+  /// — never the shipment's own lane, never a percentage. The two halves are
+  /// measured through the same road cache the shipment wizard uses and each
+  /// is kept, with who measured it, so the figure can be re-derived by hand a
+  /// year later. Names are denormalised beside every id for the same reason
+  /// `BookingRouteLeg` keeps them: retiring a depot must not erase the record
+  /// of a saving. Neither the ids nor the vehicle carry a foreign key, for the
+  /// same reason.
+  ///
+  /// CO₂ avoided is the avoided distance times the factor of the truck that
+  /// ran the continuation, and only when that truck is established
+  /// (`impactVehicleId`). A transporter-level match with no known truck keeps
+  /// its kilometres and leaves the carbon null — a distance is a fact, a
+  /// factor without a vehicle is an invention.
+  ///
+  /// None of this touches `Booking.co2EmissionsKg`. What was driven was
+  /// driven; this is the separate account of what was not.
+  impactStatus              String?   @db.VarChar(16) // matched|realized|not_realized
+  impactEvaluatedAt         DateTime?
+  /// automatic — derived from the bookings' own rungs. operator — a person
+  /// said what happened, and automatic passes never overrule them.
+  impactSource              String?   @db.VarChar(16)
+  impactDecidedBy           String?   @db.VarChar(120)
+  impactNote                String?   @db.VarChar(255)
+  /// When the next load was actually collected at the port — the moment the
+  /// continuation became a fact — and how long after the empty left the free
+  /// zone that was. The window between them is the evidence.
+  impactRealizedAt          DateTime?
+  impactContinuationMinutes Int?
+  impactPartnerId           String?
+  impactPartnerName         String?   @db.VarChar(255)
+  impactVehicleId           String?
+  impactVehiclePlate        String?   @db.VarChar(32)
+  impactFromLocationId      String?
+  impactFromName            String?   @db.VarChar(255)
+  impactGarageLocationId    String?
+  impactGarageName          String?   @db.VarChar(255)
+  impactToLocationId        String?
+  impactToName              String?   @db.VarChar(255)
+  /// The two halves of the round trip that was not driven, in metres.
+  avoidedToGarageMeters     Int?
+  avoidedFromGarageMeters   Int?
+  avoidedDistanceKm         Decimal?  @db.Decimal(9, 2)
+  /// google|haversine — a straight line is marked, never passed off as a road.
+  avoidedDistanceProvider   String?   @db.VarChar(16)
+  avoidedCo2FactorUsed      Decimal?  @db.Decimal(6, 3)
+  avoidedCo2Kg              Decimal?  @db.Decimal(10, 2)
+  impactCountedAt           DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1669,6 +1800,10 @@ model EmptyReturnCycle {
   @@index([status])
   @@index([stage])
   @@index([nextBookingId])
+  @@index([impactStatus])
+  @@index([impactCountedAt])
+  @@index([impactRealizedAt])
+  @@index([impactPartnerId])
   @@map("empty_return_cycles")
 }
 

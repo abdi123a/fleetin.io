@@ -581,7 +581,23 @@ export class EmissionsService {
         distanceKm: round2(v.distanceKm),
         bookings: v.bookings,
       })),
-      scatter,
+      /* One dot per container run, SAMPLED. Unbounded, this was one point per
+         booking in the filtered set: fine on a demo book, and tens of
+         thousands of SVG nodes on a real one — enough to make the chart
+         library fall over in the browser rather than draw anything. The
+         sample is evenly spaced through the set rather than the first N, so
+         the shape of the cloud survives, and `scatterOf` says how many runs
+         it stands for so nothing reads as the whole book. */
+      scatter: sample(scatter, MAX_SCATTER_POINTS),
+      scatterOf: scatter.length,
+      /* The true sizes, before `rank` capped each list — so a reader is told
+         "top 200 of 4,812" instead of being shown 200 and left to assume that
+         is all there is. */
+      counts: {
+        vehicles: byVehicle.size,
+        transporters: byTransporter.size,
+        shipments: byShipment.size,
+      },
       truncated,
     };
   }
@@ -720,6 +736,12 @@ const DEPOT_ALIASES: Record<string, string> = {
  */
 const MAX_ROWS = 20000;
 
+/** Rows per ranking in one response. The dashboard pages through these. */
+const MAX_RANKED_ROWS = 200;
+
+/** Dots the scatter will draw. Beyond this the chart is a smear, not a chart. */
+const MAX_SCATTER_POINTS = 1500;
+
 interface Bucket {
   co2Kg: number;
   distanceKm: number;
@@ -743,13 +765,31 @@ function add<T extends Bucket>(
   map.set(key, { co2Kg, distanceKm, bookings: 1, ...extra } as T);
 }
 
+/**
+ * The ranked list, biggest first and **bounded**.
+ *
+ * A fleet of five thousand trucks would otherwise put five thousand rows into
+ * every dashboard response, to draw eight of them. The cap is generous enough
+ * that the pager still has plenty to walk through, and `counts` above reports
+ * the real size so the cap is stated rather than hidden.
+ */
 function rank<T extends Bucket, R extends { co2Kg: number }>(
   map: Map<string, T>,
   shape: (id: string, value: T) => R,
 ): R[] {
   return [...map.entries()]
     .map(([id, value]) => shape(id, value))
-    .sort((a, b) => b.co2Kg - a.co2Kg);
+    .sort((a, b) => b.co2Kg - a.co2Kg)
+    .slice(0, MAX_RANKED_ROWS);
+}
+
+/** An evenly spaced sample, preserving first and last. */
+function sample<T>(rows: T[], limit: number): T[] {
+  if (rows.length <= limit) return rows;
+  const step = rows.length / limit;
+  const out: T[] = [];
+  for (let i = 0; i < limit; i += 1) out.push(rows[Math.floor(i * step)]);
+  return out;
 }
 
 function monthKey(date: Date): string {

@@ -87,6 +87,15 @@ export class DocumentsService {
   async upload(dto: UploadDocumentDto, file: Express.Multer.File | undefined, uploadedById: string) {
     if (!file) throw new BadRequestException('No file provided (expected multipart field "file")');
 
+    /* A file in the Files section belongs to a folder somebody made, and a
+       folder that is gone (deleted from another tab a moment ago) must not
+       quietly collect files nothing can list. The other owner types are
+       records with pages of their own and are checked by the pages. */
+    if (dto.ownerType === 'FOLDER') {
+      const folder = await this.prisma.driveFolder.findUnique({ where: { id: dto.ownerId }, select: { id: true } });
+      if (!folder) throw new NotFoundException(`Folder with ID "${dto.ownerId}" not found`);
+    }
+
     // `category` is deliberately an open string, not validated against the
     // DocumentType catalog — the frontend itself treats it that way
     // (PartnerDocumentCategory = string) across several independent upload

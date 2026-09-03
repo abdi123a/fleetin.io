@@ -11,7 +11,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../auth/jwt.strategy';
 import { CreateTicketDto, RaiseTicketTaskDto, UpdateTicketDto } from './dto/ticket.dto';
-import { TicketsService } from './tickets.service';
+import { TICKET_SORTS, TicketsService, type TicketSort } from './tickets.service';
 import { assertInternal } from './workspace-access.util';
 
 @ApiTags('Workspace · Tickets')
@@ -31,8 +31,9 @@ export class WorkspaceTicketsController {
 
   @Get()
   @RequirePermissions(PERMISSIONS.workspace.view)
-  @ApiOperation({ summary: 'The ticket queue — urgent first, then oldest' })
+  @ApiOperation({ summary: 'The ticket queue — newest first unless told otherwise' })
   @ApiQuery({ name: 'scope', required: false, enum: ['open', 'unassigned', 'closed', 'all', 'mine'] })
+  @ApiQuery({ name: 'sort', required: false, enum: TICKET_SORTS })
   async list(
     @Query('scope') scope: 'open' | 'unassigned' | 'closed' | 'all' | 'mine',
     @Query('status') status: WorkspaceTaskStatus,
@@ -41,6 +42,7 @@ export class WorkspaceTicketsController {
     @Query('recordId') recordId: string,
     @Query('assigneeId') assigneeId: string,
     @Query('q') q: string,
+    @Query('sort') sort: TicketSort,
     @Query('page') page: string,
     @Query('pageSize') pageSize: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -55,6 +57,7 @@ export class WorkspaceTicketsController {
         recordId,
         assigneeId,
         q,
+        sort,
         page: page ? Number(page) : undefined,
         pageSize: pageSize ? Number(pageSize) : undefined,
       },

@@ -87,6 +87,17 @@ export class CreatePartnerDto {
   @IsDateString()
   registrationDate?: string;
 
+  /**
+   * Where this transporter's trucks are based — a catalogue location id. The
+   * Fleetin Impact arithmetic measures `Free Zone → Garage → Port` from it;
+   * without one a realized continuation is recognised but not measured.
+   * Send `null` (or an empty string) to clear it.
+   */
+  @ApiPropertyOptional({ description: 'Catalogue location the trucks sleep at — see Partner.garageLocationId', nullable: true })
+  @IsOptional()
+  @IsString()
+  garageLocationId?: string | null;
+
   @ApiProperty({ type: CreateDispatcherDto })
   @ValidateNested()
   @Type(() => CreateDispatcherDto)

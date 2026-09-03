@@ -50,6 +50,8 @@ import { nextReferenceField } from '../src/common/helpers/reference.util';
 import { syncShipmentFromBookings } from '../src/modules/shipments/shipment-sync';
 import { cycleStatusForBookingStatus } from '../src/modules/empty-returns/empty-return-status.util';
 import { assertSeedTargetIsSafe } from './seed-target-guard';
+import { CarbonImpactService } from '../src/modules/emissions/carbon-impact.service';
+import { seedGarages } from './seed-garages';
 
 /** The first shipper this file creates. Its presence means the volume seed already ran. */
 const SENTINEL_SHIPPER_REFERENCE = 'SHP-101';
@@ -1359,7 +1361,17 @@ async function main() {
             const arrivedIndex = ROAD_LADDER.indexOf('Arrived');
             const cap =
               roadSteps > arrivedIndex ? 'Completed' : roadSteps >= 3 ? 'Empty Picked Up' : 'Empty Ready';
-            if (await runEmptyBackToPort(empty!, booking.id, schedule.road['Assigned']!, cap)) cycleCount += 1;
+            if (
+              await runEmptyBackToPort(
+                empty!,
+                booking.id,
+                schedule.road['Assigned']!,
+                cap,
+                schedule.road['At Pickup'] ?? null,
+              )
+            ) {
+              cycleCount += 1;
+            }
           }
         }
 
@@ -1816,8 +1828,29 @@ async function main() {
       nextBookingId: string,
       outboundAssignedAt: Date,
       cap: ReturnRung,
+      nextAtPickup: Date | null = null,
     ): Promise<boolean> {
       if (!empty.emptyReadyAt || !empty.pickedUpAt || !empty.closeAt) return false;
+      /* The weld is physical. The truck that collects this empty at the free
+       * zone is the truck that gates in at the port with the next load an
+       * hour or two later — so the box's own pickup is timed off the load's
+       * road, not drawn on its own. Left independent, the book recorded boxes
+       * collected on a Monday under loads gated in on the Thursday: a truck
+       * that went home in between, which is exactly the case the Fleetin
+       * Impact record refuses, and the demo showed no impact at all.
+       * Never earlier than the box was stripped, and never after the gate. */
+      if (nextAtPickup) {
+        const collectedAt = new Date(
+          Math.max(
+            addHours(nextAtPickup, -(1 + rnd() * 2)).getTime(),
+            addHours(empty.emptyReadyAt, 0.5).getTime(),
+          ),
+        );
+        if (collectedAt < nextAtPickup) {
+          empty.pickedUpAt = collectedAt;
+          empty.closeAt = addHours(collectedAt, 1.5 + rnd() * 4);
+        }
+      }
       /* A load already past `Arrived` will close this cycle the moment it is
        * advanced. If the box could not physically be home by then, pairing the
        * two would have the module stamp a return that has not happened — so it
@@ -2333,6 +2366,14 @@ async function main() {
       data: { partnerId: portalPartner.partnerId, firstName: portalPartner.name, lastName: '(Demo)' },
     });
     console.log(`🔗 Portal logins bound to ${portalShipper.name} / ${portalPartner.name}`);
+
+    /* ── Garages, and the repositioning the pairings above did not drive ── */
+
+    /* Every transporter gets a yard, then every pairing is judged: the
+       continuations that physically happened get their `Free Zone → Garage →
+       Port` measured. Without this the Fleetin Impact block reads realized
+       matches and no kilometres — see seed-garages.ts. */
+    await seedGarages(prisma, app.get(CarbonImpactService));
 
     /* ── What landed ─────────────────────────────────────────────────────── */
 

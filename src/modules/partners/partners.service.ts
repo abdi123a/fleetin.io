@@ -144,6 +144,7 @@ export class PartnersService {
         insuranceExpiry: dto.insuranceExpiry ? new Date(dto.insuranceExpiry) : undefined,
         partnerStatus: dto.partnerStatus ?? 'Pending',
         registrationDate: dto.registrationDate ? new Date(dto.registrationDate) : new Date(),
+        garageLocationId: await this.resolveGarage(dto.garageLocationId),
       },
     });
 
@@ -178,9 +179,24 @@ export class PartnersService {
         insuranceExpiry: dto.insuranceExpiry ? new Date(dto.insuranceExpiry) : undefined,
         partnerStatus: dto.partnerStatus,
         registrationDate: dto.registrationDate ? new Date(dto.registrationDate) : undefined,
+        /* `undefined` leaves the garage alone; null or '' clears it. */
+        ...(dto.garageLocationId === undefined
+          ? {}
+          : { garageLocationId: await this.resolveGarage(dto.garageLocationId) }),
       },
     });
     return this.findOne(partner.id, null);
+  }
+
+  /**
+   * The garage must be a real catalogue row: it is measured to, and a pin
+   * that does not exist cannot be. Null and '' both mean "no garage".
+   */
+  private async resolveGarage(id: string | null | undefined): Promise<string | null> {
+    if (!id) return null;
+    const location = await this.prisma.location.findFirst({ where: { id, deletedAt: null }, select: { id: true } });
+    if (!location) throw new NotFoundException(`Location with ID "${id}" not found`);
+    return location.id;
   }
 
   async remove(id: string) {
@@ -254,6 +270,16 @@ export class PartnersService {
    * `PartnerRecord`, where every partner always carried its whole fleet.
    */
   private async enrich(partners: Partner[]) {
+    /* One query for every garage on the page, not one per carrier. */
+    const garageIds = [...new Set(partners.map((p) => p.garageLocationId).filter((id): id is string => Boolean(id)))];
+    const garages = garageIds.length
+      ? await this.prisma.location.findMany({
+          where: { id: { in: garageIds } },
+          select: { id: true, reference: true, name: true, kind: true, city: true },
+        })
+      : [];
+    const garageById = new Map(garages.map((g) => [g.id, g]));
+
     return Promise.all(
       partners.map(async (partner) => {
         const [vehicles, drivers, contacts] = await Promise.all([
@@ -273,6 +299,7 @@ export class PartnersService {
           primaryDispatcher: primaryDispatcher ?? null,
           additionalDispatchers,
           logoUrl: partner.logoKey ? await this.storage.getUrl(partner.logoKey) : null,
+          garageLocation: partner.garageLocationId ? (garageById.get(partner.garageLocationId) ?? null) : null,
         };
       }),
     );

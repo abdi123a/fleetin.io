@@ -30,6 +30,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "prisma:seed:workspace": "ts-node prisma/seed-workspace.ts",
     "prisma:seed:locations": "ts-node prisma/seed-locations.ts",
+    "prisma:seed:garages": "ts-node prisma/seed-garages.ts",
     "backfill:distances": "ts-node scripts/backfill-shipment-distances.ts",
     "check:maps": "ts-node scripts/check-google-maps.ts",
     "set:maps-key": "bash scripts/set-maps-key.sh"

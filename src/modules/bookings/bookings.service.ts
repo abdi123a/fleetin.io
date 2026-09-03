@@ -5,6 +5,7 @@ import { nextReference } from '../../common/helpers/reference.util';
 import { fleetinCommissionPct, splitCommission } from '../../common/helpers/pricing.util';
 import { EmptyReturnsService } from '../empty-returns/empty-returns.service';
 import { EmissionsService } from '../emissions/emissions.service';
+import { CarbonImpactService } from '../emissions/carbon-impact.service';
 import {
   allowedNextShipmentStatuses,
   isValidShipmentStatusTransition,
@@ -54,6 +55,13 @@ interface FindAllParams {
 const CARBON_ACCRUAL_RUNGS = ['Arrived', 'Empty Picked Up', 'Completed'];
 
 /**
+ * The rungs that change what can be said about a pairing's Fleetin Impact:
+ * the empty leaving the free zone on a truck, and the next load landing. See
+ * `CarbonImpactService` — judged from these, never from the match itself.
+ */
+const IMPACT_EVIDENCE_RUNGS = ['Empty Picked Up', 'Arrived', 'Completed'];
+
+/**
  * The two statuses that take a container out of every count in this product —
  * `LIVE_BOOKINGS` in the vehicles service, the shipment's own container split,
  * and the carbon rollup. Moving into or out of one changes a shipment's total
@@ -69,6 +77,7 @@ export class BookingsService {
     private readonly prisma: PrismaService,
     private readonly emptyReturns: EmptyReturnsService,
     private readonly emissions: EmissionsService,
+    private readonly carbonImpact: CarbonImpactService,
   ) {}
 
   /**
@@ -598,6 +607,23 @@ export class BookingsService {
     // booking is somebody's matched outbound load, its cycle now reflects
     // reality instead of waiting for a button to be pressed.
     await this.emptyReturns.syncCycleStatusForBooking(booking.id, booking.status);
+
+    /* ── FLEETIN IMPACT IS JUDGED HERE ──
+     *
+     * A pairing saves a repositioning only if the truck really continued from
+     * the free zone to the port. The two facts that decide it are rungs on
+     * bookings: this box being collected, and the next load being delivered.
+     * Whichever end of a continuation this booking is, its cycles are
+     * re-judged when it reaches one — and never from the pairing alone.
+     * Wrapped like the carbon above: a road that cannot be measured is a note
+     * on the record, not a reason to refuse a status write. */
+    if (IMPACT_EVIDENCE_RUNGS.includes(booking.status) || IMPACT_EVIDENCE_RUNGS.includes(existing.status)) {
+      try {
+        await this.carbonImpact.evaluateForBooking(booking.id);
+      } catch (error) {
+        this.logger.warn(`Could not judge the Fleetin Impact for booking ${booking.reference}: ${String(error)}`);
+      }
+    }
 
     // Same idea one level up: the shipment this booking belongs to is a job
     // over its containers, so its status is re-read from them here rather

@@ -15,6 +15,26 @@ import { CreateTicketDto, RaiseTicketTaskDto, UpdateTicketDto } from './dto/tick
 
 const PERSON = { select: { id: true, firstName: true, lastName: true, avatarUrl: true } };
 
+/**
+ * How the queue is stacked.
+ *
+ * Newest first is the default because the page is opened to see what has come
+ * in — a support desk reads its queue the way it reads a phone log, and a
+ * ticket logged an hour ago sitting below one from last Tuesday reads as if
+ * nothing happened today. Priority-first is still here, one click away, for
+ * the pass where somebody works the queue down rather than catching up on it.
+ */
+export const TICKET_SORTS = ['newest', 'oldest', 'priority'] as const;
+export type TicketSort = (typeof TICKET_SORTS)[number];
+
+const TICKET_ORDER: Record<TicketSort, Prisma.WorkspaceTicketOrderByWithRelationInput[]> = {
+  newest: [{ createdAt: 'desc' }],
+  oldest: [{ createdAt: 'asc' }],
+  /* Urgent first, then oldest — a queue worked from the top of the priority
+     and the bottom of the clock. */
+  priority: [{ priority: 'desc' }, { createdAt: 'asc' }],
+};
+
 const TICKET_INCLUDE = {
   openedBy: PERSON,
   task: {
@@ -127,6 +147,7 @@ export class TicketsService {
       recordId?: string;
       assigneeId?: string;
       q?: string;
+      sort?: TicketSort;
       page?: number;
       pageSize?: number;
     },
@@ -178,9 +199,7 @@ export class TicketsService {
       this.prisma.workspaceTicket.findMany({
         where,
         include: TICKET_INCLUDE,
-        /* Urgent first, then oldest — a queue is worked from the top of the
-           priority and the bottom of the clock. */
-        orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
+        orderBy: TICKET_ORDER[query.sort && TICKET_SORTS.includes(query.sort) ? query.sort : 'newest'],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),

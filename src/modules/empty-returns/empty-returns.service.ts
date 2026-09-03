@@ -1,11 +1,14 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { nextReference } from '../../common/helpers/reference.util';
 import { isValidShipmentStatusTransition, timelineKeyForStatus } from '../shipments/shipment-status.util';
 import { syncShipmentFromBookings } from '../shipments/shipment-sync';
 import { DELIVERED_STATUSES, cycleStatusForBookingStatus, hasProofOfReturn } from './empty-return-status.util';
 import { CreateCycleDto } from './dto/create-cycle.dto';
+import { ImpactDecisionDto } from './dto/impact-decision.dto';
 import { emptiesFor, emptyFromBooking, loadFromBooking, loadsFor } from './empty-return-matching.util';
+import { CarbonImpactService } from '../emissions/carbon-impact.service';
+import type { AuthenticatedUser } from '../auth/jwt.strategy';
 
 /**
  * Detention day-rate, in the ledger's currency. v19 prices a late return at a
@@ -32,7 +35,12 @@ const DETENTION_RATE_PER_DAY = 90;
  */
 @Injectable()
 export class EmptyReturnsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(EmptyReturnsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly impact: CarbonImpactService,
+  ) {}
 
   /**
    * Every booking-facing query below joins `shipment` (for the client's
@@ -330,7 +338,69 @@ export class EmptyReturnsService {
       await syncShipmentFromBookings(this.prisma, nextBooking.shipmentId);
     }
 
+    /* A pairing is an opportunity taken, not a saving made. The impact record
+       opens at `matched` here — naming the transporter, so the board can
+       filter on it — and is judged only when the next load lands. Never in
+       the way of the pairing itself: a road cache hiccup is a warning. */
+    if (nextBooking) {
+      try {
+        await this.impact.evaluateCycle(cycle.id);
+      } catch (error) {
+        this.logger.warn(`Impact record for ${reference} could not be opened: ${String(error)}`);
+      }
+    }
+
     return cycle;
+  }
+
+  /**
+   * An operator's word on a pairing's impact — see `ImpactDecisionDto`.
+   *
+   * Signed from the token, never from the body: "the truck went home" is an
+   * opinion about the world, and whose it is has to survive on the record.
+   */
+  async decideImpact(
+    id: string,
+    dto: ImpactDecisionDto,
+    user: AuthenticatedUser,
+    scope: Record<string, unknown> | null = null,
+  ) {
+    const cycle = await this.prisma.emptyReturnCycle.findFirst({
+      where: { OR: [{ id }, { reference: id }], ...(scope ?? {}) },
+      select: { id: true, reference: true, nextBookingId: true },
+    });
+    if (!cycle) throw new NotFoundException(`Cycle with ID "${id}" not found`);
+    if (!cycle.nextBookingId) {
+      throw new ConflictException(`Cycle "${cycle.reference}" has no next load — a standalone return has no continuation to judge`);
+    }
+    return this.impact.evaluateCycle(cycle.id, {
+      realized: dto.realized,
+      note: dto.note,
+      by: `${user.firstName} ${user.lastName}`.trim() || user.email,
+    });
+  }
+
+  /**
+   * Take an operator's word back off the record and let the rungs decide.
+   *
+   * The undo for `decideImpact`: a verdict given on the wrong card, or one
+   * overtaken by a rung recorded later, would otherwise stand forever —
+   * automatic passes never overrule a person. Clearing it is itself a
+   * decision, so it is gated and logged the same way.
+   */
+  async clearImpactDecision(id: string, scope: Record<string, unknown> | null = null) {
+    const cycle = await this.prisma.emptyReturnCycle.findFirst({
+      where: { OR: [{ id }, { reference: id }], ...(scope ?? {}) },
+      select: { id: true, reference: true, nextBookingId: true, impactSource: true },
+    });
+    if (!cycle) throw new NotFoundException(`Cycle with ID "${id}" not found`);
+    if (cycle.impactSource === 'operator') {
+      await this.prisma.emptyReturnCycle.update({
+        where: { id: cycle.id },
+        data: { impactSource: 'automatic', impactDecidedBy: null, impactNote: null },
+      });
+    }
+    return cycle.nextBookingId ? this.impact.evaluateCycle(cycle.id) : null;
   }
 
   /**
@@ -549,6 +619,20 @@ export class EmptyReturnsService {
        * home, and each of them owns a different booking to close. */
       if (justReturned && returnedAt) {
         await this.closeBookingOnReturn(cycle.bookingId, returnedAt);
+      }
+    }
+
+    /* The next load has landed: the continuation either happened or it did
+       not, and this is the first moment the record can say which. Judged for
+       every cycle on the load, after all of them have moved, so the one-count
+       -per-trip rule sees the whole set. */
+    if (mapped === 'completed') {
+      for (const cycle of cycles) {
+        try {
+          await this.impact.evaluateCycle(cycle.id);
+        } catch (error) {
+          this.logger.warn(`Impact could not be judged for ${cycle.reference}: ${String(error)}`);
+        }
       }
     }
   }
