@@ -1,12 +1,18 @@
-import { Select } from '@/design-system';
-import { ArrowDown, ArrowUp, Minus, Timer, TriangleAlert } from '@/design-system/icons';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Select,
+} from '@/design-system';
+import { ArrowDown, ArrowUp, Check, ListChecks, Minus, Ticket, Timer, TriangleAlert } from '@/design-system/icons';
 import { cn } from '@/utils';
 
 import { TASK_URGENCY_META, taskUrgency } from './taskUrgency';
 
 import {
   TASK_PRIORITIES, TASK_PRIORITY_LABEL, TASK_STATUS_LABEL, TASK_STATUSES,
-  type TaskPriority, type TaskStatus,
+  type TaskPriority, type TaskStatus, type WorkspaceTask,
 } from '../contracts';
 
 /* ── Status ─────────────────────────────────────────────────────────────── */
@@ -176,6 +182,125 @@ export function PrioritySelect({
       onChange={(event) => onChange(event.target.value as TaskPriority)}
       options={TASK_PRIORITIES.map((p) => ({ value: p, label: TASK_PRIORITY_LABEL[p] }))}
     />
+  );
+}
+
+/* ── Where the work came from ───────────────────────────────────────────── */
+
+/**
+ * The reference, tinted by who is waiting.
+ *
+ * The board mixes two kinds of row that are read completely differently —
+ * internal work Fleetin set itself, and work answering a customer who rang —
+ * and nothing in the list said which was which. A ticket-raised task carried
+ * the same grey `TSK-` as every other row, so "the container is damaged" from
+ * a shipper looked exactly like "Chase the stationery supplier".
+ *
+ * **Ink, not a pill.** This was a filled chip, and a filled chip on every row
+ * of a table whose other four columns are also filled chips is one more object
+ * in a cell that had too many — it made the row harder to read, not easier.
+ * The reference was already there and already its own mark; colouring it costs
+ * nothing and adds nothing to the row.
+ *
+ * Teal for our own work, amber for somebody waiting on us — the same amber
+ * this app uses everywhere for an outstanding obligation. The glyph carries
+ * the same split, because a distinction told only in colour is no distinction
+ * to a reader who cannot see the difference between these two.
+ */
+export function TaskOriginRef({
+  reference, ticket, className,
+}: {
+  reference: string;
+  ticket: WorkspaceTask['ticket'];
+  className?: string;
+}) {
+  const Icon = ticket ? Ticket : ListChecks;
+  return (
+    <span
+      title={
+        ticket
+          ? `Raised from ${ticket.reference} — ${ticket.subject}`
+          : 'Raised inside Fleetin'
+      }
+      className={cn(
+        'inline-flex shrink-0 items-center gap-1 font-mono text-[0.6875rem] font-semibold',
+        ticket ? 'text-warning-subtle-foreground' : 'text-primary-subtle-foreground',
+        className,
+      )}
+    >
+      <Icon className="size-3 shrink-0" aria-hidden />
+      {reference}
+      <span className="sr-only">{ticket ? ` — from ticket ${ticket.reference}` : ' — internal'}</span>
+    </span>
+  );
+}
+
+/**
+ * Change the status without opening the task.
+ *
+ * The badge IS the control — the same shape and the same colour it had when it
+ * was only a label, so the column stays scannable and the cell keeps holding
+ * exactly one object. Moving a task on used to mean opening it, changing a
+ * field and coming back, for a list whose whole job is triage.
+ *
+ * The **whole ladder**, current rung marked, in the order it runs — the house
+ * rule, and the same shape `BookingStatusPicker` uses on a shipment card.
+ * Never "next step plus a list of reverts": a reader knows what state the work
+ * is in, not which direction this app thinks its ladder runs.
+ *
+ * Radix opens on `pointerdown` while the row behind listens on `click`, so
+ * both have to be stopped or the task detail opens behind the menu.
+ */
+export function TaskStatusPicker({
+  status, onChange, disabled, label, className,
+}: {
+  status: TaskStatus;
+  onChange: (next: TaskStatus) => void;
+  disabled?: boolean;
+  /** Another vocabulary for the same ladder — a ticket is *Resolved*. */
+  label?: string;
+  className?: string;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild disabled={disabled}>
+        <button
+          type="button"
+          aria-label={`Status — ${label ?? TASK_STATUS_LABEL[status]}. Change it`}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+          className={cn(
+            'cursor-pointer rounded-full transition-opacity duration-fast hover:opacity-80',
+            'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+            'disabled:cursor-not-allowed disabled:opacity-60',
+            className,
+          )}
+        >
+          <TaskStatusBadge status={status} label={label} />
+        </button>
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent
+        align="start"
+        className="w-48"
+        onClick={(event) => event.stopPropagation()}
+      >
+        {TASK_STATUSES.map((rung) => (
+          <DropdownMenuItem
+            key={rung}
+            onSelect={() => {
+              if (rung !== status) onChange(rung);
+            }}
+            className="gap-2"
+          >
+            <TaskStatusBadge status={rung} />
+            {rung === status ? (
+              <Check className="ml-auto size-3.5 shrink-0 text-primary" aria-hidden />
+            ) : null}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { DataTable, FilterBar, TablePager } from '@/components';
+import { DataTable, FilterBar, FilterMenu, TablePager } from '@/components';
 import { Button, Spinner } from '@/design-system';
 import { cn } from '@/utils';
-import { AlertTriangle, Calendar, Clock, LifeBuoy, Plus, User } from '@/design-system/icons';
+import { AlertTriangle, Calendar, Clock, Plus, Ticket, User } from '@/design-system/icons';
 import { ROUTES, buildPath } from '@/config/routes';
 
 import { useTicketSummary, useTickets } from '../api/ticketQueries';
+import type { TicketSort } from '../api/ticketsService';
 import { TICKET_STATUS_LABEL, type WorkspaceTicket } from '../contracts';
 import { LogTicketDialog } from './LogTicketDialog';
 import { PersonAvatar } from './PersonAvatar';
@@ -16,6 +17,20 @@ import { TaskStatusBadge } from './TaskMarks';
 import { TicketAge, TicketPriorityBadge } from './TicketMarks';
 
 type Scope = 'mine' | 'open' | 'unassigned' | 'closed' | 'all';
+
+/**
+ * How the queue is stacked, in the menu every other list keeps its ordering in.
+ *
+ * The queue used to be stacked urgent-first with no way to say otherwise, which
+ * meant the page could not answer "what came in today" — the thing it is opened
+ * for after lunch. Newest first is the default now, and the triage pass keeps
+ * its ordering one click away rather than as the only one.
+ */
+const SORT_CHOICES: { value: TicketSort; label: string }[] = [
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'priority', label: 'Priority first' },
+];
 
 /**
  * The ticket queue.
@@ -37,6 +52,7 @@ export function TicketList() {
    on my desk" — the whole queue is one tab away. */
   const [scope, setScope] = useState<Scope>('mine');
   const [q, setQ] = useState('');
+  const [sort, setSort] = useState<TicketSort>('newest');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [logging, setLogging] = useState(false);
@@ -46,6 +62,7 @@ export function TicketList() {
   const { data, isLoading } = useTickets({
     scope,
     q: q.trim() || undefined,
+    sort,
     page,
     pageSize,
   });
@@ -92,7 +109,23 @@ export function TicketList() {
           },
           placeholder: 'Search tickets and references…',
         }}
-      />
+      >
+        <FilterMenu
+          groups={[
+            {
+              key: 'sort',
+              label: 'Sort by',
+              value: sort,
+              defaultValue: 'newest',
+              onChange: (value: string) => {
+                setSort(value as TicketSort);
+                setPage(1);
+              },
+              options: SORT_CHOICES,
+            },
+          ]}
+        />
+      </FilterBar>
 
       {isLoading ? (
         <div className="flex justify-center py-16">
@@ -129,7 +162,7 @@ export function TicketList() {
             {
               key: 'ticket',
               label: 'Ticket',
-              icon: LifeBuoy,
+              icon: Ticket,
               width: 'w-[31%]',
               card: 'identity',
               /* The reference and the complaint, and nothing else. What it is

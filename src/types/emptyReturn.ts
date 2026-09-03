@@ -214,6 +214,18 @@ export interface EmptyReturnRecord {
   status: EmptyReturnStatus;
   /** Reserved for a forecast gate-in. Always null today — risk reads the deadline. */
   predictedGateIn: number | null;
+
+  /**
+   * Fleetin Impact, as the server judged it for this link — see `CycleImpact`
+   * in the emissions feature. Optional: a row read off an unmatched booking,
+   * or off the local store, carries none. `avoidedKm` is set only on the one
+   * link per continuation trip that carries the count, so a chain can add
+   * its links without adding the same trip twice.
+   */
+  impactStatus?: 'matched' | 'realized' | 'not_realized' | null;
+  impactCounted?: boolean;
+  avoidedKm?: number | null;
+  avoidedCo2Kg?: number | null;
 }
 
 /** The cycle lifecycle word, mirrored from the outbound booking's status. */
@@ -454,6 +466,15 @@ export interface CycleChain {
   maxSequence: number;
   /** Mean time each container spent empty before its decision. */
   averageEmptyMs: number;
+  /**
+   * Fleetin Impact across the chain: the `Free Zone → Garage → Port`
+   * repositioning its realized links did not drive, summed over the links
+   * that carry the count. Zero until a link is realized and measured.
+   */
+  avoidedKm: number;
+  avoidedCo2Kg: number;
+  /** Links whose continuation physically happened. */
+  realizedLinks: number;
 }
 
 /**

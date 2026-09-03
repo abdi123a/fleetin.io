@@ -1,6 +1,7 @@
 export { EmptyState, type EmptyStateProps } from './EmptyState';
 export { CountryFlag, type CountryFlagProps } from './CountryFlag';
 export { Logo, type LogoProps } from './Logo';
+export { SHINE_HOST, ShineBorder, type ShineBorderProps } from './ShineBorder';
 export { PageHeader, type PageHeaderProps } from './PageHeader';
 export {
   TABLE_PAGE_SIZE,

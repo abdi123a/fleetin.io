@@ -8,6 +8,17 @@ export interface StarRatingProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
   /** Hide the number and show the stars alone. */
   glyphsOnly?: boolean;
+  /**
+   * `compact` draws ONE star and the figure instead of the five-star gauge.
+   *
+   * For a rating that has to sit inside another element's cell — under a
+   * transporter's name in an identity strip, say — where five stars is a third
+   * of the row's width spent on the least urgent fact on it, and wide enough to
+   * set the column and push its neighbours around. The figure is the precise
+   * half of this component anyway; the gauge is the scannable half, and in a
+   * cell there is nothing to scan it against.
+   */
+  variant?: 'stars' | 'compact';
   className?: string;
 }
 
@@ -26,9 +37,31 @@ const SIZES = {
  * number is printed beside the stars, and the empty portion differs in fill as
  * well as hue.
  */
-export function StarRating({ value, size = 'md', glyphsOnly = false, className }: StarRatingProps) {
+export function StarRating({
+  value,
+  size = 'md',
+  glyphsOnly = false,
+  variant = 'stars',
+  className,
+}: StarRatingProps) {
   const scale = SIZES[size];
   const pct = value === null ? 0 : Math.min(Math.max(value / RATING_MAX, 0), 1) * 100;
+
+  if (variant === 'compact') {
+    return (
+      <span
+        className={cn('inline-flex items-center gap-1', className)}
+        role="img"
+        aria-label={value === null ? 'Not yet rated' : `${formatStars(value)} out of ${RATING_MAX}`}
+      >
+        {/* Filled, always. Here the star is a MARK saying "this is a rating",
+            not a gauge — the gauge needs five of them to read against, and the
+            number beside it is exact in a way no single glyph can be. */}
+        <Star aria-hidden className={cn(scale.star, 'shrink-0 text-warning fill-warning')} />
+        <span className={cn(scale.text, 'tabular-nums text-foreground')}>{formatStars(value)}</span>
+      </span>
+    );
+  }
 
   return (
     <span

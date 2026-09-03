@@ -57,7 +57,11 @@ export function Sidebar({ isCollapsed, onNavigate, className }: SidebarProps) {
       {/* Brand — seats the toggle in the corner, or over the logo once collapsed */}
       <div
         className={cn(
-          'group/brand relative flex min-h-[4.25rem] shrink-0 items-center border-b border-sidebar-border py-3.5',
+          'group/brand relative flex min-h-[4.25rem] shrink-0 items-center border-b border-sidebar-border',
+          /* Tighter padding once collapsed so the mark can be bigger without
+             the header growing taller than its expanded self — the two states
+             have to line up with the page's top border either way. */
+          isCollapsed ? 'py-2.5' : 'py-3.5',
           // Expanded on desktop reserves the corner for the toggle; the mobile
           // drawer has no toggle, so it keeps the symmetric padding.
           isCollapsed ? 'justify-center px-3' : 'justify-start px-5 lg:pr-14',
@@ -74,7 +78,7 @@ export function Sidebar({ isCollapsed, onNavigate, className }: SidebarProps) {
               collapsed icon glyph ignores it and keeps its natural teal,
               since forcing that one white erases it into a blank circle —
               see the note in Logo.tsx. */}
-          <Logo iconOnly={isCollapsed} size={isCollapsed ? 'lg' : '2xl'} variant="white" />
+          <Logo iconOnly={isCollapsed} size="2xl" variant="white" />
         </Link>
 
         {isCollapsed ? (

@@ -22,6 +22,9 @@ function token() {
   return useAuthStore.getState().accessToken;
 }
 
+/** The orderings the server knows — see `TICKET_ORDER` in `tickets.service.ts`. */
+export type TicketSort = 'newest' | 'oldest' | 'priority';
+
 export interface TicketFilters {
   /** The queue tab. `unassigned` means "no task raised yet"; `mine` means the
       task is on my desk. */
@@ -32,6 +35,8 @@ export interface TicketFilters {
   recordId?: string;
   assigneeId?: string;
   q?: string;
+  /** How the queue is stacked. Newest first when absent — see `TICKET_ORDER`. */
+  sort?: TicketSort;
   page?: number;
   pageSize?: number;
 }

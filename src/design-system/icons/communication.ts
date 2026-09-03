@@ -1,6 +1,6 @@
-import { Bell, BellOff, Inbox, LifeBuoy, Mail, MessageSquare, Phone, Send } from 'lucide-react';
+import { Bell, BellOff, Inbox, LifeBuoy, Mail, MessageSquare, Phone, Send, Ticket } from 'lucide-react';
 
-export { Bell, BellOff, Inbox, LifeBuoy, Mail, MessageSquare, Phone, Send };
+export { Bell, BellOff, Inbox, LifeBuoy, Mail, MessageSquare, Phone, Send, Ticket };
 
 export const CommunicationIcons = {
   Bell,
@@ -11,4 +11,5 @@ export const CommunicationIcons = {
   MessageSquare,
   Phone,
   Send,
+  Ticket,
 };

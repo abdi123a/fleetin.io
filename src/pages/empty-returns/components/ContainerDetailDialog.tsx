@@ -213,6 +213,14 @@ function DetailStep({
     record.fullPickupAt && { at: record.fullPickupAt, text: 'Full load collected' },
     record.emptyReadyAt && { at: record.emptyReadyAt, text: 'Container became empty' },
     record.matchedAt && { at: record.matchedAt, text: `Pairing confirmed (${record.cycleId})` },
+    /* The paired load's own pickup. The flow strip used to print this beside
+       the card; the strip now carries no clock at all — every time this
+       container has a moment for is here, in one ordered list, where two of
+       them can actually be compared. */
+    record.nextFull?.pickupAt && {
+      at: record.nextFull.pickupAt,
+      text: `Paired load collected${record.nextFull.container ? ` (${record.nextFull.container})` : ''}`,
+    },
     record.plannedReturnAt && !record.nextFull && { at: record.plannedReturnAt, text: 'Empty return planned' },
     record.returnedAt && {
       at: record.returnedAt,
@@ -488,11 +496,23 @@ function DetailStep({
               of the two could be clicked; now the flow card is the one that
               can, which is also where a reader looking for "which load did this
               empty come off?" already is. */}
+          {/* The rating sits UNDER the transporter's name, as one star and the
+              figure.
+              It has been in three places. Beside the name, five stars wide, it
+              doubled that cell and pushed the vehicle plate onto its own row.
+              On a labelled line of its own below the strip it stopped setting
+              the layout but needed the words "Transporter rating" to say whose
+              it was — a whole row of dialog for one number that was already
+              standing next to its owner two lines earlier. Under the name it
+              needs no label at all: the cell says TRANSPORTER, the star says
+              this is a rating, and the figure is the fact. */}
           <IdentityStrip className="mt-3">
             <PartyName label="Shipper" name={record.client} />
-            <PartyName label="Transporter" name={record.transporter}>
-              <TransporterRating name={record.transporter} />
-            </PartyName>
+            <PartyName
+              label="Transporter"
+              name={record.transporter}
+              meta={<TransporterRating name={record.transporter} />}
+            />
             <PartyName label="Shipping line" name={record.line} />
             {record.truck && <IdentityFact label="Vehicle Plate Number" value={record.truck} mono />}
           </IdentityStrip>
@@ -574,5 +594,5 @@ function TransporterRating({ name }: { name: string }) {
   );
 
   if (!partnerId || !summary.rated) return null;
-  return <StarRating value={summary.overall} size="sm" />;
+  return <StarRating value={summary.overall} size="sm" variant="compact" />;
 }

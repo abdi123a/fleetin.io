@@ -351,3 +351,83 @@
     transform: scale(1);
   }
 }
+
+/*
+ * The light travelling round a lit edge — see `ShineBorder`.
+ *
+ * Moves the gradient's POSITION, never its size or the element's box, so the
+ * browser repaints one layer and never reflows the card underneath. Corner to
+ * corner and back, so there is no jump at the loop point.
+ */
+@keyframes fl-shine {
+  0% {
+    background-position: 0% 0%;
+  }
+  50% {
+    background-position: 100% 100%;
+  }
+  100% {
+    background-position: 0% 0%;
+  }
+}
+
+/*
+ * The gloss pass — a band of light crossing a card, then waiting.
+ *
+ * OFF-SCREEN for three quarters of its cycle, which is the whole point: a
+ * highlight that slid continuously would be one more thing permanently moving
+ * on a list of twenty cards. Crossing in the first quarter and idling for the
+ * rest makes it arrive, every few seconds, as something that happened.
+ *
+ * The travel is pinned at both 25% and 100% so the band does not creep back
+ * across the card during the idle stretch — with only a 0%/25% pair the
+ * browser would interpolate the whole way home in the remaining time, which is
+ * the same sweep again, backwards and slowly.
+ */
+@keyframes fl-gloss {
+  0% {
+    opacity: 0;
+    transform: translateX(-40%) skewX(-18deg);
+  }
+  4% {
+    opacity: 0.38;
+  }
+  21% {
+    opacity: 0.38;
+  }
+  25% {
+    opacity: 0;
+    transform: translateX(340%) skewX(-18deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(340%) skewX(-18deg);
+  }
+}
+
+/*
+ * The glow a lit card spills onto the page around it.
+ *
+ * A `box-shadow`, because that is the one thing `overflow: hidden` does not
+ * clip — and a card that clips its own children can otherwise only bloom
+ * inward, which is what makes an overlay read as a drawn outline rather than
+ * as something giving off light.
+ *
+ * Two shadows at each step: a tight one that sits against the edge, and a wide
+ * faint one carrying the falloff out. `--fl-glow-color` is set by the host.
+ * Deliberately a different period from the rim's travel, so the two never
+ * synchronise into a pulse.
+ */
+@keyframes fl-glow-breathe {
+  0%,
+  100% {
+    box-shadow:
+      0 0 3px -2px var(--fl-glow-color),
+      0 0 6px -5px var(--fl-glow-color);
+  }
+  50% {
+    box-shadow:
+      0 0 5px -1px var(--fl-glow-color),
+      0 0 10px -5px var(--fl-glow-color);
+  }
+}

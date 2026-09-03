@@ -16,6 +16,9 @@ function token() {
   return useAuthStore.getState().accessToken;
 }
 
+/** The orderings the server knows — see `TASK_ORDER` in `tasks.service.ts`. */
+export type TaskSort = 'newest' | 'oldest' | 'due' | 'priority';
+
 export interface TaskFilters {
   q?: string;
   status?: TaskStatus[];
@@ -32,6 +35,8 @@ export interface TaskFilters {
   followerId?: string;
   createdFrom?: string;
   createdTo?: string;
+  /** How the board is stacked. Newest first when absent — see `TASK_ORDER`. */
+  sort?: TaskSort;
   page?: number;
   pageSize?: number;
 }

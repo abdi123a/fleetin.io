@@ -9,14 +9,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Link2,
-  Package,
-  PackageOpen,
   RotateCcw,
   ShieldAlert,
   ShieldCheck,
 } from '@/design-system/icons';
 import { useEmptyContainers } from '@/features/empty-returns';
-import { CRITICAL_THRESHOLD_MS, formatContainerSize } from '@/data/emptyReturnData';
+import { CRITICAL_THRESHOLD_MS } from '@/data/emptyReturnData';
+import { formatKm } from '@/lib/co2';
 import {
   chainStateOf,
   emptyDwellOf,
@@ -29,7 +28,8 @@ import {
 import type { CycleChain, EmptyReturnRecord } from '@/types/emptyReturn';
 import { cn } from '@/utils';
 
-import { CompanyName, EmptyTag, Mono } from './components/marks';
+import { CompanyName, Mono } from './components/marks';
+import { ContainerCard } from './components/ContainerCard';
 
 /**
  * How far one press of the arrows travels.
@@ -141,23 +141,16 @@ export function EmptyReturnCyclesPage() {
 
           <div className="grid min-w-0 grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
             {pagedUnchained.rows.map((record) => (
-              <button
+              <ContainerCard
                 key={record.id}
-                type="button"
+                state="empty"
+                container={record.container || record.bookingReference}
+                line={record.line}
                 onClick={() => openRecord(record.id)}
-                className="min-w-0 rounded-lg border-2 border-dashed border-stage-available-border bg-stage-available-subtle/50 p-3 text-left shadow-2xs transition duration-200 hover:bg-stage-available-subtle hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <EmptyTag small />
-                <Mono className="mt-0.5 block truncate text-sm font-bold text-foreground">
-                  {record.container || record.bookingReference}
-                </Mono>
-                <div className="truncate text-[11px] text-muted-foreground">
-                  {formatContainerSize(record.size)} · {record.line}
-                </div>
-                <div className="text-[11px] text-muted-foreground">
-                  Empty for {formatSpan(now - (record.emptyReadyAt ?? now))}
-                </div>
-              </button>
+                /* The one place the card is not a fixed tile: these sit in a
+                   responsive grid rather than a strip, so they take the cell. */
+                className="w-auto min-w-0 shadow-2xs"
+              />
             ))}
           </div>
 
@@ -187,7 +180,7 @@ function Legend() {
       </span>
       <span className="inline-flex items-center gap-1.5">
         <span
-          className="inline-block h-3 w-4 rounded-sm border-2 border-dashed border-stage-available-border bg-stage-available-subtle"
+          className="inline-block h-3 w-4 rounded-sm border-2 border-dashed border-container-empty-border bg-container-empty-subtle"
           aria-hidden
         />
         Empty container
@@ -374,6 +367,14 @@ function ChainCard({
               on this chain went back on a trip of its own, which is exactly
               the cost the module exists to remove. */}
           <Figure label="avoidance" value={`${avoidance}%`} tone={avoidance < 100 ? 'warn' : 'neutral'} />
+          {/* The road the realized links did not drive — Fleetin Impact, as
+              the server judged it from the bookings' rungs. Absent until a
+              link is realized and its garage round trip measured, because a
+              "0 km" beside three pairings would read as measured and found to
+              be nothing rather than not yet measured. */}
+          {chain.avoidedKm > 0 && (
+            <Figure label="km avoided" value={formatKm(chain.avoidedKm).value} />
+          )}
           {/* Dwell is the one figure where longer is worse. The threshold is
               the module's own `CRITICAL_THRESHOLD_MS` (24h) rather than a new
               number: a day is what this module already calls the point where a
@@ -575,17 +576,19 @@ function ChainLink({
               between, easy to read as two different boxes at a glance —
               exactly the misreading this module exists to prevent. */}
           <div className="flex items-stretch rounded-lg border border-dashed border-border-strong/50 bg-surface-sunken/40 p-1">
-            <FullCard
+            <ContainerCard
+              state="full"
               container={cycle.container}
-              reference={cycle.shipmentReference ?? cycle.prevLoad}
               line={cycle.line}
-              size={cycle.size}
-              stamp={cycle.fullPickupAt}
-              stampLabel="Collected"
               onClick={() => onOpen(cycle.id)}
             />
             <UnloadMark />
-            <EmptyCard cycle={cycle} now={now} onClick={() => onOpen(cycle.id)} />
+            <ContainerCard
+              state="empty"
+              container={cycle.container}
+              line={cycle.line}
+              onClick={() => onOpen(cycle.id)}
+            />
           </div>
 
           {cycle.stage === 'empty' && (
@@ -670,14 +673,12 @@ function ChainLink({
           <div className="flex flex-1 items-center">
             <PairMark />
             {isLastInWindow && (
-              <FullCard
-                dashed
+              <ContainerCard
+                state="full"
+                /* A DIFFERENT box. The pairing mark beside it says so; it is not
+                   said a second time in a weaker green — see `ContainerCard`. */
                 container={cycle.nextFull.container}
-                reference={cycle.nextFull.shipmentReference ?? cycle.nextFull.missionId ?? '—'}
                 line={cycle.nextFull.line}
-                size={cycle.nextFull.size}
-                stamp={cycle.nextFull.pickupAt}
-                stampLabel="Pickup"
                 onClick={() => onOpen(cycle.id)}
               />
             )}
@@ -794,100 +795,6 @@ function LinkHeader({
         {verdict.label}
       </span>
     </div>
-  );
-}
-
-/* ---------------------------------------------------------------------------
- * Flow pieces
- * ------------------------------------------------------------------------- */
-
-function FullCard({
-  container,
-  reference,
-  line,
-  size,
-  stamp,
-  stampLabel,
-  dashed = false,
-  onClick,
-}: {
-  container: string;
-  reference: string;
-  line: string;
-  size: string;
-  stamp: number | null;
-  stampLabel: string;
-  dashed?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'min-w-36 shrink-0 rounded-lg px-3 py-2 text-left transition-shadow duration-200 hover:shadow-md',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        /* Green, not the container scale's teal — see `--stage-loaded`. On this
-           page a card states what is *happening* to the box, which is why the
-           empty half is sky rather than the container yellow; the loaded half
-           now answers on the same axis. The teal is not lost, it moves up to
-           the chain's own frame. */
-        dashed
-          ? 'border-2 border-dashed border-stage-loaded-border bg-stage-loaded-subtle text-stage-loaded-subtle-foreground'
-          : 'bg-stage-loaded text-stage-loaded-foreground',
-      )}
-    >
-      <div className="flex items-center gap-1.5 text-[9px] font-extrabold uppercase tracking-widest opacity-80">
-        <Package className="size-3" aria-hidden /> Full
-      </div>
-      <Mono className="mt-0.5 block truncate text-sm font-bold">{container || '—'}</Mono>
-      <div className="truncate text-[9px] opacity-80">
-        <Mono>{reference}</Mono> · {line} · {formatContainerSize(size)}
-      </div>
-      <div className="truncate text-[9px] opacity-70">
-        {stampLabel} <Mono>{formatStamp(stamp)}</Mono>
-      </div>
-    </button>
-  );
-}
-
-function EmptyCard({
-  cycle,
-  now,
-  onClick,
-}: {
-  cycle: EmptyReturnRecord;
-  now: number;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      /* v19 draws the waiting box as a dashed SKY outline, not the brand
-         yellow. On this page the card is a statement about the *stage* — this
-         container is sitting empty, undecided — which is the axis
-         `--stage-available` owns, and it is already what the calendar paints
-         "empty available" with. The yellow `--container-empty` mark still means
-         "this box is empty" wherever the question is what is inside it. */
-      className="min-w-36 shrink-0 rounded-lg border-2 border-dashed border-stage-available-border bg-stage-available-subtle px-3 py-2 text-left transition-colors duration-200 hover:border-stage-available hover:brightness-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <div className="flex items-center gap-1.5 text-[9px] font-extrabold uppercase tracking-widest text-stage-available-subtle-foreground">
-        <PackageOpen className="size-3" aria-hidden /> Empty
-      </div>
-      <Mono className="mt-0.5 block truncate text-sm font-bold text-foreground">
-        {cycle.container || '—'}
-      </Mono>
-      {/* Tinted, not `muted-foreground`. Grey type on a blue wash reads as text
-          that landed on the card by accident; the sky ink at 80% is quiet
-          enough to stay secondary and still belongs to the card it sits on. */}
-      <div className="truncate text-[9px] text-stage-available-subtle-foreground/80">
-        Since <Mono>{formatStamp(cycle.emptyReadyAt)}</Mono>
-      </div>
-      <div className="truncate text-[9px] text-stage-available-subtle-foreground/80">
-        Empty <Mono className="font-semibold">{formatSpan(emptyDwellOf(cycle, now))}</Mono>
-      </div>
-    </button>
   );
 }
 

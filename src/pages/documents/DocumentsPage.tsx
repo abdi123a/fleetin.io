@@ -24,6 +24,7 @@ import {
   useVerifyDocument,
 } from '@/features/documents/api/queries';
 import { DocumentBrowser, type DocumentView } from '@/features/documents/components/DocumentBrowser';
+import { FolderShape, type FolderTone } from '@/features/documents/components/FolderShape';
 import { DocumentDetailsSheet } from '@/features/documents/components/DocumentDetailsSheet';
 import { DocumentViewerModal, type DocumentToView } from '@/components/DocumentViewerModal';
 import type { DocumentCapture } from '@/features/documents/components/DocumentCaptureDialog';
@@ -35,6 +36,7 @@ import {
   type DriveFolder,
   type DriveLeaf,
   type DriveSegment,
+  type FolderPaper,
 } from '@/features/documents/drive';
 import type { ComplianceTally } from '@/features/documents/compliance';
 import { useDrivers } from '@/features/drivers/api/queries';
@@ -284,6 +286,7 @@ export function DocumentsPage() {
             sublabel: match.where,
             icon: match.icon,
             tally: match.tally,
+            papers: match.papers,
             onOpen: () => {
               setPath(match.path);
               setSearchTerm('');
@@ -302,6 +305,7 @@ export function DocumentsPage() {
             icon: folder.icon,
             company: folder.company,
             tally: folder.tally,
+            papers: folder.papers,
             onOpen: () => setPath([...path, folder.segment]),
           }))}
         />
@@ -369,6 +373,8 @@ interface FolderItem {
   icon: DriveFolder['icon'];
   company?: { id: string; name: string };
   tally: ComplianceTally;
+  /** What the folder fans out when it opens — see `FolderShape`. */
+  papers: FolderPaper[];
   onOpen: () => void;
 }
 
@@ -422,36 +428,53 @@ function FolderTile({ item }: { item: FolderItem }) {
         ? 'warn'
         : 'clean';
 
+  /* Hover and focus, not click — the click is already spoken for. Keyboard
+     users get the same preview as pointer users because both land on the same
+     button. */
+  const [peeking, setPeeking] = useState(false);
+
   return (
     <button
       type="button"
       onClick={item.onOpen}
+      onPointerEnter={() => setPeeking(true)}
+      onPointerLeave={() => setPeeking(false)}
+      onFocus={() => setPeeking(true)}
+      onBlur={() => setPeeking(false)}
       title={item.sublabel ? `${item.label} — ${item.sublabel}` : item.label}
       className="group flex flex-col items-center rounded-lg border border-transparent p-3 text-center transition-colors hover:border-border/80 hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
     >
       {/* Every tile is the same four bands at the same heights — folder, name,
           detail, state — so a grid of them lines up on all four however long
-          the names are and whether or not a folder has anything wrong in it. */}
-      <span className="relative block w-[124px] shrink-0">
-        <FolderShape tone={tone} />
-
-        {/* The mark sits on the folder's face, which is what makes a company's
-            folder recognisable before it is read. It needs a body colour with
-            enough weight to hold it — see `--folder-face`. */}
-        <span className="absolute inset-x-0 top-[40%] flex justify-center">
-          {item.company ? (
-            <CompanyMark
-              id={item.company.id}
-              name={item.company.name}
-              size="sm"
-              className="size-10 ring-2 ring-card"
-            />
-          ) : (
-            <span className="flex size-10 items-center justify-center rounded-full bg-card text-primary-bold ring-2 ring-card">
-              <Glyph className="size-5" />
-            </span>
-          )}
-        </span>
+          the names are and whether or not a folder has anything wrong in it.
+          The folder reserves the room its papers need, so a tile opening never
+          nudges the row it is in. */}
+      <span className="flex w-[124px] shrink-0 justify-center">
+        <FolderShape
+          tone={tone}
+          open={peeking}
+          /* The papers it actually holds, most urgent first. A folder holding
+             nothing opens onto nothing, rather than on to three blank sheets
+             the badge underneath would then have to contradict. */
+          papers={item.papers}
+          /* The mark sits on the folder's face, which is what makes a company's
+             folder recognisable before it is read. It needs a body colour with
+             enough weight to hold it — see `--folder-face`. */
+          mark={
+            item.company ? (
+              <CompanyMark
+                id={item.company.id}
+                name={item.company.name}
+                size="sm"
+                className="size-10 ring-2 ring-card"
+              />
+            ) : (
+              <span className="flex size-10 items-center justify-center rounded-full bg-card text-primary-bold ring-2 ring-card">
+                <Glyph className="size-5" />
+              </span>
+            )
+          }
+        />
       </span>
 
       <span className="mt-3 block w-full truncate text-sm font-bold leading-tight text-foreground">
@@ -466,43 +489,6 @@ function FolderTile({ item }: { item: FolderItem }) {
         <FolderState tally={item.tally} />
       </span>
     </button>
-  );
-}
-
-type FolderTone = 'clean' | 'warn' | 'fault';
-
-/* Tab and face as two shapes, because that is what makes it read as a folder
-   rather than as a rounded rectangle with a bite taken out of it: the face
-   overlaps the tab, and the two tones give the fold an edge.
- *
- * ## The body is neutral; the tab is the state
- *
- * `--folder-face` is a grey, and that is deliberate — see the token. A grid of
- * brand-coloured folders is a grid of things all asking to be looked at, and
- * the two that hold a lapsed policy are left with nothing to distinguish them.
- * A neutral body spends no attention, so the whole of it goes to the tab: red
- * for a paper missing or lapsed, amber for one about to, and the brand teal on
- * the fold when there is nothing wrong. */
-const FOLDER_FILL: Record<FolderTone, { tab: string; face: string }> = {
-  clean: { tab: 'fill-folder-fold', face: 'fill-folder-face' },
-  /* At 70%. A tab at full strength is a saturated bar on every folder that has
-     anything at all outstanding, and on a grid where most folders owe something
-     that is a row of alarms with no ranking between them. Muted, it still reads
-     instantly against the neutral body without shouting over the count. */
-  warn: { tab: 'fill-warning/70', face: 'fill-folder-face' },
-  fault: { tab: 'fill-destructive/70', face: 'fill-folder-face' },
-};
-
-function FolderShape({ tone }: { tone: FolderTone }) {
-  const fill = FOLDER_FILL[tone];
-  return (
-    <svg viewBox="0 0 64 50" aria-hidden className="block w-full">
-      <path
-        d="M2 8a6 6 0 0 1 6-6h14.3a6 6 0 0 1 4.4 1.9l3 3.2A2 2 0 0 0 31.2 8H56a6 6 0 0 1 6 6v6H2Z"
-        className={fill.tab}
-      />
-      <rect x="2" y="12" width="60" height="36" rx="6" className={fill.face} />
-    </svg>
   );
 }
 

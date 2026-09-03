@@ -1,6 +1,5 @@
 import {
   ArrowLeftRight,
-  LifeBuoy,
   ListChecks,
   MessageSquare,
   BarChart3,
@@ -24,6 +23,7 @@ import {
   Route,
   Settings,
   ShieldCheck,
+  Ticket,
   TrendingUp,
   Truck,
   UserRound,
@@ -99,7 +99,7 @@ export const NAVIGATION: NavSection[] = [
         id: 'workspace-tickets',
         label: 'Tickets',
         path: ROUTES.workspaceTickets,
-        icon: LifeBuoy,
+        icon: Ticket,
         matchNested: true,
       },
       {

@@ -378,6 +378,12 @@ export function selectChains(records: EmptyReturnRecord[], now: number = Date.no
       closedChain: last.stage === 'closed' && !last.nextFull,
       maxSequence: cycles.reduce((max, c) => Math.max(max, c.seq ?? 0), 0),
       averageEmptyMs,
+      /* Fleetin Impact is judged server-side and rides on each row; only the
+         link that carries the count has a figure, so adding the links never
+         adds one trip twice. A row with no record adds nothing. */
+      avoidedKm: Math.round(cycles.reduce((total, c) => total + (c.avoidedKm ?? 0), 0) * 10) / 10,
+      avoidedCo2Kg: Math.round(cycles.reduce((total, c) => total + (c.avoidedCo2Kg ?? 0), 0) * 10) / 10,
+      realizedLinks: cycles.filter((c) => c.impactStatus === 'realized').length,
     });
   });
 

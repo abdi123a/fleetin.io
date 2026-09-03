@@ -555,6 +555,19 @@
      mark is about. Its glyph is the DARK ink rather than white: white on this
      amber measures 1.9:1 and the amber is not allowed to move (see
      `--stage-returning-foreground`), so the sign flips instead. */
+  /* ── Fleetin Impact ──────────────────────────────────────────────────────
+   * What a realized match stopped a truck driving — the `Free Zone → Garage →
+   * Port` repositioning it did not make. Environmental, not brand: the carbon
+   * it sits beside is `--success` green, so this is the yellow next to it,
+   * the brand's own yellow declared as its own meaning so the two can part
+   * later without touching a component. Never teal — the user's call on
+   * 2026-09-03: teal reads as the console, not as the road that was saved. */
+  --impact: var(--accent-bold);
+  --impact-foreground: var(--accent-bold-foreground);
+  --impact-subtle: var(--accent-subtle);
+  --impact-subtle-foreground: var(--accent-subtle-foreground);
+  --impact-border: var(--accent);
+
   --return-standalone: var(--accent);
   --return-standalone-ink: oklch(32% 0.08 76);
   --return-standalone-subtle: var(--warning-subtle);
@@ -833,6 +846,23 @@
      in dark mode that reads as raised only if it is the paler of the two. */
   --folder-face: var(--fl-slate-700);
   --folder-fold: var(--primary);
+
+  /* The one container rung that does NOT theme itself through an alias.
+   *
+   * `--container-full-subtle` rides `--primary-subtle` and inverts for free;
+   * this one was moved off `--accent-subtle` to a raw `--fl-orange-100` because
+   * orange-50 was invisible on a white page — and a raw ramp step has no dark
+   * side, so an empty container came out a cream slab on a near-black page,
+   * with `--foreground` text on it that could not be read at all. Dark gets the
+   * same wash the accent rungs use, one notch stronger, since this surface is
+   * meant to say "this whole side is empties" rather than merely tint a chip.
+   *
+   * Ink is orange-200, a step brighter than `--accent-subtle-foreground` — the
+   * mirror of light, where this rung's ink is three steps darker than the
+   * accent's for exactly the same reason: the stronger the wash, the further
+   * the ink has to travel from it. */
+  --container-empty-subtle: color-mix(in srgb, var(--fl-orange-400) 20%, transparent);
+  --container-empty-subtle-foreground: var(--fl-orange-200);
 
   --container-returned: var(--fl-neutral-100);
   --container-returned-foreground: var(--fl-neutral-950);

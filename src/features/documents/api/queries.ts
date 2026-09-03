@@ -1,19 +1,31 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  FOLDER_FILE_CATEGORY,
   deleteDocument,
   fetchDocumentBook,
   fetchDocumentDownloads,
   fetchDocuments,
+  fetchFileBook,
   uploadDocument,
   uploadDocuments,
   verifyDocument,
   type DocumentOwnerType,
   type UploadDocumentParams,
 } from './documentsService';
+import {
+  createDriveFolder,
+  deleteDriveFolder,
+  fetchDriveFolders,
+  renameDriveFolder,
+} from './driveFoldersService';
 
 export const documentQueryKeys = {
   list: (ownerType: DocumentOwnerType, ownerId: string) => ['documents', ownerType, ownerId] as const,
   book: ['documents', 'book'] as const,
+  /** Every file in the Files section — see `fetchFileBook`. */
+  files: ['documents', 'files'] as const,
+  /** The folders those files live in. */
+  folders: ['drive', 'folders'] as const,
 };
 
 /** Every compliance paper on file — the Documents register reads this. */
@@ -99,6 +111,82 @@ export function useDeleteDocument(ownerType: DocumentOwnerType, ownerId: string 
     mutationFn: (id: string) => deleteDocument(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: documentQueryKeys.list(ownerType, ownerId ?? '') });
+    },
+  });
+}
+
+/* ---------------------------------------------------------------------------
+ * The Files section — folders people make, and what they put in them
+ * ------------------------------------------------------------------------- */
+
+export function useDriveFolders() {
+  return useQuery({ queryKey: documentQueryKeys.folders, queryFn: fetchDriveFolders });
+}
+
+export function useFileBook() {
+  return useQuery({ queryKey: documentQueryKeys.files, queryFn: fetchFileBook });
+}
+
+export function useCreateDriveFolder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { name: string; parentId?: string | null }) => createDriveFolder(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: documentQueryKeys.folders });
+    },
+  });
+}
+
+export function useRenameDriveFolder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { id: string; name: string }) => renameDriveFolder(params.id, params.name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: documentQueryKeys.folders });
+    },
+  });
+}
+
+/** Takes the sub-folders and every file with it, so both books are stale. */
+export function useDeleteDriveFolder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteDriveFolder(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: documentQueryKeys.folders });
+      queryClient.invalidateQueries({ queryKey: documentQueryKeys.files });
+    },
+  });
+}
+
+/**
+ * Any files at all, into one folder.
+ *
+ * No dates and no catalogue — the one question the Files section asks is
+ * "which folder", and the caller has already answered it.
+ */
+export function useUploadFiles(folderId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (files: File[]) =>
+      uploadDocuments({
+        ownerType: 'FOLDER',
+        ownerId: folderId as string,
+        category: FOLDER_FILE_CATEGORY,
+        files,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: documentQueryKeys.files });
+    },
+  });
+}
+
+export function useDeleteFile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteDocument(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: documentQueryKeys.files });
     },
   });
 }

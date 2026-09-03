@@ -1,5 +1,12 @@
 import type { DocumentRecord, DocumentOwnerType } from './api/documentsService';
-import { complianceFindings, tallyFindings, type ComplianceOwner, type ComplianceTally } from './compliance';
+import {
+  complianceFindings,
+  tallyFindings,
+  type ComplianceFinding,
+  type ComplianceOwner,
+  type ComplianceTally,
+  type DocumentState,
+} from './compliance';
 
 /**
  * The document book as a set of folders.
@@ -66,6 +73,24 @@ export type DriveSegment =
 
 export type DrivePath = readonly DriveSegment[];
 
+/**
+ * One paper, as the folder draws it when it opens.
+ *
+ * Held papers only — a missing one is not a sheet in the folder, it is the
+ * absence of one, and the badge under the tile is where that gets reported.
+ * Most urgent first, so the three that surface are the three worth seeing.
+ */
+export interface FolderPaper {
+  /** The catalogue's label: "Insurance", "Grey Card", "Driving Licence". */
+  category: string;
+  state: Exclude<DocumentState, 'missing'>;
+  /** Whose paper it is — a company folder's sheets come from its trucks. */
+  ownerLabel: string;
+}
+
+/** How many sheets a folder can show before the fan stops being readable. */
+export const FOLDER_PAPERS = 3;
+
 export interface DriveFolder {
   key: string;
   segment: DriveSegment;
@@ -76,11 +101,12 @@ export interface DriveFolder {
   /** Set on a company folder, for `CompanyMark`. */
   company?: { id: string; name: string };
   tally: ComplianceTally;
+  papers: FolderPaper[];
 }
 
 /** The owner whose papers this folder holds, when it is a leaf. */
 export interface DriveLeaf {
-  ownerType: Exclude<DocumentOwnerType, 'BOOKING'>;
+  ownerType: Exclude<DocumentOwnerType, 'BOOKING' | 'FOLDER'>;
   ownerId: string;
   label: string;
   /** The human reference a raised task links to; the label when there is none. */
@@ -115,6 +141,60 @@ function tallyFor(owners: ComplianceOwner[], docs: DocumentRecord[], now: number
   return tallyFindings(complianceFindings(owners, docs, now));
 }
 
+const URGENCY: Record<DocumentState, number> = { expired: 0, expiring: 1, valid: 2, missing: 3 };
+
+/**
+ * The three sheets a folder fans out, urgent first — and one per kind of paper.
+ *
+ * A transporter's folder holds eight trucks' grey cards, so ranking on urgency
+ * alone fans out three sheets all reading "Grey Card": three copies of one fact
+ * where three facts would fit. Taking one of each kind first answers the
+ * question the picture is for — *what is in here* — and the count of how many
+ * are lapsing is already on the badge underneath.
+ */
+function papersFrom(findings: ComplianceFinding[]): FolderPaper[] {
+  const held = findings
+    .filter((finding) => finding.state !== 'missing')
+    .sort((a, b) => URGENCY[a.state] - URGENCY[b.state])
+    .map((finding) => ({
+      category: finding.category,
+      state: finding.state as FolderPaper['state'],
+      ownerLabel: finding.ownerLabel,
+    }));
+
+  const seen = new Set<string>();
+  const papers = held.filter((paper) => {
+    if (seen.has(paper.category)) return false;
+    seen.add(paper.category);
+    return true;
+  });
+
+  /* A folder that really does hold only one kind of paper still shows a stack
+     — it just shows the same kind more than once, which is the truth. */
+  for (const paper of held) {
+    if (papers.length >= FOLDER_PAPERS) break;
+    if (!papers.includes(paper)) papers.push(paper);
+  }
+
+  return papers.slice(0, FOLDER_PAPERS);
+}
+
+/**
+ * Both halves of what a folder shows, off one pass of the compliance walk.
+ *
+ * The tally is the badge under the tile; the papers are what the folder fans
+ * out when it opens. They come from the same findings because they are the same
+ * question asked twice — counting it, and naming it.
+ */
+function summarise(
+  owners: ComplianceOwner[],
+  docs: DocumentRecord[],
+  now: number,
+): { tally: ComplianceTally; papers: FolderPaper[] } {
+  const findings = complianceFindings(owners, docs, now);
+  return { tally: tallyFindings(findings), papers: papersFrom(findings) };
+}
+
 /**
  * What to show at `path`.
  *
@@ -140,7 +220,7 @@ export function listDrive(
       sublabel: describeFleet(company),
       icon: 'company',
       company: { id: company.id, name: company.name },
-      tally: tallyFor(ownersUnder(company), docs, now),
+      ...summarise(ownersUnder(company), docs, now),
     }));
     return {
       trail,
@@ -196,7 +276,7 @@ export function listDrive(
           label: 'Company',
           sublabel: 'Business licence',
           icon: 'folder',
-          tally: tallyFor(selfOwner, docs, now),
+          ...summarise(selfOwner, docs, now),
         },
         {
           key: 'section:vehicles',
@@ -204,7 +284,7 @@ export function listDrive(
           label: 'Vehicles',
           sublabel: countLabel(company.vehicles.length, 'truck'),
           icon: 'vehicle',
-          tally: tallyFor(vehicleOwners, docs, now),
+          ...summarise(vehicleOwners, docs, now),
         },
         {
           key: 'section:drivers',
@@ -212,7 +292,7 @@ export function listDrive(
           label: 'Drivers',
           sublabel: countLabel(company.drivers.length, 'driver'),
           icon: 'driver',
-          tally: tallyFor(driverOwners, docs, now),
+          ...summarise(driverOwners, docs, now),
         },
       ],
       leaf: null,
@@ -262,11 +342,7 @@ export function listDrive(
         label: record.label,
         sublabel: record.sublabel,
         icon: isVehicles ? 'vehicle' : 'driver',
-        tally: tallyFor(
-          [{ ownerType, ownerId: record.id, ownerLabel: record.label }],
-          docs,
-          now,
-        ),
+        ...summarise([{ ownerType, ownerId: record.id, ownerLabel: record.label }], docs, now),
       })),
       leaf: null,
       tally: sectionTally,
@@ -305,6 +381,7 @@ export interface DriveMatch {
   icon: DriveFolder['icon'];
   path: DriveSegment[];
   tally: ComplianceTally;
+  papers: FolderPaper[];
 }
 
 export function searchDrive(
@@ -327,7 +404,7 @@ export function searchDrive(
         where: company.kind === 'PARTNER' ? 'Transporter' : 'Shipper',
         icon: 'company',
         path: [{ kind: 'company', id: company.id }],
-        tally: tallyFor(ownersUnder(company), docs, now),
+        ...summarise(ownersUnder(company), docs, now),
       });
     }
 
@@ -343,7 +420,7 @@ export function searchDrive(
           { kind: 'section', id: 'vehicles' },
           { kind: 'record', ownerType: 'VEHICLE', id: vehicle.id },
         ],
-        tally: tallyFor(
+        ...summarise(
           [{ ownerType: 'VEHICLE', ownerId: vehicle.id, ownerLabel: vehicle.label }],
           docs,
           now,
@@ -363,7 +440,7 @@ export function searchDrive(
           { kind: 'section', id: 'drivers' },
           { kind: 'record', ownerType: 'DRIVER', id: driver.id },
         ],
-        tally: tallyFor(
+        ...summarise(
           [{ ownerType: 'DRIVER', ownerId: driver.id, ownerLabel: driver.label }],
           docs,
           now,

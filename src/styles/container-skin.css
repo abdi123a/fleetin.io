@@ -1,0 +1,88 @@
+/**
+ * FLEETIN — The box itself
+ * ---------------------------------------------------------------------------
+ * A shipping container's side, drawn in CSS: corrugated ribs between a top and
+ * a bottom rail. It rides on whatever colour
+ * the card underneath it already is, so a FULL card is a green box and an EMPTY
+ * one is a yellow box — the skin says *container*, the fill says *which state*,
+ * and neither has to give anything up for the other.
+ *
+ * ## Why not the photograph
+ *
+ * The reference is a blue 20ft box, and blue is the one thing this cannot keep:
+ * on these cards colour is already spoken for by the container scale, and a
+ * literal image would either fight that or have to be re-tinted per state. It
+ * would also cost a network request per card and go soft on a HiDPI screen at
+ * the size these are drawn. Gradients scale, weigh nothing, and take the tint
+ * for free.
+ *
+ * ## It has to stay under the type
+ *
+ * These cards are 144px wide and carry four lines of text, so the whole skin is
+ * built from black and white at single-digit alpha — the two primitives kept
+ * out of the theme precisely for overlays like this — rather than from a hue.
+ * That is what lets the ribs read as an embossed surface on a saturated green
+ * and on a pale amber without being tuned twice, and keeps every one of them
+ * far enough under the text that nothing on the card got harder to read.
+ */
+
+.fl-container-skin {
+  /* Rib pitch. Eight pixels puts about eighteen ribs across a 144px card, which
+     is the density of the real thing at this width. */
+  --fl-skin-pitch: 8px;
+  /* The rails the corrugation stops at, top and bottom. */
+  --fl-skin-rail: 5px;
+  --fl-skin-groove: color-mix(in srgb, black 7%, transparent);
+  --fl-skin-crest: color-mix(in srgb, white 9%, transparent);
+
+  /* ── No corner castings ──
+   *
+   * A real box has four cast blocks it is lifted by, and this drew them as four
+   * dots inset from the corners. They were the most literal part of the skin and
+   * the one that hurt: a hard dot sitting in the throat of a 16px radius reads
+   * as a corner marker, so the card came out looking square when it is not. The
+   * ribbing and the rails carry "container" on their own; the corner belongs to
+   * the card's own shape. */
+  background-image:
+    /* ── Top and bottom rails: flat bands, no ribs, one shade down ── */
+    linear-gradient(
+      180deg,
+      var(--fl-skin-groove) 0 var(--fl-skin-rail),
+      transparent var(--fl-skin-rail) calc(100% - var(--fl-skin-rail)),
+      var(--fl-skin-groove) calc(100% - var(--fl-skin-rail)) 100%
+    ),
+    /* ── The corrugation ──
+       Soft stops rather than hard ones, so each rib reads as a rounded fold
+       catching light on one side and shading on the other rather than as a
+       stripe. */
+    repeating-linear-gradient(
+      90deg,
+      var(--fl-skin-groove) 0,
+      transparent calc(var(--fl-skin-pitch) * 0.3),
+      var(--fl-skin-crest) calc(var(--fl-skin-pitch) * 0.55),
+      transparent calc(var(--fl-skin-pitch) * 0.8),
+      var(--fl-skin-groove) var(--fl-skin-pitch)
+    );
+}
+
+/* On a pale ground white is nearly the ground itself, so the crest has to do
+   more of the work than it does on the green — but only just. At the strength
+   that looked right zoomed in it turned into hard bright bands at the size the
+   card is actually drawn, and the two smallest lines of type sat in them. */
+.fl-container-skin--pale {
+  --fl-skin-groove: color-mix(in srgb, black 6%, transparent);
+  --fl-skin-crest: color-mix(in srgb, white 30%, transparent);
+}
+
+/* Dark mode inverts which primitive does the work: a black groove on a card
+   that is already near-black is no groove at all, so the crest leads and the
+   shadow steps back. */
+:is(.dark) .fl-container-skin {
+  --fl-skin-groove: color-mix(in srgb, black 22%, transparent);
+  --fl-skin-crest: color-mix(in srgb, white 7%, transparent);
+}
+
+:is(.dark) .fl-container-skin--pale {
+  --fl-skin-groove: color-mix(in srgb, black 18%, transparent);
+  --fl-skin-crest: color-mix(in srgb, white 8%, transparent);
+}

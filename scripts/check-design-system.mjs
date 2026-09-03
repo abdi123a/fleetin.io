@@ -121,12 +121,23 @@ if (transitionAll) {
 const RADIUS_STEPS = new Set(['none', 'sm', 'md', 'lg', 'full', 'card', 'card-nested']);
 /* Corner modifiers, longest first so `tl` is stripped before `t`. */
 const RADIUS_SIDES = /^(tl|tr|bl|br|ss|se|es|ee|t|b|l|r|s|e)(?:-|$)/;
+/* Source with its comments removed.
+ *
+ * These files explain themselves at length, and a rule that greps the prose
+ * reports its own documentation as a bug: `OperationFlow.tsx` says, in a
+ * comment, that a corner "was `rounded-xl`, which is not on the app's radius
+ * ladder" — and the radius rule then flagged the sentence describing the fix.
+ * Block comments go entirely; `//` is only stripped at the start of a line, so
+ * a `https://` inside a string survives. */
+const stripComments = (src) =>
+  src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^[ \t]*\/\/.*$/gm, ' ');
+
 const deadRadius = [];
 for (const f of files.filter((x) => x.endsWith('.tsx'))) {
   /* The bracket class is part of the token on purpose: `rounded-t-[3px]` is a
      perfectly good arbitrary value, and a pattern that stops at the side
      modifier reports it as a bare `rounded-t` and condemns working code. */
-  for (const m of read(f).matchAll(/\brounded(-[A-Za-z0-9[\]_.%/-]+)?/g)) {
+  for (const m of stripComments(read(f)).matchAll(/\brounded(-[A-Za-z0-9[\]_.%/-]+)?/g)) {
     const rest = m[1];
     /* A bare `rounded` is skipped, not flagged. It reads the same as the word
        "rounded" in a sentence, and this file is full of prose — a check that

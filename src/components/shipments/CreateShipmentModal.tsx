@@ -918,8 +918,6 @@ export function CreateShipmentModal() {
   const bookingNumbersLong = transporterAssignments.filter(
     (a) => a.bookingIds.filter((b) => b.trim()).length > a.vehicles,
   );
-  const referenceFieldsMissing =
-    shipmentReferenceMissing || bookingNumbersShort.length > 0 || bookingNumbersLong.length > 0;
   /** One trip's price, as entered. */
   const perBookingFDJ = Number(clientRateInput) || 0;
   /* What the shipper is billed for the whole group: one trip's price times the
@@ -2411,36 +2409,82 @@ export function CreateShipmentModal() {
                               />
                             </div>
                             {(() => {
+                              /* The same field as Container Number(s) on step 1,
+                                 and it now behaves like it. It used to take a
+                                 bare list: no `max`, so a seventh booking number
+                                 against six vehicles looked exactly like the
+                                 first six, and no `duplicates`, so a number
+                                 reused on ANOTHER transporter was invisible here
+                                 — each field could only see its own. Both facts
+                                 were known upstairs and neither reached the
+                                 chips. */
                               const entered = a.bookingIds.filter((b) => b.trim()).length;
+                              const diff = entered - a.vehicles;
+                              const repeated = [
+                                ...new Set(a.bookingIds.filter((b) => duplicateBookingNumbers.has(b))),
+                              ];
+                              const noun = isDpcsSource ? 'DPCS booking ID' : 'booking number';
                               return (
-                                <div className="space-y-1">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
-                                      {isDpcsSource ? 'DPCS Booking ID(s) *' : 'Booking Number(s) *'}
-                                    </label>
-                                    <Badge
-                                      variant="subtle"
-                                      intent={entered === a.vehicles ? 'success' : 'warning'}
-                                      size="sm"
-                                    >
-                                      {entered} / {a.vehicles}
-                                    </Badge>
-                                  </div>
+                                <div className="space-y-2">
+                                  <label className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                                    {isDpcsSource ? 'DPCS Booking ID(s) *' : 'Booking Number(s) *'}
+                                    <HelpHint label="Entering booking numbers">
+                                      {isContainer
+                                        ? 'One per vehicle — each is a booking, and they are matched to the container numbers in the order entered. Anything past the vehicle count, or reused on another transporter, is marked on the chip itself.'
+                                        : 'One per vehicle — each is a booking, in load order. Anything past the vehicle count, or reused on another transporter, is marked on the chip itself.'}
+                                    </HelpHint>
+                                  </label>
                                   <TagInput
                                     value={a.bookingIds}
                                     onChange={(ids) => handleBookingIdsChange(a.id, ids)}
                                     transform={(raw) => raw.toUpperCase()}
+                                    /* One booking per vehicle, so the vehicle
+                                       count is the ceiling — the chips past it
+                                       are the last ones typed, which is what a
+                                       person removes to get back to the count. */
+                                    max={a.vehicles}
+                                    /* Computed once across every transporter:
+                                       the same number on two carriers is a
+                                       collision that neither field can see. */
+                                    duplicates={duplicateBookingNumbers}
                                     placeholder={
                                       isDpcsSource
                                         ? "Type or paste this transporter's DPCS booking ID(s)"
                                         : 'Type one booking number per vehicle, in load order'
                                     }
                                   />
-                                  <HelpHint label="Entering booking numbers">
-                                    {isContainer
-                                      ? 'One per vehicle — each is a booking, and they are matched to the container numbers in the order entered.'
-                                      : 'One per vehicle — each is a booking, in load order.'}
-                                  </HelpHint>
+
+                                  {repeated.length > 0 && (
+                                    <div className="flex items-start gap-2 rounded-md bg-destructive-subtle p-2.5 text-[11px] text-destructive-subtle-foreground">
+                                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                                      <span>
+                                        <span className="font-mono font-bold">{repeated.join(', ')}</span>{' '}
+                                        {repeated.length > 1 ? 'are' : 'is'} entered more than once — every{' '}
+                                        {noun} must be unique.
+                                      </span>
+                                    </div>
+                                  )}
+
+                                  {/* An untouched field being empty is not news;
+                                      the count going wrong is. Same rule the
+                                      container list follows. */}
+                                  {entered === 0 && diff < 0 ? null : diff !== 0 ? (
+                                    <div className="flex items-start gap-2 rounded-md bg-warning-subtle p-2.5 text-[11px] text-warning-subtle-foreground">
+                                      <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                                      <span>
+                                        {diff < 0
+                                          ? `Add ${Math.abs(diff)} more ${noun}${Math.abs(diff) > 1 ? 's' : ''} to match the ${a.vehicles} vehicle${a.vehicles > 1 ? 's' : ''}.`
+                                          : `${diff} extra ${noun}${diff > 1 ? 's' : ''} entered — remove some or increase the vehicles above.`}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-2 rounded-md bg-success-subtle p-2.5 text-[11px] text-success-subtle-foreground">
+                                      <Check className="w-3.5 h-3.5 shrink-0" />
+                                      <span>
+                                        All {a.vehicles} {noun}{a.vehicles > 1 ? 's' : ''} confirmed.
+                                      </span>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })()}
@@ -2469,17 +2513,21 @@ export function CreateShipmentModal() {
                         </div>
                       )}
 
-                      {referenceFieldsMissing && (
+                      {/* Only the thing no field on this step can say. The
+                          short/long counts used to be repeated here as one
+                          anonymous line — "Remove the extra booking number(s)"
+                          with two transporters on screen and no clue which one
+                          — and every booking field now states its own balance
+                          exactly, naming its own transporter by sitting under
+                          it. Step 1's missing reference has no field here, so
+                          it keeps the banner. */}
+                      {shipmentReferenceMissing && (
                         <div className="flex items-start gap-2 rounded-md bg-warning-subtle p-2.5 text-[11px] text-warning-subtle-foreground">
                           <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                           <span>
-                            {shipmentReferenceMissing
-                              ? isDpcsSource
-                                ? 'Enter the DPCS Shipment ID in step 1, and one booking number per vehicle here.'
-                                : 'Enter the shipment number in step 1, and one booking number per vehicle here.'
-                              : bookingNumbersLong.length > 0
-                                ? 'Remove the extra booking number(s) — there is one per vehicle.'
-                                : 'Enter a booking number for every vehicle — one per container.'}
+                            {isDpcsSource
+                              ? 'Enter the DPCS Shipment ID in step 1, and one booking number per vehicle here.'
+                              : 'Enter the shipment number in step 1, and one booking number per vehicle here.'}
                           </span>
                         </div>
                       )}

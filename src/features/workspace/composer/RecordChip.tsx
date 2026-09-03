@@ -51,6 +51,15 @@ export interface RecordChipProps {
   label?: string | null;
   /** The record's live status. Drives the chip's only splash of colour. */
   status?: string | null;
+  /**
+   * Drop the status pill, keeping the status itself.
+   *
+   * For dense lists whose rows already carry a ladder of their own — the task
+   * list drew the RECORD's state beside the TASK's, so every row held two and
+   * the reader had to work out which one a green belonged to. The status still
+   * reaches the title and the peek, which is where it is worth reading.
+   */
+  hideStatus?: boolean;
   /** A booking's shipment reference — what lets it open its own sheet. */
   parentRef?: string | null;
   /** The row's uuid, for `?openBooking=`. */
@@ -102,8 +111,9 @@ export interface RecordChipProps {
  * shows where it goes; the click is intercepted, not the link.
  */
 export function RecordChip({
-  recordType, reference, label, status, parentRef, recordId, missing = false,
-  size = 'md', static: isStatic = false, inverted = false, context, className,
+  recordType, reference, label, status, hideStatus = false, parentRef, recordId,
+  missing = false, size = 'md', static: isStatic = false, inverted = false,
+  context, className,
 }: RecordChipProps) {
   const Icon = TYPE_ICON[recordType];
   const typeLabel = RECORD_TYPE_LABEL[recordType];
@@ -141,7 +151,7 @@ export function RecordChip({
         aria-hidden
       />
       <span className="truncate font-mono">{reference}</span>
-      {status ? (
+      {status && !hideStatus ? (
         <span
           className={cn(
             'shrink-0 rounded-sm font-semibold uppercase tracking-wide',

@@ -188,6 +188,14 @@ export interface PartnerRecord {
   // Location
   country: string;
   address: string;
+  /**
+   * Where the trucks sleep — a catalogue location, measured to by Fleetin
+   * Impact (`Free Zone → Garage → Port` is what a realized match eliminates).
+   * Null means no garage is recorded, and a continuation is then recognised
+   * but not measured. Never inferred from the address.
+   */
+  garageLocationId?: string | null;
+  garageLocation?: { id: string; reference: string; name: string; kind: string; city: string } | null;
 
   // Insurance & License
   insuranceProvider?: string;

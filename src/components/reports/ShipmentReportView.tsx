@@ -6,6 +6,7 @@ import {
   Clock,
   ContainerIcon,
   Leaf,
+  Route,
   Truck,
 } from '@/design-system/icons';
 import { Badge } from '@/design-system';
@@ -60,6 +61,24 @@ import { ReportCard, ReportEmpty, ReportStatusBadge, STAGE_VISUAL } from './repo
  * the event trail, and emissions are a stored per-booking column snapshotted
  * at assignment. Keeping it a prop means neither has to know about the other.
  */
+/**
+ * The shipment's Fleetin Impact, as the report states it.
+ *
+ * Kept apart from `ShipmentCarbon` on purpose: one is what the trucks put
+ * out, the other is the `Free Zone → Garage → Port` repositioning a realized
+ * match stopped them driving. Neither is ever subtracted from the other.
+ */
+export interface ShipmentImpactFigures {
+  distanceKm: number;
+  co2Kg: number;
+  /** Continuations that physically happened and carry the count. */
+  realizedMatches: number;
+  /** Of those, how many could be priced — a carbon figure needs the truck. */
+  pricedMatches: number;
+  /** Of those, how many could not be measured — no garage on file. */
+  unmeasured: number;
+}
+
 export interface ShipmentCarbon {
   /** kg CO₂ — the sum of the containers that have actually been driven. */
   co2Kg: number;
@@ -75,10 +94,12 @@ export interface ShipmentReportViewProps {
   report: ShipmentReport;
   /** Absent, or `priced: 0`, when nothing under this shipment has moved yet. */
   carbon?: ShipmentCarbon | null;
+  /** The other account — what the containers' realized continuations did not drive. */
+  impact?: ShipmentImpactFigures | null;
   className?: string;
 }
 
-export function ShipmentReportView({ report, carbon, className }: ShipmentReportViewProps) {
+export function ShipmentReportView({ report, carbon, impact, className }: ShipmentReportViewProps) {
   const { containers, onTime, time, stages, custody, containerReturn: ret } = report;
 
   const longestStage = stages.find((stage) => stage.isLongest) ?? null;
@@ -219,6 +240,45 @@ export function ShipmentReportView({ report, carbon, className }: ShipmentReport
               }
               size="sm"
             />
+          </div>
+        </ReportCard>
+      )}
+
+      {/* ══ 2b. Fleetin Impact ══════════════════════════════════════════
+          The other account. A container that left the free zone under the
+          next load, or a load that continued from an empty's free zone,
+          saved a `Free Zone → Garage → Port` round trip — and only when the
+          truck really continued, judged from the bookings' rungs. Its own
+          card rather than three more cells under "Emissions": what was
+          driven and what was not are never one figure. */}
+      {impact && impact.realizedMatches > 0 && (
+        <ReportCard
+          icon={Route}
+          title="Fleetin Impact"
+          right={
+            impact.unmeasured > 0 ? (
+              <Badge intent="warning" variant="subtle" size="sm">
+                {impact.unmeasured} of {impact.realizedMatches} not measured — no garage on file
+              </Badge>
+            ) : undefined
+          }
+        >
+          <div className="grid grid-cols-2 gap-2.5 @[34rem]/report:grid-cols-3">
+            <Cell label="Distance avoided" value={`${formatKm(impact.distanceKm).value} km`} tone="good" />
+            {/* A distance is a fact about the transporter; a carbon figure
+                needs the truck. When no counted continuation could name one,
+                the carbon is unknown — never zero, which would read as
+                measured and found to be nothing. */}
+            <Cell
+              label="CO₂ avoided"
+              value={
+                impact.pricedMatches > 0
+                  ? `${formatCo2(impact.co2Kg).value} ${formatCo2(impact.co2Kg).unit}`
+                  : 'Not priced'
+              }
+              tone={impact.pricedMatches > 0 ? 'good' : 'neutral'}
+            />
+            <Cell label="Realized matches" value={String(impact.realizedMatches)} size="sm" />
           </div>
         </ReportCard>
       )}

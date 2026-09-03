@@ -32,6 +32,19 @@ export interface SidebarNavItemProps {
   onNavigate?: () => void;
 }
 
+/*
+ * 18px icons, 16px on a child row.
+ *
+ * 16 was too small to aim at and 20 read as oversized against this type size,
+ * so this sits on the scale's middle step — `ICON_SIZES` lists 18 for "compact
+ * buttons and secondary bars", which is the weight a nav row wants next to
+ * 14px labels.
+ *
+ * Stroke, deliberately. A filled set was tried and rejected: solid glyphs read
+ * as heavy blocks against this teal and lose the drawn quality the rest of the
+ * app has. Size was the actual problem, and it is fixed here rather than by
+ * changing what the icons are.
+ */
 const ROW_BASE = [
   'group/nav-item relative z-10 flex w-full items-center gap-2.5 rounded-md py-2 pl-2.5 pr-2',
   'type-body tracking-tight transition-colors duration-fast ease-out',
@@ -112,7 +125,7 @@ export function SidebarNavItem({
                   isBranch ? ICON_BRANCH : ICON_IDLE,
                 )}
               >
-                <item.icon className="h-4 w-4 shrink-0" aria-hidden />
+                <item.icon className="size-[18px] shrink-0" aria-hidden />
               </span>
             )}
           </button>
@@ -133,7 +146,7 @@ export function SidebarNavItem({
                 isBranch ? ICON_BRANCH : ICON_IDLE,
               )}
             >
-              <item.icon className={cn('shrink-0', depth > 0 ? 'h-3.5 w-3.5' : 'h-4 w-4')} aria-hidden />
+              <item.icon className={cn('shrink-0', depth > 0 ? 'size-4' : 'size-[18px]')} aria-hidden />
             </span>
           )}
           <span className="flex-1 truncate text-left">{item.label}</span>
@@ -189,7 +202,7 @@ export function SidebarNavItem({
             isActive ? ICON_ACTIVE : ICON_IDLE,
           )}
         >
-          <item.icon className={cn('shrink-0', depth > 0 ? 'h-3.5 w-3.5' : 'h-4 w-4')} aria-hidden />
+          <item.icon className={cn('shrink-0', depth > 0 ? 'size-4' : 'size-[18px]')} aria-hidden />
         </span>
       )}
 

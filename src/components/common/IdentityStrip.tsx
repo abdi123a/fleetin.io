@@ -23,11 +23,21 @@ export function PartyName({
   label,
   name,
   children,
+  meta,
 }: {
   label: string;
   name: string;
-  /** Anything that qualifies the party itself — a rating, a state tag. */
+  /** Anything that qualifies the party itself — a state tag. Sits BESIDE the name. */
   children?: ReactNode;
+  /**
+   * A second line under the name, for a fact about this party specifically.
+   *
+   * Beside the name is the wrong place for anything wide: a rating put there
+   * doubled the transporter's cell, made the haulier the loudest party in a
+   * strip of equals, and pushed the cell after it onto a second row. Under the
+   * name it belongs to the party just as plainly and sets no column width.
+   */
+  meta?: ReactNode;
 }) {
   const logo = useCompanyLogo(name);
   return (
@@ -48,6 +58,7 @@ export function PartyName({
           <p className="truncate text-[12.5px] font-bold leading-tight text-foreground">{name}</p>
           {children}
         </div>
+        {meta && <div className="mt-0.5 flex min-w-0 items-center">{meta}</div>}
       </div>
     </div>
   );
@@ -91,7 +102,9 @@ export function IdentityStrip({
   return (
     <div
       className={cn(
-        'flex flex-wrap items-center gap-x-7 gap-y-3 border-t border-border/60 pt-4',
+        /* `items-start`: once one cell can carry a second line under its name,
+           centring the rest floats their labels off the strip's top edge. */
+        'flex flex-wrap items-start gap-x-7 gap-y-3 border-t border-border/60 pt-4',
         className,
       )}
     >

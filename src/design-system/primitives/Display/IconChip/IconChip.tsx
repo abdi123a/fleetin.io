@@ -35,8 +35,10 @@ export type IconChipTint =
   | 'red'
   | 'blue'
   | 'neutral'
+  | 'impact'
   | 'on-teal'
   | 'on-green'
+  | 'on-impact'
   | 'on-done'
   | 'on-light';
 
@@ -53,6 +55,8 @@ const CHIP_TINT: Record<IconChipTint, string> = {
   amber: 'bg-warning text-warning-foreground',
   red: 'bg-destructive text-destructive-foreground',
   blue: 'bg-info text-info-foreground',
+  /* Fleetin Impact's yellow — the road a realized match did not drive. */
+  impact: 'bg-impact text-impact-foreground',
   neutral: 'bg-muted-foreground text-background',
   /* On a filled tile the card carries the hue, so the disc inverts. */
   'on-teal': 'bg-white text-tile-teal',
@@ -62,6 +66,7 @@ const CHIP_TINT: Record<IconChipTint, string> = {
      light and a near-white one on dark, so a hard-coded white disc would
      vanish into it the moment the theme changed. */
   'on-green': 'bg-success-foreground text-success',
+  'on-impact': 'bg-impact-foreground text-impact',
   'on-done': 'bg-tile-done-foreground text-tile-done',
   'on-light': 'bg-white text-tile-foreground',
 };

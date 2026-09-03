@@ -25,6 +25,8 @@
 @import './animations.css';
 @import './base.css';
 @import './typography.css';
+@import './folder.css';
+@import './container-skin.css';
 
 /* Class-based dark mode (driven by the theme store, not the media query). */
 @custom-variant dark (&:is(.dark *));
@@ -217,6 +219,11 @@
   --color-return-matched: var(--return-matched);
   --color-return-matched-ink: var(--return-matched-ink);
   --color-return-matched-subtle: var(--return-matched-subtle);
+  --color-impact: var(--impact);
+  --color-impact-foreground: var(--impact-foreground);
+  --color-impact-subtle: var(--impact-subtle);
+  --color-impact-subtle-foreground: var(--impact-subtle-foreground);
+  --color-impact-border: var(--impact-border);
   --color-return-standalone: var(--return-standalone);
   --color-return-standalone-ink: var(--return-standalone-ink);
   --color-return-standalone-subtle: var(--return-standalone-subtle);
@@ -371,6 +378,14 @@
   --animate-collapsible-up: fl-collapsible-up var(--fl-duration-normal) var(--fl-ease-emphasized);
   --animate-shimmer: fl-shimmer 1.6s var(--fl-ease-linear) infinite;
   --animate-spin: fl-spin 0.7s var(--fl-ease-linear) infinite;
+
+  /* The lit edge on a matched booking — see `ShineBorder`. The one animation
+     here that loops, because it marks a standing state rather than a moment. */
+  --animate-shine: fl-shine var(--fl-shine-duration, 8s) var(--fl-ease-linear) infinite;
+  /* Linear on purpose: an eased sweep zips across and then crawls, which reads
+     as a thing decelerating rather than as light passing over glass. */
+  --animate-gloss: fl-gloss var(--fl-gloss-duration, 6s) var(--fl-ease-linear) infinite;
+  --animate-glow-breathe: fl-glow-breathe 5.5s var(--fl-ease-in-out, ease-in-out) infinite;
 
   /* The pairing celebration — see `animations.css`. None of them repeat. */
   --animate-burst-ring: fl-burst-ring 900ms var(--fl-ease-out) forwards;

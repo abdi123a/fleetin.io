@@ -40,10 +40,12 @@ import { BOOKING_LADDER } from '@/features/bookings/api/bookingsService';
 import { RecordRaise } from '@/features/workspace';
 import {
   Co2Figure,
+  FleetinImpactBlock,
   useBookingRoute,
   useRebuildBookingRoute,
   type RouteLeg,
 } from '@/features/emissions';
+import { usePermissions } from '@/hooks/usePermissions';
 import { co2Number, formatFactor } from '@/lib/co2';
 import { BookingProofPanel } from '@/features/documents/components/BookingProofPanel';
 import { ProofFileField } from '@/features/documents/components/ProofFileField';
@@ -231,6 +233,10 @@ export function BookingPreviewSheet({
      mounted for the life of the page — fetches nothing until one is picked. */
   const { data: route } = useBookingRoute(booking?.id);
   const rebuildRoute = useRebuildBookingRoute();
+  /* Saying what a truck physically did is the Empty Container module's
+     write, so its permission gates the verdict buttons — not the sheet's. */
+  const { can } = usePermissions();
+  const canDecideImpact = can('empty-returns.update');
   const { data: partnerVehicles } = useVehicles({ partnerId: booking?.partnerId ?? '__unassigned__' });
   const { data: partnerDrivers } = useDrivers({ partnerId: booking?.partnerId ?? '__unassigned__' });
   const { confirm, confirmDialog } = useConfirm();
@@ -1507,6 +1513,17 @@ export function BookingPreviewSheet({
                 ))}
               </Card>
             </div>
+          )}
+
+          {/* ── FLEETIN IMPACT ──
+           *
+           * The other account, under its own heading and never inside the
+           * emissions block above: what a realized match stopped this truck
+           * driving. Drawn only for a booking that is one end of a pairing —
+           * the empty that left under a next load, or the load that continued
+           * from a free zone — so most sheets never show it at all. */}
+          {route?.impacts && route.impacts.length > 0 && (
+            <FleetinImpactBlock impacts={route.impacts} canDecide={canDecideImpact} />
           )}
 
           {/* EMPTY RETURN — only meaningful once this booking is delivered.

@@ -37,6 +37,7 @@ import {
   type DebriefSubject,
 } from '@/components/bookings';
 import { RecordRaise, RecordTickets } from '@/features/workspace';
+import { SHINE_HOST, ShineBorder } from '@/components';
 import { Co2CardStrip } from '@/features/emissions';
 import { useSetShipmentCrew, useShipment, useShipmentRaw } from '@/features/shipments/api/queries';
 import { markShipmentSeen } from '@/features/shipments/seenShipments';
@@ -867,8 +868,23 @@ export function ShipmentOverviewPage() {
               <div
                 key={item.id}
                 onClick={() => handleBookingClick(item)}
-                className="group relative overflow-hidden rounded-lg border border-border/80 bg-card p-3 shadow-2xs transition cursor-pointer hover:border-primary/50"
+                className={cn(
+                  'group relative overflow-hidden rounded-lg border bg-card p-3 shadow-2xs transition cursor-pointer',
+                  /* A matched empty is the one row here somebody ARRANGED
+                     rather than merely recorded: this box is going home under
+                     another load, so no truck drives back empty for it. The
+                     magenta disc says so, but an 18px disc among five other
+                     marks is not what the eye lands on — the lit edge is, and
+                     it costs the card no room to say it.
+                     The static border goes transparent underneath, or a grey
+                     line sits on top of the travelling one and dulls it. */
+                  item.emptyReturnMatched
+                    ? ['border-transparent hover:border-transparent', SHINE_HOST]
+                    : 'border-border/80 hover:border-primary/50',
+                )}
               >
+                {item.emptyReturnMatched && <ShineBorder />}
+
                 {/*
                   * The card's header, and it is a ROW.
                   *
@@ -1063,7 +1079,17 @@ export function ShipmentOverviewPage() {
                                        the sheet and navigate underneath it. */
                                     event.stopPropagation();
                                     selectEmptyForMatching(reference);
-                                    navigate(ROUTES.emptyReturnsMatching);
+                                    /* `from=` is what draws the way back. Without
+                                       it the operator confirms the pairing and is
+                                       left standing on the Empty Container board
+                                       with no route to the shipment they left —
+                                       Matching has drawn that link all along and
+                                       this was the door that never passed it. */
+                                    navigate(
+                                      id
+                                        ? `${ROUTES.emptyReturnsMatching}?from=${encodeURIComponent(id)}`
+                                        : ROUTES.emptyReturnsMatching,
+                                    );
                                   }}
                                   title="Empty return — book this container a ride back"
                                   className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-warning-subtle-foreground/30 bg-warning-subtle px-1.5 py-0.5 text-[11px] font-semibold text-warning-subtle-foreground transition-colors hover:border-warning-subtle-foreground/60 hover:bg-warning-subtle/70 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"

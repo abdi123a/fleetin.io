@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { Button, Card, Spinner } from '@/design-system';
-import { LifeBuoy, Plus } from '@/design-system/icons';
+import { Plus, Ticket } from '@/design-system/icons';
 import { ROUTES, buildPath } from '@/config/routes';
 
 import { useTickets } from '../api/ticketQueries';
@@ -48,7 +48,7 @@ export function RecordTickets({
     <Card className={className}>
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
         <h3 className="flex items-center gap-2 text-sm font-bold text-foreground">
-          <LifeBuoy className="size-4 text-primary" aria-hidden />
+          <Ticket className="size-4 text-primary" aria-hidden />
           Tickets
           {tickets.length > 0 ? (
             <span className="font-mono text-xs font-bold text-muted-foreground">

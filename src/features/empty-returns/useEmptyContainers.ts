@@ -26,6 +26,20 @@ export interface EmptyContainersModel {
   records: EmptyReturnRecord[];
   /** Containers still awaiting the pair-or-return decision. */
   awaiting: EmptyReturnRecord[];
+  /**
+   * Every container still OUT — undecided, or decided to go back alone.
+   *
+   * What the matching board lists. A container flagged "standalone" has had a
+   * decision made about it, but it is still sitting in a yard racing its own
+   * deadline and the operator is still allowed to change their mind — which is
+   * the whole reason `markStandalone` is reversible. Dropping it from the board
+   * the moment it was flagged meant the one screen for acting on empties went
+   * blank while seven of them were still out.
+   *
+   * Paired and closed boxes are not here: a pairing has a cycle carrying it,
+   * and a closed one is home.
+   */
+  onBoard: EmptyReturnRecord[];
   /** Open full loads nothing has claimed — the demand side of matching. */
   loads: FullLoadMission[];
   /** Wall clock, ticking. Every derived figure is measured against it. */
@@ -62,6 +76,11 @@ export function useEmptyContainers(): EmptyContainersModel {
 
   const awaiting = useMemo(() => records.filter((r) => r.stage === 'empty'), [records]);
 
+  const onBoard = useMemo(
+    () => records.filter((r) => r.stage === 'empty' || r.stage === 'return_planned'),
+    [records],
+  );
+
   const loads = useMemo(
     () => unclaimedLoads((loadsQuery.data ?? []).map(bookingToFullLoadMission), records),
     [loadsQuery.data, records],
@@ -88,6 +107,7 @@ export function useEmptyContainers(): EmptyContainersModel {
   return {
     records,
     awaiting,
+    onBoard,
     loads,
     now,
     isLoading: cyclesQuery.isLoading || availableQuery.isLoading || loadsQuery.isLoading,

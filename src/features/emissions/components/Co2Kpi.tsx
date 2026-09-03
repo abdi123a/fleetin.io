@@ -35,11 +35,20 @@ export interface Co2KpiProps {
   icon: ComponentType<SVGProps<SVGSVGElement>>;
   /** The one tile the eye should land on first. At most one per row. */
   lead?: boolean;
+  /**
+   * Green is carbon — what the trucks put out. Yellow is Fleetin Impact —
+   * what a realized match stopped them driving. Two questions, two
+   * environmental hues, so a reader never adds an avoided figure to an
+   * emitted one. Not teal: teal is the console, and it would flatten the
+   * one row on this page that is about the road.
+   */
+  tone?: 'green' | 'impact';
   loading?: boolean;
   className?: string;
 }
 
-export function Co2Kpi({ label, value, unit, icon, lead, loading, className }: Co2KpiProps) {
+export function Co2Kpi({ label, value, unit, icon, lead, tone = 'green', loading, className }: Co2KpiProps) {
+  const impact = tone === 'impact';
   if (loading) {
     return (
       <div className="flex min-h-[92px] flex-col justify-between gap-3 rounded-card border border-border bg-surface p-3.5">
@@ -54,8 +63,12 @@ export function Co2Kpi({ label, value, unit, icon, lead, loading, className }: C
       className={cn(
         '@container/tile flex min-h-[92px] flex-col gap-2 rounded-card border p-3.5',
         lead
-          ? 'border-transparent bg-success text-success-foreground'
-          : 'border-success/20 bg-success-subtle/30 text-foreground',
+          ? impact
+            ? 'border-transparent bg-impact text-impact-foreground'
+            : 'border-transparent bg-success text-success-foreground'
+          : impact
+            ? 'border-impact-border/40 bg-impact-subtle/50 text-foreground'
+            : 'border-success/20 bg-success-subtle/30 text-foreground',
         className,
       )}
     >
@@ -63,7 +76,11 @@ export function Co2Kpi({ label, value, unit, icon, lead, loading, className }: C
         <span
           className={cn(
             'min-w-0 text-xs font-semibold leading-tight',
-            lead ? 'text-success-foreground/95' : 'text-muted-foreground',
+            lead
+              ? impact
+                ? 'text-impact-foreground/90'
+                : 'text-success-foreground/95'
+              : 'text-muted-foreground',
           )}
         >
           {label}
@@ -72,7 +89,7 @@ export function Co2Kpi({ label, value, unit, icon, lead, loading, className }: C
             same reason `StatisticCard` drops it: the words are the card. */}
         <IconChip
           icon={icon}
-          tint={lead ? 'on-green' : 'green'}
+          tint={lead ? (impact ? 'on-impact' : 'on-green') : impact ? 'impact' : 'green'}
           size={36}
           className="hidden @[9rem]/tile:inline-flex"
         />
@@ -87,7 +104,11 @@ export function Co2Kpi({ label, value, unit, icon, lead, loading, className }: C
           <span
             className={cn(
               'text-xs font-semibold',
-              lead ? 'text-success-foreground/85' : 'text-muted-foreground',
+              lead
+                ? impact
+                  ? 'text-impact-foreground/80'
+                  : 'text-success-foreground/85'
+                : 'text-muted-foreground',
             )}
           >
             {unit}

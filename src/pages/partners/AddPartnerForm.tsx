@@ -12,6 +12,7 @@ import { Check } from 'lucide-react';
 import { Button, Input, Select } from '@/design-system';
 import { PARTNER_STATUS_OPTIONS } from '@/components/common';
 import { getCountryOptions } from '@/data/geoData';
+import { useLocations } from '@/features/locations';
 import { DocumentChecklist } from '@/features/documents/components/DocumentChecklist';
 import type { DocumentCapture } from '@/features/documents/components/DocumentCaptureDialog';
 import { documentCatalogFor, type DocumentTypeSpec } from '@/features/documents/catalog';
@@ -29,6 +30,8 @@ export interface PartnerFormData {
   companyLegalName: string;
   country: string;
   address: string;
+  /** Catalogue location id of the garage, or '' for none. */
+  garageLocationId?: string;
   operatingRegions: string;     // comma-separated
   serviceCategories: string;    // comma-separated
   fleetSize: string;
@@ -180,6 +183,21 @@ export function AddPartnerForm({ initialData, isEdit = false, onSuccess, onCance
   }, [initialData]);
 
   const countryOptions = useMemo(() => getCountryOptions(), []);
+
+  /* The garage is picked from the catalogue, never typed: Fleetin Impact
+     measures `Free Zone → Garage → Port` from it, and only a pin can be
+     measured to. Yards and depots first — that is what a garage is — but any
+     place is allowed, because a carrier occasionally bases its trucks at a
+     customer's site. */
+  const { data: locations } = useLocations();
+  const garageOptions = useMemo(() => {
+    const rank = (kind: string) => (kind === 'yard' ? 0 : kind === 'depot' ? 1 : 2);
+    return (locations ?? [])
+      .filter((location) => location.active || location.id === formData.garageLocationId)
+      .sort((a, b) => rank(a.kind) - rank(b.kind) || a.name.localeCompare(b.name))
+      .map((location) => ({ value: location.id, label: location.name }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locations, formData.garageLocationId]);
 
   /* What is already on file, with anything staged this session on top of it —
      re-filing a licence in edit mode shows the new one, not the old. */
@@ -425,6 +443,23 @@ export function AddPartnerForm({ initialData, isEdit = false, onSuccess, onCance
                     onChange={(e) => handleInputChange('address', e.target.value)}
                   />
                 </div>
+              </div>
+
+              {/* Where the trucks sleep. The one fact Fleetin Impact cannot
+                  read off a booking: the garage a truck would have gone back
+                  to between two jobs, and so the length of the round trip a
+                  realized match saved. */}
+              <div className="space-y-1.5">
+                <label htmlFor="garage-select" className="block type-caption font-medium text-foreground">
+                  Garage
+                </label>
+                <Select
+                  id="garage-select"
+                  value={formData.garageLocationId ?? ''}
+                  placeholder="No garage recorded"
+                  options={garageOptions}
+                  onChange={(e) => handleInputChange('garageLocationId', e.target.value)}
+                />
               </div>
 
               {/* Brand mark. Every named transporter in the app is drawn with

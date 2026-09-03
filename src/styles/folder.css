@@ -1,0 +1,308 @@
+/**
+ * FLEETIN — Fleetin Drive's folder
+ * ---------------------------------------------------------------------------
+ * The drive's own folder, which now opens. The drawing is unchanged — same tab
+ * path, same face rectangle, same two tones — and the opening choreography is
+ * adapted from React Bits' `Folder` (reactbits.dev). Four things changed on the
+ * way in, and each is load-bearing:
+ *
+ * 1. OUR SHAPE, THEIR MOTION. The original is a 100×80 rounded box with a stub
+ *    tab. Every dimension here is derived from the drive's 64×50 viewBox
+ *    instead, so a grid of folders at rest is pixel-for-pixel what it was and
+ *    only the hover is new.
+ *
+ * 2. NO HEX. The original derives its palette by darkening a hex prop in JS,
+ *    which cannot read a `var()` and so cannot follow the theme. Every colour
+ *    here is a token, so the folder is right in dark mode for the same reason
+ *    everything else is — and the drive keeps the rule it was designed around:
+ *    neutral body, state on the tab. See `--folder-face` in tokens.semantic.css
+ *    for why the body is deliberately grey.
+ *
+ * 3. SIZED, NOT SCALED. `transform: scale()` leaves the layout box at its
+ *    original size, so a grid of scaled folders overlaps its own gutters. One
+ *    width variable drives every dimension instead and the box stays honest.
+ *
+ * 4. HOVER OPENS, CLICK ENTERS. The original toggles open on click. On the
+ *    drive a click already means "go into this folder", and two meanings on one
+ *    target is one too many — so the host drives `open` from hover and focus,
+ *    and the animation becomes the affordance for the click rather than a rival
+ *    to it.
+ *
+ * Reduced motion is handled globally in base.css, which flattens every
+ * transition duration; the folder still reaches its open pose, just instantly.
+ */
+
+.fl-folder {
+  /* The one dimension. Everything below is a ratio of the 64×50 viewBox the
+     drive has always drawn the folder in, so there is no second set of numbers
+     to keep in step with the path. */
+  --fl-folder-w: 124px;
+  --fl-folder-h: calc(var(--fl-folder-w) * 50 / 64);
+  /* The face rectangle's height — `height="36"` of the 64-wide viewBox. The
+     mark is placed against this, not against the folder. */
+  --fl-folder-well-h: calc(var(--fl-folder-w) * 36 / 64);
+  /* `rx="6"` on a 64-wide viewBox. */
+  --fl-folder-r: calc(var(--fl-folder-w) * 6 / 64);
+  /* How much of its height the flaps keep when they drop. Their new centre is
+     half of it, and the mark has to land there. */
+  --fl-folder-flap: 0.58;
+  --fl-folder-lift: 6px;
+
+  /* Tab and inside carry the state; the flaps stay neutral. */
+  --fl-folder-tone: var(--folder-fold);
+  --fl-folder-face: var(--folder-face);
+
+  /* Three sheets, palest on top. The steps are small on purpose: separation
+     comes from the edge below, not the fill. The folder's own face is a
+     near-white neutral, so a stack distinguished by fill alone fans out into
+     one grey mass with a notch in it. */
+  --fl-folder-paper-1: color-mix(in oklab, var(--card) 94%, var(--foreground));
+  --fl-folder-paper-2: color-mix(in oklab, var(--card) 97%, var(--foreground));
+  --fl-folder-paper-3: var(--card);
+  --fl-folder-edge: 0 0 0 1px var(--border), 0 1px 3px color-mix(in srgb, var(--foreground) 12%, transparent);
+
+  /* Spans, not divs, because the whole tile is a <button> and a <div> inside
+     one is invalid. They still have to be laid out like boxes. */
+  display: block;
+  position: relative;
+  width: var(--fl-folder-w);
+  height: var(--fl-folder-h);
+  transition: transform var(--fl-duration-normal) var(--fl-ease-out);
+}
+
+/* At 70%. A tab at full strength is a saturated bar on every folder that owes
+   anything at all, and on a grid where most folders owe something that is a row
+   of alarms with no ranking between them. */
+.fl-folder--warn {
+  --fl-folder-tone: color-mix(in srgb, var(--warning) 70%, transparent);
+}
+
+.fl-folder--fault {
+  --fl-folder-tone: color-mix(in srgb, var(--destructive) 70%, transparent);
+}
+
+/* The lift is a transform, so it borrows no space from the grid. */
+.fl-folder--open {
+  transform: translateY(calc(-1 * var(--fl-folder-lift)));
+  /* An open folder throws its papers clear of its own box. Without this it goes
+     under the tile to its right. */
+  z-index: 1;
+}
+
+/* ---------------------------------------------------------------------------
+ * The shell — the drive's own drawing
+ * ------------------------------------------------------------------------- */
+
+.fl-folder__shell {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.fl-folder__tab {
+  fill: var(--fl-folder-tone);
+}
+
+/* What the flaps open onto, and the box every paper sits in — both are the face
+   rectangle: `x="2" y="12" width="60" height="36"` of the 64×50 viewBox. */
+.fl-folder__inside,
+.fl-folder__well {
+  position: absolute;
+  left: calc(100% * 2 / 64);
+  right: calc(100% * 2 / 64);
+  top: calc(100% * 12 / 50);
+  bottom: calc(100% * 2 / 50);
+}
+
+/* One layer under the flaps and in the folder's own colour, so opening reveals
+   an inside rather than a hole. */
+.fl-folder__inside {
+  z-index: 1;
+  background: var(--fl-folder-tone);
+  border-radius: var(--fl-folder-r);
+}
+
+.fl-folder__well {
+  z-index: 2;
+  display: block;
+}
+
+/* Two flaps, skewing opposite ways. At rest they sit on top of each other and
+   read as the one face rectangle the drive has always drawn; opening splays
+   them into a V and the fold gets an edge. */
+.fl-folder__front {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  background: var(--fl-folder-face);
+  border-radius: var(--fl-folder-r);
+  /* The fold needs an edge for the same reason the sheets do — two neutral
+     flaps splaying over a neutral face is one shape unless the lip is drawn. */
+  box-shadow: var(--fl-folder-edge);
+  transform-origin: bottom;
+  transition: transform var(--fl-duration-slow) var(--fl-ease-emphasized);
+}
+
+.fl-folder--open .fl-folder__front {
+  transform: skew(14deg) scaleY(var(--fl-folder-flap));
+}
+
+.fl-folder--open .fl-folder__front--right {
+  transform: skew(-14deg) scaleY(var(--fl-folder-flap));
+}
+
+/* ---------------------------------------------------------------------------
+ * The papers
+ * ------------------------------------------------------------------------- */
+
+.fl-folder__paper {
+  display: block;
+  position: absolute;
+  z-index: 2;
+  bottom: 8%;
+  left: 50%;
+  width: 72%;
+  height: 86%;
+  padding: 11% 9% 0;
+  background: var(--fl-folder-paper-1);
+  border-radius: calc(var(--fl-folder-r) * 0.55);
+  box-shadow: var(--fl-folder-edge);
+  transform: translate(-50%, 8%);
+  transition: transform var(--fl-duration-slow) var(--fl-ease-emphasized);
+}
+
+/* Each sheet's title is set toward the edge that ends up on the OUTSIDE of the
+   fan. The stack overlaps — real papers do — and the centre sheet is both the
+   widest and the last painted, so a title centred on the two beneath it is a
+   title read half-way. The tile is `text-center`, so the left sheet has to say
+   so rather than inherit. */
+.fl-folder__paper:nth-child(1) {
+  text-align: left;
+}
+
+.fl-folder__paper:nth-child(2) {
+  width: 80%;
+  background: var(--fl-folder-paper-2);
+  text-align: right;
+}
+
+.fl-folder__paper:nth-child(3) {
+  width: 84%;
+  background: var(--fl-folder-paper-3);
+  text-align: center;
+}
+
+/* Each sheet gets its own resting place and angle, so the fan looks handled
+   rather than stacked. `--fl-magnet-*` is the drift toward the cursor, set per
+   sheet from JS and zero until the folder is open.
+ *
+ * ## The throw is about half of the original's
+ *
+ * React Bits fans these to -70%/-100% of a sheet's height, which is right for
+ * the showpiece it was written as — one folder, alone, in a 600px box. The
+ * drive puts twelve in a grid, and at that spacing the original throw lands the
+ * top sheet on the badges of the row above. Shortened, the folder reads as
+ * cracking open rather than exploding, and it stays inside the slack the grid
+ * gutter already leaves it. */
+.fl-folder--open .fl-folder__paper:nth-child(1) {
+  transform: translate(-108%, -28%) rotateZ(-13deg)
+    translate(var(--fl-magnet-x, 0), var(--fl-magnet-y, 0));
+}
+
+.fl-folder--open .fl-folder__paper:nth-child(2) {
+  transform: translate(8%, -28%) rotateZ(13deg)
+    translate(var(--fl-magnet-x, 0), var(--fl-magnet-y, 0));
+}
+
+.fl-folder--open .fl-folder__paper:nth-child(3) {
+  transform: translate(-50%, -52%) rotateZ(3deg)
+    translate(var(--fl-magnet-x, 0), var(--fl-magnet-y, 0));
+}
+
+/* A shipper's folder holds one licence and nothing else. Sent to the left wing
+   of a fan with no right wing it reads as a sheet that fell out, so on its own
+   it rises up the middle — and gets the top sheet's paper, since it is the top
+   sheet. */
+.fl-folder[data-sheets='1'] .fl-folder__paper:nth-child(1) {
+  background: var(--fl-folder-paper-3);
+  text-align: center;
+}
+
+.fl-folder--open[data-sheets='1'] .fl-folder__paper:nth-child(1) {
+  transform: translate(-50%, -46%) rotateZ(3deg)
+    translate(var(--fl-magnet-x, 0), var(--fl-magnet-y, 0));
+}
+
+/* ── What is written on a sheet ──
+ *
+ * The paper's own name, and two ruled lines under it so the rest of the sheet
+ * reads as a page rather than as a blank card. The name is the only text that
+ * survives at this size, and it is the only one worth keeping: the dates are a
+ * click away, and the state is already in the ink. */
+.fl-folder__paper-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--muted-foreground);
+}
+
+.fl-folder__paper[data-state='expired'] .fl-folder__paper-title {
+  color: var(--destructive);
+}
+
+.fl-folder__paper[data-state='expiring'] .fl-folder__paper-title {
+  color: var(--warning);
+}
+
+.fl-folder__paper-rule {
+  display: block;
+  height: 1px;
+  margin-top: 4px;
+  background: var(--border);
+}
+
+.fl-folder__paper-rule:last-child {
+  width: 60%;
+}
+
+/* ---------------------------------------------------------------------------
+ * The plate
+ * ------------------------------------------------------------------------- */
+
+/* A company's mark, above both flaps. It is identity, not contents: it rides
+   the face while the papers lift out around it, which is what keeps a folder
+   recognisable mid-animation.
+ *
+ * ## It is stuck to the flap, not floating over it
+ *
+ * Left where it sits at rest, the mark ends up half-way off the top of a flap
+ * that has dropped to 58% of its height — a logo hanging in the gap between the
+ * folder and its papers. So it travels with the flap: down to the middle of the
+ * shortened face, and in far enough to sit on it rather than across it.
+ *
+ * Placed by its CENTRE (`bottom` plus a half-height nudge) rather than by its
+ * bottom edge, because the host chooses the mark's size and only the centre can
+ * be aimed without knowing it. The two flaps skew opposite ways, so their
+ * sideways pull on the mark cancels and it only has to move down. */
+.fl-folder__mark {
+  display: block;
+  position: absolute;
+  z-index: 4;
+  bottom: 50%;
+  left: 50%;
+  transform: translate(-50%, 50%);
+  transform-origin: center;
+  transition: transform var(--fl-duration-slow) var(--fl-ease-emphasized);
+  pointer-events: none;
+}
+
+.fl-folder--open .fl-folder__mark {
+  transform: translate(-50%, 50%)
+    translateY(calc(var(--fl-folder-well-h) * (0.5 - var(--fl-folder-flap) / 2)))
+    scale(0.8);
+}

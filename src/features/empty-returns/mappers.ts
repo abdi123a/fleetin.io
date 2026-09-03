@@ -256,7 +256,19 @@ export function cycleToRow(cycle: EmptyReturnCycleRecord, now: number): EmptyRet
 
     status: statusOfCycle(cycle),
     predictedGateIn: null,
+
+    impactStatus: cycle.impactStatus ?? null,
+    impactCounted: Boolean(cycle.impactCountedAt),
+    avoidedKm: cycle.impactCountedAt ? decimalOrNull(cycle.avoidedDistanceKm) : null,
+    avoidedCo2Kg: cycle.impactCountedAt ? decimalOrNull(cycle.avoidedCo2Kg) : null,
   };
+}
+
+/** A Prisma Decimal crosses the wire as a string; null stays null. */
+function decimalOrNull(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 /**
@@ -310,6 +322,19 @@ export function chainToCycleChain(chain: EmptyReturnChainRecord, now: number): C
   const last = cycles[cycles.length - 1];
   const active = cycles.find((c) => c.stage !== 'closed') ?? null;
   const pairings = cycles.filter((c) => Boolean(c.nextFull)).length;
+
+  /* The impact figures come off the rows as the server judged them — only
+     the links stamped as counted carry a figure, so several empties under one
+     load do not add the same trip twice. Nothing is derived here. */
+  let avoidedKm = 0;
+  let avoidedCo2Kg = 0;
+  let realizedLinks = 0;
+  for (const row of cycles) {
+    if (row.impactStatus === 'realized') realizedLinks += 1;
+    avoidedKm += row.avoidedKm ?? 0;
+    avoidedCo2Kg += row.avoidedCo2Kg ?? 0;
+  }
+
   const averageEmptyMs = cycles.length
     ? cycles.reduce((total, c) => {
         if (!c.emptyReadyAt) return total;
@@ -332,5 +357,8 @@ export function chainToCycleChain(chain: EmptyReturnChainRecord, now: number): C
     closedChain: Boolean(last && last.stage === 'closed' && !last.nextFull),
     maxSequence: chain.maxSequence,
     averageEmptyMs,
+    avoidedKm: Math.round(avoidedKm * 10) / 10,
+    avoidedCo2Kg: Math.round(avoidedCo2Kg * 10) / 10,
+    realizedLinks,
   };
 }

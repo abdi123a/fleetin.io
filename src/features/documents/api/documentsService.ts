@@ -2,7 +2,12 @@ import { apiClient, type ApiResponse } from '@/services/api.client';
 import { useAuthStore } from '@/stores/auth.store';
 import { formatDate, formatFileSize, toDateOnly } from '@/utils/format';
 
-export type DocumentOwnerType = 'SHIPPER' | 'PARTNER' | 'VEHICLE' | 'DRIVER' | 'BOOKING';
+/**
+ * `FOLDER` is a file somebody put in a drive folder of their own — see
+ * `files.ts`. It has no catalogue: nothing in one is required, expires, or is
+ * reviewed. It is just a file, kept.
+ */
+export type DocumentOwnerType = 'SHIPPER' | 'PARTNER' | 'VEHICLE' | 'DRIVER' | 'BOOKING' | 'FOLDER';
 
 /**
  * The two categories a booking owns, and the strings the backend gates on.
@@ -15,6 +20,15 @@ export type DocumentOwnerType = 'SHIPPER' | 'PARTNER' | 'VEHICLE' | 'DRIVER' | '
  */
 export const PROOF_OF_DELIVERY = 'Proof of Delivery';
 export const PROOF_OF_RETURN = 'Proof of Return';
+
+/**
+ * The category every file in a drive folder is filed under.
+ *
+ * A folder somebody made has no catalogue, so there is nothing for the
+ * category to say — but the column is required, and one constant beats
+ * whatever the last uploader would have typed.
+ */
+export const FOLDER_FILE_CATEGORY = 'File';
 
 export interface DocumentRecord {
   id: string;
@@ -78,6 +92,22 @@ export async function fetchDocumentBook(): Promise<DocumentRecord[]> {
     ),
   );
   return pages.flatMap((page) => page.data.items);
+}
+
+/**
+ * Every file in the Files section, across all of its folders.
+ *
+ * One read, for the same reason the compliance book is one read: the folders
+ * are walked by clicking, every folder's count is summed over the folders
+ * beneath it, and a request per click would make a listing out of data that
+ * was already in memory.
+ */
+export async function fetchFileBook(): Promise<DocumentRecord[]> {
+  const res = await apiClient.get<{ items: DocumentRecord[] }>(
+    '/documents?ownerType=FOLDER&limit=1000',
+    token(),
+  );
+  return res.data.items;
 }
 
 export interface UploadDocumentParams {

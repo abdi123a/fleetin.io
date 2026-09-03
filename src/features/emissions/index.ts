@@ -10,12 +10,17 @@ export { Co2FactorField, type Co2FactorFieldProps } from './components/Co2Factor
 export { Co2Kpi, type Co2KpiProps } from './components/Co2Kpi';
 export { VehiclePhotoField, type VehiclePhotoFieldProps } from './components/VehiclePhotoField';
 export {
+  clearCycleImpactDecision,
+  decideCycleImpact,
   fetchBookingRoute,
   fetchEmissionsDashboard,
   fetchEmissionsFilterOptions,
+  fetchShipmentImpact,
   rebuildBookingRoute,
+  rebuildImpact,
   replaceBookingRoute,
   type BookingRoute,
+  type CycleImpact,
   type EmissionsDashboard,
   type EmissionsFilterOptions,
   type EmissionsFilters,
@@ -23,13 +28,28 @@ export {
   type EmissionsPoint,
   type EmissionsScatterPoint,
   type EmissionsSlice,
+  type ImpactPlace,
+  type ImpactSeriesPoint,
+  type ImpactStatus,
+  type ImpactSummary,
   type RouteLeg,
+  type ShipmentImpact,
 } from './api/emissionsService';
 export {
   emissionsQueryKeys,
   useBookingRoute,
+  useClearCycleImpact,
+  useDecideCycleImpact,
   useEmissionsDashboard,
   useEmissionsFilterOptions,
   useRebuildBookingRoute,
+  useRebuildImpact,
   useReplaceBookingRoute,
+  useShipmentImpact,
 } from './api/queries';
+export {
+  ContinuationLine,
+  FleetinImpactBlock,
+  IMPACT_STATUS_META,
+  ImpactStatusBadge,
+} from './components/FleetinImpact';

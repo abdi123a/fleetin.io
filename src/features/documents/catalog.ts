@@ -53,7 +53,7 @@ export interface DocumentTypeSpec {
 }
 
 export const DOCUMENT_CATALOG: Readonly<
-  Record<Exclude<DocumentOwnerType, 'BOOKING'>, readonly DocumentTypeSpec[]>
+  Record<Exclude<DocumentOwnerType, 'BOOKING' | 'FOLDER'>, readonly DocumentTypeSpec[]>
 > = {
   SHIPPER: [{ label: 'Business License', required: true }],
   PARTNER: [{ label: 'Business License', required: true }],
@@ -65,7 +65,9 @@ export const DOCUMENT_CATALOG: Readonly<
 };
 
 export function documentCatalogFor(ownerType: DocumentOwnerType): readonly DocumentTypeSpec[] {
-  if (ownerType === 'BOOKING') return [];
+  /* A job's proofs and a drive folder's files are not compliance papers:
+     nothing in either is owed. */
+  if (ownerType === 'BOOKING' || ownerType === 'FOLDER') return [];
   return DOCUMENT_CATALOG[ownerType];
 }
 

@@ -1,10 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
+  clearCycleImpactDecision,
+  decideCycleImpact,
   fetchBookingRoute,
   fetchEmissionsDashboard,
   fetchEmissionsFilterOptions,
+  fetchShipmentImpact,
   rebuildBookingRoute,
+  rebuildImpact,
   replaceBookingRoute,
   type EmissionsFilters,
 } from './emissionsService';
@@ -14,7 +18,52 @@ export const emissionsQueryKeys = {
   dashboard: (filters: EmissionsFilters) => ['emissions', 'dashboard', filters] as const,
   filters: () => ['emissions', 'filters'] as const,
   route: (bookingId: string) => ['emissions', 'route', bookingId] as const,
+  shipmentImpact: (shipmentId: string) => ['emissions', 'impact', 'shipment', shipmentId] as const,
 };
+
+export function useShipmentImpact(shipmentId: string | undefined) {
+  return useQuery({
+    queryKey: emissionsQueryKeys.shipmentImpact(shipmentId ?? ''),
+    queryFn: () => fetchShipmentImpact(shipmentId as string),
+    enabled: Boolean(shipmentId),
+  });
+}
+
+/**
+ * A verdict changes the cycle's record, the booking sheet that shows it, the
+ * dashboard total and the chain it sits in — so every read that could print
+ * the old word is dropped.
+ */
+function invalidateImpact(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: emissionsQueryKeys.all });
+  queryClient.invalidateQueries({ queryKey: ['bookings'] });
+  queryClient.invalidateQueries({ queryKey: ['empty-returns'] });
+}
+
+export function useDecideCycleImpact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ cycleId, realized, note }: { cycleId: string; realized: boolean; note?: string }) =>
+      decideCycleImpact(cycleId, { realized, note }),
+    onSuccess: () => invalidateImpact(queryClient),
+  });
+}
+
+export function useClearCycleImpact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (cycleId: string) => clearCycleImpactDecision(cycleId),
+    onSuccess: () => invalidateImpact(queryClient),
+  });
+}
+
+export function useRebuildImpact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => rebuildImpact(),
+    onSuccess: () => invalidateImpact(queryClient),
+  });
+}
 
 export function useEmissionsDashboard(filters: EmissionsFilters = {}) {
   return useQuery({

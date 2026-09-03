@@ -8,6 +8,7 @@ import {
   FileText,
   Handshake,
   MapPin,
+  Warehouse,
   Pencil,
   Trash2,
   Truck,
@@ -529,6 +530,7 @@ export function PartnerDetailPage() {
           businessLicenseNumber: formData.businessLicenseNumber,
           country: formData.country,
           address: formData.address,
+          garageLocationId: formData.garageLocationId || null,
           operatingRegions: formData.operatingRegions.split(',').map((s) => s.trim()).filter(Boolean),
           serviceCategories: formData.serviceCategories.split(',').map((s) => s.trim()).filter(Boolean),
           fleetSize: parseInt(formData.fleetSize) || partner.fleetSize,
@@ -832,6 +834,7 @@ export function PartnerDetailPage() {
               companyLegalName: partner.companyLegalName,
               country: partner.country,
               address: partner.address,
+              garageLocationId: partner.garageLocationId ?? '',
               operatingRegions: partner.operatingRegions.join(', '),
               serviceCategories: partner.serviceCategories.join(', '),
               fleetSize: String(partner.fleetSize),
@@ -902,6 +905,24 @@ export function PartnerDetailPage() {
               <div className="flex items-start gap-2 text-muted-foreground">
                 <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
                 <span className="min-w-0 leading-snug">{partner.address}, {partner.country}</span>
+              </div>
+              {/* The garage is an obligation, not a fact, until it is set:
+                  every realized continuation this carrier makes is measured
+                  from it, and without one the impact stays unpriced. So the
+                  gap renders the control that closes it. */}
+              <div className="flex items-start gap-2 text-muted-foreground">
+                <Warehouse className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                {partner.garageLocation ? (
+                  <span className="min-w-0 leading-snug">Garage · {partner.garageLocation.name}</span>
+                ) : (
+                  <button
+                    type="button"
+                    className="text-left font-semibold text-primary underline-offset-2 hover:underline"
+                    onClick={() => setIsEditOpen(true)}
+                  >
+                    Set garage
+                  </button>
+                )}
               </div>
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Truck className="h-3.5 w-3.5 text-primary shrink-0" />

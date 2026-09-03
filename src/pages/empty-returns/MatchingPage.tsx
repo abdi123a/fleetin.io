@@ -72,7 +72,7 @@ const LABEL_STYLE: Record<SuggestionLabel, string> = {
 };
 
 export function MatchingPage() {
-  const { awaiting, loads, now } = useEmptyContainers();
+  const { onBoard, loads, now } = useEmptyContainers();
   const selectedId = useEmptyReturnStore((state) => state.selectedEmptyId);
   const selectEmpty = useEmptyReturnStore((state) => state.selectEmpty);
   const rejected = useEmptyReturnStore((state) => state.rejected);
@@ -95,11 +95,11 @@ export function MatchingPage() {
   /* Eight fits a phone screen without becoming a scroll of its own; the reader
      can widen it from the pager. */
   const [emptiesPageSize, setEmptiesPageSize] = useState(8);
-  const pagedAwaiting = usePagedRows(awaiting, { pageSize: emptiesPageSize });
+  const pagedAwaiting = usePagedRows(onBoard, { pageSize: emptiesPageSize });
 
   const selected = useMemo(
-    () => awaiting.find((record) => record.id === selectedId) ?? awaiting[0] ?? null,
-    [awaiting, selectedId],
+    () => onBoard.find((record) => record.id === selectedId) ?? onBoard[0] ?? null,
+    [onBoard, selectedId],
   );
 
   /**
@@ -111,7 +111,7 @@ export function MatchingPage() {
    * and the pile would never be reachable at all. The step is a question about
    * what the reader chose, so it asks the choice.
    */
-  const hasPicked = Boolean(selectedId && awaiting.some((record) => record.id === selectedId));
+  const hasPicked = Boolean(selectedId && onBoard.some((record) => record.id === selectedId));
 
   const rejectedIds = useMemo(
     () => (selected ? rejectedLoadsFor(rejected, selected.id) : []),
@@ -131,14 +131,14 @@ export function MatchingPage() {
   useEffect(() => {
     const id = searchParams.get('plan');
     if (!id) return;
-    const record = awaiting.find((r) => r.id === id);
+    const record = onBoard.find((r) => r.id === id);
     if (record) setPlanTarget(record);
     const next = new URLSearchParams(searchParams);
     next.delete('plan');
     setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams, awaiting]);
+  }, [searchParams, setSearchParams, onBoard]);
 
-  if (awaiting.length === 0) {
+  if (onBoard.length === 0) {
     return (
       <Card className="rounded-card border border-border p-12">
         <EmptyState
@@ -226,7 +226,7 @@ export function MatchingPage() {
               Select an empty container
             </h3>
             <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
-              {awaiting.length}
+              {onBoard.length}
             </span>
           </div>
           {pagedAwaiting.rows.map((record) => {
@@ -303,7 +303,7 @@ export function MatchingPage() {
           {/* The yard is not a scroll. Paged like every other long list in the
               app, so the column has an end and the pager says how far in you
               are. */}
-          {awaiting.length > 0 && (
+          {onBoard.length > 0 && (
             <TablePager
               paged={pagedAwaiting}
               noun="empties"

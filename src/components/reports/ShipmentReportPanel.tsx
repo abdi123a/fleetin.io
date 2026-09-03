@@ -19,9 +19,10 @@ import {
   containerStateOf,
 } from '@/lib/containerState';
 import { co2Number } from '@/lib/co2';
+import { useShipmentImpact } from '@/features/emissions';
 import { cn, formatDate } from '@/utils';
 import { MissionReportView } from './MissionReportView';
-import { ShipmentReportView, type ShipmentCarbon } from './ShipmentReportView';
+import { ShipmentReportView, type ShipmentCarbon, type ShipmentImpactFigures } from './ShipmentReportView';
 import { computeShipmentReport } from './shipmentReport';
 import { useShipmentMissionReports } from './useShipperReporting';
 import { formatDuration } from './reportFormat';
@@ -140,6 +141,27 @@ export function ShipmentReportPanel({
     }
     return priced === 0 ? null : { co2Kg, distanceKm, priced, total: bookings.length };
   }, [bookings]);
+
+  /**
+   * The other account, read rather than summed: which of this shipment's
+   * containers left under a next load, or continued from an empty, is a
+   * verdict the server reached from the bookings' rungs and stamped on the
+   * cycle. One call per shipment, and nothing when it has no continuations.
+   */
+  const { data: shipmentImpact } = useShipmentImpact(bookings[0]?.shipmentId);
+  const impact: ShipmentImpactFigures | null = useMemo(
+    () =>
+      shipmentImpact && shipmentImpact.realizedMatches > 0
+        ? {
+            distanceKm: shipmentImpact.distanceAvoidedKm,
+            co2Kg: shipmentImpact.co2AvoidedKg,
+            realizedMatches: shipmentImpact.realizedMatches,
+            pricedMatches: shipmentImpact.pricedMatches,
+            unmeasured: shipmentImpact.unmeasured,
+          }
+        : null,
+    [shipmentImpact],
+  );
 
   // Follow the list: never point at a container that is no longer there.
   useEffect(() => {
@@ -323,7 +345,7 @@ export function ShipmentReportPanel({
           footnote={<ReportFootnote />}
         >
           {isShipmentScope ? (
-            <ShipmentReportView report={shipmentReport} carbon={carbon} />
+            <ShipmentReportView report={shipmentReport} carbon={carbon} impact={impact} />
           ) : (
             selectedReport && <MissionReportView report={selectedReport} />
           )}

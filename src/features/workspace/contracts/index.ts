@@ -110,6 +110,15 @@ export const taskSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   links: z.array(taskLinkSchema).default([]),
+  /**
+   * The complaint this task answers. Null on internal work, which is most of
+   * the board — and the difference is the whole point of carrying it: a row
+   * with a ticket has somebody outside Fleetin waiting on it.
+   */
+  ticket: z
+    .object({ id: z.string(), reference: z.string(), subject: z.string() })
+    .nullable()
+    .default(null),
 });
 
 /* ── Phase 3 ─────────────────────────────────────────────────────────────── */

@@ -1,9 +1,10 @@
+import { useEffect } from 'react';
+import confetti from 'canvas-confetti';
+
 import { Dialog, DialogContent } from '@/design-system';
 import { Button } from '@/design-system';
 import { ArrowLeftRight, ArrowRight, Handshake } from '@/design-system/icons';
-import { AVOIDED_TRIP_DETENTION_DAYS } from '@/features/empty-returns';
-import { detentionRatePerDay, formatDetention } from '@/data/emptyReturnData';
-import { cn } from '@/utils';
+import { tokenColor } from '@/utils';
 
 import { EmptyTag, Mono } from './marks';
 
@@ -34,17 +35,84 @@ import { EmptyTag, Mono } from './marks';
  * this has to be gone before the next decision.
  */
 
-/** Chips thrown from the centre. Fixed, not random: a re-render must not reshuffle them. */
-const CHIPS: { x: string; y: string; spin: string; delay: string; tone: string; size: string }[] = [
-  { x: '-120px', y: '-84px', spin: '-220deg', delay: '0ms', tone: 'bg-container-empty', size: 'h-2.5 w-1.5' },
-  { x: '118px', y: '-96px', spin: '200deg', delay: '40ms', tone: 'bg-container-full', size: 'h-2 w-2' },
-  { x: '-168px', y: '18px', spin: '160deg', delay: '80ms', tone: 'bg-stage-paired', size: 'h-1.5 w-1.5' },
-  { x: '162px', y: '34px', spin: '-180deg', delay: '20ms', tone: 'bg-container-empty', size: 'h-2 w-1.5' },
-  { x: '-72px', y: '112px', spin: '240deg', delay: '110ms', tone: 'bg-container-full', size: 'h-1.5 w-2' },
-  { x: '86px', y: '120px', spin: '-140deg', delay: '70ms', tone: 'bg-stage-paired', size: 'h-2.5 w-1.5' },
-  { x: '-30px', y: '-140px', spin: '190deg', delay: '130ms', tone: 'bg-container-empty', size: 'h-2 w-2' },
-  { x: '44px', y: '-132px', spin: '-210deg', delay: '10ms', tone: 'bg-container-full', size: 'h-1.5 w-1.5' },
+/**
+ * Two side cannons, fired the moment the pairing lands.
+ *
+ * Thrown on the window rather than inside the dialog: a celebration confined
+ * to a 480px box reads as a loading state. A few particles a frame from each
+ * edge for three seconds — a steady arc across the screen rather than one
+ * explosion, so it is still going when the operator finishes reading the
+ * number and gone by the time they reach for the button.
+ *
+ * `zIndex` is the one thing added to the recipe. The dialog sits at 600 and
+ * the toast at 800 on the app's ordered scale, so at the library's default the
+ * confetti would fly behind both and never be seen. The canvas takes no clicks
+ * either way.
+ */
+const CANNON_MS = 3_000;
+
+/**
+ * The module's own four colours, read from the tokens at run time.
+ *
+ * The recipe's stock pink-and-peach belonged to no product and read as
+ * borrowed on a page whose entire colour system is gold and teal. These are
+ * the exact hues the thing being celebrated already wears: the gold of an
+ * empty container, the teal of a full one, and the violet a pairing wears —
+ * the same violet on the handshake above. Confetti in the palette of the two
+ * boxes it is thrown for.
+ *
+ * Resolved at run time rather than pasted as hex so it follows the theme and
+ * stays out of `check:ds`'s hex-literal count. Fallbacks are the light-theme
+ * values, used only if a token ever goes missing.
+ */
+const CANNON_TOKENS: [string, string][] = [
+  ['--container-empty', '#f9ac17'],
+  ['--primary', '#60969d'],
+  ['--container-full', '#436e74'],
+  ['--stage-paired', '#836ae7'],
 ];
+
+function useSideCannons(open: boolean) {
+  useEffect(() => {
+    if (!open) return;
+
+    const endsAt = Date.now() + CANNON_MS;
+    let frameId = 0;
+
+    const shot = {
+      /* Bigger than the stock recipe on all three axes that read as "size":
+         twice the particles per frame, half again the paper, and enough
+         velocity to carry them past the dialog instead of dying beside it.
+         At 2 particles of `scalar` 1 they were a thin dribble at the edges of
+         a 1600px page — the recipe is written for a demo card, not a screen. */
+      particleCount: 4,
+      spread: 70,
+      startVelocity: 70,
+      scalar: 1.5,
+      colors: CANNON_TOKENS.map(([token, fallback]) => tokenColor(token, fallback)),
+      /* Above the dialog it celebrates and the toast beside it — the app's
+         single ordered z-scale, which a canvas cannot read from CSS. */
+      zIndex: 900,
+      disableForReducedMotion: true,
+    };
+
+    const frame = () => {
+      if (Date.now() > endsAt) return;
+      void confetti({ ...shot, angle: 60, origin: { x: 0, y: 0.5 } });
+      void confetti({ ...shot, angle: 120, origin: { x: 1, y: 0.5 } });
+      frameId = requestAnimationFrame(frame);
+    };
+    frame();
+
+    /* Closing the dialog has to take the sky with it. Without this, an operator
+       who dismisses at 300ms watches confetti rain over the pile they are
+       trying to work, and the loop outlives the component. */
+    return () => {
+      cancelAnimationFrame(frameId);
+      confetti.reset();
+    };
+  }, [open]);
+}
 
 export interface PairingCelebrationProps {
   open: boolean;
@@ -68,45 +136,13 @@ export function PairingCelebration({
   backTo,
   onBack,
 }: PairingCelebrationProps) {
-  /* The same arithmetic the Cycles page banks — two container-days at the
-     current rate, per return avoided. Not a made-up figure for the occasion. */
-  const saved = formatDetention(AVOIDED_TRIP_DETENTION_DAYS * detentionRatePerDay());
+  useSideCannons(open);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="md" hideCloseButton aria-describedby={undefined} className="overflow-hidden">
-        {/* The burst sits behind everything and catches no clicks. */}
-        <div className="pointer-events-none absolute inset-0 grid place-items-center" aria-hidden>
-          {[0, 1, 2].map((ring) => (
-            <span
-              key={ring}
-              style={{ animationDelay: `${ring * 140}ms` }}
-              className="col-start-1 row-start-1 size-28 rounded-full border-2 border-stage-paired-border animate-burst-ring motion-reduce:animate-none motion-reduce:opacity-0"
-            />
-          ))}
-          {CHIPS.map((chip) => (
-            <span
-              /* The throw is the identity — the list is static and never reorders. */
-              key={`${chip.x}${chip.y}`}
-              style={
-                {
-                  '--fl-throw-x': chip.x,
-                  '--fl-throw-y': chip.y,
-                  '--fl-throw-spin': chip.spin,
-                  animationDelay: chip.delay,
-                } as React.CSSProperties
-              }
-              className={cn(
-                'col-start-1 row-start-1 rounded-sm animate-burst-chip motion-reduce:animate-none motion-reduce:opacity-0',
-                chip.size,
-                chip.tone,
-              )}
-            />
-          ))}
-        </div>
-
         <div className="relative flex flex-col items-center gap-4 px-6 pb-6 pt-8 text-center">
-          <span className="inline-flex size-14 items-center justify-center rounded-full bg-stage-paired text-stage-paired-foreground shadow-card animate-burst-pop motion-reduce:animate-none">
+          <span className="inline-flex size-14 items-center justify-center rounded-full bg-stage-paired text-stage-paired-foreground shadow-card">
             <Handshake className="size-7" aria-hidden />
           </span>
 
@@ -117,9 +153,16 @@ export function PairingCelebration({
             <h2 className="text-xl font-extrabold tracking-tight text-foreground">
               One empty return avoided
             </h2>
+            {/* The detention figure that used to sit here was an ASSUMPTION —
+                `AVOIDED_TRIP_DETENTION_DAYS` (2) × the rate from Settings — and
+                `performance.ts` says so itself: nobody can know what a
+                container would have cost had it gone back on its own. The
+                Performance screen prints it as "Est." with the assumption
+                underneath, which is honest. Here it was a flat sentence with
+                neither, and a guess stated as a fact is worse than no figure.
+                The headline above is the part that is actually measured. */}
             <p className="text-sm text-muted-foreground">
-              About <span className="font-bold text-foreground">{saved}</span> of detention that will
-              not be spent, and one truck that will not drive back empty.
+              One truck that will not drive back empty.
             </p>
           </div>
 

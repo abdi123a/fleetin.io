@@ -218,7 +218,8 @@ export function DocumentBrowser({
  * The view switch
  * ------------------------------------------------------------------------- */
 
-function ViewToggle({ view, onChange }: { view: DocumentView; onChange: (view: DocumentView) => void }) {
+/** Grid or list — shared with the Files section, which asks the same two questions. */
+export function ViewToggle({ view, onChange }: { view: DocumentView; onChange: (view: DocumentView) => void }) {
   return (
     <div
       role="group"
@@ -326,7 +327,7 @@ function DocumentCard({
  * Anything else (or a fetch that failed) falls back to a paper tile rather than
  * to a broken image: a folder that cannot draw one file should still list it.
  */
-function DocumentPreview({ document }: { document: DisplayDocument }) {
+export function DocumentPreview({ document }: { document: DisplayDocument }) {
   const mime = document.mimeType ?? '';
   const isImage = mime.startsWith('image/');
   const isPdf = mime === 'application/pdf';
@@ -494,7 +495,7 @@ function EmptyRow({
  * Shared bits
  * ------------------------------------------------------------------------- */
 
-function IconAction({
+export function IconAction({
   icon: Icon,
   label,
   onClick,

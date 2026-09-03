@@ -4,7 +4,6 @@ import {
   Button,
   Card,
   CornerBadge,
-  IconChip,
   MARK_STACK_OVERLAP,
   Tooltip,
   rowCardActionClasses,
@@ -23,6 +22,7 @@ import {
   ContainerIcon,
   Leaf,
   Package,
+  Route,
   Wrench,
 } from '@/design-system/icons';
 import { useNavigate } from 'react-router-dom';
@@ -193,27 +193,6 @@ export const MissionRowCard: React.FC<MissionRowCardProps> = ({
 
       </div>
 
-      {/* ── CARBON MARK ──
-          The card's other corner, opposite the reference tab. It sits on the
-          frame rather than in the header row because it is a property of the
-          whole job, not of the line it would otherwise share — and in the
-          header it pushed the completion figure and the status badge down a
-          row on every card in the list.
-
-          The mark only. The figure is at the end of the meta line beside the
-          kilometres it was computed from; distance and emissions are one fact
-          told twice, and reading them a card apart meant doing the arithmetic
-          in your head.
-
-          Absent, not zero, until something has actually been driven — so its
-          presence is itself the news. */}
-      {co2Kg !== null && (
-        <span className="absolute right-3 top-3 z-10" title={co2Label(co2Kg)}>
-          <IconChip icon={Leaf} size={36} className="bg-success text-success-foreground shadow-2xs" />
-          <span className="sr-only">{co2Label(co2Kg)}</span>
-        </span>
-      )}
-
       {/* ── CARD BODY — 3 lines: header, route, meta+actions ── */}
       {/* `pt-15`: a 27px tab, a 4px gap and a 21px chip stacked under it — 52px
           — plus the ~8px of air the card has always kept between the corner
@@ -354,30 +333,47 @@ export const MissionRowCard: React.FC<MissionRowCardProps> = ({
                 </Tooltip>
               </>
             )}
-            <span>·</span>
+            {/* ── THE TWO MEASURES ──
+             *
+             * The road driven and what it cost the air — the only two figures
+             * on this line that are measured rather than recorded, and the pair
+             * an operator actually compares between rows. They read as dot-
+             * separated grey like the date and the booking count did, which
+             * made a measurement look like a label, so each one now carries its
+             * own glyph on its own fill: teal for the road, green for the
+             * carbon. They need no `·` between them — a pill is its own
+             * boundary.
+             *
+             * The leaf came down from the card's top-right corner to sit on the
+             * figure it belongs to. Up there it was a mark with no number and
+             * the number was a number with no mark, a card apart, which is the
+             * same arithmetic-in-your-head problem that put the CO₂ figure
+             * beside the kilometres in the first place. */}
             {/* The whole road, not one leg of it. `estimatedDistanceKm` is a
                 single truck's run out; a five-container shipment sends five and
                 gets five empties back, so the row used to read 25km for a job
                 that drives 250. The breakdown is on the title so the figure can
                 be checked rather than merely believed. */}
             <span
-              className="shrink-0 font-mono font-bold text-foreground"
+              className="ml-0.5 inline-flex shrink-0 items-center gap-1 rounded-full bg-primary-subtle px-2 py-0.5 text-primary-subtle-foreground"
               title={`${drive.containers} container${drive.containers === 1 ? '' : 's'} × ${drive.legKm} km out and back`}
             >
-              {formatKm(drive.totalKm)}
+              <Route className="size-3 shrink-0" />
+              <span className="font-mono font-bold">{formatKm(drive.totalKm)}</span>
             </span>
+            {/* Absent, not zero, until something has actually been driven — so
+                its presence is itself the news. */}
             {co2Kg !== null && (
-              <>
-                <span>·</span>
-                {/* Next to the distance it came from. No leaf here — the corner
-                    already carries the mark, and "kg CO₂" names itself. */}
-                <span
-                  className="shrink-0 font-mono font-bold text-foreground"
-                  title={`${co2Label(co2Kg)} across ${formatKm(mission.co2DistanceKm ?? 0)} driven`}
-                >
+              <span
+                className="inline-flex shrink-0 items-center gap-1 rounded-full bg-success-subtle px-2 py-0.5 text-success-subtle-foreground"
+                title={`${co2Label(co2Kg)} across ${formatKm(mission.co2DistanceKm ?? 0)} driven`}
+              >
+                <Leaf className="size-3 shrink-0" />
+                <span className="font-mono font-bold">
                   {co2.value} {co2.unit}
                 </span>
-              </>
+                <span className="sr-only">{co2Label(co2Kg)}</span>
+              </span>
             )}
           </div>
 

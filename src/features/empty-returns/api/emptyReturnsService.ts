@@ -35,6 +35,18 @@ export interface EmptyReturnCycleRecord {
   returnedAt: string | null;
   createdAt: string;
   updatedAt: string;
+
+  /**
+   * Fleetin Impact — what this pairing stopped a truck driving. Judged
+   * server-side from the bookings' rungs; null while the cycle has no next
+   * load. The full record is `CycleImpact` in the emissions feature; a chain
+   * only needs the count and the two figures. Decimals cross as strings.
+   */
+  impactStatus?: 'matched' | 'realized' | 'not_realized' | null;
+  impactCountedAt?: string | null;
+  avoidedDistanceKm?: string | number | null;
+  avoidedCo2Kg?: string | number | null;
+  avoidedDistanceProvider?: string | null;
 }
 
 /** `completed`/`onTime`/`maxSequence` are resolved server-side from `cycles`, not stored. */

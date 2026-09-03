@@ -20,13 +20,13 @@ import { TaskBoard } from '../views/TaskBoard';
 import { TaskWorkload } from '../views/TaskWorkload';
 import { BulkActionBar } from './BulkActionBar';
 import { RaiseTaskDialog } from './RaiseTaskDialog';
-import type { TaskFilters } from '../api/workspaceService';
+import type { TaskFilters, TaskSort } from '../api/workspaceService';
 import { RecordChip } from '../composer/RecordChip';
 import {
   TASK_PRIORITIES, TASK_PRIORITY_LABEL,
   type TaskPriority, type TaskStatus, type WorkspaceTask,
 } from '../contracts';
-import { DueMark, PriorityMark, TaskStatusBadge } from './TaskMarks';
+import { DueMark, PriorityMark, TaskOriginRef, TaskStatusPicker } from './TaskMarks';
 
 /**
  * The three cuts worth a permanent seat.
@@ -66,6 +66,21 @@ const PRIORITY_CHOICES = [
 const OWNER_CHOICES = [
   { value: 'any', label: 'Anyone' },
   { value: 'unassigned', label: 'Unassigned' },
+];
+
+/**
+ * How the board is stacked.
+ *
+ * Newest first, because the list is opened to see what has come in. The old
+ * fixed order — open work, then soonest deadline, then age — is a good way to
+ * WORK the board and a poor way to READ it, and it was the only one on offer;
+ * it is `Due date` here.
+ */
+const SORT_CHOICES: { value: TaskSort; label: string }[] = [
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'due', label: 'Due date' },
+  { value: 'priority', label: 'Priority' },
 ];
 
 const WATCH_CHOICES = [
@@ -137,9 +152,10 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
   const priority = searchParams.get('priority') ?? 'any';
   const owner = searchParams.get('owner') ?? 'any';
   const watch = searchParams.get('watch') ?? 'any';
+  const sort = searchParams.get('sort') ?? 'newest';
 
   /** Both live in the URL, so a filtered board can be pasted into a message. */
-  const setParam = (key: 'view' | 'band' | 'scope' | 'due' | 'priority' | 'owner' | 'watch', value: string, fallback: string) =>
+  const setParam = (key: 'view' | 'band' | 'scope' | 'due' | 'priority' | 'owner' | 'watch' | 'sort', value: string, fallback: string) =>
     setSearchParams(
       (params) => {
         if (value === fallback) params.delete(key);
@@ -168,6 +184,7 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
     if (priority !== 'any') next.priority = [priority as TaskPriority];
     if (owner === 'unassigned') next.assigneeId = 'unassigned';
     if (watch === 'following' && me) next.followerId = me;
+    next.sort = sort as TaskSort;
 
     /* The board draws every column at once, so a 25-row page would show a
        third of the work and call it the board. 100 is the server's own ceiling
@@ -180,7 +197,7 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
     }
     return next;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(baseFilters), scope, search, page, view, who, due, priority, owner, watch, me]);
+  }, [JSON.stringify(baseFilters), scope, search, page, view, who, due, priority, owner, watch, sort, me]);
 
   const { data, isLoading, isError, error, refetch } = useTasks(filters);
   /* Scope totals come from their own endpoint: the list is paginated, so it
@@ -242,12 +259,12 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
     {
       key: 'title',
       label: 'Task',
-      width: 'w-[34%]',
+      width: 'w-[38%]',
       card: 'identity',
       cell: (task) => (
         <div className="min-w-0">
-          <div className="flex items-baseline gap-2">
-            <span className="shrink-0 font-mono text-[0.6875rem] text-muted-foreground">{task.reference}</span>
+          <div className="flex items-center gap-2">
+            <TaskOriginRef reference={task.reference} ticket={task.ticket} />
             <span className="truncate text-sm font-medium text-foreground">{task.title}</span>
           </div>
           {task.links.length > 0 ? (
@@ -259,6 +276,12 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
                   reference={link.recordRef}
                   label={link.label}
                   status={link.status}
+                  /* The chip drew the RECORD's state beside the task's own, so
+                     every row carried two ladders and the reader had to work
+                     out which one a green belonged to. Hidden, not dropped —
+                     it still reaches the hover peek, which is where somebody
+                     asking after the record actually looks. */
+                  hideStatus
                   parentRef={link.parentRef}
                   recordId={link.recordId}
                   missing={link.missing}
@@ -279,7 +302,15 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
       icon: ListChecks,
       width: 'w-[13%]',
       card: 'trailing',
-      cell: (task) => <TaskStatusBadge status={task.status} />,
+      /* Editable in place. Triage is the reason this list exists, and moving a
+         task on used to mean opening it, changing a field and coming back. */
+      cell: (task) => (
+        <TaskStatusPicker
+          status={task.status}
+          disabled={!canCreate || updateTask.isPending}
+          onChange={(status) => updateTask.mutate({ idOrRef: task.id, patch: { status } })}
+        />
+      ),
     },
     {
       key: 'priority',
@@ -292,7 +323,7 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
       key: 'assignee',
       label: 'Owner',
       icon: UserRound,
-      width: 'w-[22%]',
+      width: 'w-[20%]',
       cell: (task) =>
         task.assignee ? (
           <span className="flex items-center gap-1.5">
@@ -313,7 +344,7 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
       key: 'dueAt',
       label: 'Due',
       icon: CalendarDays,
-      width: 'w-[15%]',
+      width: 'w-[13%]',
       cell: (task) => <DueMark dueAt={task.dueAt} status={task.status} />,
     },
   ];
@@ -369,6 +400,14 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
             person: a task assigned to you cannot also be unassigned. */}
         <FilterMenu
           groups={[
+            {
+              key: 'sort',
+              label: 'Sort by',
+              value: sort,
+              defaultValue: 'newest',
+              onChange: (value: string) => { setParam('sort', value, 'newest'); setPage(1); },
+              options: SORT_CHOICES,
+            },
             {
               key: 'who',
               label: 'Whose tasks',
@@ -493,10 +532,14 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
                     className="mt-0.5"
                   />
                   <span className="min-w-0 flex-1">
-                    <span className="mr-1.5 font-mono text-[0.6875rem] text-muted-foreground">{task.reference}</span>
+                    <TaskOriginRef reference={task.reference} ticket={task.ticket} className="mr-1.5 align-middle" />
                     <span className="text-sm font-medium text-foreground">{task.title}</span>
                   </span>
-                  <TaskStatusBadge status={task.status} />
+                  <TaskStatusPicker
+                    status={task.status}
+                    disabled={!canCreate || updateTask.isPending}
+                    onChange={(status) => updateTask.mutate({ idOrRef: task.id, patch: { status } })}
+                  />
                 </div>
 
                 {/* One line of marks: priority, owner, due, and whatever the
@@ -523,6 +566,7 @@ export function TaskList({ baseFilters = {}, emptyCopy = 'No tasks here yet.' }:
                       reference={link.recordRef}
                       label={link.label}
                       status={link.status}
+                      hideStatus
                       parentRef={link.parentRef}
                       recordId={link.recordId}
                       missing={link.missing}

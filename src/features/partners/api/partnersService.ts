@@ -89,6 +89,8 @@ export interface CreatePartnerPayload {
   vehicleTypes?: string[];
   country: string;
   address: string;
+  /** A catalogue location id; null clears it. See `PartnerRecord.garageLocationId`. */
+  garageLocationId?: string | null;
   insuranceProvider?: string;
   insurancePolicyNumber?: string;
   insuranceExpiry?: string;
