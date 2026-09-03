@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 
 import { ApexChart } from '@/features/shipper-bi/charts/ApexChart';
-import { compactDjf, fmtDjf, pct } from '@/lib/finance';
+import { compactDjf, pct } from '@/lib/finance';
 import {
   ConsolePanel,
   InsightNote,
@@ -12,17 +12,16 @@ import { CHART_INK, gaugeOptions } from './charts';
 import type { MoneyModel } from '../model';
 
 /**
- * What the platform actually keeps, against what Settings says it should.
+ * What the platform actually keeps, against the house rate in Settings.
  *
- * Fleetin's cut is taken off the transporter's price list, so the configured
- * percentage is a promise the book either keeps or does not. The ring shows
- * the rate the book actually achieved; the tick under it names the configured
- * rate, and the note says which way the gap runs. An effective rate below the
- * configured one is not a rounding artefact — it means shipments were priced
- * off-list, or paid out at more than the list allowed.
+ * The ring is the rate the book achieved; the tick under it names the house
+ * rate. The two differ LEGITIMATELY here — a client or a haulier with a
+ * negotiated deal is billed at their own rate, and a fixed per-container fee
+ * lands wherever the container count puts it. So the gap is information, not
+ * an error: it says how much of the book runs off the house rate.
  */
 export function CommissionCard({ money, className }: { money: MoneyModel; className?: string }) {
-  const effective = money.marginPct;
+  const effective = money.takeRate;
   const configured = money.configuredTakeRate;
 
   const options = useMemo(
@@ -57,20 +56,19 @@ export function CommissionCard({ money, className }: { money: MoneyModel; classN
         <div className="grid min-w-[11rem] flex-1 gap-2.5">
           <StatBox
             label="Commission earned"
-            value={money.grossDjf !== null ? compactDjf(money.grossDjf) : '—'}
-            note={`on ${compactDjf(money.revenueDjf)} billed`}
+            value={compactDjf(money.commissionDjf)}
+            note={`on ${compactDjf(money.billedDjf)} billed`}
           />
           <StatBox
-            label="Configured rate"
+            label="House rate"
             value={configured > 0 ? pct(configured, 1) : 'not set'}
             note={
               shortfall === null
-                ? 'no priced shipments'
+                ? 'nothing billed yet'
                 : shortfall < 0
                   ? `${pct(Math.abs(shortfall), 1)} under`
                   : `${pct(shortfall, 1)} over`
             }
-            tone={shortfall !== null && shortfall < -0.005 ? 'attention' : 'neutral'}
           />
         </div>
       </div>
@@ -80,7 +78,7 @@ export function CommissionCard({ money, className }: { money: MoneyModel; classN
           <span className="font-bold text-foreground">
             {money.unpricedCount} {money.unpricedCount === 1 ? 'shipment' : 'shipments'} unpriced
           </span>{' '}
-          — {fmtDjf(money.unpricedCostDjf)} transport cost outside this rate.
+          — no commission can be worked out until somebody sets a price.
         </InsightNote>
       ) : (
         <InsightNote className="mt-3">Every shipment is priced.</InsightNote>

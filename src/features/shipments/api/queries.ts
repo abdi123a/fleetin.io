@@ -10,7 +10,7 @@ import {
   fetchShipmentRaw,
   fetchShipments,
   fetchShipmentsRaw,
-  releaseShipment,
+  payTransporter,
   setShipmentCrew,
   updateShipment,
   updateShipmentRaw,
@@ -116,11 +116,21 @@ export function useUpdateShipmentRaw() {
   });
 }
 
-export function useReleaseShipment() {
+/**
+ * Records the haulier's payment for one shipment.
+ *
+ * Invalidates invoices too: Billing reads both directions of the money off the
+ * same screen, so a payment out has to refresh the page that shows payments in
+ * beside it.
+ */
+export function usePayTransporter() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => releaseShipment(id),
-    onSuccess: (_data, id) => invalidateShipments(queryClient, id),
+    mutationFn: (id: string) => payTransporter(id),
+    onSuccess: (_data, id) => {
+      invalidateShipments(queryClient, id);
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+    },
   });
 }
 

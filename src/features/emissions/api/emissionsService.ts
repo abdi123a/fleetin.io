@@ -93,6 +93,13 @@ export interface CycleImpact {
   /** Which end of the continuation the booking you asked about is. */
   role: 'empty' | 'next_load' | null;
   status: ImpactStatus;
+  /**
+   * Which saving it is, once realized. `continuation` — one carrier's truck
+   * went straight from the free zone to the port for its own next load.
+   * `handover` — the next load's carrier took another carrier's empty through
+   * the free zone, so that carrier never sent a truck for it.
+   */
+  model: 'continuation' | 'handover' | null;
   /** `automatic` — read off the rungs. `operator` — a person said so. */
   source: 'automatic' | 'operator' | null;
   decidedBy: string | null;
@@ -107,8 +114,11 @@ export interface CycleImpact {
   countedOn: string | null;
   /** One transporter on both bookings — the only case a continuation can be confirmed. */
   continuable: boolean;
+  /** The empty's carrier — whose driving was saved. */
   transporter: { id: string; name: string } | null;
-  /** The truck that ran both legs — only when both legs name the same one. */
+  /** The next load's carrier. The same company on a continuation. */
+  nextTransporter: { id: string; name: string } | null;
+  /** The truck that came through the free zone — the next load's. */
   vehicle: { id: string; plate: string } | null;
   empty: { bookingId: string; reference: string; container: string | null; shipmentReference: string | null };
   nextLoad: { bookingId: string; reference: string; container: string | null; shipmentReference: string | null };
@@ -119,11 +129,15 @@ export interface CycleImpact {
   avoided: {
     toGarageKm: number;
     fromGarageKm: number;
+    /** Handover only: the next load's truck's extra kilometres to come through the free zone. */
+    detourKm: number | null;
     distanceKm: number;
     /** `google` is a road; `haversine` is the straight line, and says so. */
     provider: string;
     co2FactorUsed: number | null;
-    /** Null when the truck could not be established — distance kept, carbon not priced. */
+    /** next_load_truck | delivery_truck | fleet_average — whose factor priced it. */
+    factorBasis: string | null;
+    /** Null when no factor could be found — distance kept, carbon not priced. */
     co2Kg: number | null;
   } | null;
 }

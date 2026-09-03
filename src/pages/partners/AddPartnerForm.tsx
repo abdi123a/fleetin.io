@@ -7,10 +7,12 @@ import {
   User,
   MapPin,
   Paperclip,
+  Percent,
 } from '@/design-system/icons';
 import { Check } from 'lucide-react';
 import { Button, Input, Select } from '@/design-system';
 import { PARTNER_STATUS_OPTIONS } from '@/components/common';
+import { CommissionFields, type CommissionMode } from '@/features/finance';
 import { getCountryOptions } from '@/data/geoData';
 import { useLocations } from '@/features/locations';
 import { DocumentChecklist } from '@/features/documents/components/DocumentChecklist';
@@ -37,6 +39,13 @@ export interface PartnerFormData {
   fleetSize: string;
   vehicleTypes: string;         // comma-separated
   partnerStatus: PartnerStatus;
+
+  /* The deal — see `CommissionFields`. `commissionMode` null means no special
+     deal and the house rate applies; it is the mode, never the amount, that
+     says a deal exists. */
+  commissionMode: CommissionMode | null;
+  commissionPct: number | null;
+  commissionFixedAmount: number | null;
 
   // Primary Dispatcher
   primaryDispatcherName: string;
@@ -116,6 +125,9 @@ const DEFAULT_FORM: PartnerFormData = {
   fleetSize: '',
   vehicleTypes: '',
   partnerStatus: 'Pending',
+  commissionMode: null,
+  commissionPct: null,
+  commissionFixedAmount: null,
   primaryDispatcherName: '',
   primaryDispatcherTitle: 'Fleet Dispatcher',
   primaryDispatcherPhone: '',
@@ -409,6 +421,30 @@ export function AddPartnerForm({ initialData, isEdit = false, onSuccess, onCance
                     onChange={(e) => handleInputChange('partnerStatus', e.target.value as PartnerStatus)}
                   />
                 </div>
+              </div>
+
+              {/* What Fleetin keeps when this haulier carries the job. Sits with
+                  the account's standing rather than in a finance screen: it is
+                  a term of the relationship, agreed when the account is. The
+                  client's own deal outranks it — see `resolveCommission`. */}
+              <div className="space-y-4 pt-4 border-t border-border/60">
+                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <Percent className="h-3.5 w-3.5 text-primary" />
+                  Commission
+                </h4>
+                <CommissionFields
+                  idPrefix="partner"
+                  counterparty="transporter"
+                  value={{
+                    commissionMode: formData.commissionMode,
+                    commissionPct: formData.commissionPct,
+                    commissionFixedAmount: formData.commissionFixedAmount,
+                  }}
+                  onChange={(next) => setFormData((prev) => ({ ...prev, ...next }))}
+                />
+                <p className="type-body-xs text-muted-foreground">
+                  A deal on the client&rsquo;s own account takes priority over this one.
+                </p>
               </div>
             </div>
 

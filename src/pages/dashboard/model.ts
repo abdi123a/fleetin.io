@@ -1,12 +1,5 @@
 import type { BankAccountRecord } from '@/features/bank-accounts/api/bankAccountsService';
-import type {
-  CreditFacilityRecord,
-  DrawdownRecord,
-  InvoiceRecord,
-  LedgerEntryRecord,
-  PaymentOrderRecord,
-  PayoutHoldRecord,
-} from '@/features/finance';
+import type { InvoiceRecord } from '@/features/finance';
 import type { HrDashboard } from '@/features/hr/api/hrService';
 import type { ShipmentRecord } from '@/features/shipments/api/shipmentsService';
 import type { EnrichedDriver, EnrichedVehicle } from '@/data/partnerData';
@@ -14,7 +7,6 @@ import { isChainBroken, isCritical, riskOf, selectChains, selectKpis } from '@/s
 import type { EmptyReturnKpis, EmptyReturnRecord, FullLoadMission } from '@/types/emptyReturn';
 import type { PartnerRecord } from '@/types/partner';
 import type { ShipperRecord } from '@/types/shipper';
-import { aggregateMoneyPosition, type MoneyPosition } from '@/pages/finance/shipmentFinance';
 
 /**
  * Every figure the admin control room shows, derived in one pass.
@@ -126,10 +118,12 @@ export interface OperationsModel {
   /** Containers under the live shipments, from the server's own `bookingCount`. */
   containers: number;
   stages: ShipmentStage[];
-  /** Delivered with the paper in, payout not yet released — the desk's move. */
-  awaitingRelease: number;
-  /** Released to transporters but no client price on the shipment. */
-  releasedUnpriced: number;
+  /**
+   * Delivered with the paper in and still no invoice raised — the billing
+   * desk's move, and what the payout-release count used to be before there was
+   * a payout to release.
+   */
+  awaitingInvoice: number;
   /** Carrying no client price at all — revenue that cannot be billed yet. */
   unpriced: number;
   /** Live shipments with no vehicle attached. */
@@ -138,14 +132,13 @@ export interface OperationsModel {
   completionRate: number | null;
 }
 
-function buildOperations(shipments: ShipmentRecord[]): OperationsModel {
+function buildOperations(shipments: ShipmentRecord[], billedShipmentIds: Set<string>): OperationsModel {
   const counts = new Map<ShipmentStageKey, number>();
   for (const stage of STAGE_ORDER) counts.set(stage, 0);
 
   let containers = 0;
   let live = 0;
-  let awaitingRelease = 0;
-  let releasedUnpriced = 0;
+  let awaitingInvoice = 0;
   let unpriced = 0;
   let unassigned = 0;
 
@@ -161,8 +154,16 @@ function buildOperations(shipments: ShipmentRecord[]): OperationsModel {
     }
 
     if (shipment.clientRateMinorUnits == null && stage !== 'stopped') unpriced += 1;
-    if (shipment.payoutReleasedAt && shipment.clientRateMinorUnits == null) releasedUnpriced += 1;
-    if (!shipment.payoutReleasedAt && (stage === 'proof_in' || stage === 'closed')) awaitingRelease += 1;
+    /* Work that is finished and priced but not yet billed. Unpriced jobs are
+       deliberately excluded — they need a price before they need an invoice,
+       and counting them here would put the same shipment in two queues. */
+    if (
+      (stage === 'proof_in' || stage === 'closed') &&
+      shipment.clientRateMinorUnits != null &&
+      !billedShipmentIds.has(shipment.id)
+    ) {
+      awaitingInvoice += 1;
+    }
   }
 
   const closed = counts.get('closed') ?? 0;
@@ -174,8 +175,7 @@ function buildOperations(shipments: ShipmentRecord[]): OperationsModel {
     live,
     containers,
     stages: STAGE_ORDER.map((key) => ({ key, count: counts.get(key) ?? 0, ...STAGE_META[key] })),
-    awaitingRelease,
-    releasedUnpriced,
+    awaitingInvoice,
     unpriced,
     unassigned,
     completionRate: finished > 0 ? closed / finished : null,
@@ -303,51 +303,95 @@ export interface TreasuryAccount {
   logoUrl?: string | null;
 }
 
-export interface MoneyModel extends MoneyPosition {
-  /** Unpaid invoices bucketed by how far past their contract date they are. */
+/**
+ * The money the control room shows, derived from the only two things billing
+ * now records: what shipments are priced at, and what documents were issued
+ * against them.
+ *
+ * Every figure is a plain sum over those. The working-capital model this
+ * replaced computed a payout position, capital days and facility use; none of
+ * that exists any more, and inventing a stand-in for it would put numbers on
+ * an admin's screen that nothing in the system backs.
+ */
+export interface MoneyModel {
+  /** What the book's shipments are priced at, billed or not. */
+  contractedDjf: number;
+  /** What has actually been invoiced — proformas excluded, a quote is not revenue. */
+  billedDjf: number;
+  /** Of that, what the client has paid. */
+  collectedDjf: number;
+  /** Invoiced and still owed. */
+  outstandingDjf: number;
+  /** Priced work with no invoice raised — the billing desk's backlog. */
+  unbilledDjf: number;
+  /** Fleetin's own take, summed from each document's stored figure. */
+  commissionDjf: number;
+  /**
+   * Commission as a share of what was billed — a FRACTION, to match
+   * `configuredTakeRate` beside it and the `pct()` helper both are printed
+   * with. Null with nothing billed: a take rate on no billing is not 0%, it is
+   * unknown.
+   */
+  takeRate: number | null;
+
+  /** Unpaid invoices bucketed by how far past their due date they are. */
   ageing: AgeingBucket[];
   /** Invoices issued and not yet paid. */
   openInvoices: number;
-  /** Of those, already past the contract date. */
+  /** Of those, already past the due date. */
   overdueInvoices: number;
-  /** Payouts a hold is currently stopping. */
-  openHolds: number;
+  /** Quotes sent that have not become invoices. */
+  openProformas: number;
+  /** Shipments carrying no price at all — unbillable until somebody sets one. */
+  unpricedCount: number;
+
   /** Cash across active DJF accounts. */
   cashDjf: number;
   /** Accounts held in another currency — counted, never summed into DJF. */
   foreignAccounts: number;
   accounts: TreasuryAccount[];
-  /** Facility ceiling, what is drawn against it, and the share used. */
-  facilityLimitDjf: number;
-  facilityDrawnDjf: number;
-  facilityUse: number | null;
-  /** Drawdowns already past their due date. */
-  drawdownsOverdue: number;
+
   /**
-   * The platform rate configured in Settings, as a fraction. Fleetin's cut is
-   * taken off the transporter's price list, so this is what the book *should*
-   * be keeping — kept beside `marginPct`, which is what it actually kept.
+   * The house rate configured in Settings, as a fraction. Kept beside
+   * `takeRatePct`, which is what the book actually kept — the two differ
+   * legitimately whenever a client or haulier has a deal of their own.
    */
   configuredTakeRate: number;
 }
 
 function buildMoney(
   shipments: ShipmentRecord[],
-  invoices: InvoiceRecord[],
-  paidOrders: PaymentOrderRecord[],
-  holds: PayoutHoldRecord[],
+  documents: InvoiceRecord[],
   accounts: BankAccountRecord[],
-  facilities: CreditFacilityRecord[],
-  drawdowns: DrawdownRecord[],
   configuredTakeRate: number,
   now: number,
 ): MoneyModel {
-  const position = aggregateMoneyPosition(
-    shipments,
-    invoices,
-    paidOrders,
-    new Set(holds.map((hold) => hold.shipmentId)),
-  );
+  const live = documents.filter((doc) => doc.status !== 'Cancelled');
+  const invoices = live.filter((doc) => doc.kind === 'invoice');
+
+  /* Which shipments already carry a bill — so "unbilled" is the priced work
+     with nothing raised against it, rather than everything not yet paid. */
+  const billedShipments = new Set(invoices.map((doc) => doc.shipmentId).filter(Boolean) as string[]);
+
+  let contractedDjf = 0;
+  let unbilledDjf = 0;
+  let unpricedCount = 0;
+  for (const shipment of shipments) {
+    if (['Cancelled', 'Failed'].includes(shipment.status)) continue;
+    if (shipment.clientRateMinorUnits == null) {
+      unpricedCount += 1;
+      continue;
+    }
+    const value = Number(shipment.clientRateMinorUnits);
+    contractedDjf += value;
+    if (!billedShipments.has(shipment.id)) unbilledDjf += value;
+  }
+
+  const billedDjf = invoices.reduce((sum, doc) => sum + Number(doc.totalMinorUnits), 0);
+  const collectedDjf = invoices
+    .filter((doc) => doc.status === 'Paid')
+    .reduce((sum, doc) => sum + Number(doc.totalMinorUnits), 0);
+  const commissionDjf = invoices.reduce((sum, doc) => sum + Number(doc.commissionMinorUnits), 0);
 
   const ageingCounts = { current: 0, d30: 0, d60: 0, d60plus: 0 };
   const ageingAmounts = { current: 0, d30: 0, d60: 0, d60plus: 0 };
@@ -356,13 +400,11 @@ function buildMoney(
 
   for (const invoice of invoices) {
     if (invoice.status === 'Paid') continue;
-    const remaining = Number(invoice.remainingMinorUnits);
+    const remaining = Number(invoice.totalMinorUnits);
     if (remaining <= 0) continue;
     openInvoices += 1;
 
-    // Ceil, not floor: anything past the deadline at all is day 1 late — the
-    // same strict `deadline < now` boundary `drawdownsOverdue` below and
-    // `aggregateMoneyPosition`'s overdue test use.
+    // Ceil, not floor: anything past the deadline at all is day 1 late.
     const daysPast = Math.ceil((now - new Date(invoice.contractDeadline).getTime()) / DAY_MS);
     const key = daysPast <= 0 ? 'current' : daysPast <= 30 ? 'd30' : daysPast <= 60 ? 'd60' : 'd60plus';
     ageingCounts[key] += 1;
@@ -373,16 +415,14 @@ function buildMoney(
   const active = accounts.filter((account) => account.isActive);
   const djfAccounts = active.filter((account) => account.currency === 'DJF');
 
-  const facilityLimitDjf = facilities
-    .filter((facility) => facility.currency === 'DJF')
-    .reduce((sum, facility) => sum + Number(facility.limitMinorUnits), 0);
-  const facilityDrawnDjf = drawdowns.reduce(
-    (sum, drawdown) => sum + Math.max(0, Number(drawdown.amountMinorUnits) - Number(drawdown.repaidMinorUnits)),
-    0,
-  );
-
   return {
-    ...position,
+    contractedDjf,
+    billedDjf,
+    collectedDjf,
+    outstandingDjf: billedDjf - collectedDjf,
+    unbilledDjf,
+    commissionDjf,
+    takeRate: billedDjf > 0 ? commissionDjf / billedDjf : null,
     ageing: [
       { key: 'current', label: 'Within terms', count: ageingCounts.current, amountDjf: ageingAmounts.current, color: 'var(--primary)' },
       { key: 'd30', label: '1–30 days overdue', count: ageingCounts.d30, amountDjf: ageingAmounts.d30, color: 'var(--fl-orange-300)' },
@@ -391,7 +431,10 @@ function buildMoney(
     ],
     openInvoices,
     overdueInvoices,
-    openHolds: holds.length,
+    openProformas: live.filter(
+      (doc) => doc.kind === 'proforma' && !billedShipments.has(doc.shipmentId ?? ''),
+    ).length,
+    unpricedCount,
     cashDjf: djfAccounts.reduce((sum, account) => sum + Number(account.currentBalance), 0),
     foreignAccounts: active.length - djfAccounts.length,
     accounts: active
@@ -405,14 +448,6 @@ function buildMoney(
         logoUrl: account.logoUrl,
       }))
       .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || b.balance - a.balance),
-    facilityLimitDjf,
-    facilityDrawnDjf,
-    facilityUse: facilityLimitDjf > 0 ? facilityDrawnDjf / facilityLimitDjf : null,
-    drawdownsOverdue: drawdowns.filter(
-      (drawdown) =>
-        Number(drawdown.amountMinorUnits) - Number(drawdown.repaidMinorUnits) > 0 &&
-        new Date(drawdown.dueAt).getTime() < now,
-    ).length,
     configuredTakeRate,
   };
 }
@@ -760,8 +795,15 @@ export interface AdminConsoleModel {
   workforce: WorkforceModel | null;
   movement: MovementModel;
   attention: AttentionItem[];
-  /** Most recent postings, newest first — the book's own audit trail. */
-  activity: LedgerEntryRecord[];
+  /**
+   * Most recent documents, newest first.
+   *
+   * This replaced a ledger feed. There is no ledger any more, and the honest
+   * substitute for "what happened to the money lately" is the documents that
+   * were raised and settled — which is now the whole of what the money side
+   * records.
+   */
+  activity: InvoiceRecord[];
 }
 
 export interface BuildAdminModelArgs {
@@ -769,17 +811,12 @@ export interface BuildAdminModelArgs {
   returnRecords: EmptyReturnRecord[];
   fullLoads: FullLoadMission[];
   invoices: InvoiceRecord[];
-  paidOrders: PaymentOrderRecord[];
-  holds: PayoutHoldRecord[];
   accounts: BankAccountRecord[];
-  facilities: CreditFacilityRecord[];
-  drawdowns: DrawdownRecord[];
   shippers: ShipperRecord[];
   partners: PartnerRecord[];
   vehicles: EnrichedVehicle[];
   drivers: EnrichedDriver[];
   hr: HrDashboard | undefined;
-  ledger: LedgerEntryRecord[];
   /** Percent, the way Settings stores it — 7.5 means 7.5%. */
   commissionPct: number;
   /** Routes the queue items link to, injected so the model stays route-free. */
@@ -800,19 +837,18 @@ export interface BuildAdminModelArgs {
 export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleModel {
   const { now, routes } = args;
 
-  const operations = buildOperations(args.shipments);
-  const returns = buildEmptyReturns(args.returnRecords, args.fullLoads, now);
-  const money = buildMoney(
-    args.shipments,
-    args.invoices,
-    args.paidOrders,
-    args.holds,
-    args.accounts,
-    args.facilities,
-    args.drawdowns,
-    args.commissionPct / 100,
-    now,
+  /* Which shipments already carry a live bill — shared by the operations and
+     money models so "billed" cannot mean two different things on one page. */
+  const billedShipmentIds = new Set(
+    args.invoices
+      .filter((doc) => doc.kind === 'invoice' && doc.status !== 'Cancelled')
+      .map((doc) => doc.shipmentId)
+      .filter(Boolean) as string[],
   );
+
+  const operations = buildOperations(args.shipments, billedShipmentIds);
+  const returns = buildEmptyReturns(args.returnRecords, args.fullLoads, now);
+  const money = buildMoney(args.shipments, args.invoices, args.accounts, args.commissionPct / 100, now);
   const network = buildNetwork(args.shipments, args.shippers, args.partners);
   const fleet = buildFleet(args.vehicles, args.drivers, now);
   const workforce = buildWorkforce(args.hr);
@@ -862,12 +898,12 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     to: routes.vehicles,
   });
   push({
-    id: 'drawdowns-overdue',
+    id: 'invoices-overdue',
     severity: 'breach',
     module: 'Finance',
-    title: 'Overdue drawdowns',
-    count: money.drawdownsOverdue,
-    to: routes.finance,
+    title: 'Overdue invoices',
+    count: money.overdueInvoices,
+    to: routes.financeInvoices,
   });
   push({
     id: 'returns-critical',
@@ -878,28 +914,20 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     to: routes.emptyReturns,
   });
   push({
-    id: 'holds-open',
+    id: 'shipments-unpriced',
     severity: 'ask',
     module: 'Finance',
-    title: 'Settlements on hold',
-    count: money.openHolds,
+    title: 'Shipments with no price',
+    count: money.unpricedCount,
     to: routes.finance,
   });
   push({
-    id: 'released-unpriced',
+    id: 'awaiting-invoice',
     severity: 'ask',
     module: 'Finance',
-    title: 'Unpriced released shipments',
-    count: operations.releasedUnpriced,
+    title: 'Delivered, not yet invoiced',
+    count: operations.awaitingInvoice,
     to: routes.finance,
-  });
-  push({
-    id: 'awaiting-release',
-    severity: 'ask',
-    module: 'Shipments',
-    title: 'Shipments pending release',
-    count: operations.awaitingRelease,
-    to: routes.shipments,
   });
   push({
     id: 'returns-matchable',
@@ -962,8 +990,8 @@ export function buildAdminConsoleModel(args: BuildAdminModelArgs): AdminConsoleM
     workforce,
     movement,
     attention,
-    activity: [...args.ledger]
-      .sort((a, b) => new Date(b.postedAt).getTime() - new Date(a.postedAt).getTime())
+    activity: [...args.invoices]
+      .sort((a, b) => (b.paidAt ?? b.issueDate).localeCompare(a.paidAt ?? a.issueDate))
       .slice(0, 8),
   };
 }

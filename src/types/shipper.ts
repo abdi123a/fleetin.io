@@ -51,6 +51,18 @@ export interface ShipperRecord {
   industry: string;
   companySize: CompanySize;
 
+  /**
+   * The commission deal struck with this client, when there is one.
+   *
+   * `commissionMode` null is the normal state: no special deal, the house rate
+   * under Settings applies. It is the MODE that records a deal, never the
+   * amount — a negotiated 0% is a real decision and is stored as one.
+   */
+  commissionMode?: 'percent' | 'fixed' | null;
+  commissionPct?: number | null;
+  /** Whole DJF, charged once per container. Meaningful in `fixed` mode. */
+  commissionFixedMinorUnits?: string | null;
+
   // Simple Location
   country: string;
   address: string;

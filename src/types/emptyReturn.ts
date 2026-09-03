@@ -226,6 +226,8 @@ export interface EmptyReturnRecord {
   impactCounted?: boolean;
   avoidedKm?: number | null;
   avoidedCo2Kg?: number | null;
+  /** What this leg actually emitted, from the booking. */
+  co2EmissionsKg?: number | null;
 }
 
 /** The cycle lifecycle word, mirrored from the outbound booking's status. */
@@ -473,8 +475,13 @@ export interface CycleChain {
    */
   avoidedKm: number;
   avoidedCo2Kg: number;
+  /** What this chain's trucks actually put out. */
+  actualCo2Kg: number;
   /** Links whose continuation physically happened. */
   realizedLinks: number;
+  /** Realized links with no single truck to take a factor from — their saving
+      is real but unpriced, so the kg figure understates it. */
+  unpricedLinks: number;
 }
 
 /**

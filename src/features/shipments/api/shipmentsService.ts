@@ -120,9 +120,22 @@ export interface ShipmentRecord {
   clientRateFxRate: number | null;
   clientRateBaseAmountMinorUnits: string | null;
 
+  /** Dead since 2026-09-03 — historical rows only. See `transporterPaidAt`. */
   payoutReleasedAt: string | null;
   payoutReleasedById: string | null;
   payoutReleasedByName: string | null;
+
+  /**
+   * When Fleetin paid the haulier for this job, and how much left the account.
+   *
+   * The second half of the money: the shipper is invoiced the whole job, the
+   * transporter is paid that less Fleetin's share. The amount is a snapshot of
+   * what was actually transferred — never recomputed, so renegotiating a
+   * commission cannot restate a payment already made. Null means still owed.
+   */
+  transporterPaidAt: string | null;
+  transporterPaidMinorUnits: string | null;
+  transporterPaidByName: string | null;
   projectId: string | null;
 
   createdAt: string;
@@ -536,12 +549,18 @@ export async function repriceUnpricedShipments(shipperId?: string): Promise<Repr
   return res.data;
 }
 
-/** `PATCH /shipments/:id/release` — guarded server-side: every booking delivered, no open hold, not already released. */
-export async function releaseShipment(id: string): Promise<ShipmentRecord> {
-  const res = await apiClient.patch<ShipmentRecord>(`/shipments/${id}/release`, {}, token());
+/**
+ * `PATCH /shipments/:id/pay-transporter` — records the haulier's payment for
+ * one shipment. Guarded server-side: every container delivered, a price set,
+ * and idempotent. Deliberately not gated on the client having paid — Fleetin
+ * funds that gap.
+ */
+export async function payTransporter(id: string): Promise<ShipmentRecord> {
+  const res = await apiClient.patch<ShipmentRecord>(`/shipments/${id}/pay-transporter`, {}, token());
   return res.data;
 }
 
+/** @deprecated The payout-release gate went with the working-capital module. */
 export async function updateShipmentStatus(id: string, status: string): Promise<Mission> {
   const res = await apiClient.patch<ShipmentRecord>(`/shipments/${id}/status`, { status }, token());
   return mapShipmentToMission(res.data);

@@ -13,6 +13,14 @@ export interface DriveFolderRecord {
   name: string;
   /** Null at the root of the Files section. */
   parentId: string | null;
+  /**
+   * The company this folder hangs under, when it hangs under one.
+   *
+   * Both null is a Files-section folder — a free tree somebody made. Set, and
+   * the folder lives inside that company's own folder on the compliance drive.
+   */
+  ownerType?: 'PARTNER' | 'SHIPPER' | null;
+  ownerId?: string | null;
   createdById: string;
   /** Resolved server-side; null when the account is gone. */
   createdByName?: string | null;
@@ -33,10 +41,20 @@ export async function fetchDriveFolders(): Promise<DriveFolderRecord[]> {
 export async function createDriveFolder(params: {
   name: string;
   parentId?: string | null;
+  /* Only meaningful at a root: a nested folder inherits its parent's owner
+     server-side, so sending one here would be ignored. */
+  ownerType?: 'PARTNER' | 'SHIPPER' | null;
+  ownerId?: string | null;
 }): Promise<DriveFolderRecord> {
   const res = await apiClient.post<DriveFolderRecord>(
     '/drive/folders',
-    params.parentId ? { name: params.name, parentId: params.parentId } : { name: params.name },
+    {
+      name: params.name,
+      ...(params.parentId ? { parentId: params.parentId } : {}),
+      ...(params.ownerType && params.ownerId
+        ? { ownerType: params.ownerType, ownerId: params.ownerId }
+        : {}),
+    },
     token(),
   );
   return res.data;

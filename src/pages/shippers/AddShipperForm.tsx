@@ -7,11 +7,13 @@ import {
   FileText,
   Upload,
   Paperclip,
+  Percent,
 } from '@/design-system/icons';
 import { DocumentViewerModal, type DocumentToView } from '@/components/DocumentViewerModal';
 import { Check } from 'lucide-react';
 import { Button, Input, Select } from '@/design-system';
 import { SHIPPER_STATUS_OPTIONS } from '@/components/common';
+import { CommissionFields, type CommissionMode } from '@/features/finance';
 import { DocumentChecklist } from '@/features/documents/components/DocumentChecklist';
 import type { DocumentCapture } from '@/features/documents/components/DocumentCaptureDialog';
 import { documentCatalogFor, type DocumentTypeSpec } from '@/features/documents/catalog';
@@ -31,6 +33,13 @@ export interface ShipperFormData {
   industry?: string;
   companySize: CompanySize;
   approvalStatus: ApprovalStatus;
+
+  /* The deal — see `CommissionFields`. `commissionMode` null means no special
+     deal and the house rate applies; it is the mode, never the amount, that
+     says a deal exists. */
+  commissionMode: CommissionMode | null;
+  commissionPct: number | null;
+  commissionFixedAmount: number | null;
 
   // Simple Location
   country: string;
@@ -109,6 +118,9 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
     industry: initialData?.industry || 'Logistics & Freight',
     companySize: (initialData?.companySize as CompanySize) || 'Medium (51-250)',
     approvalStatus: (initialData?.approvalStatus as ApprovalStatus) || 'Verified',
+    commissionMode: initialData?.commissionMode ?? null,
+    commissionPct: initialData?.commissionPct ?? null,
+    commissionFixedAmount: initialData?.commissionFixedAmount ?? null,
 
     country: initialData?.country || 'Djibouti',
     address: initialData?.address || '',
@@ -388,6 +400,28 @@ export function AddShipperForm({ initialData, isEdit = false, onSuccess, onCance
                     onChange={(e) => handleInputChange('approvalStatus', e.target.value as ApprovalStatus)}
                   />
                 </div>
+              </div>
+
+              {/* What Fleetin charges this client. Sits with the account's
+                  standing rather than in a finance screen: it is a term of the
+                  relationship, agreed when the account is, and an operator
+                  editing a client should not have to go somewhere else to set
+                  it. */}
+              <div className="space-y-4 pt-4 border-t border-border/60">
+                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <Percent className="h-3.5 w-3.5 text-primary" />
+                  Commission
+                </h4>
+                <CommissionFields
+                  idPrefix="shipper"
+                  counterparty="shipper"
+                  value={{
+                    commissionMode: formData.commissionMode,
+                    commissionPct: formData.commissionPct,
+                    commissionFixedAmount: formData.commissionFixedAmount,
+                  }}
+                  onChange={(next) => setFormData((prev) => ({ ...prev, ...next }))}
+                />
               </div>
             </div>
 

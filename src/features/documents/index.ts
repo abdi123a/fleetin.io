@@ -33,7 +33,16 @@ export {
   useDeleteFile,
 } from './api/queries';
 export { type DriveFolderRecord } from './api/driveFoldersService';
-export { listFiles, searchFiles, type FileListing, type FileFolder, type FileTally } from './files';
+export {
+  listFiles,
+  searchFiles,
+  foldersOf,
+  describeContents,
+  type FileListing,
+  type FileFolder,
+  type FileTally,
+  type FilesOwner,
+} from './files';
 export { DocumentChecklist } from './components/DocumentChecklist';
 export { DocumentCaptureDialog, type DocumentCapture } from './components/DocumentCaptureDialog';
 export { ProofFileField } from './components/ProofFileField';

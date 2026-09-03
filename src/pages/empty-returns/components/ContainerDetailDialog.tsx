@@ -1,7 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 
-import { ROUTES } from '@/config/routes';
 import {
   Button,
   Card,
@@ -52,6 +51,8 @@ import { OperationFlow } from './OperationFlow';
 import { IdentityFact, IdentityStrip, PartyName } from '@/components/common';
 
 import { ContainerSizeTag, EmptyTag, Mono, RecordStateTag, SectionLabel } from './marks';
+import { PairingCelebration } from './PairingCelebration';
+import { PlanReturnContent } from './PlanReturnDialog';
 import { SuggestionCard } from './SuggestionCard';
 
 /**
@@ -76,11 +77,10 @@ import { SuggestionCard } from './SuggestionCard';
 export function ContainerDetailDialog() {
   const openRecordId = useEmptyReturnStore((state) => state.openRecordId);
   const closeRecord = useEmptyReturnStore((state) => state.closeRecord);
+  const openIntent = useEmptyReturnStore((state) => state.openRecordIntent);
   const rejected = useEmptyReturnStore((state) => state.rejected);
   const rejectPairing = useEmptyReturnStore((state) => state.rejectPairing);
-  const selectEmpty = useEmptyReturnStore((state) => state.selectEmpty);
 
-  const navigate = useNavigate();
   const { byId, loads, now } = useEmptyContainers();
   const actions = useEmptyContainerActions();
   const returnProof = useReturnProofPrompt();
@@ -97,8 +97,34 @@ export function ContainerDetailDialog() {
 
   /* Which screen of the dialog is showing. Resets whenever the dialog opens on
      a different container — otherwise the next one opened arrives mid-flow. */
-  const [step, setStep] = useState<'detail' | 'find'>('detail');
-  useEffect(() => setStep('detail'), [openRecordId]);
+  const [step, setStep] = useState<'detail' | 'find' | 'return'>('detail');
+  /* The pairing celebration OUTLIVES this dialog on purpose — see the note on
+     the early return below. */
+  const [celebration, setCelebration] = useState<{
+    empty: string;
+    full: string;
+    load: string;
+  } | null>(null);
+  /* A dialog does not follow you between pages.
+   *
+   * This is mounted by the module chrome, so one component serves the Control
+   * Tower, Matching, Cycles and the Calendar — and `openRecordId` lives in the
+   * store, which the route change does not touch. Leave a container open on the
+   * Control Tower, navigate to Matching, and the dossier arrives on top of the
+   * workbench and covers it. That looked exactly like Matching had lost its own
+   * screen. It became reachable the moment the dialog stopped navigating and
+   * started being the place work gets done. */
+  const { pathname } = useLocation();
+  useEffect(() => {
+    closeRecord();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  /* Seeded from the intent the opener passed — a row's "Find full load" lands
+     on that step rather than on the dossier with one more click to make. */
+  useEffect(() => {
+    setStep(openIntent === 'select' ? 'find' : openIntent === 'return' ? 'return' : 'detail');
+  }, [openRecordId, openIntent]);
 
   const rejectedIds = useMemo(
     () => (record ? rejectedLoadsFor(rejected, record.id) : []),
@@ -109,7 +135,25 @@ export function ContainerDetailDialog() {
     [record, loads, now, rejectedIds],
   );
 
-  if (!record) return null;
+  /* The one thing that survives the record closing.
+   *
+   * Confirming a pairing takes this container out of the pool, so `record`
+   * becomes undefined on the very next render — and an early `return null` here
+   * would unmount the celebration in the same tick it was asked for. The
+   * Matching page never hit this because it owns the celebration itself and
+   * stays mounted; here the dialog IS the surface, so it has to hand over to
+   * the celebration on its way out. */
+  if (!record) {
+    return celebration ? (
+      <PairingCelebration
+        open
+        onOpenChange={(next) => !next && setCelebration(null)}
+        empty={celebration.empty}
+        full={celebration.full}
+        load={celebration.load}
+      />
+    ) : null;
+  }
 
   const risk = riskOf(record, now);
   /* Not `now > deadline`: a container paired before its deadline has settled
@@ -143,13 +187,29 @@ export function ContainerDetailDialog() {
           onBack={() => setStep('detail')}
           onConfirm={async (suggestion) => {
             const ok = await actions.confirmPairing(record, suggestion.load);
-            if (ok) setStep('detail');
+            if (!ok) return;
+            /* Same confetti the Matching page fires — one confirmation, one
+               celebration, wherever the operator happened to be standing. */
+            setCelebration({
+              empty: record.container || record.bookingReference,
+              full: suggestion.load.container || suggestion.load.id,
+              load: suggestion.load.shipmentReference ?? suggestion.load.id,
+            });
+            setStep('detail');
+            close();
           }}
           onReject={(suggestion) => rejectPairing(suggestion.load.id, record.id)}
-          onPlanReturn={() => {
-            selectEmpty(record.id);
-            close();
-            navigate(`${ROUTES.emptyReturnsMatching}?plan=${record.id}`);
+          onPlanReturn={() => setStep('return')}
+        />
+      ) : step === 'return' ? (
+        <PlanReturnContent
+          record={record}
+          now={now}
+          busy={actions.isBusy}
+          onClose={() => setStep('detail')}
+          onConfirm={async (plannedAt) => {
+            const ok = await actions.planReturn(record, plannedAt);
+            if (ok) setStep('detail');
           }}
         />
       ) : (
@@ -161,13 +221,7 @@ export function ContainerDetailDialog() {
         busy={actions.isBusy}
         suggestions={suggestions}
         onFindLoad={() => setStep('find')}
-        /* Planning a return is still the Matching page's dialog — it asks for a
-           date and a time, and that form has one home. */
-        onOpenMatching={(intent) => {
-          selectEmpty(record.id);
-          close();
-          navigate(intent === 'return' ? `${ROUTES.emptyReturnsMatching}?plan=${record.id}` : ROUTES.emptyReturnsMatching);
-        }}
+        onPlanReturn={() => setStep('return')}
         /* The depot's receipt is asked for first — the close is refused
            without it, and the dossier is where somebody is already looking at
            this container. `returnProof.dialog` is rendered below. */
@@ -321,10 +375,19 @@ interface DetailStepProps {
   overdue: boolean;
   busy: boolean;
   suggestions: ReturnType<typeof suggestLoadsFor>;
-  /** Opens the dialog's own Find Full Load step — no navigation. */
+  /**
+   * The dialog's own steps. Neither navigates.
+   *
+   * Both used to select this container, close the dossier and send the operator
+   * to the Matching page — for finding a load AND for planning a return. That
+   * made the Control Tower a place you could only look at things: every actual
+   * decision threw you onto another screen that then had to re-establish which
+   * container you meant, and you lost the row you clicked from. Matching is
+   * still the wide workbench for going through the yard; this is the
+   * contextual path for the one box already in front of you.
+   */
   onFindLoad: () => void;
-  /** Selects this container and navigates to the Matching page. */
-  onOpenMatching: (intent: 'match' | 'return') => void;
+  onPlanReturn: () => void;
   onConfirmReturn: () => void;
   onCancelPairing: () => void;
 }
@@ -337,7 +400,7 @@ function DetailStep({
   busy,
   suggestions,
   onFindLoad,
-  onOpenMatching,
+  onPlanReturn,
   onConfirmReturn,
   onCancelPairing,
 }: DetailStepProps) {
@@ -365,12 +428,13 @@ function DetailStep({
           }
         : risk === 'protected'
           ? {
-              text: (() => {
-                const margin = achievedMarginOf(record);
-                return margin === null
-                  ? 'Paired — the deadline is protected'
-                  : `Paired — collected ${formatSpan(margin)} before the deadline`;
-              })(),
+              /* The verdict, not the figure. This read "Paired — collected
+                 2d 16h before the deadline" while the Decision window two
+                 lines below carried the same span under "Margin achieved" —
+                 one measurement, twice, on one surface. The headline says
+                 whether the deadline held; the panel says by how much, where
+                 it sits beside the deadline it is measured against. */
+              text: 'Paired — the deadline is protected',
               tone: 'text-primary-subtle-foreground',
             }
           : record.stage === 'empty'
@@ -516,7 +580,7 @@ function DetailStep({
             <Button
               variant={best ? 'outline' : 'primary'}
               size="sm"
-              onClick={() => onOpenMatching('return')}
+              onClick={onPlanReturn}
               disabled={busy}
               className={cn(
                 'mt-2.5 w-full',
@@ -532,22 +596,34 @@ function DetailStep({
           </Card>
         )}
 
+        {/* ── THE VERDICT, AND THE ONE THING LEFT TO DO ──
+         *
+         * It said "Paired" twice: the dialog's own headline already reads
+         * "Paired — collected 1d 5h before the deadline" two lines above this,
+         * so repeating the word here spent the loudest element on the panel
+         * restating the quietest. This says only the half the headline does not
+         * — that nothing is owed, and who owns what happens next.
+         *
+         * The undo lives INSIDE the panel rather than as a ghost button
+         * floating under it. It is the one action a paired container has, and
+         * centred on its own row it read as a caption that happened to be
+         * clickable. */}
         {record.stage === 'paired' && (
-          <div className="space-y-2">
-            <div className="rounded-card-nested border border-primary bg-primary-subtle px-4 py-2.5 text-center">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-card-nested border border-primary bg-primary-subtle px-4 py-2.5">
+            <div className="min-w-0">
               <div className="text-sm font-bold text-primary-subtle-foreground">
-                Paired — no action required
+                No action required
               </div>
               <div className="text-2xs text-muted-foreground">
                 Execution is handled by the Shipment module.
               </div>
             </div>
             <Button
-              variant="ghost"
+              variant="outline"
               size="xs"
               onClick={onCancelPairing}
               disabled={busy}
-              className="w-full text-muted-foreground hover:text-destructive"
+              className="shrink-0 bg-card text-muted-foreground hover:text-destructive"
             >
               <Undo2 /> Cancel this pairing
             </Button>
@@ -626,7 +702,15 @@ function DetailStep({
               <Figure label="Return deadline">
                 <Mono className="font-semibold text-foreground">{formatStamp(record.deadline)}</Mono>
               </Figure>
-              {record.nextFull?.pickupAt && record.deadline && (
+              {/* Only once the box is actually BACK.
+                  `achievedMarginOf` is `deadline − (returnedAt ?? pickupAt)`,
+                  so on a paired-but-not-yet-returned container it is the same
+                  subtraction as this figure — the panel printed `1d 5h` and
+                  `+1d 5h` side by side under two labels, and a reader has to
+                  stop and work out whether they are two facts. Once the return
+                  is recorded the two genuinely differ: one measures the pickup,
+                  the other the depot. */}
+              {record.returnedAt && record.nextFull?.pickupAt && record.deadline && (
                 <Figure label="Margin after pickup">
                   <Mono
                     className={cn(

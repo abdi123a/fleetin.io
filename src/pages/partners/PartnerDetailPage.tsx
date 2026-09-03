@@ -538,6 +538,12 @@ export function PartnerDetailPage() {
           insurancePolicyNumber: formData.insurancePolicyNumber,
           insuranceExpiry: formData.insuranceExpiry,
           partnerStatus: formData.partnerStatus,
+          /* The deal, sent whole every time. `null` is meaningful here — it is how
+          an operator takes a haulier off a negotiated rate and back onto the
+          house one — so these are never omitted for being empty. */
+          commissionMode: formData.commissionMode,
+          commissionPct: formData.commissionMode === 'percent' ? formData.commissionPct : null,
+          commissionFixedAmount: formData.commissionMode === 'fixed' ? formData.commissionFixedAmount : null,
           primaryDispatcher: {
             name: formData.primaryDispatcherName || partner.primaryDispatcher.name,
             title: formData.primaryDispatcherTitle || partner.primaryDispatcher.title,
@@ -840,6 +846,10 @@ export function PartnerDetailPage() {
               fleetSize: String(partner.fleetSize),
               vehicleTypes: partner.vehicleTypes.join(', '),
               partnerStatus: partner.partnerStatus,
+              commissionMode: partner.commissionMode ?? null,
+              commissionPct: partner.commissionPct ?? null,
+              commissionFixedAmount:
+                partner.commissionFixedMinorUnits != null ? Number(partner.commissionFixedMinorUnits) : null,
               primaryDispatcherName: partner.primaryDispatcher.name,
               primaryDispatcherTitle: partner.primaryDispatcher.title,
               primaryDispatcherPhone: partner.primaryDispatcher.phone,

@@ -72,12 +72,20 @@ export function ControlTowerPage() {
     if (value !== '1') selectEmpty(value);
     /* `from=` rides along — it is the shipment the operator left, and Matching
        draws a way back to it. Dropping it here was why there was none. */
+    /* `?match=<id>` means "pair THIS box", which is now a dialog rather than a
+       journey — the operator arriving from a shipment stays on one screen.
+       `?match=1` has no container in mind and still means the workbench, so
+       that one goes on to Matching, carrying the shipment it came from. */
+    if (value !== '1') {
+      openRecord(value, 'select');
+      return;
+    }
     const from = searchParams.get('from');
     navigate(
       from ? `${ROUTES.emptyReturnsMatching}?from=${encodeURIComponent(from)}` : ROUTES.emptyReturnsMatching,
       { replace: true },
     );
-  }, [searchParams, navigate, selectEmpty]);
+  }, [searchParams, navigate, selectEmpty, openRecord]);
 
   /**
    * A row's "Find full load" / "Plan return" goes straight to the matching
@@ -86,21 +94,21 @@ export function ControlTowerPage() {
    * container's own dialog.
    */
   const handleRowOpen = useCallback(
+    /* Every intent opens the container's own dialog, on the step it asks for —
+       `select` on Find Full Load, `return` on Plan Empty Return, and anything
+       else on the dossier.
+
+       All three used to leave: "Find full load" and "Plan return" selected the
+       container and navigated to the Matching page. So the Control Tower was a
+       place you could only look at things — every decision threw you onto
+       another screen, which then had to re-establish which container you meant,
+       and you lost the row you clicked from and your place in the queue. The
+       store has carried `openRecordIntent` for exactly this the whole time;
+       the navigation was going around it. */
     (recordId: string, intent?: 'detail' | 'select' | 'return') => {
-      if (intent === 'select' || intent === 'return') {
-        /* Both branches land on the Matching page with this container
-           selected — one decision surface, per the 2026-08-29 rule. */
-        selectEmpty(recordId);
-        navigate(
-          intent === 'return'
-            ? `${ROUTES.emptyReturnsMatching}?plan=${recordId}`
-            : ROUTES.emptyReturnsMatching,
-        );
-        return;
-      }
       openRecord(recordId, intent);
     },
-    [openRecord, selectEmpty, navigate],
+    [openRecord],
   );
 
   /* The calendar lives here now rather than in the sidebar. It answers "what

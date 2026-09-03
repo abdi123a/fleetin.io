@@ -8,6 +8,7 @@ import * as Status from './status';
 import * as Ui from './ui';
 import * as Users from './users';
 
+export { SemiTruck } from './SemiTruck';
 export * from './types';
 export * from './guidelines';
 

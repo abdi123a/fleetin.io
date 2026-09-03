@@ -7,7 +7,7 @@ import {
   formatFactor,
   normaliseFuelType,
   previewVehicleCo2Factor,
-} from './co2';
+ treeYearEquivalent } from './co2';
 
 describe('previewVehicleCo2Factor', () => {
   /*
@@ -77,5 +77,18 @@ describe('co2Number', () => {
     expect(co2Number(null)).toBeNull();
     expect(co2Number('')).toBeNull();
     expect(co2Number('not a number')).toBeNull();
+  });
+});
+
+describe('treeYearEquivalent', () => {
+  it('turns a saving into the trees it would take a year to absorb', () => {
+    expect(treeYearEquivalent(382)).toBe('17 trees for a year');
+    expect(treeYearEquivalent(60)).toBe('2.7 trees for a year');
+    expect(treeYearEquivalent(11)).toBe('under a tree for a year');
+  });
+
+  it('has no picture for nothing saved', () => {
+    expect(treeYearEquivalent(0)).toBeNull();
+    expect(treeYearEquivalent(null)).toBeNull();
   });
 });

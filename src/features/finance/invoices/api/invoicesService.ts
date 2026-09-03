@@ -1,68 +1,67 @@
 import { apiClient } from '@/services/api.client';
 import { useAuthStore } from '@/stores/auth.store';
 
-export interface PaginatedResponse<T> {
-  items: T[];
-  meta: { total: number; page: number; limit: number; totalPages: number };
+/** `proforma` is a quote and owes nothing; `invoice` is the bill. */
+export type DocumentKind = 'proforma' | 'invoice';
+
+/** One container on the document. Snapshotted at issue — see the backend's note on why. */
+export interface DocumentLine {
+  reference: string;
+  containerNo: string | null;
+  category: string | null;
+  description: string;
+  qty: number;
+  unitMinorUnits: string;
+  totalMinorUnits: string;
 }
 
-/** Money fields are BigInt-on-wire strings. No shipper/shipment object is nested — only denormalized snapshot fields. */
+/**
+ * A proforma or an invoice. One shipment, one document, its containers as
+ * lines — there is no monthly statement and no multi-shipment roll-up.
+ */
 export interface InvoiceRecord {
   id: string;
   number: string;
+  kind: DocumentKind;
+  shipmentId: string | null;
+  proformaId: string | null;
   shipperId: string;
   shipperName: string;
   shipperCompany: string;
-  missionIds: string[];
+  projectId: string | null;
   description: string;
+  lines: DocumentLine[] | null;
   subtotalMinorUnits: string;
   taxMinorUnits: string;
   totalMinorUnits: string;
+  /* How the cut was worked out on THIS document, and what it came to. All
+     snapshots — never recomputed, so renegotiating a deal cannot restate a
+     document already sent. */
+  commissionMode: 'percent' | 'fixed';
+  commissionSource: 'shipper' | 'transporter' | 'house';
+  commissionPct: number;
+  commissionFixedMinorUnits: string;
+  commissionMinorUnits: string;
   currency: string;
-  fxRate: number;
-  baseAmountMinorUnits: string;
   contractDeadline: string;
   issueDate: string;
   sentAt: string | null;
+  paidAt: string | null;
   status: string;
-  allocatedMinorUnits: string;
-  remainingMinorUnits: string;
   notes: string | null;
-  disputeReason: string | null;
-  writeOffReason: string | null;
-  writtenOffAt: string | null;
-  writtenOffById: string | null;
-  issuedById: string;
   issuedByName: string;
-  /**
-   * Set on a monthly statement — the shipper's single end-of-month bill
-   * covering every shipment that ran in the window. Null on a one-off
-   * single-shipment invoice.
-   */
-  periodStart: string | null;
-  periodEnd: string | null;
-  /** Set when the statement was scoped to one project rather than the whole month. */
-  projectId: string | null;
   createdAt: string;
   updatedAt: string;
-}
-
-/** True when this invoice is a month's statement rather than a one-off shipment bill. */
-export function isMonthlyStatement(invoice: InvoiceRecord): boolean {
-  return invoice.periodStart !== null;
-}
-
-export interface IssueStatementPayload {
-  shipperId: string;
-  year: number;
-  /** 1-based, the way a person says it: 1 = January. */
-  month: number;
-  /** Omit to bill everything the shipper ran that month. */
-  projectId?: string;
+  /** Legacy monthly statements only — never written by the current model. */
+  periodStart: string | null;
+  periodEnd: string | null;
+  missionIds: string[];
 }
 
 export interface InvoiceFilters {
   shipperId?: string;
+  projectId?: string;
+  kind?: DocumentKind | 'all';
   status?: string;
   page?: number;
   limit?: number;
@@ -72,59 +71,92 @@ function token() {
   return useAuthStore.getState().accessToken;
 }
 
-function toQueryString(filters: InvoiceFilters): string {
+/**
+ * A row written before the proforma/invoice split has no `kind` and no lines.
+ * Rather than let those render as blanks, they read as what they were: an
+ * invoice, with no itemisation to show.
+ */
+function normalise(row: InvoiceRecord): InvoiceRecord {
+  return {
+    ...row,
+    kind: row.kind ?? 'invoice',
+    lines: Array.isArray(row.lines) ? row.lines : null,
+    missionIds: Array.isArray(row.missionIds) ? row.missionIds : [],
+  };
+}
+
+export async function fetchInvoices(filters: InvoiceFilters = {}): Promise<InvoiceRecord[]> {
   const params = new URLSearchParams();
   if (filters.shipperId) params.set('shipperId', filters.shipperId);
+  if (filters.projectId) params.set('projectId', filters.projectId);
+  if (filters.kind && filters.kind !== 'all') params.set('kind', filters.kind);
   if (filters.status && filters.status !== 'all') params.set('status', filters.status);
-  params.set('page', String(filters.page ?? 1));
-  params.set('limit', String(filters.limit ?? 100));
-  return params.toString();
-}
+  params.set('limit', String(filters.limit ?? 200));
+  if (filters.page) params.set('page', String(filters.page));
 
-export async function fetchInvoices(filters: InvoiceFilters = {}): Promise<PaginatedResponse<InvoiceRecord>> {
-  const res = await apiClient.get<PaginatedResponse<InvoiceRecord>>(`/invoices?${toQueryString(filters)}`, token());
-  return res.data;
-}
-
-/**
- * Every page of the list, concatenated — for the admin console, whose totals
- * must cover the whole book rather than one capped page. Hard-stops at 20
- * pages so a runaway `totalPages` can't loop the client.
- */
-export async function fetchAllInvoices(filters: InvoiceFilters = {}): Promise<InvoiceRecord[]> {
-  const first = await fetchInvoices({ ...filters, page: 1 });
-  const items = [...first.items];
-  const lastPage = Math.min(first.meta.totalPages, 20);
-  for (let page = 2; page <= lastPage; page += 1) {
-    const next = await fetchInvoices({ ...filters, page });
-    items.push(...next.items);
-  }
-  return items;
+  const res = await apiClient.get<{ items: InvoiceRecord[] }>(`/invoices?${params.toString()}`, token());
+  return (res.data.items ?? []).map(normalise);
 }
 
 export async function fetchInvoice(id: string): Promise<InvoiceRecord> {
   const res = await apiClient.get<InvoiceRecord>(`/invoices/${id}`, token());
-  return res.data;
+  return normalise(res.data);
 }
 
-/** Idempotent — no-ops server-side if an invoice already exists or the shipment is still unpriced. */
-export async function issueInvoiceForShipment(shipmentId: string): Promise<InvoiceRecord | null> {
-  const res = await apiClient.post<InvoiceRecord | null>(`/invoices/issue-for-shipment/${shipmentId}`, {}, token());
-  return res.data;
+/** Both documents a shipment carries. */
+export async function fetchInvoicesForShipment(shipmentId: string): Promise<InvoiceRecord[]> {
+  const res = await apiClient.get<InvoiceRecord[]>(`/invoices/for-shipment/${shipmentId}`, token());
+  return (res.data ?? []).map(normalise);
 }
 
 /**
- * Issues the shipper's end-of-month statement — one invoice listing every
- * shipment that ran in the month, payable at month end. Idempotent per
- * shipper/month/project; resolves to `null` when there is nothing left to
- * bill (already billed, or nothing priced ran).
+ * Bills one shipment. Idempotent — asking twice returns the invoice already
+ * raised rather than minting a second number for the same job.
  */
-export async function issueMonthlyStatement(payload: IssueStatementPayload): Promise<InvoiceRecord | null> {
-  const res = await apiClient.post<InvoiceRecord | null>('/invoices/issue-monthly-statement', payload, token());
-  return res.data;
+export async function issueInvoice(shipmentId: string): Promise<InvoiceRecord> {
+  const res = await apiClient.post<InvoiceRecord>(`/invoices/issue-for-shipment/${shipmentId}`, {}, token());
+  return normalise(res.data);
 }
 
-export async function markInvoicePaid(id: string, bankAccountId: string): Promise<InvoiceRecord> {
-  const res = await apiClient.patch<InvoiceRecord>(`/invoices/${id}/mark-paid`, { bankAccountId }, token());
-  return res.data;
+/** One hand-typed line on a quotation. `unitAmount` is whole DJF for ONE unit. */
+export interface ProformaLineInput {
+  description: string;
+  qty: number;
+  unitAmount: number;
+}
+
+export interface CreateProformaPayload {
+  shipperId: string;
+  description?: string;
+  validUntil?: string;
+  notes?: string;
+  lines: ProformaLineInput[];
+}
+
+/**
+ * Writes a quotation.
+ *
+ * Composed rather than derived, and that is the point: a quote is for work
+ * that has not happened, so there is no shipment to build it from. Not
+ * idempotent — two quotes to one client for different work are two real
+ * documents.
+ */
+export async function createProforma(payload: CreateProformaPayload): Promise<InvoiceRecord> {
+  const res = await apiClient.post<InvoiceRecord>('/invoices/proforma', payload, token());
+  return normalise(res.data);
+}
+
+export async function markInvoiceSent(id: string): Promise<InvoiceRecord> {
+  const res = await apiClient.patch<InvoiceRecord>(`/invoices/${id}/mark-sent`, {}, token());
+  return normalise(res.data);
+}
+
+export async function markInvoicePaid(id: string): Promise<InvoiceRecord> {
+  const res = await apiClient.patch<InvoiceRecord>(`/invoices/${id}/mark-paid`, {}, token());
+  return normalise(res.data);
+}
+
+export async function cancelInvoice(id: string, reason: string): Promise<InvoiceRecord> {
+  const res = await apiClient.patch<InvoiceRecord>(`/invoices/${id}/cancel`, { reason }, token());
+  return normalise(res.data);
 }

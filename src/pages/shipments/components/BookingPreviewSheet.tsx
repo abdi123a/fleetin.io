@@ -45,8 +45,7 @@ import {
   useRebuildBookingRoute,
   type RouteLeg,
 } from '@/features/emissions';
-import { usePermissions } from '@/hooks/usePermissions';
-import { co2Number, formatFactor } from '@/lib/co2';
+import { co2Number, formatFactor, formatKm } from '@/lib/co2';
 import { BookingProofPanel } from '@/features/documents/components/BookingProofPanel';
 import { ProofFileField } from '@/features/documents/components/ProofFileField';
 import { proofsRequiredForWalk, type ProofRequirement } from '@/features/documents/proofRequirement';
@@ -338,10 +337,6 @@ export function BookingPreviewSheet({
      mounted for the life of the page — fetches nothing until one is picked. */
   const { data: route } = useBookingRoute(booking?.id);
   const rebuildRoute = useRebuildBookingRoute();
-  /* Saying what a truck physically did is the Empty Container module's
-     write, so its permission gates the verdict buttons — not the sheet's. */
-  const { can } = usePermissions();
-  const canDecideImpact = can('empty-returns.update');
   const { data: partnerVehicles } = useVehicles({ partnerId: booking?.partnerId ?? '__unassigned__' });
   const { data: partnerDrivers } = useDrivers({ partnerId: booking?.partnerId ?? '__unassigned__' });
   const { confirm, confirmDialog } = useConfirm();
@@ -830,7 +825,7 @@ export function BookingPreviewSheet({
         onClose();
       }}
     >
-      <SheetContent side="right" hideCloseButton className="w-full sm:max-w-md md:max-w-lg p-0 flex flex-col h-full bg-background overflow-hidden border-l border-border shadow-2xl">
+      <SheetContent side="right" hideCloseButton className="w-full sm:max-w-md p-0 flex flex-col h-full bg-background overflow-hidden border-l border-border shadow-2xl">
         <SheetTitle className="sr-only">Booking Preview #{booking.bookingNumber}</SheetTitle>
         <SheetDescription className="sr-only">
           Booking details, transporter, driver, vehicle, status and POD.
@@ -1006,26 +1001,47 @@ export function BookingPreviewSheet({
             </div>
           )}
 
-          {/* START & FINISH DATE / TIME */}
+          {/* START & FINISH DATE / TIME
+           *
+           * A card while the schedule can still change; one line once the
+           * mission is closed. A finished booking's start and finish are two
+           * dates nobody will edit, and a card with two rows for them pushed
+           * the crew and the carbon under the fold — the user's note of
+           * 2026-09-03. The dots keep their colours so the line still reads
+           * as start → finish. */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex shrink-0 items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5 text-primary" />
-                <span>Schedule & Dwell Timing</span>
+                <span>Schedule</span>
               </h3>
-              {!isEditingSchedule && !isClosed && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 px-2 text-[11px]"
-                  leadingIcon={<Pencil className="size-3" />}
-                  onClick={() => setIsEditingSchedule(true)}
+              {isClosed ? (
+                <span
+                  className="flex min-w-0 items-center gap-2 whitespace-nowrap text-[13px] font-bold tabular-nums text-foreground"
+                  title={`Start ${booking.startDate || '2026-07-28'} ${booking.startTime || '08:00'} · Finish ${booking.finishDate || '2026-07-29'} ${booking.finishTime || '17:00'}`}
                 >
-                  Edit
-                </Button>
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-success" />
+                  {shortDay(booking.startDate || '2026-07-28')} {booking.startTime || '08:00'}
+                  <span className="font-medium text-muted-foreground">→</span>
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
+                  {shortDay(booking.finishDate || '2026-07-29')} {booking.finishTime || '17:00'}
+                </span>
+              ) : (
+                !isEditingSchedule && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-[11px]"
+                    leadingIcon={<Pencil className="size-3" />}
+                    onClick={() => setIsEditingSchedule(true)}
+                  >
+                    Edit
+                  </Button>
+                )
               )}
             </div>
 
+            {!isClosed && (
             <Card className="p-3 rounded-lg border border-border/80 bg-card space-y-3 shadow-2xs">
               {isEditingSchedule ? (
                 <>
@@ -1105,6 +1121,7 @@ export function BookingPreviewSheet({
                 </>
               )}
             </Card>
+            )}
           </div>
 
           {/* 2. PARTNER, DRIVER & TRUCK INFO CARDS
@@ -1400,41 +1417,54 @@ export function BookingPreviewSheet({
              * its own to show — it echoed the delivery driver and plate back as
              * "same crew as delivery", which read as a decision already taken
              * about a trip nobody had thought about yet. */}
+            {/* One line, not a card. It used to be a full card — avatar,
+             * name, "Same crew as delivery", a plate footer — which on the
+             * ordinary booking repeated the delivery driver and the delivery
+             * plate directly beneath themselves. The user's annotation on
+             * 2026-09-03 ringed the pair. Now: the same crew is three words,
+             * and a different crew is the other name and the other plate on
+             * the same line, so both trucks are on the sheet at once. */}
             {booking.containerNumber && deliveryLocked && (
               <div className="p-3 space-y-2">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <IconChip icon={RotateCcw} size={36} />
-                    <div>
-                      <h4 className="font-bold text-foreground text-sm">
-                        {booking.returnDriverName ?? booking.driverName ?? 'Not recorded'}
-                      </h4>
-                      <span className="text-xs text-muted-foreground">
-                        {booking.returnDriverName ? 'Took the empty back' : 'Same crew as delivery'}
-                      </span>
-                    </div>
-                  </div>
-                  {!isEditingReturnCrew && !isClosed && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2 text-[11px]"
-                      leadingIcon={<Pencil className="size-3" />}
-                      onClick={() => setIsEditingReturnCrew(true)}
-                    >
-                      Edit
-                    </Button>
-                  )}
+                <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    <RotateCcw className="size-3.5" aria-hidden />
+                    Return
+                  </span>
+                  <span className="flex min-w-0 items-center justify-end gap-2">
+                    {/* "Same" is judged on identity, not on whether the return
+                        fields were filled in: a return leg recorded as the same
+                        driver in the same truck is the same crew. Only what
+                        differs is printed — the other plate, and the other
+                        name only when it is another person. */}
+                    {(!booking.returnDriverId || booking.returnDriverId === booking.driverId) &&
+                    (!booking.returnVehicleId || booking.returnVehicleId === booking.vehicleId) ? (
+                      <span className="truncate font-semibold text-foreground">Same crew and truck</span>
+                    ) : (
+                      <>
+                        {booking.returnDriverId && booking.returnDriverId !== booking.driverId && (
+                          <span className="truncate font-semibold text-foreground">
+                            {booking.returnDriverName ?? 'Driver not recorded'}
+                          </span>
+                        )}
+                        <span className="shrink-0 font-mono font-semibold tracking-wide text-foreground">
+                          {booking.returnVehicleNumber ?? booking.vehicleNumber ?? '—'}
+                        </span>
+                      </>
+                    )}
+                    {!isEditingReturnCrew && !isClosed && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 shrink-0 px-1.5 text-[11px]"
+                        leadingIcon={<Pencil className="size-3" />}
+                        onClick={() => setIsEditingReturnCrew(true)}
+                      >
+                        Edit
+                      </Button>
+                    )}
+                  </span>
                 </div>
-
-                {(!isEditingReturnCrew || isClosed) && (
-                  <div className="pt-1.5 border-t border-border/60 flex items-center justify-between text-xs text-muted-foreground">
-                    <span>Vehicle Plate Number</span>
-                    <span className="font-mono font-semibold tracking-wide text-foreground">
-                      {booking.returnVehicleNumber ?? booking.vehicleNumber ?? 'Not recorded'}
-                    </span>
-                  </div>
-                )}
 
                 {isEditingReturnCrew && !isClosed && (
                   <div className="pt-1.5 border-t border-border/60 space-y-1.5">
@@ -1551,11 +1581,21 @@ export function BookingPreviewSheet({
                   </p>
                 )}
 
+                {/* The sum, written out: kilometres driven × the truck's
+                    factor = the carbon. The figure above is this line's
+                    answer, and a reader should not have to work that out. */}
                 <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-2">
                   <span className="text-[11px] text-muted-foreground">
-                    Factor used{' '}
+                    <strong className="font-semibold text-foreground">
+                      {formatKm(co2Number(booking.actualDistanceKm)).value} km
+                    </strong>
+                    {' × '}
                     <strong className="font-semibold text-foreground">
                       {formatFactor(co2Number(booking.co2FactorUsed))}
+                    </strong>
+                    {' = '}
+                    <strong className="font-semibold text-foreground">
+                      {(co2Number(booking.co2EmissionsKg) ?? 0).toFixed(1)} kg CO₂
                     </strong>
                   </span>
                   <Button
@@ -1586,9 +1626,7 @@ export function BookingPreviewSheet({
            * driving. Drawn only for a booking that is one end of a pairing —
            * the empty that left under a next load, or the load that continued
            * from a free zone — so most sheets never show it at all. */}
-          {route?.impacts && route.impacts.length > 0 && (
-            <FleetinImpactBlock impacts={route.impacts} canDecide={canDecideImpact} />
-          )}
+          {route?.impacts && route.impacts.length > 0 && <FleetinImpactBlock impacts={route.impacts} />}
 
           {/* EMPTY RETURN — only meaningful once this booking is delivered.
               Its real `status` never advances past "Completed" for this;
@@ -1893,4 +1931,11 @@ export function BookingPreviewSheet({
     </Sheet>
     </>
   );
+}
+
+/** `2026-07-28` → `28 Jul`. The year is on the shipment above; the line has no room for it twice. */
+function shortDay(date: string): string {
+  const parsed = new Date(`${date}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  return parsed.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
 }

@@ -19,22 +19,21 @@ export const ROUTES = {
   drivers: '/drivers',
   employees: '/employees',
   documents: '/documents',
+  /*
+   * Billing. Five routes, down from twelve — the working-capital module
+   * (accounts, funding, ledger, payout vouchers, per-booking finance pages)
+   * was removed on 2026-09-03. Old links land on `/finance` via the redirects
+   * in the router rather than 404ing.
+   */
+  /** The desk: shipments to quote, bill and collect. */
   finance: '/finance',
-  financeShipments: '/finance/shipments',
-  financeShipmentClient: '/finance/shipments/client/:clientId',
-  financeShipmentProject: '/finance/shipments/project/:projectId',
-  /** One consignment — where release, settlement and both documents live. */
-  financeShipmentDetail: '/finance/shipments/shipment/:shipmentId',
-  /** One container. Read-only detail; it carries no payment control. */
-  financeShipmentBooking: '/finance/shipments/booking/:bookingId',
+  /** Proformas and invoices already issued. */
   financeInvoices: '/finance/invoices',
+  /** One printed document — the same sheet serves both kinds. */
   financeInvoiceDetail: '/finance/invoices/:invoiceId',
-  /** Bank accounts every real money movement is booked through. */
-  financeAccounts: '/finance/accounts',
-  /** Standalone credit facilities + drawdowns — never linked to a specific shipment. */
-  financeFunding: '/finance/funding',
-  /** The transporter's signed payment voucher for one shipment. */
-  financePayment: '/finance/payments/:paymentId',
+  /** The grouping over a shipper's shipments. */
+  financeProjects: '/finance/projects',
+  financeProjectDetail: '/finance/projects/:projectId',
   /**
    * HR & Payroll. `employees` above stays where it is — it is the operational
    * staff directory in the fleet sense; these are the payroll records.

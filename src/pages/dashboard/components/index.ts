@@ -5,7 +5,7 @@ export { CommissionCard } from './CommissionCard';
 export { ConsoleTabs, type ConsoleTab } from './ConsoleTabs';
 export { EmptyReturnCard } from './EmptyReturnCard';
 export { FleetCard } from './FleetCard';
-export { LedgerFeedCard } from './LedgerFeedCard';
+export { BillingFeedCard } from './BillingFeedCard';
 export { MoneyFlowCard } from './MoneyFlowCard';
 export { NetworkCard } from './NetworkCard';
 export { PayrollCard } from './PayrollCard';

@@ -130,7 +130,14 @@ export function useFileBook() {
 export function useCreateDriveFolder() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (params: { name: string; parentId?: string | null }) => createDriveFolder(params),
+    mutationFn: (params: {
+      name: string;
+      parentId?: string | null;
+      /* Only read at a root — a nested folder inherits its parent's owner
+         server-side. See `DriveFoldersService.create`. */
+      ownerType?: 'PARTNER' | 'SHIPPER' | null;
+      ownerId?: string | null;
+    }) => createDriveFolder(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: documentQueryKeys.folders });
     },

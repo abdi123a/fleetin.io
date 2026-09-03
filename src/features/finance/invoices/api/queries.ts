@@ -1,44 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { bankAccountQueryKeys } from '@/features/bank-accounts';
+
 import {
-  fetchAllInvoices,
+  cancelInvoice,
+  createProforma,
   fetchInvoice,
   fetchInvoices,
-  issueInvoiceForShipment,
-  issueMonthlyStatement,
+  fetchInvoicesForShipment,
+  issueInvoice,
   markInvoicePaid,
+  markInvoiceSent,
+  type CreateProformaPayload,
   type InvoiceFilters,
-  type IssueStatementPayload,
 } from './invoicesService';
 
 export const invoiceQueryKeys = {
   all: ['invoices'] as const,
   list: (filters: InvoiceFilters) => ['invoices', 'list', filters] as const,
   detail: (id: string) => ['invoices', 'detail', id] as const,
+  forShipment: (shipmentId: string) => ['invoices', 'shipment', shipmentId] as const,
 };
 
 export function useInvoices(filters: InvoiceFilters = {}, options: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: invoiceQueryKeys.list(filters),
     queryFn: () => fetchInvoices(filters),
-    enabled: options.enabled,
-  });
-}
-
-/**
- * Every page of the list, concatenated — for the admin console's whole-book totals.
- *
- * `enabled` matches `useInvoices` above: the whole book is gated on
- * `finance.view`, so a caller that already knows the account lacks it should
- * not spend a round trip discovering that from a 403.
- */
-export function useAllInvoices(
-  filters: InvoiceFilters = {},
-  options: { enabled?: boolean } = {},
-) {
-  return useQuery({
-    queryKey: [...invoiceQueryKeys.list(filters), 'all'] as const,
-    queryFn: () => fetchAllInvoices(filters),
     enabled: options.enabled,
   });
 }
@@ -51,36 +36,62 @@ export function useInvoice(id: string | undefined) {
   });
 }
 
-function invalidateInvoices(queryClient: ReturnType<typeof useQueryClient>, id?: string) {
-  queryClient.invalidateQueries({ queryKey: invoiceQueryKeys.all });
-  if (id) queryClient.invalidateQueries({ queryKey: invoiceQueryKeys.detail(id) });
-}
-
-export function useIssueInvoiceForShipment() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (shipmentId: string) => issueInvoiceForShipment(shipmentId),
-    onSuccess: () => invalidateInvoices(queryClient),
+export function useInvoicesForShipment(shipmentId: string | undefined) {
+  return useQuery({
+    queryKey: invoiceQueryKeys.forShipment(shipmentId ?? ''),
+    queryFn: () => fetchInvoicesForShipment(shipmentId as string),
+    enabled: Boolean(shipmentId),
   });
 }
 
-/** The normal way a shipper is billed — see `issueMonthlyStatement`. */
-export function useIssueMonthlyStatement() {
+/*
+ * Every mutation invalidates the whole `invoices` key rather than patching one
+ * row: a document changes the shipment's billing state, the project's totals
+ * and the list it appears in, and three of those are not the row that was
+ * mutated. Projects are invalidated too, for the same reason.
+ */
+function invalidate(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: invoiceQueryKeys.all });
+  queryClient.invalidateQueries({ queryKey: ['projects'] });
+  queryClient.invalidateQueries({ queryKey: ['shipments'] });
+}
+
+export function useIssueInvoice() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: IssueStatementPayload) => issueMonthlyStatement(payload),
-    onSuccess: () => invalidateInvoices(queryClient),
+    mutationFn: (shipmentId: string) => issueInvoice(shipmentId),
+    onSuccess: () => invalidate(queryClient),
+  });
+}
+
+export function useCreateProforma() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CreateProformaPayload) => createProforma(payload),
+    onSuccess: () => invalidate(queryClient),
+  });
+}
+
+export function useMarkInvoiceSent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => markInvoiceSent(id),
+    onSuccess: () => invalidate(queryClient),
   });
 }
 
 export function useMarkInvoicePaid() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, bankAccountId }: { id: string; bankAccountId: string }) => markInvoicePaid(id, bankAccountId),
-    onSuccess: (_data, variables) => {
-      invalidateInvoices(queryClient, variables.id);
-      // The bank account credited by this payment needs to refetch too, not just Invoices' own queries.
-      queryClient.invalidateQueries({ queryKey: bankAccountQueryKeys.all });
-    },
+    mutationFn: (id: string) => markInvoicePaid(id),
+    onSuccess: () => invalidate(queryClient),
+  });
+}
+
+export function useCancelInvoice() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => cancelInvoice(id, reason),
+    onSuccess: () => invalidate(queryClient),
   });
 }

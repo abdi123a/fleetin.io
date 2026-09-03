@@ -376,6 +376,11 @@
   --animate-slide-in-top: fl-slide-in-from-top var(--fl-duration-normal) var(--fl-ease-out);
   --animate-collapsible-down: fl-collapsible-down var(--fl-duration-normal) var(--fl-ease-emphasized);
   --animate-collapsible-up: fl-collapsible-up var(--fl-duration-normal) var(--fl-ease-emphasized);
+  --animate-tree-grow: fl-tree-grow 760ms var(--fl-ease-emphasized) both;
+  --animate-tree-sway: fl-tree-sway 3.2s ease-in-out infinite alternate;
+  --animate-rise-in: fl-rise-in 520ms var(--fl-ease-out) both;
+  --animate-drift: fl-drift 9s ease-in-out infinite;
+  --animate-glow: fl-glow 6s ease-in-out infinite;
   --animate-shimmer: fl-shimmer 1.6s var(--fl-ease-linear) infinite;
   --animate-spin: fl-spin 0.7s var(--fl-ease-linear) infinite;
 

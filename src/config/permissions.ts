@@ -56,16 +56,10 @@ export const ROUTE_PERMISSIONS: Record<string, readonly string[]> = {
 
   /* Finance */
   [ROUTES.finance]: ['finance.view'],
-  [ROUTES.financeShipments]: ['finance.view'],
-  [ROUTES.financeShipmentClient]: ['finance.view'],
-  [ROUTES.financeShipmentProject]: ['finance.view'],
-  [ROUTES.financeShipmentDetail]: ['finance.view'],
-  [ROUTES.financeShipmentBooking]: ['finance.view'],
   [ROUTES.financeInvoices]: ['finance.view'],
   [ROUTES.financeInvoiceDetail]: ['finance.view'],
-  [ROUTES.financeAccounts]: ['finance.view'],
-  [ROUTES.financeFunding]: ['finance.view'],
-  [ROUTES.financePayment]: ['finance.view'],
+  [ROUTES.financeProjects]: ['finance.view'],
+  [ROUTES.financeProjectDetail]: ['finance.view'],
 
   /* HR & payroll — the module's own lines, which do not all run through
      `hr.view`: FINANCE holds payroll without the staff records. */

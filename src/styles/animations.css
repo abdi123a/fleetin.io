@@ -431,3 +431,75 @@
       0 0 10px -5px var(--fl-glow-color);
   }
 }
+
+/* ── Trees ────────────────────────────────────────────────────────────────
+ * The CO₂ page draws a saving as the trees it would take a year to absorb.
+ * Each one grows up out of the ground when the page opens — scale from the
+ * base, a small overshoot, settle — then sways. Grow and sway live on two
+ * nested elements because both are transforms. */
+@keyframes fl-tree-grow {
+  0% {
+    transform: translateY(6px) scale(0.2, 0);
+    opacity: 0;
+  }
+  60% {
+    transform: translateY(-2px) scale(1.06, 1.1);
+    opacity: 1;
+  }
+  80% {
+    transform: translateY(0) scale(0.98, 0.97);
+  }
+  100% {
+    transform: translateY(0) scale(1, 1);
+    opacity: 1;
+  }
+}
+
+/* ── CO₂ page ────────────────────────────────────────────────────────────
+ * The entrance — fade and a short rise — and the two background layers the
+ * hero cards carry: a slow drift for the faint particles and a breathing
+ * glow behind the saving. Transforms and opacity only, so they stay on the
+ * compositor and never move the layout. */
+@keyframes fl-rise-in {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fl-drift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(6px, -10px, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes fl-glow {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes fl-tree-sway {
+  from {
+    transform: rotate(-1.6deg);
+  }
+  to {
+    transform: rotate(1.6deg);
+  }
+}

@@ -62,24 +62,39 @@ describe('listDrive', () => {
     expect(haulier.tally.missing).toBe(4);
   });
 
-  it('a transporter opens onto its three sections', () => {
+  it('a transporter opens onto its three derived sections', () => {
     const { folders } = listDrive([{ kind: 'company', id: 'p1' }], COMPANIES, [], NOW);
+    /* Only what is derived. Folders somebody made for this company are listed
+       beside these by the page, off a different book — see `foldersOf`. */
     expect(folders.map((f) => f.label)).toEqual(['Company', 'Vehicles', 'Drivers']);
     /* The section tallies partition the company's own tally — every required
        paper is counted once, under exactly one section. */
     expect(folders.reduce((sum, f) => sum + f.tally.required, 0)).toBe(4);
   });
 
-  it('a shipper is a leaf — it has no fleet to file under', () => {
+  it('a shipper has no fleet, but still opens onto a grid', () => {
+    /* It used to open straight onto its licence, which left it the only
+       company on the drive with nowhere to keep a folder of its own. */
     const { folders, leaf } = listDrive([{ kind: 'company', id: 's1' }], COMPANIES, [], NOW);
-    expect(folders).toEqual([]);
+    expect(leaf).toBeNull();
+    expect(folders.map((f) => f.label)).toEqual(['Company']);
+  });
+
+  it("a shipper's licence is one step further in, under Company", () => {
+    const path = [
+      { kind: 'company', id: 's1' },
+      { kind: 'section', id: 'company' },
+    ] as const;
+    const { leaf, trail } = listDrive(path, COMPANIES, [], NOW);
     expect(leaf).toEqual({
       ownerType: 'SHIPPER',
       ownerId: 's1',
       label: 'Horn Trading',
       reference: 'Horn Trading',
     });
+    expect(trail.map((step) => step.label)).toEqual(['Fleetin Drive', 'Horn Trading', 'Company']);
   });
+
 
   it('walks company → vehicles → one truck, and lands on it', () => {
     const path = [

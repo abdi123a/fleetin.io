@@ -15,7 +15,7 @@ import {
 } from '@/design-system/icons';
 import { useEmptyContainers } from '@/features/empty-returns';
 import { CRITICAL_THRESHOLD_MS } from '@/data/emptyReturnData';
-import { formatKm } from '@/lib/co2';
+import { co2Label, formatKm } from '@/lib/co2';
 import {
   chainStateOf,
   emptyDwellOf,
@@ -351,7 +351,7 @@ function ChainCard({
             picked to survive a saturated ground (3.7:1 on this teal). White
             reads at 5.9:1, so the labels no longer need an opacity step to sit
             below the figures: 10px against 14px bold is the hierarchy. */}
-        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg bg-primary-bold px-3.5 py-2.5 text-primary-bold-foreground shadow-2xs">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3.5 gap-y-1.5 rounded-lg bg-primary-bold px-3.5 py-2.5 text-primary-bold-foreground shadow-2xs [&>*+*]:before:mr-3.5 [&>*+*]:before:inline-block [&>*+*]:before:h-3 [&>*+*]:before:w-px [&>*+*]:before:bg-primary-bold-foreground/25 [&>*+*]:before:align-middle [&>*+*]:before:content-['']">
           {/* Plain counts. What happened, in white — they carry no verdict, and
               tinting them was what turned the row into one green wall with
               nothing standing out of it.
@@ -368,14 +368,57 @@ function ChainCard({
               on this chain went back on a trip of its own, which is exactly
               the cost the module exists to remove. */}
           <Figure label="avoidance" value={`${avoidance}%`} tone={avoidance < 100 ? 'warn' : 'neutral'} />
-          {/* The road the realized links did not drive — Fleetin Impact, as
-              the server judged it from the bookings' rungs. Absent until a
-              link is realized and its garage round trip measured, because a
-              "0 km" beside three pairings would read as measured and found to
-              be nothing rather than not yet measured. */}
+          {/* ── WHAT THE MATCHING WAS WORTH ──
+           *
+           * Three facts about the same set of realized links, in the order a
+           * reader asks for them: the road not driven, what the trucks put
+           * out, and what that would have been without the matching. The gap
+           * between the last two IS the saving, which is why the saving is not
+           * also printed a fourth time as its own figure.
+           *
+           * The counterfactual is `emitted + avoided` — never a percentage,
+           * never a theoretical match. `avoided` is the Free Zone → Garage →
+           * Port round trip the server measured on links it judged realized,
+           * so both halves describe the same movements.
+           */}
           {chain.avoidedKm > 0 && (
             <Figure label="km avoided" value={formatKm(chain.avoidedKm).value} />
           )}
+
+          {/* "with Fleetin", not "emitted".
+           *
+           * This is the actual figure — the sum of what the bookings recorded,
+           * always known, whether or not anything was saved. But on a strip
+           * that also carries "without Fleetin", the word "emitted" does not
+           * say which of the two worlds it belongs to, and a reader cannot
+           * tell whether they are looking at the real number or the baseline.
+           * Naming both halves the same way makes the pair read as one
+           * comparison instead of two unrelated figures. */}
+          {chain.actualCo2Kg > 0 && (
+            <Figure label="CO₂ with Fleetin" value={co2Label(chain.actualCo2Kg)} />
+          )}
+
+          {/* And what it would have been — but ONLY when there is a priced
+              saving to add.
+              
+              A realized link whose two legs ran on different trucks has no
+              single factor to price its garage trip with, so its saving is
+              real, measured in km, and has no kg. Printing "without Fleetin"
+              equal to "emitted" there would say the matching was worth
+              nothing, which is false — the road above it was demonstrably not
+              driven. The strip says `not priced` instead, which is the same
+              word the emissions dashboard uses for it. */}
+          {chain.avoidedCo2Kg > 0 ? (
+            /* Amber: the one figure on the strip that did not happen. */
+            <Figure
+              label="CO₂ without Fleetin"
+              value={co2Label(chain.actualCo2Kg + chain.avoidedCo2Kg)}
+              tone="warn"
+            />
+          ) : chain.avoidedKm > 0 ? (
+            <Figure label="CO₂ saved" value="not priced" tone="warn" />
+          ) : null}
+
           {/* Dwell is the one figure where longer is worse. The threshold is
               the module's own `CRITICAL_THRESHOLD_MS` (24h) rather than a new
               number: a day is what this module already calls the point where a
@@ -445,46 +488,51 @@ function ChainCard({
   );
 }
 
+/**
+ * Two states, because a chain is either still going or it is over.
+ *
+ * The model underneath keeps three — `running`, `handed_on`, `closed` — and
+ * that distinction is real: `handed_on` means every cycle closed and the last
+ * one paired OUT, so the chain is alive and waiting on a container that is
+ * still loaded. But it is a distinction about *why* a chain is quiet, and on a
+ * card it forced the reader to learn a third word to answer a two-way question.
+ *
+ * A chain that has handed a box forward has not ended, so it reads as ACTIVE.
+ * Only the depot ends a chain. The tooltip still carries the nuance for anyone
+ * who wants it; `chainStateOf` still returns three, because the pyramid and the
+ * analytics genuinely need to tell waiting from finished.
+ */
 function ChainStateBadge({ state }: { state: ReturnType<typeof chainStateOf> }) {
-  if (state === 'running') {
-    return (
-      <Badge
-        variant="solid"
-        intent="primary"
-        size="sm"
-        /* Teal, and filled. It was emerald-subtle, which is a hair off the
-           green the loaded cards now wear — the badge read as a remark about a
-           container instead of the state of the chain. Teal is the chain's own
-           colour on this card (the band under it), and solid so it holds its
-           corner against the orange tab opposite. */
-        className="font-bold"
-        title="A cycle in this chain is still waiting on a decision."
-      >
-        Active
-      </Badge>
-    );
-  }
-  if (state === 'handed_on') {
+  if (state === 'closed') {
     return (
       <Badge
         variant="subtle"
-        intent="primary"
+        intent="default"
         size="sm"
-        className="border-stage-paired-border bg-stage-paired-subtle text-stage-paired-subtle-foreground"
-        title="Every cycle closed and the last one paired out — the chain continues once that container is emptied."
+        title="The last empty went back to the depot alone — there is nothing left to hand forward."
       >
-        Handed on
+        Closed
       </Badge>
     );
   }
   return (
     <Badge
-      variant="subtle"
-      intent="default"
+      variant="solid"
+      intent="primary"
       size="sm"
-      title="The last empty went back to the depot alone — there is nothing left to hand forward."
+      /* Teal, and filled. It was emerald-subtle, which is a hair off the green
+         the loaded cards now wear — the badge read as a remark about a
+         container instead of the state of the chain. Teal is the chain's own
+         colour on this card (the band under it), and solid so it holds its
+         corner against the orange tab opposite. */
+      className="font-bold"
+      title={
+        state === 'handed_on'
+          ? 'Every cycle closed and the last one paired out — the chain continues once that container is emptied.'
+          : 'A cycle in this chain is still waiting on a decision.'
+      }
     >
-      Closed at the depot
+      Active
     </Badge>
   );
 }

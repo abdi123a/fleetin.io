@@ -142,21 +142,21 @@ export function AdminKpiTiles({ model, className }: { model: AdminConsoleModel; 
       title: 'Commission',
       icon: <Percent className="size-3.5" aria-hidden />,
       tone: 'peach',
-      value: money.grossDjf !== null ? compactDjf(money.grossDjf) : '—',
+      value: compactDjf(money.commissionDjf),
       description:
-        money.marginPct !== null
-          ? `${pct(money.marginPct, 1)} of ${compactDjf(money.revenueDjf)} billed`
-          : 'no priced shipments',
+        money.takeRate !== null
+          ? `${pct(money.takeRate, 1)} of ${compactDjf(money.billedDjf)} billed`
+          : 'nothing billed yet',
       to: ROUTES.finance,
     },
     {
-      key: 'payable',
-      title: 'Payables',
+      key: 'outstanding',
+      title: 'Outstanding',
       icon: <Banknote className="size-3.5" aria-hidden />,
       tone: 'pink',
-      value: compactDjf(money.payableDjf),
-      description: `${compactDjf(money.pipelineDjf)} pending POD`,
-      to: ROUTES.finance,
+      value: compactDjf(money.outstandingDjf),
+      description: `${compactDjf(money.unbilledDjf)} still to invoice`,
+      to: ROUTES.financeInvoices,
     },
     {
       key: 'people',

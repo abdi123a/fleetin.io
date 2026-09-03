@@ -208,8 +208,11 @@ export function recordHref(
       return `${ROUTES.vehicles}?vehicle=${encodeURIComponent(reference || recordId || '')}`;
     case 'DRIVER':
       return `${ROUTES.drivers}?driver=${encodeURIComponent(reference || recordId || '')}`;
+    /* Payout holds were removed with the working-capital module on
+       2026-09-03. Tasks raised against one before that still exist, so the
+       type stays routable — it lands on the billing desk rather than 404ing. */
     case 'PAYOUT_HOLD':
-      return parentRef ? buildPath(ROUTES.financeShipmentDetail, { shipmentId: parentRef }) : ROUTES.finance;
+      return ROUTES.finance;
     /* The Empty Container module keys its dialog by REFERENCE, not uuid — see
        `mappers.ts`, where every record's `id` is `booking.reference` or
        `cycle.reference`. So this passes the reference deliberately. */

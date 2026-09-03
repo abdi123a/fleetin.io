@@ -53,6 +53,37 @@ export interface FileListing {
 
 export const FILES_ROOT_LABEL = 'Files';
 
+/**
+ * Whose folders these are — a company, or the Files section itself.
+ *
+ * A folder tree hangs either off the Files tab (owner `null`) or off one
+ * company's own folder on the compliance drive. Both are the same tree with
+ * the same rules; only the root differs.
+ */
+export interface FilesOwner {
+  ownerType: 'PARTNER' | 'SHIPPER';
+  ownerId: string;
+}
+
+/**
+ * The folders belonging to one owner, and only those.
+ *
+ * Narrowing the list before `listFiles` rather than teaching it about owners:
+ * within one owner's folders every parent is present, and a folder whose
+ * parent is missing is already treated as a root — so filtering here gives
+ * each owner its own root for free, and the walk stays owner-blind.
+ */
+export function foldersOf(
+  folders: DriveFolderRecord[],
+  owner: FilesOwner | null,
+): DriveFolderRecord[] {
+  return folders.filter((folder) =>
+    owner
+      ? folder.ownerType === owner.ownerType && folder.ownerId === owner.ownerId
+      : !folder.ownerType,
+  );
+}
+
 interface Index {
   byId: Map<string, DriveFolderRecord>;
   childrenOf: Map<string | null, DriveFolderRecord[]>;

@@ -1,34 +1,40 @@
-export type { InvoiceRecord, InvoiceFilters, IssueStatementPayload } from './invoices/api/invoicesService';
-export { isMonthlyStatement } from './invoices/api/invoicesService';
+/**
+ * Billing.
+ *
+ * Four things, and deliberately nothing else: a **project** groups a shipper's
+ * shipments, a **proforma** quotes one shipment, an **invoice** bills it, and a
+ * **commission percentage** says what Fleetin keeps out of the total.
+ *
+ * The working-capital module this replaced — ledgers, credit facilities,
+ * drawdowns, payout orders, holds, bank movements, expenses, monthly
+ * statements — was removed on 2026-09-03. If you are about to add a second
+ * money concept here, that is the thing that was taken out.
+ */
+
+export type {
+  CreateProformaPayload,
+  DocumentKind,
+  DocumentLine,
+  InvoiceRecord,
+  InvoiceFilters,
+  ProformaLineInput,
+} from './invoices/api/invoicesService';
 export {
   invoiceQueryKeys,
-  useAllInvoices,
+  useCancelInvoice,
+  useCreateProforma,
   useInvoice,
   useInvoices,
-  useIssueInvoiceForShipment,
-  useIssueMonthlyStatement,
+  useInvoicesForShipment,
+  useIssueInvoice,
   useMarkInvoicePaid,
+  useMarkInvoiceSent,
 } from './invoices/api/queries';
-
-export type { PaymentOrderRecord, PaymentOrderFilters, PayTransporterPayload } from './payment-orders/api/paymentOrdersService';
-export {
-  paymentOrderQueryKeys,
-  useAllPaymentOrders,
-  usePaymentOrder,
-  usePaymentOrders,
-  usePaymentOrdersForShipment,
-  usePayTransporter,
-} from './payment-orders/api/queries';
-
-export type { PayoutHoldRecord, RaiseHoldPayload } from './holds/api/holdsService';
-export { holdQueryKeys, useClearHold, useHoldsForShipment, useOpenHolds, useRaiseHold } from './holds/api/queries';
-
-export type { LedgerEntryRecord, LedgerFilters } from './ledger/api/ledgerService';
-export { ledgerQueryKeys, useLedgerEntries } from './ledger/api/queries';
 
 export type {
   ProjectRecord,
   ProjectDetailRecord,
+  ProjectTotals,
   ProjectFilters,
   CreateProjectPayload,
   UpdateProjectPayload,
@@ -42,15 +48,17 @@ export {
   useUpdateProject,
 } from './projects/api/queries';
 
-export type { CreditFacilityRecord, CreditFacilityDetailRecord, CreateCreditFacilityPayload } from './funding/api/creditFacilitiesService';
-export type { DrawdownRecord, DrawdownFilters, CreateDrawdownPayload, RepayDrawdownPayload } from './funding/api/drawdownsService';
 export {
-  fundingQueryKeys,
-  useCreateCreditFacility,
-  useCreateDrawdown,
-  useCreditFacilities,
-  useCreditFacility,
-  useDrawdown,
-  useDrawdowns,
-  useRepayDrawdown,
-} from './funding/api/queries';
+  COMMISSION_SOURCE_LABEL,
+  commissionOf,
+  describeCommission,
+  documentStateOf,
+  resolveCommission,
+  type BillingState,
+  type CommissionDeal,
+  type CommissionMode,
+  type CommissionSource,
+  type ResolvedCommission,
+} from './model/commission';
+
+export { CommissionFields, type CommissionValue } from './components/CommissionFields';

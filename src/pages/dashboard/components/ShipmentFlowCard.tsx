@@ -47,25 +47,25 @@ export function ShipmentFlowCard({
         </Link>
       }
       footer={
-        <InsightNote tone={awaiting > 0 || operations.awaitingRelease > 0 ? 'attention' : 'neutral'}>
+        <InsightNote tone={awaiting > 0 || operations.awaitingInvoice > 0 ? 'attention' : 'neutral'}>
           {awaiting > 0 ? (
             <>
               <span className="font-bold text-foreground">
                 {awaiting} delivered {awaiting === 1 ? 'shipment' : 'shipments'} missing POD
               </span>{' '}
-              — settlement frozen.
+              — cannot be billed until the paper is in.
             </>
-          ) : operations.awaitingRelease > 0 ? (
+          ) : operations.awaitingInvoice > 0 ? (
             <>
               <span className="font-bold text-foreground">
-                {operations.awaitingRelease} {operations.awaitingRelease === 1 ? 'shipment' : 'shipments'} pending
-                release
+                {operations.awaitingInvoice} delivered{' '}
+                {operations.awaitingInvoice === 1 ? 'shipment' : 'shipments'} not yet invoiced
               </span>{' '}
-              — POD filed.
+              — ready to bill.
             </>
           ) : (
             <>
-              <span className="font-bold text-foreground">All clear.</span> No missing POD, no release pending.
+              <span className="font-bold text-foreground">All clear.</span> No missing POD, nothing left to bill.
             </>
           )}
         </InsightNote>
@@ -108,10 +108,10 @@ export function ShipmentFlowCard({
               tone={awaiting > 0 ? 'attention' : 'neutral'}
             />
             <StatBox
-              label="Pending release"
-              value={String(operations.awaitingRelease)}
-              note="POD filed, not released"
-              tone={operations.awaitingRelease > 0 ? 'attention' : 'neutral'}
+              label="To invoice"
+              value={String(operations.awaitingInvoice)}
+              note="Delivered and priced, not billed"
+              tone={operations.awaitingInvoice > 0 ? 'attention' : 'neutral'}
             />
             <StatBox
               label="Completion rate"

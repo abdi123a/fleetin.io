@@ -184,7 +184,10 @@ export const CONTAINER_STAGE_META: Record<ContainerStage, ContainerStageMeta> = 
     chipClassName: 'bg-stage-available-subtle text-stage-available-subtle-foreground border-stage-available-border/40',
   },
   paired: {
-    label: 'Paired',
+    /* The reference's own words, tick included — a paired box is a decision
+       that has LANDED, and the tick is what separates it at a glance from the
+       stages that still owe somebody something. */
+    label: 'Paired ✓',
     dotClassName: 'bg-stage-paired',
     chipClassName: 'bg-stage-paired-subtle text-stage-paired-subtle-foreground border-stage-paired-border/50',
   },
@@ -194,7 +197,10 @@ export const CONTAINER_STAGE_META: Record<ContainerStage, ContainerStageMeta> = 
     chipClassName: 'bg-stage-returning-subtle text-stage-returning-subtle-foreground border-stage-returning-border/40',
   },
   closed: {
-    label: 'Closed',
+    /* "Closed" was ours; the reference says what actually happened to the box.
+       On-time vs late is an outcome, not a stage, so callers that know the
+       outcome say `Returned Late` — this is the label for the stage alone. */
+    label: 'Returned ✓',
     dotClassName: 'bg-stage-closed',
     chipClassName: 'bg-stage-closed-subtle text-stage-closed-subtle-foreground border-stage-closed-border/50',
   },

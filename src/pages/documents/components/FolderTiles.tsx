@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode, type RefObject } from 'react';
 
 import { Badge } from '@/design-system';
 import { Building2, Folder, Truck, User } from '@/design-system/icons';
@@ -37,6 +37,46 @@ const FOLDER_GLYPH = {
   vehicle: Truck,
   driver: User,
 } as const;
+
+/**
+ * The tile track, as the grid actually lays it out.
+ *
+ * `auto-fill` means the column count is a function of the width, not of a
+ * breakpoint — it is 2 on a phone and 7 on a wide monitor with the sidebar
+ * shut. Anything that wants to page this grid has to know the real number, or
+ * it hands back a page that cannot fill its own last row.
+ */
+const FOLDER_MIN_PX = 210;
+const FOLDER_GAP_PX = 8; // `gap-2`
+
+/**
+ * How many folders fit across, measured from the element that holds them.
+ *
+ * The same arithmetic `repeat(auto-fill, minmax(210px, 1fr))` does, and the
+ * constants above are the ones the grid is declared with, so the two cannot
+ * drift.
+ */
+export function useFolderColumns(ref: RefObject<HTMLElement | null>): number {
+  const [columns, setColumns] = useState(1);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const measure = () => {
+      const width = element.clientWidth;
+      if (!width) return;
+      setColumns(
+        Math.max(1, Math.floor((width + FOLDER_GAP_PX) / (FOLDER_MIN_PX + FOLDER_GAP_PX))),
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref]);
+
+  return columns;
+}
 
 export function FolderGrid({ items, empty }: { items: FolderItem[]; empty: ReactNode }) {
   if (items.length === 0) {

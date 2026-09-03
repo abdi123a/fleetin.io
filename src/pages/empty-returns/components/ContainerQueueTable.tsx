@@ -213,7 +213,11 @@ function NextAction({
           onOpen(record.id, 'return');
         }}
       >
-        Confirm return
+        {/* Same trade the plan button makes below: the column is narrow and
+            the full phrase truncates to "Confirm empty r…", which is worse than
+            a shorter true label. The card, which has the room, says it in
+            full. */}
+        {dense ? 'Confirm return' : 'Confirm empty return'}
       </Button>
     );
   }

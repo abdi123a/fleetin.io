@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Badge, useConfirm } from '@/design-system';
 import { Download, FileText, Plus, Trash2 } from '@/design-system/icons';
 import { DocumentViewerModal, type DocumentToView } from '@/components/DocumentViewerModal';
+import { ViewTabs } from '@/components/common/ViewTabs';
 import { triggerDocumentDownload } from '@/components/documentDownload';
 import { cn } from '@/utils';
 
@@ -44,6 +45,15 @@ import { useDocumentPreview } from './useDocumentPreview';
  * Nothing is shown for a proof the job has not reached yet: an empty "Proof of
  * return" panel on a container still being unstuffed is a question nobody has
  * been asked.
+ *
+ * ## Two proofs, one card
+ *
+ * Once both are due they are tabs on one card rather than two cards stacked.
+ * Stacked, the two contact sheets took a third of the booking sheet before a
+ * reader reached the schedule — the user's own annotation on 2026-09-03 drew a
+ * ring round the pair. The tab that opens first is the proof still missing,
+ * and a missing proof keeps a red dot on its tab so it can be seen without
+ * being opened.
  */
 export function BookingProofPanel({
   bookingId,
@@ -65,6 +75,9 @@ export function BookingProofPanel({
 
   const [viewing, setViewing] = useState<DocumentToView | null>(null);
   const [error, setError] = useState('');
+  /* Which proof is open. Null until somebody picks one, so the default can
+     follow the data — the proof still missing — rather than a stale choice. */
+  const [picked, setPicked] = useState<string | null>(null);
 
   const documents = raw.map(toDisplayDocument);
   const filesFor = (proof: ProofRequirement) =>
@@ -107,69 +120,95 @@ export function BookingProofPanel({
     });
   };
 
+  const active =
+    panels.find((proof) => proof.category === picked) ??
+    panels.find((proof) => filesFor(proof).length === 0) ??
+    panels[0]!;
+
+  /* The contact sheet for one proof. `auto-fill` rather than a fixed column
+     count: the sheet is one width on a laptop and another in a narrow window,
+     and a proof with one page should not leave two empty cells behind it. */
+  const contactSheet = (proof: ProofRequirement, files: DisplayDocument[]) => (
+    <div className="mt-2 grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(92px,1fr))]">
+      {files.map((document) => (
+        <ProofTile
+          key={document.id}
+          document={document}
+          readOnly={readOnly}
+          onOpen={() => setViewing(document)}
+          onRemove={() => void drop(document)}
+        />
+      ))}
+
+      {!readOnly && (
+        <label
+          className={cn(
+            'flex aspect-square cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed border-primary/40 bg-primary/5 text-[10px] font-semibold text-primary transition-colors hover:bg-primary/10',
+            upload.isPending && 'pointer-events-none opacity-60',
+          )}
+          title={files.length === 0 ? 'Attach the paperwork' : 'Add another page'}
+        >
+          <input
+            type="file"
+            multiple
+            accept=".pdf,.png,.jpg,.jpeg,.webp,image/*"
+            className="hidden"
+            onChange={(event) => {
+              const chosen = Array.from(event.target.files ?? []);
+              if (chosen.length > 0) add(proof, chosen);
+              event.target.value = '';
+            }}
+          />
+          <Plus className="h-4 w-4" />
+          {upload.isPending ? 'Filing…' : files.length === 0 ? 'Attach' : 'Add'}
+        </label>
+      )}
+    </div>
+  );
+
+  const statusOf = (files: DisplayDocument[]) =>
+    files.length === 0 ? (
+      <Badge intent="destructive" variant="subtle" size="sm">
+        Not on file
+      </Badge>
+    ) : (
+      <span className="text-[10px] text-muted-foreground">
+        {files.length} page{files.length > 1 ? 's' : ''}
+      </span>
+    );
+
   return (
     <div className="space-y-2">
       <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Proof</h3>
 
-      {panels.map((proof) => {
-        const files = filesFor(proof);
-        return (
-          <div key={proof.category} className="rounded-lg border border-border/80 bg-card p-3 shadow-2xs">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-bold text-foreground">{proof.title}</span>
-              {files.length === 0 ? (
-                <Badge intent="destructive" variant="subtle" size="sm">
-                  Not on file
-                </Badge>
-              ) : (
-                <span className="text-[10px] text-muted-foreground">
-                  {files.length} page{files.length > 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
-
-            {/* A contact sheet. `auto-fill` rather than a fixed column count:
-                the sheet is one width on a laptop and another in a narrow
-                window, and a proof with one page should not leave two empty
-                cells behind it. */}
-            <div className="mt-2 grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(92px,1fr))]">
-              {files.map((document) => (
-                <ProofTile
-                  key={document.id}
-                  document={document}
-                  readOnly={readOnly}
-                  onOpen={() => setViewing(document)}
-                  onRemove={() => void drop(document)}
-                />
-              ))}
-
-              {!readOnly && (
-                <label
-                  className={cn(
-                    'flex aspect-square cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed border-primary/40 bg-primary/5 text-[10px] font-semibold text-primary transition-colors hover:bg-primary/10',
-                    upload.isPending && 'pointer-events-none opacity-60',
-                  )}
-                  title={files.length === 0 ? 'Attach the paperwork' : 'Add another page'}
-                >
-                  <input
-                    type="file"
-                    multiple
-                    accept=".pdf,.png,.jpg,.jpeg,.webp,image/*"
-                    className="hidden"
-                    onChange={(event) => {
-                      const chosen = Array.from(event.target.files ?? []);
-                      if (chosen.length > 0) add(proof, chosen);
-                      event.target.value = '';
-                    }}
-                  />
-                  <Plus className="h-4 w-4" />
-                  {upload.isPending ? 'Filing…' : files.length === 0 ? 'Attach' : 'Add'}
-                </label>
-              )}
-            </div>
+      {panels.length > 1 ? (
+        <div className="rounded-lg border border-border/80 bg-card px-3 pb-3 shadow-2xs">
+          <ViewTabs
+            label="Which proof"
+            tabs={panels.map((proof) => ({
+              key: proof.category,
+              label: shortTitle(proof),
+              /* The dot is the missing proof's flag on a closed tab — the one
+                 fact the tab strip has to carry, or a reader would open both
+                 to learn which paper is still owed. */
+              icon: filesFor(proof).length === 0 ? MissingDot : undefined,
+            }))}
+            value={active.category}
+            onChange={setPicked}
+            actions={statusOf(filesFor(active))}
+            className="-mx-3 px-1"
+          />
+          {contactSheet(active, filesFor(active))}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-border/80 bg-card p-3 shadow-2xs">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-bold text-foreground">{active.title}</span>
+            {statusOf(filesFor(active))}
           </div>
-        );
-      })}
+          {contactSheet(active, filesFor(active))}
+        </div>
+      )}
 
       {error && <p className="text-[11px] font-medium text-destructive">{error}</p>}
 
@@ -180,6 +219,20 @@ export function BookingProofPanel({
       />
       {confirmDialog}
     </div>
+  );
+}
+
+/** "Delivery" / "Return" — the tab has the card's heading above it to say "proof". */
+function shortTitle(proof: ProofRequirement): string {
+  return proof.category === PROOF_OF_DELIVERY_REQUIREMENT.category ? 'Delivery' : 'Return';
+}
+
+/** A missing proof's mark on its tab. Sized like the icon slot it stands in. */
+function MissingDot({ className }: { className?: string }) {
+  return (
+    <span className={cn('inline-flex items-center justify-center', className)} aria-label="not on file">
+      <span className="size-1.5 rounded-full bg-destructive" />
+    </span>
   );
 }
 

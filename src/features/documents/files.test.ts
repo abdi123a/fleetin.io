@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { describeContents, listFiles, pathTo, searchFiles } from './files';
+import { describeContents, foldersOf, listFiles, pathTo, searchFiles } from './files';
 import type { DocumentRecord } from './api/documentsService';
 import type { DriveFolderRecord } from './api/driveFoldersService';
 
@@ -45,6 +45,35 @@ const FILES = [
   file('f4', 'y2026', 'Addendum C.pdf', { uploadedAt: '2026-06-01T00:00:00.000Z' }),
   file('f5', 'y2026', 'Addendum D.pdf', { uploadedAt: '2026-07-01T00:00:00.000Z' }),
 ];
+
+describe('foldersOf', () => {
+  /* One request holds every folder in the system, and the browser shows one
+     owner's. Getting this wrong puts a haulier's contracts on the Files tab
+     for anyone to browse, which is exactly the thing owners exist to stop. */
+  const OWNED = [
+    ...FOLDERS,
+    { ...folder('dita-legal', 'Legal'), ownerType: 'PARTNER' as const, ownerId: 'p1' },
+    { ...folder('horn-legal', 'Legal'), ownerType: 'SHIPPER' as const, ownerId: 's1' },
+  ];
+
+  it('keeps a company out of the Files tab, and the Files tab out of a company', () => {
+    expect(foldersOf(OWNED, null).map((f) => f.id)).toEqual(['contracts', 'y2026', 'tenders']);
+    expect(foldersOf(OWNED, { ownerType: 'PARTNER', ownerId: 'p1' }).map((f) => f.id)).toEqual([
+      'dita-legal',
+    ]);
+  });
+
+  it('does not confuse a partner with a shipper of the same id', () => {
+    const shipperP1 = { ...folder('x', 'X'), ownerType: 'SHIPPER' as const, ownerId: 'p1' };
+    expect(foldersOf([...OWNED, shipperP1], { ownerType: 'PARTNER', ownerId: 'p1' })).toHaveLength(1);
+  });
+
+  it("a company's folders are their own root, whatever the whole book looks like", () => {
+    const listing = listFiles([], foldersOf(OWNED, { ownerType: 'PARTNER', ownerId: 'p1' }), FILES);
+    expect(listing.folders.map((entry) => entry.label)).toEqual(['Legal']);
+    expect(listing.trail).toEqual([{ label: 'Files', id: null }]);
+  });
+});
 
 describe('listFiles', () => {
   it('opens on the root folders only, with no loose files', () => {

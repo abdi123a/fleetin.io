@@ -52,4 +52,8 @@ export {
   FleetinImpactBlock,
   IMPACT_STATUS_META,
   ImpactStatusBadge,
+  shortPlace,
 } from './components/FleetinImpact';
+export { SavedForest } from './components/SavedForest';
+export { useCountUp } from './hooks/useCountUp';
+export { useInView } from './hooks/useInView';

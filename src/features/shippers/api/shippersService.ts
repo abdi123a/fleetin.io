@@ -91,6 +91,12 @@ export interface CreateShipperPayload {
   country: string;
   address: string;
   approvalStatus?: string;
+  /* The deal. `undefined` leaves a stored one alone on a PATCH; an explicit
+     `null` clears it and hands the account back to the house rate. */
+  commissionMode?: 'percent' | 'fixed' | null;
+  commissionPct?: number | null;
+  /** Whole DJF per container. The server converts to minor units. */
+  commissionFixedAmount?: number | null;
   primaryContact: { name: string; title: string; email: string; phone: string };
   operationalContacts?: { name: string; title: string; email: string; phone: string }[];
 }

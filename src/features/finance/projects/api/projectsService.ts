@@ -22,9 +22,30 @@ export interface ProjectRecord {
   deletedAt: string | null;
 }
 
+/**
+ * What the project is worth, counted three ways.
+ *
+ * `contracted` is the sum of what its shipments are priced at — the work
+ * itself. `billed` is what has been invoiced, `paid` what has come in.
+ * Proformas are excluded throughout: a quote is not revenue.
+ *
+ * Minor-unit strings, because the server counts in BigInt and JSON has no
+ * such thing.
+ */
+export interface ProjectTotals {
+  shipmentCount: number;
+  unpricedCount: number;
+  contractedMinorUnits: string;
+  billedMinorUnits: string;
+  paidMinorUnits: string;
+  outstandingMinorUnits: string;
+  commissionMinorUnits: string;
+}
+
 /** `GET /projects/:id` only — includes the project's own real shipments, full flat rows. */
 export interface ProjectDetailRecord extends ProjectRecord {
   shipments: ShipmentRecord[];
+  totals: ProjectTotals;
 }
 
 export interface ProjectFilters {
@@ -78,8 +99,18 @@ export async function updateProject(id: string, payload: UpdateProjectPayload): 
   return res.data;
 }
 
-/** Issues invoices for any unbilled priced+delivered shipments on the project, then marks it completed. */
-export async function closeProject(id: string): Promise<ProjectRecord> {
-  const res = await apiClient.patch<ProjectRecord>(`/projects/${id}/close`, {}, token());
+/**
+ * Marks the project completed, billing every priced shipment that has no
+ * invoice yet on the way out. Unpriced shipments are skipped, never billed at
+ * zero — `skippedUnpriced` is how many, so the screen can say so rather than
+ * report a silent no-op.
+ */
+export interface CloseProjectResult extends ProjectRecord {
+  issued: number;
+  skippedUnpriced: number;
+}
+
+export async function closeProject(id: string): Promise<CloseProjectResult> {
+  const res = await apiClient.patch<CloseProjectResult>(`/projects/${id}/close`, {}, token());
   return res.data;
 }

@@ -261,6 +261,10 @@ export function cycleToRow(cycle: EmptyReturnCycleRecord, now: number): EmptyRet
     impactCounted: Boolean(cycle.impactCountedAt),
     avoidedKm: cycle.impactCountedAt ? decimalOrNull(cycle.avoidedDistanceKm) : null,
     avoidedCo2Kg: cycle.impactCountedAt ? decimalOrNull(cycle.avoidedCo2Kg) : null,
+    /* What this leg actually put out — the other half of the comparison. The
+       avoided figure alone says a saving happened; it takes the emitted figure
+       beside it to say what the saving was *against*. */
+    co2EmissionsKg: decimalOrNull(booking.co2EmissionsKg),
   };
 }
 
@@ -328,11 +332,21 @@ export function chainToCycleChain(chain: EmptyReturnChainRecord, now: number): C
      load do not add the same trip twice. Nothing is derived here. */
   let avoidedKm = 0;
   let avoidedCo2Kg = 0;
+  let actualCo2Kg = 0;
   let realizedLinks = 0;
+  /* A realized link whose two legs ran on different trucks keeps its distance
+     and has no factor to price it with, so `avoidedCo2Kg` is null there — not
+     zero. Counted, so the card can say the saving is understated rather than
+     quietly reporting the priced part as the whole of it. */
+  let unpricedLinks = 0;
   for (const row of cycles) {
-    if (row.impactStatus === 'realized') realizedLinks += 1;
+    if (row.impactStatus === 'realized') {
+      realizedLinks += 1;
+      if (row.avoidedCo2Kg === null && row.impactCounted) unpricedLinks += 1;
+    }
     avoidedKm += row.avoidedKm ?? 0;
     avoidedCo2Kg += row.avoidedCo2Kg ?? 0;
+    actualCo2Kg += row.co2EmissionsKg ?? 0;
   }
 
   const averageEmptyMs = cycles.length
@@ -359,6 +373,8 @@ export function chainToCycleChain(chain: EmptyReturnChainRecord, now: number): C
     averageEmptyMs,
     avoidedKm: Math.round(avoidedKm * 10) / 10,
     avoidedCo2Kg: Math.round(avoidedCo2Kg * 10) / 10,
+    actualCo2Kg: Math.round(actualCo2Kg * 10) / 10,
     realizedLinks,
+    unpricedLinks,
   };
 }

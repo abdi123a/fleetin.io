@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useRef } from 'react';
 
-import { Input, StatisticCard, useConfirm } from '@/design-system';
-import { Folder, Search, ShieldCheck } from '@/design-system/icons';
+import { Button, Input, StatisticCard, useConfirm } from '@/design-system';
+import { Folder, FolderPlus, Search, ShieldCheck } from '@/design-system/icons';
 import { TablePager, usePagedRows } from '@/components';
 import { FilterMenu } from '@/components/common';
 import { RecordRaise } from '@/features/workspace';
@@ -23,18 +23,25 @@ import {
   listDrive,
   searchDrive,
   type DriveCompany,
+  type DriveFolder,
   type DriveLeaf,
   type DriveSegment,
 } from '@/features/documents/drive';
 import type { ComplianceTally } from '@/features/documents/compliance';
 import { useDrivers } from '@/features/drivers/api/queries';
 import { usePartners } from '@/features/partners/api/queries';
+import { usePermissions } from '@/hooks/usePermissions';
 import { useShippers } from '@/features/shippers/api/queries';
 import { useVehicles } from '@/features/vehicles/api/queries';
 
+import { foldersOf, listFiles, type FileFolder } from '@/features/documents/files';
+import { useCreateDriveFolder, useDriveFolders, useFileBook } from '@/features/documents/api/queries';
+
 import { DriveTabs, type DriveSection } from './DriveTabs';
+import { FilesBrowser } from './FilesBrowser';
+import { FolderNameDialog } from './FolderNameDialog';
 import { DriveTrail } from './DriveTrail';
-import { FolderGrid, FolderState, toneOf, type FolderItem } from './FolderTiles';
+import { FolderGrid, FolderState, toneOf, useFolderColumns, type FolderItem } from './FolderTiles';
 
 /**
  * Every compliance paper the company holds, in folders.
@@ -122,6 +129,29 @@ interface DriveSortable {
   tally: ComplianceTally;
 }
 
+/**
+ * One tile on a company's level — derived, or somebody's own.
+ *
+ * Both kinds sit in the same grid because both are folders belonging to this
+ * company: Vehicles is here because the trucks are, Contracts is here because
+ * somebody put it here. They sort and page as one list — a company with two
+ * dozen folders of its own should not get a separate pager for them — so the
+ * union carries the two fields the comparator reads, and a made folder owes
+ * nothing, which is what puts it below anything owing work.
+ */
+type CompanyTile =
+  | { own: false; key: string; label: string; tally: ComplianceTally; folder: DriveFolder }
+  | { own: true; key: string; label: string; tally: ComplianceTally; folder: FileFolder };
+
+const NOTHING_OWED: ComplianceTally = {
+  required: 0,
+  valid: 0,
+  expiring: 0,
+  expired: 0,
+  missing: 0,
+  attention: 0,
+};
+
 export function ComplianceDrive({ onSection }: { onSection: (next: DriveSection) => void }) {
   const { data: documents = [] } = useDocumentBook();
   const { data: shippersPage } = useShippers();
@@ -129,8 +159,25 @@ export function ComplianceDrive({ onSection }: { onSection: (next: DriveSection)
   const { data: vehiclesPage } = useVehicles();
   const { data: driversPage } = useDrivers();
 
-  const [path, setPath] = useState<DriveSegment[]>([]);
+  const [path, setPathState] = useState<DriveSegment[]>([]);
+  /**
+   * How far into a folder somebody made, below the company level.
+   *
+   * A second path rather than a segment in the first, because the two trees
+   * answer to different modules: `listDrive` derives everything it lists and
+   * has no business knowing about folders people typed a name into. Empty
+   * means the company's own grid is what is on screen.
+   */
+  const [folderPath, setFolderPath] = useState<string[]>([]);
+  /* Any move in the compliance tree leaves whatever folder was open — the two
+     are never both live, and a stale folder path is how you end up inside a
+     haulier's contract while the trail says you are looking at a truck. */
+  const setPath = (next: DriveSegment[]) => {
+    setPathState(next);
+    setFolderPath([]);
+  };
   const [searchTerm, setSearchTerm] = useState('');
+  const [naming, setNaming] = useState(false);
   const [sort, setSort] = useState<DriveSortKey>('attention');
   const [kind, setKind] = useState<DriveKindKey>('all');
   /* Held here rather than in the leaf, so walking from one truck to the next
@@ -188,6 +235,35 @@ export function ComplianceDrive({ onSection }: { onSection: (next: DriveSection)
   );
 
   const listing = useMemo(() => listDrive(path, scoped, documents), [path, scoped, documents]);
+
+  const { data: driveFolders = [] } = useDriveFolders();
+  const { data: driveFiles = [] } = useFileBook();
+  const createFolder = useCreateDriveFolder();
+  const mayFile = usePermissions().can('documents.upload');
+
+  /**
+   * The company being looked at, when one is — and only at ITS level.
+   *
+   * Folders somebody made belong to the company, not to its trucks: they show
+   * on the level that opens onto Company / Vehicles / Drivers, and nowhere
+   * deeper. `owner` is what says which company, for listing and for creating.
+   */
+  const owner = useMemo(() => {
+    const first = path[0];
+    if (path.length !== 1 || !first || first.kind !== 'company') return null;
+    const company = scoped.find((entry) => entry.id === first.id);
+    return company ? { ownerType: company.kind, ownerId: company.id, label: company.name } : null;
+  }, [path, scoped]);
+
+  /** This company's own folders, off the same book the Files tab reads. */
+  const ownFolders = useMemo(
+    () => (owner ? foldersOf(driveFolders, owner) : []),
+    [owner, driveFolders],
+  );
+  const ownRoots = useMemo(
+    () => (owner ? listFiles([], ownFolders, driveFiles).folders : []),
+    [owner, ownFolders, driveFiles],
+  );
   const matches = useMemo(
     () => searchDrive(searchTerm, scoped, documents),
     [searchTerm, scoped, documents],
@@ -200,7 +276,23 @@ export function ComplianceDrive({ onSection }: { onSection: (next: DriveSection)
      The same order is applied to search results: a reader who has chosen "most
      missing" and then types a name has not stopped caring about the order. */
   const compare = DRIVE_SORTS[sort].compare;
-  const folders = useMemo(() => [...listing.folders].sort(compare), [listing.folders, compare]);
+  const folders = useMemo<CompanyTile[]>(() => {
+    const derived = listing.folders.map<CompanyTile>((folder) => ({
+      own: false,
+      key: folder.key,
+      label: folder.label,
+      tally: folder.tally,
+      folder,
+    }));
+    const made = ownRoots.map<CompanyTile>((folder) => ({
+      own: true,
+      key: folder.key,
+      label: folder.label,
+      tally: NOTHING_OWED,
+      folder,
+    }));
+    return [...derived, ...made].sort(compare);
+  }, [listing.folders, ownRoots, compare]);
   const sortedMatches = useMemo(() => [...matches].sort(compare), [matches, compare]);
 
   const searching = searchTerm.trim().length > 0;
@@ -217,7 +309,25 @@ export function ComplianceDrive({ onSection }: { onSection: (next: DriveSection)
    * folder, the search or the sort returns to page one: page 4 of the old list
    * is a different set of folders in the new one, and landing there looks like
    * the filter did nothing. */
-  const [pageSize, setPageSize] = useState(12);
+  /**
+   * A page that fills whole rows.
+   *
+   * The size used to be a flat 12, chosen when the grid was believed to be
+   * "two, three or four across". It is not — it is `auto-fill` over a 210px
+   * track, so a wide window with the sidebar shut lays out five, six or seven,
+   * and 12 tiles then ended a page mid-row: three empty cells on screen while
+   * six more folders sat on page 2. That reads as the grid having run out
+   * rather than the pager having cut it.
+   *
+   * So the chosen size is rounded UP to a whole number of rows at whatever the
+   * grid is currently doing — never down, or picking a size would show fewer
+   * folders than it names. `columns` is measured, so this re-settles when the
+   * window resizes or the sidebar collapses.
+   */
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const columns = useFolderColumns(gridRef);
+  const [rowsPerPage, setRowsPerPage] = useState(24);
+  const pageSize = Math.max(columns, Math.ceil(rowsPerPage / columns) * columns);
   /* Two pagers rather than one over a union: the folder grid and the search
      grid hold different shapes, and collapsing them would cost each branch the
      type that tells it which fields it has. They share a page size; `paged` is
@@ -232,21 +342,57 @@ export function ComplianceDrive({ onSection }: { onSection: (next: DriveSection)
   });
   const paged = searching ? pagedMatches : pagedFolders;
 
+  /**
+   * Inside a folder somebody made — the same browser the Files tab hosts.
+   *
+   * Nothing on this level is derived, so none of the compliance furniture
+   * applies: the tiles above count papers that are owed and nothing here is
+   * owed, and the search looks for trucks and drivers rather than for a
+   * contract. The browser brings its own figures, its own search and its own
+   * actions; all this level owes it is the way back out, which is why the
+   * path is held here and handed down.
+   */
+  if (owner && folderPath.length > 0) {
+    return (
+      <div className="space-y-5">
+        <DriveTabs value="compliance" onChange={onSection} />
+        <FilesBrowser
+          key={`${owner.ownerType}:${owner.ownerId}`}
+          owner={{ ownerType: owner.ownerType, ownerId: owner.ownerId }}
+          path={folderPath}
+          onPath={setFolderPath}
+          /* The company IS the root of its own folders, so the browser does
+             not draw a second one — "Massida Logistics › Contracts", with no
+             invented level in between. */
+          showRoot={false}
+          trailPrefix={listing.trail.map((step, index) => ({
+            key: `${step.label}-${index}`,
+            label: step.label,
+          }))}
+          onPrefixStep={(index) => setPath(path.slice(0, index))}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       <DriveTabs value="compliance" onChange={onSection} />
 
       <TallyTiles tally={listing.tally} />
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* Trail on the left, every control on the right. The controls never
+          wrap among themselves — a search box on one line with the sort and
+          the actions stranded underneath reads as a broken layout. When the
+          two halves stop fitting side by side the control group drops to its
+          own line whole. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <DriveTrail
           steps={listing.trail.map((step, index) => ({ key: `${step.label}-${index}`, label: step.label }))}
           onStep={(index) => setPath(path.slice(0, index))}
         />
 
-        {/* Search and sort narrow the same list, so they share a row and
-            wrap together away from the trail. */}
-        <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
+        <div className="flex min-w-0 items-center gap-2">
           <Input
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
@@ -254,7 +400,8 @@ export function ComplianceDrive({ onSection }: { onSection: (next: DriveSection)
             leadingIcon={<Search className="size-4" />}
             isClearable
             onClear={() => setSearchTerm('')}
-            className="w-full sm:w-72"
+            /* Shrinks rather than pushing its neighbours onto a second line. */
+            className="w-40 min-w-0 md:w-56 lg:w-64"
           />
           <FilterMenu
             groups={[
@@ -288,9 +435,27 @@ export function ComplianceDrive({ onSection }: { onSection: (next: DriveSection)
               },
             ]}
           />
+
+          {/* Only on a company's own level. Below it every folder is derived —
+              a truck's papers are the truck's — and above it a folder would
+              belong to no one. */}
+          {owner && mayFile && (
+            <Button
+              variant="outline"
+              size="sm"
+              leadingIcon={<FolderPlus />}
+              onClick={() => {
+                createFolder.reset();
+                setNaming(true);
+              }}
+            >
+              New folder
+            </Button>
+          )}
         </div>
       </div>
 
+      <div ref={gridRef}>
       {searching ? (
         <FolderGrid
           empty={`Nothing in the drive matches “${searchTerm.trim()}”.`}
@@ -313,19 +478,35 @@ export function ComplianceDrive({ onSection }: { onSection: (next: DriveSection)
       ) : (
         <FolderGrid
           empty="This folder is empty."
-          items={pagedFolders.rows.map<FolderItem>((folder) => ({
-            key: folder.key,
-            label: folder.label,
-            sublabel: folder.sublabel,
-            icon: folder.icon,
-            company: folder.company,
-            tone: toneOf(folder.tally),
-            papers: folder.papers,
-            state: <FolderState tally={folder.tally} />,
-            onOpen: () => setPath([...path, folder.segment]),
-          }))}
+          items={pagedFolders.rows.map<FolderItem>((tile) =>
+            tile.own
+              ? {
+                  key: tile.key,
+                  label: tile.folder.label,
+                  /* What is inside it. A made folder owes nothing, so the
+                     badge that reports what is owed would read "empty"
+                     forever — it reports the contents instead. */
+                  sublabel: tile.folder.sublabel,
+                  icon: 'folder',
+                  tone: 'clean',
+                  papers: tile.folder.papers,
+                  onOpen: () => setFolderPath([tile.folder.id]),
+                }
+              : {
+                  key: tile.key,
+                  label: tile.folder.label,
+                  sublabel: tile.folder.sublabel,
+                  icon: tile.folder.icon,
+                  company: tile.folder.company,
+                  tone: toneOf(tile.folder.tally),
+                  papers: tile.folder.papers,
+                  state: <FolderState tally={tile.folder.tally} />,
+                  onOpen: () => setPath([...path, tile.folder.segment]),
+                },
+          )}
         />
       )}
+      </div>
 
       {/* Only where there is a grid to page. A leaf folder is one owner's
           papers and `LeafFolder` handles its own listing; a drive that fits on
@@ -334,11 +515,39 @@ export function ComplianceDrive({ onSection }: { onSection: (next: DriveSection)
         <TablePager
           paged={paged}
           noun="folders"
+          /* The snapped size is what a page actually holds, so that is what
+             the readout has to count with; the options remain the round
+             numbers a reader picks between. */
           pageSize={pageSize}
-          onPageSizeChange={setPageSize}
+          onPageSizeChange={setRowsPerPage}
           pageSizeOptions={[12, 24, 48]}
         />
       )}
+
+      <FolderNameDialog
+        open={naming}
+        title={owner ? `New folder in ${owner.label}` : 'New folder'}
+        confirmLabel="Create"
+        busy={createFolder.isPending}
+        error={
+          createFolder.error instanceof Error
+            ? createFolder.error.message
+            : createFolder.error
+              ? 'The folder could not be created.'
+              : null
+        }
+        onCancel={() => {
+          setNaming(false);
+          createFolder.reset();
+        }}
+        onSubmit={(name) => {
+          if (!owner) return;
+          createFolder.mutate(
+            { name, parentId: null, ownerType: owner.ownerType, ownerId: owner.ownerId },
+            { onSuccess: () => setNaming(false) },
+          );
+        }}
+      />
     </div>
   );
 }

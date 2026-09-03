@@ -2,7 +2,7 @@ import { ExpiryLabel, SheetHeading } from '@/components/common';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  ContainerIcon,
+  SemiTruck,
   Truck,
   CheckCircle2,
   ExternalLink,
@@ -13,6 +13,7 @@ import {
   Pencil,
   FileText,
   Trash2,
+  Leaf,
 } from '@/design-system/icons';
 import { DocumentViewerModal, type DocumentToView } from '@/components/DocumentViewerModal';
 import { triggerDocumentDownload } from '@/components/documentDownload';
@@ -27,7 +28,7 @@ import { usePermissions } from '@/hooks';
 import { PanelHeader } from '@/components/panels';
 import { RecordRaise } from '@/features/workspace';
 import { Co2FactorField, VehiclePhotoField } from '@/features/emissions';
-import { FUEL_TYPES } from '@/lib/co2';
+import { FUEL_TYPES, co2Label, formatKm } from '@/lib/co2';
 import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
 import { IconChip, Tooltip, useConfirm } from '@/design-system';
 import {
@@ -923,6 +924,19 @@ export function VehiclesPage() {
                         <p className="text-[10px] text-muted-foreground">Container runs completed or under way</p>
                       </div>
                     </div>
+                    {/* And what those runs put out — the same figure the
+                        directory column shows, with the road it came from. */}
+                    {selectedVehicle.co2EmissionsKg != null && (
+                      <div className="p-3.5 rounded-lg border border-success/25 bg-success-subtle/40 flex items-center gap-3 text-xs">
+                        <IconChip icon={Leaf} tint="green" size={36} />
+                        <div>
+                          <p className="font-bold text-foreground">{co2Label(selectedVehicle.co2EmissionsKg)} generated</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            over {formatKm(selectedVehicle.co2DistanceKm ?? 0).value} km driven
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="pt-2">
@@ -1166,12 +1180,12 @@ export function VehiclesPage() {
           {
             key: 'plate',
             label: 'Plate & type',
-            icon: ContainerIcon,
-            width: 'w-[19%]',
+            icon: SemiTruck,
+            width: 'w-[18%]',
             card: 'identity',
             cell: (vehicle) => (
               <div className="flex min-w-0 items-center gap-2.5">
-                <IconChip icon={ContainerIcon} size={36} />
+                <IconChip icon={SemiTruck} size={36} />
                 <div className="min-w-0">
                   <div className="flex min-w-0 items-center gap-1.5">
                     <span className="truncate font-mono text-sm font-bold tracking-wider text-foreground">
@@ -1194,7 +1208,7 @@ export function VehiclesPage() {
             key: 'transporter',
             label: 'Transporter',
             icon: Building2,
-            width: 'w-[18%]',
+            width: 'w-[16%]',
             /* Mark **and** name. The mark alone, with the name hidden in a
                tooltip, is the one place the app breaks its own rule that a
                named company always shows its logo beside the name — and in a
@@ -1230,7 +1244,7 @@ export function VehiclesPage() {
             key: 'trips',
             label: 'Trips',
             icon: Route,
-            width: 'w-[12%]',
+            width: 'w-[9%]',
             cardLabel: 'Trips',
             cell: (vehicle) => {
               const trips = vehicle.trips ?? 0;
@@ -1258,17 +1272,42 @@ export function VehiclesPage() {
             },
           },
           {
+            /* What the truck put out, added up over its priced runs — the
+               user's ask on 2026-09-03: "show the total generated CO₂ per
+               vehicle". A dash, not a zero, for a truck nothing has been
+               driven on yet. */
+            key: 'co2',
+            label: 'CO₂',
+            icon: Leaf,
+            width: 'w-[11%]',
+            cardLabel: 'CO₂',
+            cell: (vehicle) => {
+              const kg = vehicle.co2EmissionsKg ?? null;
+              if (kg === null) return <span className="font-mono text-sm text-muted-foreground">—</span>;
+              return (
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate font-mono text-sm font-bold tabular-nums text-foreground">
+                    {co2Label(kg)}
+                  </span>
+                  <span className="truncate text-[11px] tabular-nums text-muted-foreground">
+                    {formatKm(vehicle.co2DistanceKm ?? 0).value} km
+                  </span>
+                </span>
+              );
+            },
+          },
+          {
             key: 'insurance',
             label: 'Insurance',
             icon: FileText,
-            width: 'w-[14%]',
+            width: 'w-[13%]',
             cell: (vehicle) => <ExpiryLabel date={vehicle.insuranceExpiry} />,
           },
           {
             key: 'documents',
             label: 'Documents',
             icon: FileText,
-            width: 'w-[14%]',
+            width: 'w-[12%]',
             cardLabel: 'Documents',
             /* The same reading the Transporters list gives a haulier, for the
                one owner this row is about — see `OwnerComplianceCell`. */
@@ -1278,7 +1317,7 @@ export function VehiclesPage() {
             key: 'status',
             label: 'Status',
             icon: Truck,
-            width: 'w-[13%]',
+            width: 'w-[12%]',
             card: 'trailing',
             cell: (vehicle) => <StatusPill status={vehicle.operationalStatus} />,
           },
@@ -1287,7 +1326,7 @@ export function VehiclesPage() {
             label: 'Actions',
             /* 10%, matching Shippers. At 8% the ⋮ button fitted and the word
                above it did not — the heading truncated to "ACTIO…". */
-            width: 'w-[10%]',
+            width: 'w-[9%]',
             card: 'trailing',
             cell: (vehicle) => (
               /* Centred in its column. The button is a 32px square in a 10%

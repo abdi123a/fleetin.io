@@ -140,10 +140,37 @@ export function formatCo2(kg: number | null | undefined): { value: string; unit:
       unit: 't CO₂',
     };
   }
+  /* One decimal all the way to a hundred kilogrammes, so the headline agrees
+     with the sum printed under it: "19.1 km × 1.04 kg/km = 19.8 kg" must not
+     sit under a "20 kg". Whole kilogrammes from there up. */
   return {
-    value: kg.toLocaleString(undefined, { maximumFractionDigits: kg < 10 ? 1 : 0 }),
+    value: kg.toLocaleString(undefined, { maximumFractionDigits: kg < 100 ? 1 : 0 }),
     unit: 'kg CO₂',
   };
+}
+
+/**
+ * What a mature tree takes out of the air in a year, in kg CO₂.
+ *
+ * The figure most planting programmes and the EPA's equivalencies quote is
+ * about 22 kg (48 lb) a year for a mature urban tree; published values run
+ * from 10 to 40 depending on species and climate. It is a picture, not a
+ * measurement: it turns "382 kg saved" into "17 trees for a year", which is
+ * the sentence a shipper can repeat. Never used in any total.
+ */
+export const KG_CO2_PER_TREE_YEAR = 22;
+
+/**
+ * A mass of CO₂ as the trees it would take a year to absorb — "17 trees for a
+ * year". One decimal under ten trees, whole above, and "under a tree" below
+ * one rather than a fraction of a tree nobody can picture.
+ */
+export function treeYearEquivalent(kg: number | null | undefined): string | null {
+  if (kg === null || kg === undefined || !Number.isFinite(kg) || kg <= 0) return null;
+  const trees = kg / KG_CO2_PER_TREE_YEAR;
+  if (trees < 1) return 'under a tree for a year';
+  const printed = trees >= 10 ? Math.round(trees).toLocaleString() : trees.toFixed(1);
+  return `${printed} trees for a year`;
 }
 
 /** The same figure as one string, for a tooltip or a sentence. */

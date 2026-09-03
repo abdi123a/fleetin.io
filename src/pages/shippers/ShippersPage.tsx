@@ -57,7 +57,7 @@ import { usePermissions } from '@/hooks';
 import { ROUTES, buildPath } from '@/config/routes';
 import { AddShipperForm, type ShipperFormData } from './AddShipperForm';
 import { useShippers, useCreateShipper, useUpdateShipper, useDeleteShipper, useUploadShipperLogo } from '@/features/shippers/api/queries';
-import { useAllInvoices } from '@/features/finance';
+import { useInvoices } from '@/features/finance';
 import { compactDjf } from '@/lib/finance/format';
 import { countryCode } from '@/lib/countryFlag';
 import { uploadDocument } from '@/features/documents/api/documentsService';
@@ -202,7 +202,9 @@ export function ShippersPage() {
    * the column and the Receivables card cannot drift apart.
    */
   const canSeeMoney = can('finance.view');
-  const { data: invoices = [] } = useAllInvoices({}, { enabled: canSeeMoney });
+  /* Invoices only — a proforma is a quote, and counting one as outstanding
+     would show a client owing money they have not been billed for. */
+  const { data: invoices = [] } = useInvoices({ kind: 'invoice', limit: 500 }, { enabled: canSeeMoney });
   const moneyByShipper = useMemo(() => {
     const now = Date.now();
     const DAY_MS = 86_400_000;
@@ -210,8 +212,8 @@ export function ShippersPage() {
     for (const invoice of invoices) {
       if (!invoice.shipperId) continue;
       const bucket = byShipper.get(invoice.shipperId) ?? { outstanding: 0, overdue: 0 };
-      const remaining = Number(invoice.remainingMinorUnits);
-      if (invoice.status !== 'Paid' && remaining > 0) {
+      const remaining = Number(invoice.totalMinorUnits);
+      if (invoice.status !== 'Paid' && invoice.status !== 'Cancelled' && remaining > 0) {
         bucket.outstanding += remaining;
         /* Ceil, not floor: past the deadline at all is day one late. */
         const daysPast = Math.ceil(
@@ -269,6 +271,12 @@ export function ShippersPage() {
       approvalStatus: formData.approvalStatus,
       country: formData.country,
       address: formData.address,
+      /* The deal, sent whole every time. `null` is meaningful here — it is how
+         an operator takes a client off a negotiated rate and back onto the
+         house one — so these are never omitted for being empty. */
+      commissionMode: formData.commissionMode,
+      commissionPct: formData.commissionMode === 'percent' ? formData.commissionPct : null,
+      commissionFixedAmount: formData.commissionMode === 'fixed' ? formData.commissionFixedAmount : null,
       primaryContact: {
         name: formData.primaryContactName || 'Lead Contact',
         title: formData.primaryContactTitle || 'Logistics Manager',
@@ -638,6 +646,12 @@ export function ShippersPage() {
                 industry: drawerState.shipper.industry,
                 companySize: drawerState.shipper.companySize,
                 approvalStatus: drawerState.shipper.approvalStatus,
+                commissionMode: drawerState.shipper.commissionMode ?? null,
+                commissionPct: drawerState.shipper.commissionPct ?? null,
+                commissionFixedAmount:
+                  drawerState.shipper.commissionFixedMinorUnits != null
+                    ? Number(drawerState.shipper.commissionFixedMinorUnits)
+                    : null,
                 country: drawerState.shipper.country,
                 address: drawerState.shipper.address,
                 primaryContactName: drawerState.shipper.primaryContact?.name ?? '',

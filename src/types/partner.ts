@@ -133,6 +133,15 @@ export interface PartnerVehicle {
    * `assignedDriverName`; see `PartnerDriver.trips`.
    */
   trips?: number;
+  /**
+   * What this truck has generated: the sum of its bookings' stored carbon,
+   * read server-side and never recomputed here. Null until a run has been
+   * driven — nothing driven is not zero carbon, it is no figure yet.
+   */
+  co2EmissionsKg?: number | null;
+  co2DistanceKm?: number | null;
+  /** How many of its trips carry a figure. */
+  pricedTrips?: number;
   year?: number;
   make?: string;
   model?: string;
@@ -213,6 +222,16 @@ export interface PartnerRecord {
   // Compliance & Documents
   uploadedDocuments: PartnerDocument[];
   partnerStatus: PartnerStatus;
+
+  /**
+   * The commission deal struck with this haulier, when there is one. Same
+   * nullable-mode contract as the shipper's, and lower priority: a deal on the
+   * client's own account wins.
+   */
+  commissionMode?: 'percent' | 'fixed' | null;
+  commissionPct?: number | null;
+  /** Whole DJF, charged once per container. Meaningful in `fixed` mode. */
+  commissionFixedMinorUnits?: string | null;
 
   // Fleet (owned by this partner)
   drivers: PartnerDriver[];

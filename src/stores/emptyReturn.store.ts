@@ -383,7 +383,14 @@ export function selectChains(records: EmptyReturnRecord[], now: number = Date.no
          adds one trip twice. A row with no record adds nothing. */
       avoidedKm: Math.round(cycles.reduce((total, c) => total + (c.avoidedKm ?? 0), 0) * 10) / 10,
       avoidedCo2Kg: Math.round(cycles.reduce((total, c) => total + (c.avoidedCo2Kg ?? 0), 0) * 10) / 10,
+      actualCo2Kg:
+        Math.round(cycles.reduce((total, c) => total + (c.co2EmissionsKg ?? 0), 0) * 10) / 10,
       realizedLinks: cycles.filter((c) => c.impactStatus === 'realized').length,
+      /* Counted separately: a realized link with two different trucks has no
+         factor to price its saving with, so the kg figure understates it. */
+      unpricedLinks: cycles.filter(
+        (c) => c.impactStatus === 'realized' && c.impactCounted && c.avoidedCo2Kg === null,
+      ).length,
     });
   });
 

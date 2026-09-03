@@ -1,4 +1,4 @@
-import type { ComponentType, ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 
 import { cn } from '@/utils';
 
@@ -18,6 +18,12 @@ export interface ViewTabsProps<K extends string> {
   actions?: ReactNode;
   /** Accessible name for the strip. */
   label: string;
+  /**
+   * The underline's colour. Brand teal everywhere, except where the page has
+   * one colour that means "the good number" — the CO₂ page's green — and a
+   * teal line under it would be a third colour saying nothing.
+   */
+  accent?: 'primary' | 'success';
   className?: string;
 }
 
@@ -36,8 +42,27 @@ export interface ViewTabsProps<K extends string> {
  * language" — which is only true if there is one of them.
  */
 export function ViewTabs<K extends string>({
-  tabs, value, onChange, actions, label, className,
+  tabs, value, onChange, actions, label, accent = 'primary', className,
 }: ViewTabsProps<K>) {
+  /* One underline that slides between tabs, rather than one per tab that
+     appears and disappears: the eye follows the move to the new view. It is
+     measured from the live tab's box, so any label length works; until the
+     first measurement it sits under nothing, and a tab still draws its own
+     static line as the fallback. */
+  const listRef = useRef<HTMLDivElement>(null);
+  const [indicator, setIndicator] = useState<{ left: number; width: number } | null>(null);
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    const live = list?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!list || !live) return;
+    const measure = () =>
+      setIndicator({ left: live.offsetLeft + 8, width: Math.max(0, live.offsetWidth - 16) });
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(list);
+    return () => observer?.disconnect();
+  }, [value, tabs.length]);
+
   return (
     <div
       /* `items-end`, so the tabs reach the rule their underline has to meet.
@@ -57,7 +82,12 @@ export function ViewTabs<K extends string>({
         className,
       )}
     >
-      <div role="tablist" aria-label={label} className="flex min-w-0 items-center gap-1 overflow-x-auto">
+      <div
+        ref={listRef}
+        role="tablist"
+        aria-label={label}
+        className="relative flex min-w-0 items-center gap-1 overflow-x-auto"
+      >
         {tabs.map(({ key, label: text, icon: Icon }) => {
           const live = value === key;
           return (
@@ -68,16 +98,34 @@ export function ViewTabs<K extends string>({
               aria-selected={live}
               onClick={() => onChange(key)}
               className={cn(
-                'relative flex shrink-0 items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors duration-fast',
-                live ? 'text-primary-bold' : 'text-muted-foreground hover:text-foreground',
+                'relative flex shrink-0 items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-fast',
+                live
+                  ? accent === 'success'
+                    ? 'text-success-subtle-foreground'
+                    : 'text-primary-bold'
+                  : 'text-muted-foreground hover:text-foreground',
               )}
             >
               {Icon ? <Icon className="size-4" /> : null}
               {text}
-              {live ? <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary" /> : null}
+              {live && indicator === null ? (
+                <span
+                  className={cn('absolute inset-x-2 -bottom-px h-0.5 rounded-full', accent === 'success' ? 'bg-success' : 'bg-primary')}
+                />
+              ) : null}
             </button>
           );
         })}
+        {indicator && (
+          <span
+            aria-hidden
+            className={cn(
+              'pointer-events-none absolute -bottom-px h-0.5 rounded-full transition-[left,width] duration-normal ease-emphasized',
+              accent === 'success' ? 'bg-success' : 'bg-primary',
+            )}
+            style={{ left: indicator.left, width: indicator.width }}
+          />
+        )}
       </div>
 
       {actions ? (

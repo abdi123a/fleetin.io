@@ -231,30 +231,22 @@ export function listDrive(
   }
 
   const company = companies.find((entry) => entry.id === first.id);
-  if (!company) return { trail, folders: [], leaf: null, tally: EMPTY_TALLY };
+  if (!company) {
+    return { trail, folders: [], leaf: null, tally: EMPTY_TALLY };
+  }
 
   trail.push({ label: company.name, segment: first });
   const companyTally = tallyFor(ownersUnder(company), docs, now);
 
-  /* ── A shipper is its own leaf: one licence, and no fleet to file under ── */
-  if (company.kind === 'SHIPPER') {
-    return {
-      trail,
-      folders: [],
-      leaf: {
-        ownerType: 'SHIPPER',
-        ownerId: company.id,
-        label: company.name,
-        reference: company.reference ?? company.name,
-      },
-      tally: companyTally,
-    };
-  }
-
-  /* ── Inside a transporter: the three things that hold paper ── */
+  /* ── Inside a company: the things that hold paper, and the one that does not
+   *
+   * A shipper has no fleet, so it gets two folders rather than four — but it
+   * gets the same two shapes as a transporter. It used to open straight onto
+   * its licence, which was one click shorter and left it the only company on
+   * the drive with nowhere to keep a contract. ── */
   if (!second || second.kind !== 'section') {
     const selfOwner: ComplianceOwner[] = [
-      { ownerType: 'PARTNER', ownerId: company.id, ownerLabel: company.name },
+      { ownerType: company.kind, ownerId: company.id, ownerLabel: company.name },
     ];
     const vehicleOwners = company.vehicles.map<ComplianceOwner>((vehicle) => ({
       ownerType: 'VEHICLE',
@@ -267,6 +259,28 @@ export function listDrive(
       ownerLabel: driver.label,
     }));
 
+    const fleet: DriveFolder[] =
+      company.kind === 'SHIPPER'
+        ? []
+        : [
+            {
+              key: 'section:vehicles',
+              segment: { kind: 'section', id: 'vehicles' },
+              label: 'Vehicles',
+              sublabel: countLabel(company.vehicles.length, 'truck'),
+              icon: 'vehicle',
+              ...summarise(vehicleOwners, docs, now),
+            },
+            {
+              key: 'section:drivers',
+              segment: { kind: 'section', id: 'drivers' },
+              label: 'Drivers',
+              sublabel: countLabel(company.drivers.length, 'driver'),
+              icon: 'driver',
+              ...summarise(driverOwners, docs, now),
+            },
+          ];
+
     return {
       trail,
       folders: [
@@ -278,22 +292,7 @@ export function listDrive(
           icon: 'folder',
           ...summarise(selfOwner, docs, now),
         },
-        {
-          key: 'section:vehicles',
-          segment: { kind: 'section', id: 'vehicles' },
-          label: 'Vehicles',
-          sublabel: countLabel(company.vehicles.length, 'truck'),
-          icon: 'vehicle',
-          ...summarise(vehicleOwners, docs, now),
-        },
-        {
-          key: 'section:drivers',
-          segment: { kind: 'section', id: 'drivers' },
-          label: 'Drivers',
-          sublabel: countLabel(company.drivers.length, 'driver'),
-          icon: 'driver',
-          ...summarise(driverOwners, docs, now),
-        },
+        ...fleet,
       ],
       leaf: null,
       tally: companyTally,
@@ -307,13 +306,13 @@ export function listDrive(
       trail,
       folders: [],
       leaf: {
-        ownerType: 'PARTNER',
+        ownerType: company.kind,
         ownerId: company.id,
         label: company.name,
         reference: company.reference ?? company.name,
       },
       tally: tallyFor(
-        [{ ownerType: 'PARTNER', ownerId: company.id, ownerLabel: company.name }],
+        [{ ownerType: company.kind, ownerId: company.id, ownerLabel: company.name }],
         docs,
         now,
       ),
@@ -350,7 +349,9 @@ export function listDrive(
   }
 
   const record = records.find((entry) => entry.id === third.id);
-  if (!record) return { trail, folders: [], leaf: null, tally: sectionTally };
+  if (!record) {
+    return { trail, folders: [], leaf: null, tally: sectionTally };
+  }
 
   trail.push({ label: record.label, segment: third });
   return {

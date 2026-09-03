@@ -7,14 +7,7 @@ import { useBankAccounts } from '@/features/bank-accounts/api/queries';
 import { useDrivers } from '@/features/drivers/api/queries';
 import { useAvailableEmpties, useCycles, useOpenFullLoads } from '@/features/empty-returns/api/queries';
 import { bookingToFullLoadMission, cycleToRow, emptyBookingToRow } from '@/features/empty-returns/mappers';
-import {
-  useAllInvoices,
-  useAllPaymentOrders,
-  useCreditFacilities,
-  useDrawdowns,
-  useLedgerEntries,
-  useOpenHolds,
-} from '@/features/finance';
+import { useInvoices } from '@/features/finance';
 import { useHrDashboard } from '@/features/hr/api/queries';
 import { usePermissions } from '@/hooks';
 import { usePartners } from '@/features/partners/api/queries';
@@ -32,7 +25,7 @@ import {
   ConsoleTabs,
   EmptyReturnCard,
   FleetCard,
-  LedgerFeedCard,
+  BillingFeedCard,
   MoneyFlowCard,
   NetworkCard,
   PayrollCard,
@@ -152,18 +145,16 @@ export function DashboardPage() {
   const cyclesQuery = useCycles();
   const emptiesQuery = useAvailableEmpties();
   const fullLoadsQuery = useOpenFullLoads();
-  const invoicesQuery = useAllInvoices({ limit: 500 });
-  const paidOrdersQuery = useAllPaymentOrders({ status: 'Paid', limit: 500 });
-  const holdsQuery = useOpenHolds();
+  /* Every document, both kinds — the money model separates them itself, and
+     two requests for one table would only give the page a way to disagree
+     with itself while one of them is still in flight. */
+  const invoicesQuery = useInvoices({ kind: 'all', limit: 500 });
   const accountsQuery = useBankAccounts();
-  const facilitiesQuery = useCreditFacilities();
-  const drawdownsQuery = useDrawdowns();
   const shippersQuery = useShippers({ limit: 200 });
   const partnersQuery = usePartners({ limit: 200 });
   const vehiclesQuery = useVehicles({ limit: 500 });
   const driversQuery = useDrivers({ limit: 500 });
   const hrQuery = useHrDashboard();
-  const ledgerQuery = useLedgerEntries({ limit: 40 });
   const settingsQuery = useSettings();
 
   const loading =
@@ -198,17 +189,12 @@ export function DashboardPage() {
         returnRecords,
         fullLoads,
         invoices: invoicesQuery.data ?? [],
-        paidOrders: paidOrdersQuery.data ?? [],
-        holds: holdsQuery.data ?? [],
         accounts: accountsQuery.data ?? [],
-        facilities: facilitiesQuery.data ?? [],
-        drawdowns: drawdownsQuery.data ?? [],
         shippers: shippersQuery.data?.items ?? [],
         partners: partnersQuery.data?.items ?? [],
         vehicles: vehiclesQuery.data?.items ?? [],
         drivers: driversQuery.data?.items ?? [],
         hr: hrQuery.data,
-        ledger: ledgerQuery.data?.items ?? [],
         commissionPct: settingsQuery.data?.fleetinCommissionPct ?? 0,
         routes: {
           shipments: ROUTES.shipmentsList,
@@ -228,17 +214,12 @@ export function DashboardPage() {
       returnRecords,
       fullLoads,
       invoicesQuery.data,
-      paidOrdersQuery.data,
-      holdsQuery.data,
       accountsQuery.data,
-      facilitiesQuery.data,
-      drawdownsQuery.data,
       shippersQuery.data,
       partnersQuery.data,
       vehiclesQuery.data,
       driversQuery.data,
       hrQuery.data,
-      ledgerQuery.data,
       settingsQuery.data,
       now,
     ],
@@ -336,7 +317,7 @@ export function DashboardPage() {
             <ReceivablesCard money={model.money} />
           </div>
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-            <LedgerFeedCard entries={model.activity} />
+            <BillingFeedCard documents={model.activity} />
             <AttentionQueueCard
               items={sliceFor('money')}
               clearMessage="All clear"
