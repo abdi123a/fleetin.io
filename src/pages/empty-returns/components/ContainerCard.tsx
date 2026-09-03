@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 import { CheckCircle2, Package, PackageOpen } from '@/design-system/icons';
 import { cn } from '@/utils';
 
@@ -42,11 +44,19 @@ import { Mono } from './marks';
  * by their content before, which made a chain of four cycles a ragged fence —
  * and made the height of a card look like it meant something.
  *
- * There is no slot for anything else, on purpose. The dialog's flow strip needs
- * dates and a shipment link per step, and the moment those went *inside* the box
- * it stopped being a box — it grew with its text, so three steps in a row were
- * three different shapes. They live under the card now, labelled, where a date
- * can say which event it belongs to.
+ * ## What may go inside, and what may not
+ *
+ * `children` adds lines under the three; `aside` puts one mark in the top-right
+ * corner. Both are for a card that stands ALONE in its row — the matching
+ * page's yard column, where every card carries the same extra lines and so they
+ * all still match each other.
+ *
+ * They are not for a card standing beside other cards. The dialog's flow strip
+ * tried exactly that: each step's dates and links went inside the box, the box
+ * grew to fit whatever text it was handed, and three steps in a row came out
+ * three different shapes — none of which read as a container. There the facts
+ * live under the card instead. The rule is not "nothing inside the box", it is
+ * "every box in the same row is the same box".
  */
 export type ContainerCardState = 'full' | 'empty' | 'returned';
 
@@ -89,6 +99,8 @@ export function ContainerCard({
   line,
   /** Overrides the state's own word, for a card that names the moment instead. */
   label,
+  aside,
+  children,
   onClick,
   className,
 }: {
@@ -96,6 +108,10 @@ export function ContainerCard({
   container?: string | null;
   line?: string | null;
   label?: string;
+  /** One mark in the top-right corner — a risk badge, a state chip. */
+  aside?: ReactNode;
+  /** Extra lines under the three. See the note above before reaching for it. */
+  children?: ReactNode;
   onClick?: () => void;
   className?: string;
 }) {
@@ -105,17 +121,33 @@ export function ContainerCard({
     <>
       <div className="flex items-center gap-1.5 text-[9px] font-extrabold uppercase tracking-widest opacity-90">
         <meta.Icon className="size-3 shrink-0" aria-hidden />
-        {label ?? meta.label}
+        <span className="min-w-0 truncate">{label ?? meta.label}</span>
+        {aside && <span className="ml-auto shrink-0">{aside}</span>}
       </div>
       <Mono className="mt-0.5 block truncate text-sm font-bold">{container || '—'}</Mono>
       {/* Held even when there is no line on file, so the third line is always a
           third line and the row keeps its shape. */}
       <div className="truncate text-[9px] opacity-75">{line || '—'}</div>
+      {children}
     </>
   );
 
   const shell = cn(
-    'w-44 min-h-[4.25rem] shrink-0 rounded-lg px-3 py-2 text-left',
+    /* `max-w-[24rem]` is a floor under every caller, not a style choice.
+     *
+     * 176px is the width; a caller that needs the card to fill a list row
+     * overrides it with `w-full`. That override has now produced a 500px
+     * container in a stacked dialog and a 790px one in the matching page's
+     * right-hand pane — twice the same bug, because `w-full` means "however
+     * wide the parent is" and some parents are very wide. The cap makes the
+     * override safe: fill the row, up to a width a container can still be.
+     *
+     * An explicit rem value rather than `max-w-sm`, deliberately. This theme
+     * clears Tailwind's own scales with `--radius-*: initial` and friends, and
+     * a rung the theme does not define compiles to NOTHING rather than falling
+     * back — which is exactly how the bracket around these cards came to have
+     * square corners while looking like it asked for round ones. */
+    'w-44 max-w-[24rem] min-h-[4.25rem] shrink-0 rounded-lg px-3 py-2 text-left',
     meta.skin,
     meta.paint,
     onClick &&

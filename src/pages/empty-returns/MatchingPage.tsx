@@ -40,6 +40,7 @@ import type { EmptyReturnRecord, PairingSuggestion, SuggestionLabel } from '@/ty
 import { cn } from '@/utils';
 
 import { TablePager, usePagedRows } from '@/components';
+import { ContainerCard } from './components/ContainerCard';
 import { CompanyName, EmptyTag, FullTag, Mono, RiskBadge } from './components/marks';
 import { PairingCelebration } from './components/PairingCelebration';
 
@@ -239,21 +240,21 @@ export function MatchingPage() {
                 onClick={() => selectEmpty(record.id)}
                 aria-pressed={active}
                 className={cn(
-                  'w-full min-w-0 cursor-pointer rounded-card border p-3 text-left transition',
+                  'w-full min-w-0 cursor-pointer rounded-card border p-1.5 text-left transition',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  /* The container-empty ground, at full strength.
-                     Every card in this column is an EMPTY, so the column sits on
-                     the empty colour and the reader sees which half of the
-                     workbench is supply before reading a word. Nothing here is
-                     dimmed with an opacity modifier: `--container-empty-subtle`
-                     and `-border` are already the calibrated quiet steps of that
-                     hue, and knocking them down again is what made the column
-                     look washed out.
+                  /* The ROW is neutral now; the amber is on the box.
+                     Every card in this column used to sit on
+                     `--container-empty-subtle` so the reader could see which
+                     half of the workbench was supply before reading a word.
+                     The container card carries that hue itself now — eight
+                     amber boxes down the column say it at least as plainly —
+                     and keeping it on the row as well put amber on amber and
+                     flattened the card back into its own background.
 
                      Selection is a border job, not a fill job — sky, the v19
                      "available" hue — so picking one does not read as the same
                      signal as the load it might carry. */
-                  'border-container-empty-border bg-container-empty-subtle',
+                  'border-border bg-card',
                   active
                     ? 'border-2 border-stage-available shadow-sm'
                     : 'hover:border-stage-available hover:shadow-sm',
@@ -264,38 +265,45 @@ export function MatchingPage() {
                     ✓ SELECTED
                   </div>
                 )}
-                {/* Identity and urgency on one line, hard against the two edges.
-
-                    Wraps rather than competes: the badge and the number were
-                    sharing one line, so on a phone the badge won and the
-                    container read "MAEU-58565…" — the identity cut to make room
-                    for its status. */}
-                <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <EmptyTag small />
-                    <Mono className="min-w-0 text-sm font-bold text-foreground [overflow-wrap:anywhere]">
-                      {record.container || record.bookingReference}
-                    </Mono>
-                  </span>
-                  <RiskBadge risk={risk} className="shrink-0" />
-                </div>
-                {/* One line, not a spec sheet. Eleven of these stack in a column
-                    the operator scans, so height is the scarce resource — three
-                    ruled label/value rows per card tripled every card to line up
-                    values nobody compares across cards. */}
-                {/* The amber's own ink, not `muted-foreground`. That grey is
-                    calibrated for a white page; on this ground it reads as text
-                    that landed on the card by accident. */}
-                <div className="mt-1 truncate text-[11px] font-medium text-container-empty-subtle-foreground">
-                  {record.line} · {formatContainerSize(record.size)} · {record.locationName}
-                </div>
-                <div className={cn('font-mono text-[11px] font-bold', riskTextClass(risk))}>
-                  {record.deadline === null
-                    ? 'No deadline recorded'
-                    : record.deadline < now
-                      ? `${formatSpan(now - record.deadline)} past return deadline`
-                      : `${formatSpan(record.deadline - now)} remaining`}
-                </div>
+                {/* The row IS the box.
+                    It was a hand-rolled amber tile — the identical container in
+                    three places wearing three different shapes, which is what
+                    made the module feel like three modules. The first pass put
+                    the shared card beside the facts instead, and in a 390px
+                    column that left the card at 176px and squeezed the rest into
+                    a strip narrow enough to truncate the yard's name and break
+                    "1d 21h remaining" over two lines. So the card takes the
+                    row and the facts go on it: every card in this column
+                    carries the same lines, so they all still match each other,
+                    which is the rule the flow strip's cards obey too. */}
+                <ContainerCard
+                  state="empty"
+                  container={record.container || record.bookingReference}
+                  line={record.line}
+                  /* On its own white ground. `RiskBadge` tints itself with
+                     `--urgency-*-bg`, which is the hue at 10% over transparent
+                     — calibrated for a white page and all but invisible once it
+                     is composited over the card's amber ribbing. WATCH vanished
+                     outright. The backing restores the surface those alphas
+                     were mixed against. */
+                  aside={
+                    <span className="inline-flex rounded-md bg-card">
+                      <RiskBadge risk={risk} />
+                    </span>
+                  }
+                  className="w-full"
+                >
+                  <div className="mt-1.5 truncate text-[11px] font-medium">
+                    {formatContainerSize(record.size)} · {record.locationName}
+                  </div>
+                  <div className={cn('font-mono text-[11px] font-bold', riskTextClass(risk))}>
+                    {record.deadline === null
+                      ? 'No deadline recorded'
+                      : record.deadline < now
+                        ? `${formatSpan(now - record.deadline)} past return deadline`
+                        : `${formatSpan(record.deadline - now)} remaining`}
+                  </div>
+                </ContainerCard>
               </button>
             );
           })}
@@ -729,31 +737,59 @@ function SuggestionCard({
       )}
     >
       {/* ── WHAT THIS IS ──
-          The match score is pinned right on this line and cannot wrap away from
-          it. It used to be `ml-auto` inside a wrapping row, so on a narrow card
-          it dropped to a line of its own and floated under the reference with
-          nothing to align to. */}
-      <div className="flex min-w-0 items-center justify-between gap-2 border-b border-container-full-border px-3 py-2">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <span
-            className={cn(
-              'rounded-sm border px-1.5 py-0.5 text-[9px] font-extrabold tracking-wider',
-              LABEL_STYLE[label],
-            )}
-          >
-            {label}
-          </span>
-          <Mono className="text-sm font-bold text-foreground">
-            {load.shipmentReference ?? load.id}
-          </Mono>
-          <span className="truncate text-xs text-muted-foreground">
-            {load.line} · {formatContainerSize(load.size)}
-          </span>
-        </div>
-        <span className="shrink-0 rounded-full border border-stage-paired-border bg-stage-paired-subtle px-2 py-0.5 text-[10px] font-bold text-stage-paired-subtle-foreground">
-          Match {score}%
-        </span>
-      </div>
+          The same box the empty column opposite draws, so the two halves of the
+          pairing are the same kind of object. It was a header band of chips and
+          text: a full container described in words, facing a column of empty
+          containers drawn as containers.
+
+          The card's own word is the RECOMMENDATION, not "Full" — the green
+          ground and the package glyph already say full, and which of these to
+          take is the only question this side of the page asks. */}
+      {/* ── IDENTITY AND FACTS, ONE ROW ──
+          The card is 384px and this pane is 630px, so stacking the specs under
+          it left a quarter of the band empty beside the container. They sit
+          next to it instead: the box keeps the size it has in the yard column
+          opposite, and the row has no hole in it. `flex-wrap` drops the specs
+          below the card when the pane is too narrow to hold both. */}
+      <div className="flex flex-wrap items-start gap-x-4 gap-y-2 border-b border-container-full-border p-2">
+        <ContainerCard
+          state="full"
+          container={load.container}
+          line={`${load.line} · ${formatContainerSize(load.size)}`}
+          /* The RECOMMENDATION, keeping its own colour.
+             Making it the card's header word instead flattened three states
+             into one uppercase string on a green ground — RECOMMENDED and
+             ALTERNATIVE became indistinguishable, and LAST OPTION lost the
+             amber that says "a real option, but a tight one". The `bg-card`
+             backing is the same fix the risk badges opposite needed: these
+             chips are calibrated against a white page, not against a card. */
+          aside={
+            <span
+              className={cn(
+                'rounded-sm border bg-card px-1.5 py-0.5 text-[9px] font-extrabold tracking-wider',
+                LABEL_STYLE[label],
+              )}
+            >
+              {label}
+            </span>
+          }
+          /* `basis-[24rem]` so it lands on the SAME 384px the yard column's
+             cards do — the component's own `max-w-[24rem]` stops it there and
+             the spec list takes whatever is left. Sharing the row as an equal
+             flex child made it 313px: no dead space, but a full container a
+             different size from every empty one beside it. */
+          className="w-full flex-1 basis-[24rem]"
+        >
+          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="shrink-0 opacity-75">Shipment</span>
+              <Mono className="truncate font-bold">{load.shipmentReference ?? load.id}</Mono>
+            </span>
+            <span className="shrink-0 rounded-full bg-card px-2 py-0.5 text-[10px] font-bold text-stage-paired-subtle-foreground">
+              Match {score}%
+            </span>
+          </div>
+        </ContainerCard>
 
       {/* ── THE FACTS ──
           Label left, value right, ruled between — the same spec sheet the empty
@@ -761,10 +797,7 @@ function SuggestionCard({
           same way. Inline `label value` pairs in a two-column grid put every
           value at a different x, which is exactly the thing that makes a card
           feel unorganised: nothing to run the eye down. */}
-      <dl className="grid grid-cols-1 gap-x-5 gap-y-1 px-3 py-2 sm:grid-cols-2">
-        <SpecRow label="Container">
-          <Mono className="font-bold text-foreground">{load.container || '—'}</Mono>
-        </SpecRow>
+        <dl className="grid min-w-0 flex-1 basis-[12rem] grid-cols-1 gap-y-1 py-1">
         <SpecRow label="Pickup">
           <Mono className="font-semibold text-foreground">{formatStamp(load.pickupAt)}</Mono>
         </SpecRow>
@@ -785,14 +818,15 @@ function SuggestionCard({
             +{formatSpan(marginMs)}
           </Mono>
         </SpecRow>
-        <SpecRow label="Transporter" className="sm:col-span-2">
+        <SpecRow label="Transporter">
           {load.transporter ? (
             <CompanyName name={load.transporter} className="min-w-0 font-semibold text-foreground" />
           ) : (
             <span className="font-semibold text-foreground">Not assigned yet</span>
           )}
         </SpecRow>
-      </dl>
+        </dl>
+      </div>
 
       {/* ── WHY, AND WHAT TO DO ──
           The reasons sit on the same line as the decision they justify, and the
