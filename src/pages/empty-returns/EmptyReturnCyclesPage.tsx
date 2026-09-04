@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { TablePager, usePagedRows } from '@/components/common/TablePager';
+import { ViewTabs } from '@/components/common/ViewTabs';
 import { Badge, Button, Card, CornerBadge, EmptyState } from '@/design-system';
 import {
   ArrowLeftRight,
@@ -9,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Link2,
+  PackageOpen,
   RotateCcw,
   ShieldAlert,
   ShieldCheck,
@@ -95,6 +97,29 @@ export function EmptyReturnCyclesPage() {
   const unchained = useMemo(() => records.filter((record) => !record.chainId), [records]);
   const pagedUnchained = usePagedRows(unchained, { pageSize: 12 });
 
+  /**
+   * Which of the two populations is on screen.
+   *
+   * They used to be stacked, so reaching the 71 containers not in a chain
+   * meant scrolling past six chain cards — each of which is a tall flow strip
+   * — and the page's own footer pager for the chains sat between them, which
+   * reads as the end of the page. They are two different questions about the
+   * same book ("what lineages exist" and "what has not joined one"), so they
+   * are two views rather than two sections.
+   *
+   * Opens on whichever side actually has rows, so a book with only loose
+   * containers does not open on an empty tab.
+   */
+  const [chosenView, setChosenView] = useState<'chains' | 'unchained' | null>(null);
+
+  /* Until the reader picks a side, follow the book: one with no chains yet
+     opens on the loose containers rather than on an empty tab.
+
+     Derived rather than seeded into state. `records` arrive after the first
+     render, so a lazy initial value would be computed against an empty book and
+     always land on `chains` — the one case this exists to avoid. */
+  const view = chosenView ?? (chains.length === 0 && unchained.length > 0 ? 'unchained' : 'chains');
+
   if (chains.length === 0 && unchained.length === 0) {
     return (
       <Card className="rounded-lg border border-border/80 p-12">
@@ -109,53 +134,69 @@ export function EmptyReturnCyclesPage() {
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-5">
-      <Legend />
+      <ViewTabs
+        label="Cycle view"
+        value={view}
+        onChange={setChosenView}
+        tabs={[
+          { key: 'chains', label: 'Chains', icon: Link2, count: chains.length },
+          { key: 'unchained', label: 'Not in a chain yet', icon: PackageOpen, count: unchained.length },
+        ]}
+      />
 
-      {chains.length > 0 && (
+      {view === 'chains' ? (
         <section className="min-w-0 space-y-3">
-          <h2 className="flex items-center gap-2 text-base font-bold text-foreground">
-            Chains
-            <Badge variant="subtle" intent="primary" size="sm" className="font-bold">
-              {chains.length}
-            </Badge>
-          </h2>
+          {chains.length === 0 ? (
+            <EmptyState
+              icon={<Link2 />}
+              title="No chains yet"
+              description="A chain starts the first time an empty container is paired with an upcoming full load, or confirmed back at the depot."
+            />
+          ) : (
+            <>
+              {/* The key reads the flow strips below it and nothing on the
+                  other tab, so it lives with them rather than above both. */}
+              <Legend />
 
-          <div className="space-y-3">
-            {pagedChains.rows.map((chain) => (
-              <ChainCard key={chain.id} chain={chain} now={now} onOpen={openRecord} />
-            ))}
-          </div>
+              <div className="space-y-3">
+                {pagedChains.rows.map((chain) => (
+                  <ChainCard key={chain.id} chain={chain} now={now} onOpen={openRecord} />
+                ))}
+              </div>
 
-          <TablePager paged={pagedChains} noun="chains" />
+              <TablePager paged={pagedChains} noun="chains" />
+            </>
+          )}
         </section>
-      )}
-
-      {unchained.length > 0 && (
+      ) : (
         <section className="min-w-0 space-y-3">
-          <h2 className="flex items-center gap-2 text-base font-bold text-muted-foreground">
-            Not in a chain yet
-            <Badge variant="subtle" intent="default" size="sm" className="font-bold">
-              {unchained.length}
-            </Badge>
-          </h2>
+          {unchained.length === 0 ? (
+            <EmptyState
+              icon={<PackageOpen />}
+              title="Every container is in a chain"
+              description="Nothing is waiting on a pairing or a confirmed return."
+            />
+          ) : (
+            <>
+              <div className="grid min-w-0 grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+                {pagedUnchained.rows.map((record) => (
+                  <ContainerCard
+                    key={record.id}
+                    state="empty"
+                    container={record.container || record.bookingReference}
+                    line={record.line}
+                    size={record.size}
+                    onClick={() => openRecord(record.id)}
+                    /* The one place the card is not a fixed tile: these sit in a
+                       responsive grid rather than a strip, so they take the cell. */
+                    className="w-auto min-w-0 shadow-2xs"
+                  />
+                ))}
+              </div>
 
-          <div className="grid min-w-0 grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
-            {pagedUnchained.rows.map((record) => (
-              <ContainerCard
-                key={record.id}
-                state="empty"
-                container={record.container || record.bookingReference}
-                line={record.line}
-                size={record.size}
-                onClick={() => openRecord(record.id)}
-                /* The one place the card is not a fixed tile: these sit in a
-                   responsive grid rather than a strip, so they take the cell. */
-                className="w-auto min-w-0 shadow-2xs"
-              />
-            ))}
-          </div>
-
-          <TablePager paged={pagedUnchained} noun="containers" />
+              <TablePager paged={pagedUnchained} noun="containers" />
+            </>
+          )}
         </section>
       )}
     </div>
@@ -395,7 +436,7 @@ function ChainCard({
            * Naming both halves the same way makes the pair read as one
            * comparison instead of two unrelated figures. */}
           {chain.actualCo2Kg > 0 && (
-            <Figure label="CO₂ with Fleetin" value={co2Label(chain.actualCo2Kg)} />
+            <Figure label="CO₂ with Fleetin" value={co2Label(chain.actualCo2Kg)} fill="loaded" />
           )}
 
           {/* And what it would have been — but ONLY when there is a priced
@@ -570,22 +611,45 @@ function Figure({
   label,
   value,
   tone = 'neutral',
+  fill,
 }: {
   label: string;
   value: string;
   tone?: FigureTone;
+  /**
+   * Lifts the whole figure onto a colour block instead of leaving it as one
+   * more white number in the row.
+   *
+   * The band carries five figures in the same white mono, so the one that is
+   * about the containers rather than about the clock reads as more timing data
+   * until something separates it. A block does that where a small mark beside
+   * the figure did not — at this size a dot is lost among the rules already
+   * dividing the row. Green because it is this module's loaded-container
+   * colour, so the chip points at what the figure counts rather than
+   * introducing a sixth meaning.
+   */
+  fill?: 'loaded';
 }) {
   return (
-    <span className="flex shrink-0 items-baseline gap-1 whitespace-nowrap">
+    <span
+      className={cn(
+        'flex shrink-0 items-baseline gap-1 whitespace-nowrap',
+        fill && 'rounded-full bg-stage-loaded-on-fill px-2.5 py-1 text-stage-loaded-on-fill-foreground',
+      )}
+    >
       <Mono
         className={cn(
           'font-bold leading-none text-sm',
-          tone === 'warn' ? 'text-stage-returning-on-fill' : 'text-primary-bold-foreground',
+          fill
+            ? 'text-stage-loaded-on-fill-foreground'
+            : tone === 'warn'
+              ? 'text-stage-returning-on-fill'
+              : 'text-primary-bold-foreground',
         )}
       >
         {value}
       </Mono>
-      <span className="text-[10px] leading-none">{label}</span>
+      <span className={cn('text-[10px] leading-none', fill && 'font-semibold')}>{label}</span>
     </span>
   );
 }

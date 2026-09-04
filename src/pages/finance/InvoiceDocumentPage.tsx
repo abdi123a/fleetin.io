@@ -1,11 +1,14 @@
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 
-import { ArrowLeft, Printer } from '@/design-system/icons';
+import { ReturnLink } from '@/components/common/ReturnLink';
+import { ROUTES } from '@/config/routes';
+import { Printer } from '@/design-system/icons';
 import { Button, Card, Skeleton } from '@/design-system';
 import { RecordRaise } from '@/features/workspace';
 import { useSystemSettings } from '@/features/settings';
 import { amountInWords, fmtDjfPlain, fmtDocDate, fromMinorUnits } from '@/lib/finance';
 import {
+  cargoLabel,
   useCancelInvoice,
   useInvoice,
   useMarkInvoicePaid,
@@ -13,6 +16,7 @@ import {
   type InvoiceRecord,
 } from '@/features/finance';
 import { useShipmentRaw } from '@/features/shipments/api/queries';
+import { useShipper } from '@/features/shippers/api/queries';
 
 import {
   DocumentFooter,
@@ -42,7 +46,6 @@ import {
  */
 export function InvoiceDocumentPage() {
   const { invoiceId = '' } = useParams();
-  const navigate = useNavigate();
 
   const { data: invoice, isLoading } = useInvoice(invoiceId);
   const { data: shipment } = useShipmentRaw(invoice?.shipmentId ?? undefined);
@@ -65,26 +68,24 @@ export function InvoiceDocumentPage() {
 
   const isProforma = invoice.kind === 'proforma';
   const settled = invoice.status === 'Paid';
-  const withdrawn = invoice.status === 'Cancelled';
+  const cancelled = invoice.status === 'Cancelled';
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-4">
       {/* Screen-only chrome. `print:hidden` throughout — the sheet below is
           the whole of what comes out of the printer. */}
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
-        <button
-          type="button"
-          onClick={() => navigate('/finance/invoices')}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ArrowLeft className="size-4" />
-          All documents
-        </button>
+        {/* Back to wherever the reader came from — Billing's open items link
+            straight to a document, and the fixed "All documents" control used
+            to strand them on a list they had not been working. */}
+        <ReturnLink fallback={{ to: ROUTES.financeInvoices, label: 'All documents' }} />
 
         <div className="flex flex-wrap items-center gap-2">
           <RecordRaise recordType="INVOICE" recordId={invoice.id} recordRef={invoice.number} size="sm" />
 
-          {!withdrawn && !invoice.sentAt ? (
+          {/* A paid document plainly reached the client — offering "mark sent"
+              on one is asking about a step the money already proves. */}
+          {!cancelled && !settled && !invoice.sentAt ? (
             <Button variant="outline" size="sm" disabled={markSent.isPending} onClick={() => markSent.mutate(invoice.id)}>
               Mark sent
             </Button>
@@ -92,20 +93,20 @@ export function InvoiceDocumentPage() {
 
           {/* Only a bill can be settled. The button is absent on a proforma
               rather than disabled: there is nothing owed to pay. */}
-          {!isProforma && !settled && !withdrawn ? (
+          {!isProforma && !settled && !cancelled ? (
             <Button size="sm" disabled={markPaid.isPending} onClick={() => markPaid.mutate(invoice.id)}>
               Mark paid
             </Button>
           ) : null}
 
-          {!settled && !withdrawn ? (
+          {!settled && !cancelled ? (
             <Button
               variant="ghost"
               size="sm"
               disabled={cancel.isPending}
-              onClick={() => cancel.mutate({ id: invoice.id, reason: 'Withdrawn by Finance' })}
+              onClick={() => cancel.mutate({ id: invoice.id, reason: 'Cancelled by Finance' })}
             >
-              Withdraw
+              Cancel invoice
             </Button>
           ) : null}
 
@@ -126,7 +127,29 @@ export function InvoiceDocumentPage() {
     </div>
   );
 }
-
+/**
+ * The printed document.
+ *
+ * Designed as an accounting instrument, not a brochure. The things a client's
+ * finance clerk looks for — who is billed, what for, how much, by when, where
+ * to pay, against which reference — are each in one fixed place, and nothing
+ * competes with them for attention. That is the whole brief: a document is
+ * professional when it can be processed without being read twice.
+ *
+ * Layout, top to bottom:
+ *
+ *   1. **Mark and title.** The logo alone — no invented address; see
+ *      `DocumentLetterhead`. The document's kind, number and dates sit
+ *      opposite it as a labelled block, because those are what a clerk files
+ *      it under.
+ *   2. **Parties and the amount.** Who it is billed to on the left, what is
+ *      owed and when on the right, on one rule.
+ *   3. **What it covers**, in a sentence.
+ *   4. **The lines**, itemised, with a totals block beneath them aligned to
+ *      the money column so the eye runs straight down from the last line to
+ *      the total.
+ *   5. **How to pay**, terms, and the signature.
+ */
 export function InvoiceSheet({
   invoice,
   shipmentReference,
@@ -138,135 +161,198 @@ export function InvoiceSheet({
   const remittance = useRemittanceAccount();
 
   const isProforma = invoice.kind === 'proforma';
+  /* A PROJECT invoice bills a whole agreement: its lines are shipments, not
+     containers, and it has no single shipment reference to print. Told apart
+     by the project link with no shipment link — the shape only this document
+     has. */
+  const isProject = !isProforma && invoice.projectId != null && invoice.shipmentId == null;
+  /* The client's registered address, read from the account rather than
+     snapshotted on the document. An address is a current fact about a company
+     — unlike the money, which must never be recomputed — and a bill reissued
+     to a moved client should carry where they are now. */
+  const { data: shipper } = useShipper(invoice.shipperId);
+  const billedToLines = [shipper?.address, shipper?.country].filter(
+    (line): line is string => Boolean(line && line.trim()),
+  );
+
   const total = fromMinorUnits(invoice.totalMinorUnits, invoice.currency);
   const lines = invoice.lines ?? [];
   /* Units, not lines. An invoice's lines are one container each so the two
-     agree; a quotation's "6 × 40ft" is one line and six units, and printing
-     "1 container" there is simply false. */
+     agree; a project line is one shipment carrying several. */
   const units = lines.reduce((sum, line) => sum + (line.qty || 1), 0);
+
+  const title = isProforma ? 'Proforma Invoice' : 'Invoice';
+  const settled = invoice.status === 'Paid';
+  const cancelled = invoice.status === 'Cancelled';
 
   return (
     <article className="invoice-sheet relative mx-auto w-full shadow-card print:shadow-none">
-      {/* The paid stamp belongs to a bill that was settled. A quote has no
-          settlement to stamp, and a withdrawn document must not wear one. */}
-      {!isProforma && invoice.status === 'Paid' ? <DocumentStampWatermark document="invoice" /> : null}
+      {!isProforma && settled ? <DocumentStampWatermark document="invoice" /> : null}
 
-      {/* ── Header ─────────────────────────────────────────────────────── */}
-      <header className="flex flex-wrap items-start justify-between gap-6 border-b-[3px] border-[var(--invoice-brand)] px-[14mm] pb-[8mm] pt-[12mm]">
+      {/* ── 1. Mark and title ──────────────────────────────────────────── */}
+      <header className="flex flex-wrap items-start justify-between gap-6 px-[14mm] pt-[13mm]">
         <DocumentLetterhead />
 
-        <div className="text-right text-[9pt] leading-[1.6]">
-          <p className="text-[20pt] font-extrabold uppercase leading-none tracking-[0.08em] text-[var(--invoice-brand)]">
-            {isProforma ? 'Proforma' : 'Invoice'}
+        <div className="text-right">
+          <p className="text-[15pt] font-bold uppercase leading-none tracking-[0.16em] text-[var(--invoice-brand)]">
+            {title}
           </p>
-          <p className="mt-[3mm] font-mono text-[11pt] font-bold">{invoice.number}</p>
-          {shipmentReference ? (
-            <p className="font-mono text-[9pt] font-bold text-[var(--invoice-brand)]">{shipmentReference}</p>
-          ) : null}
-          <p className="text-[var(--invoice-muted)]">
-            Issued <span className="font-semibold text-[var(--invoice-ink)]">{fmtDocDate(invoice.issueDate)}</span>
-          </p>
-          <p className="text-[var(--invoice-muted)]">
-            {isProforma ? 'Valid until' : 'Due'}{' '}
-            <span className="font-semibold text-[var(--invoice-ink)]">{fmtDocDate(invoice.contractDeadline)}</span>
-          </p>
+          <dl className="mt-[4mm] inline-grid grid-cols-[auto_auto] gap-x-[4mm] gap-y-[1.2mm] text-[8.5pt]">
+            <Meta label="No." value={invoice.number} mono />
+            <Meta label="Issued" value={fmtDocDate(invoice.issueDate)} />
+            <Meta
+              label={isProforma ? 'Valid until' : 'Due'}
+              value={fmtDocDate(invoice.contractDeadline)}
+            />
+            {shipmentReference && !isProject ? (
+              <Meta label="Shipment" value={shipmentReference} mono />
+            ) : null}
+          </dl>
         </div>
       </header>
 
-      {/* ── Parties ────────────────────────────────────────────────────── */}
-      <section className="grid gap-6 px-[14mm] pt-[8mm] sm:grid-cols-2">
-        <div>
-          <p className="text-[8pt] font-extrabold uppercase tracking-[0.12em] text-[var(--invoice-faint)]">
+      {/*
+        ── 2. Parties and the amount ───────────────────────────────────────
+        Two panels of equal weight: who is billed, and what is owed. They
+        replaced a plain line pair under a full-width rule — the rule was
+        doing the separating that the panels now do themselves, and the
+        client's name and the figure were the same colour and size, so
+        neither led.
+
+        The COMPANY and its address, never the contact person. An invoice is
+        addressed to a legal entity; naming an individual on one is how a bill
+        ends up filed as somebody's personal debt.
+      */}
+      <section className="mt-[7mm] grid gap-[4mm] px-[14mm] sm:grid-cols-[1fr_auto] sm:items-stretch">
+        <div className="rounded-[2mm] bg-[var(--invoice-wash)] px-[5mm] py-[4mm]">
+          <p className="text-[7.5pt] font-bold uppercase tracking-[0.14em] text-[var(--invoice-muted)]">
             {isProforma ? 'Prepared for' : 'Billed to'}
           </p>
-          <p className="mt-[2mm] text-[12pt] font-extrabold text-[var(--invoice-ink)]">{invoice.shipperCompany}</p>
-          <p className="text-[9pt] text-[var(--invoice-muted)]">{invoice.shipperName}</p>
+          <p className="mt-[1.5mm] text-[15pt] font-bold leading-tight tracking-tight text-[var(--invoice-brand)]">
+            {invoice.shipperCompany}
+          </p>
+          {billedToLines.length > 0 ? (
+            <div className="mt-[1.5mm] text-[8.5pt] leading-[1.6] text-[var(--invoice-muted)]">
+              {billedToLines.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
+            </div>
+          ) : null}
         </div>
-        <div className="sm:text-right">
-          <p className="text-[8pt] font-extrabold uppercase tracking-[0.12em] text-[var(--invoice-faint)]">
+
+        <div className="flex min-w-[62mm] flex-col justify-center rounded-[2mm] bg-[var(--invoice-brand)] px-[5mm] py-[4mm] text-right">
+          <p className="text-[7.5pt] font-bold uppercase tracking-[0.14em] text-white/75">
             {isProforma ? 'Estimated total' : 'Amount due'}
           </p>
-          <p className="mt-[2mm] font-mono text-[18pt] font-extrabold tabular-nums text-[var(--invoice-ink)]">
-            {fmtDjfPlain(total)} {invoice.currency}
+          <p className="mt-[1.5mm] font-mono text-[19pt] font-bold leading-none tabular-nums text-white">
+            {fmtDjfPlain(total)}
           </p>
-          {invoice.status === 'Paid' ? (
-            <p className="text-[9pt] font-bold text-[var(--invoice-settled)]">Settled</p>
-          ) : null}
-          {invoice.status === 'Cancelled' ? (
-            <p className="text-[9pt] font-bold text-[var(--invoice-muted)]">Withdrawn</p>
+          <p className="mt-[1.5mm] text-[8.5pt] font-semibold text-white/85">
+            {invoice.currency}
+            {!isProforma ? <> · due {fmtDocDate(invoice.contractDeadline)}</> : null}
+          </p>
+          {settled ? (
+            <p className="mt-[1.5mm] text-[8.5pt] font-bold uppercase tracking-wide text-white">
+              Paid in full
+            </p>
+          ) : cancelled ? (
+            <p className="mt-[1.5mm] text-[8.5pt] font-bold uppercase tracking-wide text-white/80">
+              Cancelled
+            </p>
           ) : null}
         </div>
       </section>
 
-      {/* ── What this covers ───────────────────────────────────────────── */}
-      <section className="px-[14mm] pt-[8mm]">
-        <div className="rounded-[2mm] border border-[var(--invoice-rule)] bg-[var(--invoice-wash)] px-[4mm] py-[3.5mm]">
-          <p className="text-[9.5pt] leading-[1.6] text-[var(--invoice-ink)]">
-            {isProforma ? (
-              /* A quotation has no shipment — that is the whole point of one —
-                 so it says what it is FOR and how much of it, never a
-                 reference to a job that does not exist yet. The count is the
-                 summed quantities, not the number of lines: "6 × 40ft" on one
-                 line is six containers. */
-              <>
-                {invoice.description}
-                {units > 0 ? (
-                  <>
-                    {' — '}
-                    <span className="font-bold">
-                      {units} container{units === 1 ? '' : 's'}
-                    </span>{' '}
-                    as itemised below
-                  </>
-                ) : null}
-                . Prices hold until {fmtDocDate(invoice.contractDeadline)}. This is a quotation — no
-                payment is due against it.
-              </>
-            ) : (
-              <>
-                Delivered under shipment{' '}
-                <span className="font-mono font-bold">{shipmentReference ?? '—'}</span>:{' '}
-                <span className="font-bold">
-                  {units} container{units === 1 ? '' : 's'}
-                </span>{' '}
-                carried and signed for. Payable in full by {fmtDocDate(invoice.contractDeadline)}.
-              </>
-            )}
-          </p>
-        </div>
+      {/* ── 3. What it covers ──────────────────────────────────────────── */}
+      <section className="px-[14mm] pt-[6mm]">
+        <p className="border-l-[0.8mm] border-[var(--invoice-rule)] pl-[3.5mm] text-[9pt] leading-[1.6] text-[var(--invoice-muted)]">
+          {isProforma ? (
+            <>
+              {invoice.description}
+              {units > 0 ? (
+                <>
+                  {' — '}
+                  <span className="font-semibold text-[var(--invoice-ink)]">
+                    {units} container{units === 1 ? '' : 's'}
+                  </span>
+                </>
+              ) : null}
+              . Prices hold until {fmtDocDate(invoice.contractDeadline)}. This is a quotation; no payment
+              is due against it.
+            </>
+          ) : isProject ? (
+            <>
+              <span className="font-semibold text-[var(--invoice-ink)]">
+                {subjectOf(invoice.description)}
+              </span>{' '}
+              — {lines.length} shipment{lines.length === 1 ? '' : 's'} covering {units} container
+              {units === 1 ? '' : 's'}, itemised below.
+            </>
+          ) : (
+            <>
+              Delivered under shipment{' '}
+              <span className="font-semibold text-[var(--invoice-ink)]">{shipmentReference ?? '—'}</span>{' '}
+              — {units} container{units === 1 ? '' : 's'} carried and signed for.
+            </>
+          )}
+        </p>
       </section>
 
       {/*
-        The lines, and the two documents itemise differently because they are
-        describing different things.
+        ── 4. The lines ────────────────────────────────────────────────────
 
-        An INVOICE bills containers that were carried, so each line names its
-        booking — the reference the client can check against their own paper.
-        A QUOTATION prices work not yet done, so it shows quantity and unit
-        price: "6 × 47,000" is the number a client negotiates, and folding it
-        into a single figure hides exactly what they want to argue about.
+        ONE ROW PER LINE, always — a shipment on a project invoice, a container
+        on a single-shipment one.
+
+        A grouped version was tried, with each shipment as its own sub-table of
+        containers and a subtotal. It reads well for three shipments and falls
+        apart at a hundred bookings: the document becomes pages of near-identical
+        rows for information the client already has. The route, the shipment
+        number and the container COUNT are what identifies a job on a bill; the
+        individual box numbers belong to the shipment record, not the invoice.
       */}
-      <section className="px-[14mm] pt-[5mm]">
-        <table className="w-full border-collapse text-[9pt]">
+      <section className="px-[14mm] pt-[6mm]">
+        <table className="w-full border-collapse overflow-hidden rounded-[1.5mm] text-[9pt] ring-1 ring-[var(--invoice-rule)]">
           <thead>
             <tr className="bg-[var(--invoice-wash)]">
-              <Th>Description</Th>
+              <Th align="center" width="8mm">
+                #
+              </Th>
+              <Th>{isProject ? 'Route' : 'Description'}</Th>
               {isProforma ? (
                 <>
-                  <Th align="right">Qty</Th>
-                  <Th align="right">Price each</Th>
+                  <Th align="right" width="18mm">
+                    Qty
+                  </Th>
+                  <Th align="right" width="30mm">
+                    Unit price
+                  </Th>
+                </>
+              ) : isProject ? (
+                <>
+                  <Th width="28mm">Shipment</Th>
+                  <Th align="right" width="24mm">
+                    Containers
+                  </Th>
                 </>
               ) : (
-                <Th>Booking</Th>
+                <Th width="34mm">Booking</Th>
               )}
-              <Th align="right">Amount</Th>
+              <Th align="right" width="32mm">
+                Amount
+              </Th>
             </tr>
           </thead>
           <tbody>
             {lines.length === 0 ? (
               <tr>
+                <Td align="center" muted>
+                  1
+                </Td>
                 <Td>
-                  <span className="font-bold">{invoice.description || 'Freight services as agreed'}</span>
+                  <span className="font-semibold text-[var(--invoice-ink)]">
+                    {invoice.description || 'Freight services as agreed'}
+                  </span>
                 </Td>
                 {isProforma ? (
                   <>
@@ -274,6 +360,11 @@ export function InvoiceSheet({
                     <Td align="right" mono>
                       {fmtDjfPlain(total)}
                     </Td>
+                  </>
+                ) : isProject ? (
+                  <>
+                    <Td mono>—</Td>
+                    <Td align="right">1</Td>
                   </>
                 ) : (
                   <Td mono>{shipmentReference ?? '—'}</Td>
@@ -283,15 +374,17 @@ export function InvoiceSheet({
                 </Td>
               </tr>
             ) : (
-              /* A quotation's lines share the synthetic references `L1`, `L2`
-                 …, and an invoice's are booking references — unique either
-                 way, so the reference alone is a stable key. */
-              lines.map((line) => (
+              lines.map((line, index) => (
                 <tr key={line.reference}>
+                  <Td align="center" muted>
+                    {index + 1}
+                  </Td>
                   <Td>
-                    <span className="font-bold">{line.description}</span>
-                    {line.category ? (
-                      <span className="ml-[2mm] text-[8pt] text-[var(--invoice-muted)]">{line.category}</span>
+                    <span className="font-semibold text-[var(--invoice-ink)]">{line.description}</span>
+                    {cargoLabel(line.category) ? (
+                      <span className="ml-[2mm] text-[8pt] text-[var(--invoice-muted)]">
+                        {cargoLabel(line.category)}
+                      </span>
                     ) : null}
                   </Td>
                   {isProforma ? (
@@ -300,6 +393,11 @@ export function InvoiceSheet({
                       <Td align="right" mono>
                         {fmtDjfPlain(fromMinorUnits(line.unitMinorUnits, invoice.currency))}
                       </Td>
+                    </>
+                  ) : isProject ? (
+                    <>
+                      <Td mono>{line.reference}</Td>
+                      <Td align="right">{line.qty}</Td>
                     </>
                   ) : (
                     <Td mono>{line.reference}</Td>
@@ -311,74 +409,144 @@ export function InvoiceSheet({
               ))
             )}
           </tbody>
-          <tfoot>
-            <tr>
-              <td
-                colSpan={isProforma ? 3 : 2}
-                className="border-t-2 border-[var(--invoice-brand)] px-[3mm] py-[3mm] text-right text-[10pt] font-extrabold uppercase tracking-wide"
-              >
-                {isProforma ? 'Estimated total' : 'Total due'}
-              </td>
-              <td className="border-t-2 border-[var(--invoice-brand)] px-[3mm] py-[3mm] text-right font-mono text-[13pt] font-extrabold tabular-nums">
-                {fmtDjfPlain(total)}
-              </td>
-            </tr>
-          </tfoot>
         </table>
 
-        <p className="mt-[3mm] text-[8.5pt] italic text-[var(--invoice-muted)]">{amountInWords(total)}</p>
+        {/*
+          The totals, aligned to the money column rather than spanning the
+          table. A clerk's eye runs straight down the amounts to the figure
+          they will enter, and a full-width total row breaks that line.
+        */}
+        <div className="mt-[4mm] flex justify-end">
+          <dl className="w-[76mm] overflow-hidden rounded-[1.5mm] text-[9pt] ring-1 ring-[var(--invoice-rule)]">
+            <Total label="Subtotal" value={fmtDjfPlain(total)} />
+            {Number(invoice.taxMinorUnits) > 0 ? (
+              <Total
+                label="Tax"
+                value={fmtDjfPlain(fromMinorUnits(invoice.taxMinorUnits, invoice.currency))}
+              />
+            ) : null}
+            <div className="flex items-baseline justify-between bg-[var(--invoice-brand)] px-[3mm] py-[2.6mm]">
+              <dt className="text-[9pt] font-bold uppercase tracking-wide text-white">
+                {isProforma ? 'Estimated total' : 'Total due'}
+              </dt>
+              <dd className="font-mono text-[11.5pt] font-bold tabular-nums text-white">
+                {fmtDjfPlain(total)} <span className="text-[8pt] opacity-90">{invoice.currency}</span>
+              </dd>
+            </div>
+          </dl>
+        </div>
+
+        <p className="mt-[3mm] text-[8pt] italic text-[var(--invoice-muted)]">{amountInWords(total)}</p>
       </section>
 
-      {/* ── Payment + signature ────────────────────────────────────────── */}
-      <section className="grid gap-6 px-[14mm] pt-[9mm] sm:grid-cols-2">
-        <div>
+      {/*
+        ── 5. How to pay, and who signed ───────────────────────────────────
+        The bank details are the one block on the page somebody RETYPES, into
+        a transfer form, digit by digit. They were a loose definition list
+        floating in white space beside a dashed box; now they sit in a panel of
+        their own with the reference called out under them, and the signature
+        keeps its own framed space at the same height.
+      */}
+      <section className="grid gap-[4mm] px-[14mm] pt-[7mm] sm:grid-cols-[1fr_auto] sm:items-stretch">
+        <div className="rounded-[2mm] bg-[var(--invoice-wash)] px-[5mm] py-[4mm]">
           {isProforma ? (
             <>
-              <p className="text-[8pt] font-extrabold uppercase tracking-[0.12em] text-[var(--invoice-faint)]">
+              <p className="text-[7.5pt] font-bold uppercase tracking-[0.14em] text-[var(--invoice-muted)]">
                 Not a request for payment
               </p>
-              <p className="mt-[2mm] max-w-[80mm] text-[9pt] leading-[1.6] text-[var(--invoice-muted)]">
-                This proforma is issued for your approval. An invoice carrying our bank details follows once
-                the containers have been delivered.
+              <p className="mt-[2mm] max-w-[86mm] text-[8.5pt] leading-[1.65] text-[var(--invoice-muted)]">
+                This proforma is issued for your approval. An invoice carrying our bank details follows
+                once the containers have been delivered.
               </p>
             </>
           ) : (
             <>
-              <p className="text-[8pt] font-extrabold uppercase tracking-[0.12em] text-[var(--invoice-faint)]">Payable to</p>
-              <dl className="mt-[2mm] text-[9pt] leading-[1.7]">
+              <p className="text-[7.5pt] font-bold uppercase tracking-[0.14em] text-[var(--invoice-muted)]">
+                Payment details
+              </p>
+              <dl className="mt-[2.5mm] grid grid-cols-[26mm_1fr] gap-x-[3mm] gap-y-[1.4mm] text-[8.5pt]">
                 <PayRow label="Bank" value={remittance.bankName} />
                 <PayRow label="Account name" value={remittance.accountHolder} />
                 <PayRow label="Account" value={remittance.accountNumber} mono />
                 {remittance.swiftCode ? <PayRow label="SWIFT" value={remittance.swiftCode} mono /> : null}
               </dl>
-              <p className="mt-[3mm] text-[8pt] text-[var(--invoice-muted)]">
-                Please quote <span className="font-mono font-bold">{invoice.number}</span> as the payment reference.
+              <p className="mt-[3mm] border-t border-[var(--invoice-rule)] pt-[2.5mm] text-[8pt] text-[var(--invoice-muted)]">
+                Quote{' '}
+                <span className="font-mono font-bold text-[var(--invoice-brand)]">{invoice.number}</span>{' '}
+                as the payment reference.
               </p>
             </>
           )}
           {documents.invoiceTerms ? (
-            <p className="mt-[3mm] max-w-[80mm] text-[8pt] leading-[1.55] text-[var(--invoice-faint)]">
+            <p className="mt-[2.5mm] max-w-[86mm] text-[7.5pt] leading-[1.6] text-[var(--invoice-faint)]">
               {documents.invoiceTerms}
             </p>
           ) : null}
         </div>
 
-        <div className="flex flex-col items-end justify-end">
+        <div className="flex min-w-[58mm] flex-col justify-end">
           <DocumentSignatureBlock document="invoice" />
         </div>
       </section>
 
-      <DocumentFooter note={documents.invoiceDisclaimer} />
+      <DocumentFooter />
     </article>
   );
 }
 
-function Th({ children, align }: { children: React.ReactNode; align?: 'right' }) {
+/**
+ * The document's subject, without a count trailing it.
+ *
+ * Project invoices issued before 2026-09-04 snapshotted their description as
+ * "Name — N shipments", and the sentence composed around it added the count
+ * again: "… — 3 shipments — 3 shipments covering 11 containers". The
+ * description is a snapshot and must not be rewritten in the database, so the
+ * duplicate is trimmed at render.
+ */
+function subjectOf(description: string): string {
+  return description.replace(/\s*[—-]\s*\d+\s+shipments?$/i, '').trim();
+}
+
+/** One labelled fact in the document's reference block. */
+function Meta({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <>
+      <dt className="text-left text-[var(--invoice-faint)]">{label}</dt>
+      <dd
+        className={`text-right font-semibold text-[var(--invoice-ink)] ${mono ? 'font-mono' : ''}`}
+      >
+        {value}
+      </dd>
+    </>
+  );
+}
+
+/** A subtotal row in the totals box, ruled to match the table above it. */
+function Total({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between border-b border-[var(--invoice-rule-soft)] px-[3mm] py-[2mm]">
+      <dt className="text-[var(--invoice-muted)]">{label}</dt>
+      <dd className="font-mono tabular-nums text-[var(--invoice-ink)]">{value}</dd>
+    </div>
+  );
+}
+
+const ALIGN = { right: 'text-right', center: 'text-center', left: 'text-left' } as const;
+
+function Th({
+  children,
+  align = 'left',
+  width,
+}: {
+  children: React.ReactNode;
+  align?: 'left' | 'right' | 'center';
+  /** Fixed column width in mm — the number columns must not breathe with content. */
+  width?: string;
+}) {
   return (
     <th
-      className={`border-b border-[var(--invoice-rule)] px-[3mm] py-[2.5mm] text-[8pt] font-extrabold uppercase tracking-[0.08em] text-[var(--invoice-muted)] ${
-        align === 'right' ? 'text-right' : 'text-left'
-      }`}
+      style={width ? { width } : undefined}
+      className={`border-b border-[var(--invoice-rule)] px-[2.5mm] py-[2.2mm] text-[7.5pt] font-bold uppercase tracking-[0.1em] text-[var(--invoice-muted)] [&:not(:last-child)]:border-r [&:not(:last-child)]:border-[var(--invoice-rule)] ${ALIGN[align]}`}
     >
       {children}
     </th>
@@ -387,32 +555,41 @@ function Th({ children, align }: { children: React.ReactNode; align?: 'right' })
 
 function Td({
   children,
-  align,
+  align = 'left',
   mono,
   bold,
+  muted,
 }: {
   children: React.ReactNode;
-  align?: 'right';
+  align?: 'left' | 'right' | 'center';
   mono?: boolean;
   bold?: boolean;
+  muted?: boolean;
 }) {
   return (
     <td
-      className={`border-b border-[var(--invoice-rule-soft)] px-[3mm] py-[3mm] align-top ${
-        align === 'right' ? 'text-right' : ''
-      } ${mono ? 'font-mono text-[8pt] tabular-nums' : ''} ${bold ? 'font-bold' : ''}`}
+      className={`border-b border-[var(--invoice-rule-soft)] px-[2.5mm] py-[2.6mm] align-top [&:not(:last-child)]:border-r [&:not(:last-child)]:border-[var(--invoice-rule-soft)] ${
+        ALIGN[align]
+      } ${mono ? 'font-mono text-[8pt] tabular-nums' : ''} ${bold ? 'font-bold' : ''} ${
+        muted ? 'text-[8pt] text-[var(--invoice-faint)]' : ''
+      }`}
     >
       {children}
     </td>
   );
 }
 
+/** A label/value pair in the payment panel's two-column grid. */
 function PayRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="flex gap-2">
-      <dt className="w-[28mm] shrink-0 text-[var(--invoice-faint)]">{label}</dt>
-      <dd className={mono ? 'font-mono font-semibold' : 'font-semibold'}>{value}</dd>
-    </div>
+    <>
+      <dt className="text-[var(--invoice-muted)]">{label}</dt>
+      <dd
+        className={`break-all font-semibold text-[var(--invoice-ink)] ${mono ? 'font-mono' : ''}`}
+      >
+        {value}
+      </dd>
+    </>
   );
 }
 

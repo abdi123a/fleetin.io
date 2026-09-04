@@ -16,7 +16,7 @@ export {
   useWorkspaceInbox, useWorkspaceUnread, useWorkspaceNotifications,
   useCreateTask, useUpdateTask, useSetTaskLinks,
   useConversations, useChannel, useChannelMessages, useThread, useMessageSearch,
-  useCreateChannel, useUpdateChannel, useSetChannelMembers, useOpenDirectMessage,
+  useCreateChannel, useUpdateChannel, useDeleteChannel, useSetChannelMembers, useOpenDirectMessage,
   useMarkChannelReadOnView,
   usePostMessage, useEditMessage, useWithdrawMessage,
   useAssignMessage, useResolveMessage, useMarkNotificationsRead,

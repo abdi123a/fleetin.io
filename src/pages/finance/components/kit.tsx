@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
 
 import { IconChip, type IconChipTint } from '@/design-system';
 import { ArrowDownLeft, ArrowUpRight, EllipsisVertical, PauseCircle, TrendingDown, TrendingUp } from '@/design-system/icons';
@@ -865,7 +865,9 @@ export function ActionButton({
   disabled,
 }: {
   children: ReactNode;
-  onClick?: () => void;
+  /* Takes the event, so a button sitting inside a link can stop the row's
+     navigation before doing its own thing. `() => void` callers still fit. */
+  onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
   variant?: 'primary' | 'ghost' | 'quiet';
   icon?: (props: { className?: string; 'aria-hidden'?: boolean }) => ReactNode;
   className?: string;

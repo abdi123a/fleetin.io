@@ -33,6 +33,7 @@ import {
 } from '@/design-system/icons';
 import { usePermissions } from '@/hooks';
 import {
+  cargoLabel,
   useCancelInvoice,
   useInvoices,
   useMarkInvoicePaid,
@@ -70,7 +71,7 @@ type StatusFilter = 'all' | InvoiceStatusKey;
 
 export function InvoicesPage() {
   const navigate = useNavigate();
-  const { can } = usePermissions();
+  const { can, isSuperuser } = usePermissions();
 
   const [view, setView] = useState<View>('invoice');
   const [status, setStatus] = useState<StatusFilter>('all');
@@ -120,7 +121,7 @@ export function InvoicesPage() {
           label: option.label,
           count: rows.filter((row) => row.status === option.value).length,
         }))
-        /* A tab for a state nothing is in is a dead control. Withdrawn and
+        /* A tab for a state nothing is in is a dead control. Cancelled and
            overdue are often empty, and hiding them keeps the bar honest. */
         .filter((tab) => tab.count > 0),
     ],
@@ -178,11 +179,28 @@ export function InvoicesPage() {
       key: 'description',
       label: 'For',
       width: 'w-[19%]',
-      cell: ({ doc }) => (
-        <span className="block truncate text-sm text-muted-foreground" title={doc.description}>
-          {doc.description}
-        </span>
-      ),
+      cell: ({ doc }) => {
+        /* The cargo kinds on the document, from its own snapshotted lines —
+           "containerized" and "bulk" price and handle completely differently,
+           and a bill that does not say which is a bill somebody has to open a
+           shipment to understand. Deduplicated: a mixed project invoice shows
+           both, once each. */
+        const kinds = [
+          ...new Set((doc.lines ?? []).map((line) => cargoLabel(line.category)).filter(Boolean)),
+        ];
+        return (
+          <div className="min-w-0">
+            <span className="block truncate text-sm text-muted-foreground" title={doc.description}>
+              {doc.description}
+            </span>
+            {kinds.length > 0 ? (
+              <span className="mt-0.5 block truncate text-[11px] text-muted-foreground/80">
+                {kinds.join(' · ')}
+              </span>
+            ) : null}
+          </div>
+        );
+      },
     },
     {
       key: 'dates',
@@ -218,10 +236,15 @@ export function InvoicesPage() {
             </p>
             {/* Our share under the total, not in its own column: it is a part
                 of this number, and a reader compares the two by looking down
-                two lines rather than across two headings. */}
-            <p className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
-              {cut > 0 ? `${fmtDjf(cut)} ours` : 'no commission'}
-            </p>
+                two lines rather than across two headings.
+
+                ADMIN ONLY — Fleetin's margin is not every operator's business.
+                See the same gate in `NewDocumentDialogs`. */}
+            {isSuperuser ? (
+              <p className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
+                {cut > 0 ? `${fmtDjf(cut)} ours` : 'no commission'}
+              </p>
+            ) : null}
           </div>
         );
       },
@@ -268,6 +291,7 @@ export function InvoicesPage() {
                   <span>Open document</span>
                 </DropdownMenuItem>
 
+                {/* A paid document plainly reached the client. */}
                 {canUpdate && live && !doc.sentAt ? (
                   <DropdownMenuItem
                     onClick={(event) => {
@@ -302,12 +326,12 @@ export function InvoicesPage() {
                     <DropdownMenuItem
                       onClick={(event) => {
                         event.stopPropagation();
-                        cancel.mutate({ id: doc.id, reason: 'Withdrawn by Finance' });
+                        cancel.mutate({ id: doc.id, reason: 'Cancelled by Finance' });
                       }}
                       className="cursor-pointer gap-2 text-xs text-destructive focus:text-destructive"
                     >
                       <Ban className="h-3.5 w-3.5" />
-                      <span>Withdraw</span>
+                      <span>Cancel invoice</span>
                     </DropdownMenuItem>
                   </>
                 ) : null}

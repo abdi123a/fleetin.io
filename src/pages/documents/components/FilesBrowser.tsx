@@ -1,17 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
 
+import { Button, Input, StatisticCard, useConfirm } from '@/design-system';
 import {
-  Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  IconButton,
-  Input,
-  StatisticCard,
-  useConfirm,
-} from '@/design-system';
-import {
+  Check,
   Download,
   Eye,
   FileText,
@@ -19,7 +10,6 @@ import {
   Folder,
   FolderPlus,
   HardDrive,
-  MoreVertical,
   Pencil,
   Search,
   Trash2,
@@ -46,7 +36,6 @@ import {
   type DocumentView,
 } from '@/features/documents/components/DocumentBrowser';
 import {
-  describeContents,
   foldersOf,
   listFiles,
   searchFiles,
@@ -193,6 +182,34 @@ export function FilesBrowser({
   const [viewing, setViewing] = useState<DocumentToView | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  /**
+   * What is ticked, so several things can be renamed, downloaded or cleared
+   * out without opening each one.
+   *
+   * Two sets rather than one list of tagged ids: every action here applies to
+   * one kind or the other — a folder has no bytes to download, a file has no
+   * subtree to warn about — and keeping them apart means no handler has to
+   * re-derive which is which.
+   */
+  const [pickedFolders, setPickedFolders] = useState<ReadonlySet<string>>(new Set());
+  const [pickedFiles, setPickedFiles] = useState<ReadonlySet<string>>(new Set());
+  const pickedCount = pickedFolders.size + pickedFiles.size;
+
+  const clearPicked = () => {
+    setPickedFolders(new Set());
+    setPickedFiles(new Set());
+  };
+
+  const togglePicked = (
+    set: (next: ReadonlySet<string>) => void,
+    current: ReadonlySet<string>,
+    id: string,
+  ) => {
+    const next = new Set(current);
+    if (!next.delete(id)) next.add(id);
+    set(next);
+  };
+
   const createFolder = useCreateDriveFolder();
   const renameFolder = useRenameDriveFolder();
   const dropFolder = useDeleteDriveFolder();
@@ -270,6 +287,9 @@ export function FilesBrowser({
   const open = (next: string[]) => {
     setPath(next);
     setSearchTerm('');
+    /* A tick means "this one, here". Carrying it into another folder would
+       leave a selection the reader can no longer see acting on Delete. */
+    clearPicked();
   };
 
   /* Opened on a clean slate: a refused create ("a folder named X already
@@ -288,27 +308,6 @@ export function FilesBrowser({
     });
   };
 
-  const removeFolder = async (folder: FileFolder) => {
-    const inside = describeContents(folder.tally);
-    const ok = await confirm({
-      title: `Delete ${folder.label}?`,
-      description:
-        folder.tally.files > 0 || folder.tally.folders > 0
-          ? `Everything inside goes with it — ${inside.toLowerCase()}, permanently.`
-          : 'The folder is removed permanently.',
-      confirmLabel: 'Delete',
-    });
-    if (!ok) return;
-    dropFolder.mutate(folder.id, {
-      onSuccess: () => {
-        /* Standing in what was just deleted: step out rather than sit on a
-           trail that leads nowhere. */
-        if (path.includes(folder.id)) setPath(path.slice(0, path.indexOf(folder.id)));
-      },
-      onError: (caught) => setNotice(explain(caught, 'The folder could not be deleted.')),
-    });
-  };
-
   const removeFile = async (file: DocumentRecord) => {
     const ok = await confirm({
       title: `Delete ${file.name}?`,
@@ -321,6 +320,74 @@ export function FilesBrowser({
       });
     }
   };
+
+  /**
+   * The ticked folders and files, resolved back to records.
+   *
+   * From the CURRENT listing, not from the whole book: a tick only ever refers
+   * to something on screen, and resolving against everything would let a stale
+   * id survive a refetch that removed it.
+   */
+  const picked = useMemo(() => {
+    /* A search hit wraps its record (`{ document, where }`) while a listing
+       holds the record itself — unwrapped here so every handler below sees one
+       shape and never has to know which mode produced it. */
+    const folders = searching ? matches.folders : listing.folders;
+    const files = searching ? matches.files.map((hit) => hit.document) : listing.files;
+    return {
+      folders: folders.filter((folder) => pickedFolders.has(folder.id)),
+      files: files.filter((file) => pickedFiles.has(file.id)),
+    };
+  }, [searching, matches, listing, pickedFolders, pickedFiles]);
+
+  /**
+   * Delete everything ticked, in one confirm.
+   *
+   * The count and what is inside are both named, because a folder's subtree
+   * goes with it and the tiles do not say how deep that is once several are
+   * selected. Files first, then folders: a file inside a folder being deleted
+   * in the same batch is already gone by the time the folder goes, and the
+   * server refusing a stale id would leave the batch half-applied.
+   */
+  async function removePicked() {
+    const inside = picked.folders.reduce(
+      (sum, folder) => sum + folder.tally.files + folder.tally.folders,
+      0,
+    );
+    const ok = await confirm({
+      title: `Delete ${describeSelection(picked.folders.length, picked.files.length)}?`,
+      description: inside
+        ? `${inside} more item${inside === 1 ? '' : 's'} inside the selected folder${
+            picked.folders.length === 1 ? '' : 's'
+          } go with them, permanently.`
+        : 'They are removed permanently. Nothing keeps a copy.',
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
+
+    setNotice(null);
+    for (const file of picked.files) {
+      dropFile.mutate(file.id, {
+        onError: (caught) => setNotice(explain(caught, 'Some files could not be deleted.')),
+      });
+    }
+    for (const folder of picked.folders) {
+      dropFolder.mutate(folder.id, {
+        onError: (caught) => setNotice(explain(caught, 'Some folders could not be deleted.')),
+      });
+    }
+    /* Standing in something that was just deleted: step out rather than sit on
+       a trail that leads nowhere. */
+    const gone = picked.folders.find((folder) => path.includes(folder.id));
+    if (gone) setPath(path.slice(0, path.indexOf(gone.id)));
+    clearPicked();
+  }
+
+  /** Download every ticked file. Folders have no bytes, so they are skipped. */
+  function downloadPicked() {
+    for (const file of picked.files) void triggerDocumentDownload(file.id, file.name);
+  }
 
   /* This tree's own steps. Without a root of its own the first step is the
      first folder, and the index maths below has to skip past the root that is
@@ -347,6 +414,10 @@ export function FilesBrowser({
         </span>
       ) : undefined,
     onOpen: () => open(entry.path),
+    selected: pickedFolders.has(entry.folder.id),
+    onSelect: mayFile || mayDelete
+      ? () => togglePicked(setPickedFolders, pickedFolders, entry.folder.id)
+      : undefined,
   }));
 
   return (
@@ -404,40 +475,17 @@ export function FilesBrowser({
               },
             ]}
           />
-          {/* The folder you are standing in, and the two things you can do to
-              it. Not on the tile: the tile's click is spoken for by opening. */}
-          {here && !searching && (mayFile || mayDelete) && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <IconButton aria-label={`${here.name} actions`} variant="outline" size="sm">
-                  <MoreVertical />
-                </IconButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {mayFile && (
-                  <DropdownMenuItem
-                    onSelect={() => ask({ mode: 'rename', id: here.id, name: here.name })}
-                  >
-                    <Pencil className="size-4" />
-                    Rename
-                  </DropdownMenuItem>
-                )}
-                {mayDelete && (
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onSelect={() => {
-                      const entry = folderOf(here.id, listing.tally, here.name);
-                      void removeFolder(entry);
-                    }}
-                  >
-                    <Trash2 className="size-4" />
-                    Delete
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+          {/*
+            No "rename / delete this folder" menu here.
 
+            Standing inside a folder is the wrong place to destroy it: the
+            listing on screen is its CONTENTS, so the confirm talks about
+            something the reader cannot see while nothing in front of them
+            changes — and getting out afterwards meant stepping back up a trail
+            that had just stopped existing. Both actions live on the grid one
+            level up instead, where the folder is a tile you can point at, and
+            where a tick can put several of them in the same move.
+          */}
           {/* Beside the trail rather than up in the page band: this browser is
               hosted in two places and only one of them has a band, and a
               control that moves when you change tab is a control you have to
@@ -504,6 +552,61 @@ export function FilesBrowser({
         />
       ) : (
         <div className="space-y-5">
+          {/*
+            What is ticked, and what can be done with it — one bar rather than a
+            menu on every tile.
+
+            It appears only once something is selected, so the browser is not
+            permanently carrying a row of disabled buttons. Rename takes exactly
+            one folder because there is one name field; Download is offered only
+            when a file is in the batch, since a folder has no bytes to send.
+          */}
+          {pickedCount > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary-subtle px-3 py-2">
+              <span className="text-sm font-bold text-primary-subtle-foreground">
+                {describeSelection(picked.folders.length, picked.files.length)} selected
+              </span>
+
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                {mayFile && picked.folders.length === 1 && picked.files.length === 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    leadingIcon={<Pencil />}
+                    onClick={() => {
+                      const only = picked.folders[0];
+                      if (only) ask({ mode: 'rename', id: only.id, name: only.label });
+                    }}
+                  >
+                    Rename
+                  </Button>
+                )}
+
+                {picked.files.length > 0 && (
+                  <Button size="sm" variant="outline" leadingIcon={<Download />} onClick={downloadPicked}>
+                    Download
+                  </Button>
+                )}
+
+                {mayDelete && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    leadingIcon={<Trash2 />}
+                    onClick={() => void removePicked()}
+                    className="border-destructive/40 text-destructive hover:bg-destructive-subtle"
+                  >
+                    Delete
+                  </Button>
+                )}
+
+                <Button size="sm" variant="ghost" onClick={clearPicked}>
+                  Clear
+                </Button>
+              </div>
+            </div>
+          )}
+
           {folderItems.length > 0 && <FolderGrid items={folderItems} empty={null} />}
 
           {pagedFiles.length > 0 && (
@@ -526,6 +629,12 @@ export function FilesBrowser({
                       where={entry.where}
                       onView={setViewing}
                       onRemove={mayDelete ? () => void removeFile(entry.file) : undefined}
+                      selected={pickedFiles.has(entry.file.id)}
+                      onSelect={
+                        mayFile || mayDelete
+                          ? () => togglePicked(setPickedFiles, pickedFiles, entry.file.id)
+                          : undefined
+                      }
                     />
                   ))}
                 </div>
@@ -545,6 +654,12 @@ export function FilesBrowser({
                       where={entry.where}
                       onView={setViewing}
                       onRemove={mayDelete ? () => void removeFile(entry.file) : undefined}
+                      selected={pickedFiles.has(entry.file.id)}
+                      onSelect={
+                        mayFile || mayDelete
+                          ? () => togglePicked(setPickedFiles, pickedFiles, entry.file.id)
+                          : undefined
+                      }
                     />
                   ))}
                 </div>
@@ -667,21 +782,67 @@ function FileTallyTiles({
  * is left is what a file in a folder somebody made actually has — a picture
  * of it, its name, and what you can do with it.
  */
+/**
+ * "2 folders and 3 files" — what the confirm is about to remove.
+ *
+ * Spelled out rather than "3 items", because the two are not equally
+ * reversible: deleting a file loses one thing, deleting a folder loses
+ * everything under it, and a reader answering a dialog deserves to know which
+ * kinds are in the batch before the count.
+ */
+function describeSelection(folders: number, files: number): string {
+  const parts: string[] = [];
+  if (folders > 0) parts.push(`${folders} folder${folders === 1 ? '' : 's'}`);
+  if (files > 0) parts.push(`${files} file${files === 1 ? '' : 's'}`);
+  return parts.join(' and ') || 'nothing';
+}
+
 function FileCard({
   file,
   where,
   onView,
   onRemove,
+  selected,
+  onSelect,
 }: {
   file: DocumentRecord;
   where?: string;
   onView: (document: DocumentToView) => void;
   onRemove?: () => void;
+  /** Ticked into the batch the selection bar acts on. */
+  selected?: boolean;
+  onSelect?: () => void;
 }) {
   const display = toDisplayDocument(file);
 
   return (
-    <div className="group flex flex-col overflow-hidden rounded-lg border border-border/80 bg-card shadow-2xs transition-colors hover:border-primary/50">
+    <div
+      className={cn(
+        'group relative flex flex-col overflow-hidden rounded-lg border bg-card shadow-2xs transition-colors',
+        selected ? 'border-primary ring-1 ring-primary' : 'border-border/80 hover:border-primary/50',
+      )}
+    >
+      {/* The same tick the folders wear, in the same corner — a grid that
+          mixes folders and files has to offer one gesture, not two. */}
+      {onSelect ? (
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={Boolean(selected)}
+          aria-label={`Select ${file.name}`}
+          onClick={onSelect}
+          className={cn(
+            'absolute left-2 top-2 z-10 flex size-5 items-center justify-center rounded border transition',
+            'focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring',
+            selected
+              ? 'border-primary bg-primary text-primary-foreground opacity-100'
+              : 'border-border-strong bg-card text-transparent opacity-0 group-hover:opacity-100',
+          )}
+        >
+          <Check className="size-3.5" aria-hidden />
+        </button>
+      ) : null}
+
       <button
         type="button"
         onClick={() => onView(display)}
@@ -721,21 +882,62 @@ function FileRow({
   where,
   onView,
   onRemove,
+  selected,
+  onSelect,
 }: {
   file: DocumentRecord;
   where?: string;
   onView: (document: DocumentToView) => void;
   onRemove?: () => void;
+  /** Ticked into the batch the selection bar acts on. */
+  selected?: boolean;
+  onSelect?: () => void;
 }) {
   const display = toDisplayDocument(file);
 
   return (
-    <div className="grid grid-cols-[1fr_auto] items-center gap-3 border-b border-border/50 px-3 py-2 last:border-b-0 hover:bg-muted/30 sm:grid-cols-[minmax(0,2fr)_8rem_7rem_5rem_auto]">
+    <div
+      className={cn(
+        'group grid grid-cols-[1fr_auto] items-center gap-3 border-b border-border/50 px-3 py-2 last:border-b-0 sm:grid-cols-[minmax(0,2fr)_8rem_7rem_5rem_auto]',
+        selected ? 'bg-primary-subtle' : 'hover:bg-muted/30',
+      )}
+    >
       <button
         type="button"
         onClick={() => onView(display)}
         className="flex min-w-0 items-center gap-2 text-left"
       >
+        {/* In a row the tick takes the icon's place on hover rather than
+            floating over it — a list has no corner to put it in, and two marks
+            side by side in a 12px column is noise. */}
+        {onSelect ? (
+          <span
+            role="checkbox"
+            aria-checked={Boolean(selected)}
+            aria-label={`Select ${file.name}`}
+            tabIndex={0}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onSelect();
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' && event.key !== ' ') return;
+              event.preventDefault();
+              event.stopPropagation();
+              onSelect();
+            }}
+            className={cn(
+              'flex size-4 shrink-0 cursor-pointer items-center justify-center rounded border transition',
+              'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring',
+              selected
+                ? 'border-primary bg-primary text-primary-foreground'
+                : 'border-border-strong bg-card text-transparent opacity-0 group-hover:opacity-100',
+            )}
+          >
+            <Check className="size-3" aria-hidden />
+          </span>
+        ) : null}
         <FileText className="size-4 shrink-0 text-primary" />
         <span className="min-w-0">
           <span className="block truncate text-xs font-bold text-foreground">{file.name}</span>
@@ -801,25 +1003,6 @@ function DropTarget({ busy, onFiles }: { busy: boolean; onFiles: (files: FileLis
 /* ---------------------------------------------------------------------------
  * Bits
  * ------------------------------------------------------------------------- */
-
-/**
- * The folder you are standing in, in the shape `removeFolder` reads.
- *
- * The listing describes the folders BELOW this level, so the one you are
- * inside is not among them — but deleting it asks the same question about the
- * same two numbers, and `listing.tally` is exactly those numbers for here.
- */
-function folderOf(id: string, tally: FileFolder['tally'], label: string): FileFolder {
-  return {
-    key: `folder:${id}`,
-    id,
-    label,
-    sublabel: describeContents(tally),
-    papers: [],
-    tally,
-    touchedAt: '',
-  };
-}
 
 function explain(error: unknown, fallback: string): string {
   if (!(error instanceof Error)) return fallback;

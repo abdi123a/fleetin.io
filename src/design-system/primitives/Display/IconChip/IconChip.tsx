@@ -39,6 +39,7 @@ export type IconChipTint =
   | 'on-teal'
   | 'on-green'
   | 'on-impact'
+  | 'on-muted'
   | 'on-done'
   | 'on-light';
 
@@ -56,7 +57,9 @@ const CHIP_TINT: Record<IconChipTint, string> = {
   red: 'bg-destructive text-destructive-foreground',
   blue: 'bg-info text-info-foreground',
   /* Fleetin Impact's yellow — the road a realized match did not drive. */
-  impact: 'bg-impact text-impact-foreground',
+  /* The yellow's deep ink as the disc, white glyph — never the near-black
+     the yellow's own foreground would put there (user, 2026-09-04). */
+  impact: 'bg-impact-subtle-foreground text-white',
   neutral: 'bg-muted-foreground text-background',
   /* On a filled tile the card carries the hue, so the disc inverts. */
   'on-teal': 'bg-white text-tile-teal',
@@ -66,7 +69,12 @@ const CHIP_TINT: Record<IconChipTint, string> = {
      light and a near-white one on dark, so a hard-coded white disc would
      vanish into it the moment the theme changed. */
   'on-green': 'bg-success-foreground text-success',
-  'on-impact': 'bg-impact-foreground text-impact',
+  /* White on the yellow card, with the glyph in the yellow's own deep ink —
+     a dark disc there was the one black thing on a page of colour, and the
+     user asked for it gone (2026-09-04). */
+  'on-impact': 'bg-white text-impact-subtle-foreground',
+  /* White on the grey baseline card, glyph in the quiet ink. */
+  'on-muted': 'bg-white text-muted-foreground',
   'on-done': 'bg-tile-done-foreground text-tile-done',
   'on-light': 'bg-white text-tile-foreground',
 };

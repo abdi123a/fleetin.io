@@ -201,6 +201,13 @@ export const conversationSchema = z.object({
   lastMessage: z
     .object({ body: z.string(), createdAt: z.string(), author: z.string() })
     .nullable(),
+  /**
+   * Whether this reader may delete the room — its creator, or somebody holding
+   * `workspace.manage`; never true on a direct message. Decided server-side by
+   * the same rule the DELETE enforces, so the rail cannot offer a control that
+   * would be refused. Defaulted for a server that predates the field.
+   */
+  deletableByMe: z.boolean().default(false),
 });
 
 export const channelSchema = z.object({

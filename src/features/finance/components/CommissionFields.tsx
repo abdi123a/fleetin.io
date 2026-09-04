@@ -12,10 +12,17 @@ import type { CommissionMode } from '../model/commission';
  *   - **House rate** — no special deal. The rate under Settings applies, and
  *     this record follows it wherever it moves. The default, and the one most
  *     records stay on.
- *   - **Percentage of the job** — a share of what the client is billed.
- *   - **Fixed fee per container** — a flat amount, charged once per booking.
- *     A five-container shipment owes five fees, and the hint says so, because
- *     "per container" read as "per shipment" is a twenty-fold error.
+ *   - **Custom percentage** — a share of what the client is billed, at a rate
+ *     agreed with this counterparty rather than the house one.
+ *   - **Flat fee** — a fixed amount, charged once per container. A
+ *     five-container shipment owes five fees, and the field and its hint both
+ *     say "per container", because read as "per shipment" that is a
+ *     five-fold error.
+ *
+ * The two option labels name the SHAPE of the deal, not a sentence about it:
+ * a reader picking from this list is choosing between a percentage and a flat
+ * amount, and "Percentage of the job" / "Fixed fee per container" spent the
+ * width restating what the fields underneath already spell out.
  *
  * The mode is what records a deal, never the amount. That is why "house rate"
  * is an explicit choice rather than an empty box: a negotiated **0%** is a real
@@ -74,8 +81,8 @@ export function CommissionFields({
           onChange={(event) => setMode(event.target.value)}
           options={[
             { value: 'house', label: `House rate — ${housePct}%` },
-            { value: 'percent', label: 'Percentage of the job' },
-            { value: 'fixed', label: 'Fixed fee per container' },
+            { value: 'percent', label: 'Custom percentage' },
+            { value: 'fixed', label: 'Flat fee' },
           ]}
         />
         <p className="type-body-xs text-muted-foreground">

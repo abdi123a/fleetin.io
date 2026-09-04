@@ -60,6 +60,11 @@ export const ROUTE_PERMISSIONS: Record<string, readonly string[]> = {
   [ROUTES.financeInvoiceDetail]: ['finance.view'],
   [ROUTES.financeProjects]: ['finance.view'],
   [ROUTES.financeProjectDetail]: ['finance.view'],
+  /* The expense book is the one finance screen a driver or a warehouse hand
+     reaches: anybody who may FILE a claim may open it, and the server shows
+     an account without `expenses.view` only its own rows. Requiring the view
+     grant here would have hidden a person's own claim from them. */
+  [ROUTES.financeExpenses]: ['expenses.view', 'expenses.create'],
 
   /* HR & payroll — the module's own lines, which do not all run through
      `hr.view`: FINANCE holds payroll without the staff records. */

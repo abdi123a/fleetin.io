@@ -32,6 +32,38 @@ export interface RaiseTaskDialogProps {
  * is a reason to close it and carry on, and the thing never gets written down.
  * Description, links and the conversation all live on the task afterwards.
  */
+/**
+ * An example of the kind of thing raised ON THIS RECORD.
+ *
+ * The field carried one placeholder for everything — "Broken container door —
+ * needs the garage" — which is a fleet problem being suggested on an invoice,
+ * a driver and a shipper alike. A placeholder is an example, and an example
+ * from the wrong domain teaches the reader the field is for something else.
+ */
+function titlePlaceholder(recordType?: RecordType): string {
+  switch (recordType) {
+    case 'INVOICE':
+      return 'Client disputes the amount — check the rate';
+    case 'SHIPMENT':
+      return 'Consignee changed the delivery window';
+    case 'BOOKING':
+      return 'Broken container door — needs the garage';
+    case 'VEHICLE':
+      return 'Brake service due — book the workshop';
+    case 'DRIVER':
+      return 'Licence expires next month — chase the renewal';
+    case 'SHIPPER':
+      return 'Agree next quarter\u2019s rates';
+    case 'PARTNER':
+      return 'Insurance certificate is out of date';
+    case 'EMPTY_RETURN_CYCLE':
+    case 'EMPTY_RETURN_CHAIN':
+      return 'Box is past its free days — arrange the return';
+    default:
+      return 'What has to happen, in one line';
+  }
+}
+
 export function RaiseTaskDialog({ open, onOpenChange, record, status, onCreated }: RaiseTaskDialogProps) {
   const { data: team = [] } = useTeam();
   const create = useCreateTask();
@@ -108,7 +140,7 @@ export function RaiseTaskDialog({ open, onOpenChange, record, status, onCreated 
             <Input
               value={title}
               autoFocus
-              placeholder="Broken container door — needs the garage"
+              placeholder={titlePlaceholder(record?.recordType)}
               onChange={(event) => setTitle(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && canSubmit) { event.preventDefault(); submit(); }

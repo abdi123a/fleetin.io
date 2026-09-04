@@ -471,6 +471,13 @@
    * breaking the other one. */
   --stage-loaded: var(--fl-green-500);
   --stage-loaded-foreground: var(--fl-neutral-0);
+  /* This hue as a BLOCK on a dark filled surface — the chain band's CO₂ chip.
+     Same reasoning as `--stage-returning-on-fill` below: green-500 is a mid
+     tone that goes muddy on the brand's dark teal, and `-subtle` is a wash
+     built for a white page. -300 is bright enough to read as green against
+     the teal, and dark enough at -950 to carry its own text at 9.7:1. */
+  --stage-loaded-on-fill: var(--fl-green-300);
+  --stage-loaded-on-fill-foreground: var(--fl-green-950);
   /* -100, matching the sky wash beside it. The pale card is the load that has
      not been collected yet, so it must stay quieter than the solid one — but
      at -50 it was quieter than the white card behind it, which is not a

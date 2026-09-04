@@ -10,10 +10,11 @@ import {
   type FilterMenuGroup,
 } from '@/components';
 import { Badge, Card, IconChip, Input, Skeleton } from '@/design-system';
-import { Leaf, Route } from '@/design-system/icons';
+import { ContainerIcon, Gauge, Handshake, Leaf, Route, Truck } from '@/design-system/icons';
 import { ApexChart } from '@/features/shipper-bi/charts/ApexChart';
 import { baseChartOptions, buildTooltipHtml, chartAnimSpeed, resolveColor } from '@/features/shipper-bi/charts/apexChartTheme';
 import {
+  Co2Kpi,
   ImpactStatusBadge,
   SavedForest,
   shortPlace,
@@ -25,7 +26,7 @@ import {
   type EmissionsFilters,
   type EmissionsSlice,
 } from '@/features/emissions';
-import { co2Label, formatCo2, formatFactor, formatKm, treeYearEquivalent } from '@/lib/co2';
+import { co2Label, formatCo2, formatFactor, formatKm, treesPlantedLabel } from '@/lib/co2';
 import { CompanyName } from '@/pages/empty-returns/components/marks';
 import { cn } from '@/utils';
 
@@ -257,7 +258,7 @@ export function EmissionsPage() {
               : 'No match has been driven in this range'
           }
           detail={[
-            impact && impact.co2AvoidedKg > 0 ? `≈ ${treeYearEquivalent(impact.co2AvoidedKg)}` : undefined,
+            impact && impact.co2AvoidedKg > 0 ? treesPlantedLabel(impact.co2AvoidedKg) : undefined,
             impact && impact.realizedMatches - impact.pricedMatches > 0
               ? `${impact.realizedMatches - impact.pricedMatches} of ${impact.realizedMatches} not priced — the next load has no truck yet`
               : undefined,
@@ -268,7 +269,7 @@ export function EmissionsPage() {
           {/* The trees grow once the figure has counted up — the signature
               moment of the page, and it is one moment, not two. */}
           {impact && impact.co2AvoidedKg > 0 && (
-            <SavedForest co2Kg={impact.co2AvoidedKg} onGreen startDelayMs={1000} className="mt-3" />
+            <SavedForest co2Kg={impact.co2AvoidedKg} onGreen ground={false} startDelayMs={1000} treeScale={1.25} />
           )}
         </HeroFigure>
         {/* The baseline. Colourless on purpose: it is the one figure on this
@@ -293,6 +294,21 @@ export function EmissionsPage() {
               : undefined
           }
         />
+      </div>
+
+      {/* ── The figures behind the two ──────────────────────────────────── */}
+      {/* Six tiles, in the two colours: what the generated figure is made of
+          on the yellow side, what the saving is made of on the green. Each
+          counts up as it enters. The user asked for the page to carry more
+          cards than the three above (2026-09-04); these are the numbers the
+          sums already name, given room of their own. */}
+      <div className="grid grid-cols-2 gap-3 @[46rem]/page:grid-cols-3 @[64rem]/page:grid-cols-6">
+        <FigureTile tone="impact" label="Distance driven" value={kpis?.totalDistanceKm ?? 0} kind="km" icon={Route} loading={isLoading} delayMs={320} />
+        <FigureTile tone="impact" label="Rate" value={kpis?.avgCo2PerKm ?? 0} kind="rate" icon={Gauge} loading={isLoading} delayMs={380} />
+        <FigureTile tone="impact" label="Containers" value={kpis?.bookingCount ?? 0} kind="count" icon={ContainerIcon} loading={isLoading} delayMs={440} />
+        <FigureTile tone="impact" label="Shipments" value={kpis?.shipmentCount ?? 0} kind="count" icon={Truck} loading={isLoading} delayMs={500} />
+        <FigureTile tone="green" label="Distance avoided" value={impact?.distanceAvoidedKm ?? 0} kind="km" icon={Route} loading={isLoading} delayMs={560} />
+        <FigureTile tone="green" label="Matches" value={impact?.realizedMatches ?? 0} kind="count" icon={Handshake} loading={isLoading} delayMs={620} />
       </div>
 
       {/* ── 2. One against the other ───────────────────────────────────── */}
@@ -351,48 +367,56 @@ type Tone = 'generated' | 'saved' | 'baseline';
  */
 const TONE = {
   generated: {
-    card: 'border-transparent bg-impact text-impact-foreground',
-    label: 'text-impact-foreground/85',
-    unit: 'text-impact-foreground/80',
-    sum: 'text-impact-foreground/95',
+    /* Yellow, deepening towards the corner, with a hairline of light on the
+       top edge. The card is the cost side of the page and wears the accent
+       every outstanding obligation wears. */
+    card: 'border-transparent text-impact-foreground bg-[linear-gradient(150deg,var(--impact)_0%,var(--fl-orange-600)_100%)] shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]',
+    label: 'text-impact-foreground/80',
+    dot: 'bg-white/85',
+    unit: 'text-impact-foreground/75',
+    chip: 'bg-white/22 text-impact-foreground ring-1 ring-white/25',
+    op: 'text-impact-foreground/60',
     detail: 'text-impact-foreground/75',
-    chip: 'on-impact' as const,
+    disc: 'on-impact' as const,
     bar: 'bg-impact',
   },
   saved: {
-    card: 'border-transparent bg-success text-success-foreground',
-    label: 'text-success-foreground/90',
-    unit: 'text-success-foreground/85',
-    sum: 'text-success-foreground/95',
-    detail: 'text-success-foreground/80',
-    chip: 'on-green' as const,
+    card: 'border-transparent text-success-foreground bg-[linear-gradient(160deg,var(--success)_0%,var(--success-deep)_100%)] shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]',
+    label: 'text-success-foreground/85',
+    dot: 'bg-white/90',
+    unit: 'text-success-foreground/80',
+    chip: 'bg-white/15 text-success-foreground ring-1 ring-white/25',
+    op: 'text-success-foreground/60',
+    detail: 'text-success-foreground/85',
+    disc: 'on-green' as const,
     bar: 'bg-success',
   },
   baseline: {
-    card: 'border-border bg-surface-sunken text-foreground',
+    /* Dashed, on a dotted field: the one figure on the page that did not
+       happen, drawn the way a plan is drawn. */
+    card: 'border-dashed border-border-strong text-foreground bg-surface',
     label: 'text-muted-foreground',
+    dot: 'bg-border-strong',
     unit: 'text-muted-foreground',
-    sum: 'text-foreground/90',
+    chip: 'bg-foreground/[0.05] text-foreground ring-1 ring-border',
+    op: 'text-muted-foreground',
     detail: 'text-muted-foreground',
-    chip: 'neutral' as const,
+    disc: 'on-muted' as const,
     bar: 'bg-border-strong',
   },
 };
 
 /**
- * One of the three headline figures, with its sum written under it.
- *
- * The sum is the point. "3.5 t" alone is a number to be trusted; "3,562 km
- * driven × 0.972 kg/km" is a number to be checked, and a page the user found
- * hard to understand needed the second kind.
+ * One of the three headline figures, drawn as a small scene.
  *
  * The figure counts up when the card enters — in its final unit, so "3.5 t"
  * climbs 0 → 1.2 → 2.4 → 3.5 rather than passing through kilogrammes and
- * flipping units halfway. Behind the words, each tone carries its own faint
- * weather: drifting particles and airflow for the carbon that went up, a
- * breathing glow and leaf curves for the carbon that did not, a still haze
- * for the baseline. Opacity and transforms only, behind everything, and
- * never in the way of a figure.
+ * flipping units halfway. Under it, the sum that made it is set as an
+ * equation in chips ("3,562 km driven × 0.972 kg/km"), so the arithmetic is
+ * something the eye parses rather than a sentence it reads. Behind
+ * everything, each card has its own weather: exhaust waves on the yellow,
+ * hills and a sun on the green, a dotted field on the dashed baseline — all
+ * inert, all behind the words.
  */
 function HeroFigure({
   tone,
@@ -433,9 +457,9 @@ function HeroFigure({
 
   if (loading) {
     return (
-      <div className={cn('flex min-h-[10rem] flex-col justify-between gap-3 rounded-card border border-border bg-surface p-5', className)}>
+      <div className={cn('flex min-h-[11rem] flex-col justify-between gap-3 rounded-card border border-border bg-surface p-6', className)}>
         <Skeleton className="h-4 w-24 rounded-md" shape="text" />
-        <Skeleton className="h-10 w-32 rounded-md" />
+        <Skeleton className="h-12 w-36 rounded-md" />
         <Skeleton className="h-3 w-56 rounded-md" shape="text" />
       </div>
     );
@@ -443,213 +467,305 @@ function HeroFigure({
   return (
     <div
       className={cn(
-        'group relative flex min-h-[10rem] flex-col gap-3 overflow-hidden rounded-card border p-5 shadow-2xs',
-        'animate-rise-in transition-[transform,box-shadow] duration-fast hover:-translate-y-0.5 hover:shadow-md',
+        'group relative flex min-h-[11rem] flex-col overflow-hidden rounded-card border p-6',
+        'animate-rise-in transition-[transform,box-shadow] duration-fast hover:-translate-y-0.5 hover:shadow-lg',
         t.card,
         className,
       )}
       style={{ animationDelay: `${enterDelayMs}ms` } as CSSProperties}
     >
-      <Weather tone={tone} />
-      <div className="relative flex items-start justify-between gap-2">
-        <span className={cn('text-xs font-bold uppercase tracking-wider', t.label)}>{label}</span>
+      <Scenery tone={tone} />
+
+      <div className="relative flex items-start justify-between gap-3">
+        <span className={cn('inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em]', t.label)}>
+          <span className={cn('size-1.5 rounded-full', t.dot)} aria-hidden />
+          {label}
+        </span>
         <span className="transition-transform duration-fast group-hover:scale-105">
-          <IconChip icon={icon} tint={t.chip} size={44} />
+          <IconChip icon={icon} tint={t.disc} size={44} />
         </span>
       </div>
-      <span className="relative flex items-baseline gap-2">
-        <strong className="text-5xl font-semibold leading-none tracking-tight tabular-nums">{shown}</strong>
-        {target.unit && <span className={cn('text-sm font-semibold', t.unit)}>{target.unit}</span>}
+
+      <span className="relative mt-4 flex items-baseline gap-2">
+        <strong className="text-6xl font-semibold leading-none tracking-tighter tabular-nums">{shown}</strong>
+        {target.unit && <span className={cn('text-base font-semibold', t.unit)}>{target.unit}</span>}
       </span>
-      <div className="relative mt-auto space-y-0.5">
-        <p className={cn('text-sm font-semibold tabular-nums', t.sum)}>{sum}</p>
-        {detail && <p className={cn('text-xs font-medium tabular-nums', t.detail)}>{detail}</p>}
+
+      {/* The sum as an equation, then the smaller facts under it. When the card
+          carries the forest these hug the figure; otherwise they hold the
+          bottom edge. */}
+      <div className={cn('relative', children ? 'mt-4' : 'mt-auto pt-5')}>
+        <SumChips text={sum} chip={t.chip} op={t.op} />
+        {detail && <p className={cn('mt-2 text-xs font-semibold tabular-nums', t.detail)}>{detail}</p>}
       </div>
-      {children && <div className="relative">{children}</div>}
+
+      {children && <div className="relative mt-auto pt-8">{children}</div>}
     </div>
   );
 }
 
 /**
- * The faint weather behind a hero figure. Decorative and inert: it is
- * `aria-hidden`, takes no pointer events, and stays under 20% opacity so the
- * words on top never have to fight it.
+ * A sum set as chips: operands in translucent pills, operators between them
+ * in the quiet ink. "3,562 km driven × 0.972 kg/km" arrives as two pills and
+ * a ×; "396 km … · 12 matches" as two pills with a dot. A sentence with no
+ * operator in it is one pill.
  */
-function Weather({ tone }: { tone: Tone }) {
+function SumChips({ text, chip, op }: { text: string; chip: string; op: string }) {
+  const parts = text.split(/\s(×|\+|−|·)\s/);
+  const pill = (part: string) => (
+    <span className={cn('rounded-md px-2 py-0.5 leading-5 backdrop-blur-[2px]', chip)}>{part}</span>
+  );
+  return (
+    <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1.5 text-[13px] font-semibold tabular-nums">
+      {pill(parts[0] ?? text)}
+      {/* Each operator is glued to the operand after it: when the sum wraps
+          in a narrow card, the line breaks before the "+", never after it —
+          a line ending on a dangling operator reads as an unfinished sum. */}
+      {parts.slice(1).reduce<ReactNode[]>((nodes, part, index) => {
+        if (index % 2 === 0) return nodes;
+        const operator = parts[index] ?? '';
+        nodes.push(
+          <span key={index} className="inline-flex items-center gap-x-1.5 whitespace-nowrap">
+            <span className={cn('px-0.5 text-sm', op)} aria-hidden={operator === '·'}>
+              {operator === '·' ? '' : operator}
+            </span>
+            {pill(part)}
+          </span>,
+        );
+        return nodes;
+      }, [])}
+    </p>
+  );
+}
+
+/**
+ * The scene behind a hero figure. Decorative and inert: `aria-hidden`, no
+ * pointer events, everything light and translucent so the words on top never
+ * fight it.
+ */
+function Scenery({ tone }: { tone: Tone }) {
   if (tone === 'saved') {
     return (
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-        <span className="absolute -right-16 -top-20 size-64 rounded-full bg-white/20 blur-3xl animate-glow" />
-        <span className="absolute -bottom-24 -left-10 size-56 rounded-full bg-white/10 blur-3xl animate-glow" style={{ animationDelay: '3s' }} />
-        <svg className="absolute inset-0 h-full w-full opacity-[0.14]" viewBox="0 0 400 160" preserveAspectRatio="none">
-          <path d="M-20 130 C 80 90, 140 150, 240 100 S 380 60, 440 90" fill="none" stroke="white" strokeWidth="1.5" />
-          <path d="M-20 150 C 100 120, 180 165, 300 120 S 400 95, 440 110" fill="none" stroke="white" strokeWidth="1" />
+        {/* The sun, high on the right: a crisp disc inside a soft glow. */}
+        <span className="absolute -right-6 -top-8 size-44 rounded-full bg-white/20 blur-2xl animate-glow" />
+        {/* Clear of the icon disc in the corner. */}
+        <span className="absolute right-32 top-7 size-9 rounded-full bg-white/30" />
+        {/* Three hills, back to front, for the trees to stand on. */}
+        <svg className="absolute inset-x-0 bottom-0 h-[58%] w-full" viewBox="0 0 800 200" preserveAspectRatio="none">
+          <path d="M0 120 C 120 60, 260 70, 400 110 S 660 150, 800 90 V200 H0 Z" fill="white" fillOpacity="0.08" />
+          <path d="M0 160 C 160 110, 300 130, 460 150 S 700 170, 800 140 V200 H0 Z" fill="white" fillOpacity="0.1" />
+          <path d="M0 185 C 200 160, 420 175, 600 170 S 760 165, 800 172 V200 H0 Z" fill="white" fillOpacity="0.14" />
         </svg>
-        <Particles color="rgba(255,255,255,0.55)" />
       </div>
     );
   }
   if (tone === 'generated') {
     return (
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-        <svg className="absolute inset-0 h-full w-full opacity-[0.16]" viewBox="0 0 400 160" preserveAspectRatio="none">
-          <path d="M-20 40 C 60 20, 120 60, 200 40 S 330 20, 440 45" fill="none" stroke="currentColor" strokeWidth="1.2" />
-          <path d="M-20 70 C 80 55, 150 90, 240 70 S 360 50, 440 75" fill="none" stroke="currentColor" strokeWidth="1" />
+        {/* Exhaust: three layered waves rising through the lower right. */}
+        <svg className="absolute inset-x-0 bottom-0 h-[70%] w-full" viewBox="0 0 800 200" preserveAspectRatio="none">
+          <path d="M0 190 C 140 150, 260 200, 400 160 S 660 100, 800 130 V200 H0 Z" fill="white" fillOpacity="0.08" />
+          <path d="M0 200 C 180 170, 320 210, 480 180 S 700 130, 800 160 V200 H0 Z" fill="white" fillOpacity="0.1" />
+          <path d="M240 200 C 360 185, 520 205, 640 190 S 760 170, 800 180 V200 H240 Z" fill="white" fillOpacity="0.14" />
         </svg>
-        <Particles color="rgba(0,0,0,0.28)" />
+        <span className="absolute -left-10 -top-12 size-40 rounded-full bg-white/15 blur-3xl" />
       </div>
     );
   }
   return (
-    <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-      <Particles color="rgba(0,0,0,0.16)" still />
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-0 opacity-70"
+      /* A dotted field, in the border grey: the texture of a plan. */
+      style={{
+        backgroundImage: 'radial-gradient(circle, var(--border-strong) 1px, transparent 1px)',
+        backgroundSize: '18px 18px',
+        maskImage: 'linear-gradient(180deg, transparent 20%, black 100%)',
+        WebkitMaskImage: 'linear-gradient(180deg, transparent 20%, black 100%)',
+      }}
+    />
+  );
+}
+
+/**
+ * A small figure that counts up as it enters — `Co2Kpi`, fed a number that
+ * is still moving. Kilometres, a count, or a rate, each printed the way the
+ * page prints it once it has landed.
+ */
+function FigureTile({
+  tone,
+  label,
+  value,
+  kind,
+  icon,
+  loading,
+  delayMs,
+}: {
+  tone: 'green' | 'impact';
+  label: string;
+  value: number;
+  kind: 'km' | 'count' | 'rate';
+  icon: ComponentType<SVGProps<SVGSVGElement>>;
+  loading?: boolean;
+  delayMs: number;
+}) {
+  const count = useCountUp(value, { durationMs: 900, delayMs: delayMs + 200, active: !loading });
+  const shown = count.done ? value : count.value;
+  const printed =
+    kind === 'km'
+      ? formatKm(shown).value
+      : kind === 'rate'
+        ? shown.toFixed(3)
+        : Math.round(shown).toLocaleString();
+  const unit = kind === 'km' ? 'km' : kind === 'rate' ? 'kg/km' : undefined;
+  return (
+    <div
+      className="animate-rise-in transition-transform duration-fast hover:-translate-y-0.5"
+      style={{ animationDelay: `${delayMs}ms` }}
+    >
+      <Co2Kpi tone={tone} label={label} value={printed} unit={unit} icon={icon} loading={loading} />
     </div>
   );
 }
 
-/** A handful of soft dots, drifting slowly — or held still for the baseline. */
-function Particles({ color, still = false }: { color: string; still?: boolean }) {
-  return (
-    <>
-      {PARTICLES.map((p, index) => (
-        <span
-          key={`${p.x}-${p.y}`}
-          className={cn('absolute rounded-full', !still && 'animate-drift')}
-          style={{
-            left: `${p.x}%`,
-            top: `${p.y}%`,
-            width: p.size,
-            height: p.size,
-            background: color,
-            opacity: p.opacity,
-            animationDelay: `${index * 1.3}s`,
-            animationDuration: `${8 + index * 1.7}s`,
-          }}
-        />
-      ))}
-    </>
-  );
-}
-
-/** Fixed positions, so the weather is the same on every render. */
-const PARTICLES = [
-  { x: 12, y: 70, size: 5, opacity: 0.7 },
-  { x: 28, y: 32, size: 3, opacity: 0.55 },
-  { x: 47, y: 78, size: 4, opacity: 0.6 },
-  { x: 63, y: 22, size: 6, opacity: 0.45 },
-  { x: 78, y: 62, size: 3, opacity: 0.65 },
-  { x: 90, y: 40, size: 4, opacity: 0.5 },
-];
+/** A hundred cells, twenty to a row: one per hundredth of the expected carbon. */
+const CELLS = 100;
+const COLUMNS = 20;
 
 /**
- * The two bars, drawn the moment the reader reaches them.
+ * The comparison, as a hundred cells.
  *
- * Both grow from nothing to their length on entry, the green segment last,
- * so the reduction is seen happening rather than found. The share counts up
- * behind the bars and slides in once they have settled.
+ * Two bars on one scale were the first answer, and the user wanted a
+ * different idea altogether — "a new concept that is not this style"
+ * (2026-09-04). So the carbon the same work would have cost without Fleetin
+ * — what was generated plus what was saved — is a dashed frame, drawn the
+ * way the baseline is drawn everywhere else on the page, carrying its own
+ * figure and holding a hundred cells, one per hundredth of it. The green
+ * cells at the top-left never went out; the yellow ones did. The last green
+ * cell is filled to the exact fraction, so the picture and the percentage
+ * beside it agree to a decimal, and the caption under the grid says what one
+ * cell weighs, so the picture stays a quantity rather than a decoration.
+ *
+ * Twenty to a row, the cells sized by the room they have: a ten-by-ten
+ * block left most of the card empty ("the screen is not actually full"),
+ * and drawing the same hundred twice — once all yellow for the baseline —
+ * was "duplicate, only use one" (2026-09-05). Green at the top-left, where
+ * reading starts: on the ground row the laptop fold hid it.
  */
 function ComparisonCard({ generatedKg, savedKg }: { generatedKg: number; savedKg: number }) {
   const [ref, inView] = useInView<HTMLDivElement>();
-  const savedShare = generatedKg > 0 && savedKg > 0 ? (savedKg / generatedKg) * 100 : null;
-  const share = useCountUp(savedShare ?? 0, { durationMs: 700, delayMs: 700, active: inView });
+  const total = generatedKg + savedKg;
+  const savedShare = total > 0 ? (savedKg / total) * 100 : 0;
+  const share = useCountUp(savedShare, { durationMs: 900, delayMs: 400, active: inView });
+  const shown = share.done ? savedShare : share.value;
+  const printedShare = shown < 10 ? shown.toFixed(1) : shown.toFixed(0);
+
   return (
     <Card
       ref={ref}
-      className="space-y-3 rounded-lg border border-border/80 bg-card p-4 shadow-2xs transition-[transform,box-shadow] duration-fast hover:-translate-y-0.5 hover:shadow-md sm:p-5"
+      className="rounded-lg border border-border/80 bg-card p-4 shadow-2xs transition-[transform,box-shadow] duration-fast hover:-translate-y-0.5 hover:shadow-md sm:p-5"
     >
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-sm font-bold text-foreground">Saved against generated</h3>
-        {savedShare !== null && (
-          <span
-            className={cn(
-              'text-xs font-semibold text-muted-foreground transition-[opacity,transform] duration-normal',
-              inView ? 'translate-y-0 opacity-100' : 'translate-y-1 opacity-0',
-            )}
-            style={{ transitionDelay: '700ms' }}
-          >
-            Saved{' '}
-            <strong className="tabular-nums text-foreground">
-              {share.value >= 10 ? share.value.toFixed(0) : share.value.toFixed(1)}%
-            </strong>{' '}
-            of what was generated
-          </span>
-        )}
+      <h3 className="text-sm font-bold text-foreground">Saved against generated</h3>
+      {/* The grid takes the width and the figures the end of the row; below
+          64rem the figures drop under it, centred. */}
+      <div className="mt-4 grid gap-6 @[64rem]/page:grid-cols-[minmax(0,1fr)_auto] @[64rem]/page:items-center @[64rem]/page:gap-10">
+        <GridFrame label="Without Fleetin" figure={co2Label(total)} caption={`1 cell = ${co2Label(total / CELLS)}`}>
+          <UnitGrid savedShare={savedShare} inView={inView} />
+        </GridFrame>
+        <div className="min-w-0 text-center @[64rem]/page:pr-4 @[64rem]/page:text-left">
+          <p className="text-6xl font-bold leading-none tracking-tight tabular-nums text-success-subtle-foreground">
+            {printedShare}%
+          </p>
+          <p className="mt-2 text-sm font-semibold text-muted-foreground">of the expected carbon, saved</p>
+          <dl className="mt-6 flex flex-wrap justify-center gap-x-10 gap-y-4 @[64rem]/page:justify-start">
+            <KeyFigure swatch="bg-success" label="Saved" value={co2Label(savedKg)} />
+            <KeyFigure swatch="bg-impact/75" label="Generated" value={co2Label(generatedKg)} />
+          </dl>
+        </div>
       </div>
-      {/* Two bars on one scale. The grey one is what the road would have
-          cost without the matches. The second is the same road with
-          Fleetin: yellow for what was generated, green for the part that
-          was not driven — the two add up to the grey bar above, which is
-          the whole comparison in one glance. The user's own layout,
-          2026-09-03: "so we can see a yellow and a green". */}
-      <CompareBar label="Without Fleetin" tone="baseline" kg={generatedKg + savedKg} maxKg={generatedKg + savedKg} grown={inView} />
-      <WithFleetinBar generatedKg={generatedKg} savedKg={savedKg} grown={inView} />
     </Card>
   );
 }
 
-/** One bar of the comparison: a label, a fill on the shared scale, the figure. */
-function CompareBar({
+/**
+ * The frame around the grid: the baseline's name, its figure, and the
+ * cells. Dashed, because what the road would have cost is a plan, and it is
+ * drawn like one everywhere on this page.
+ */
+function GridFrame({
   label,
-  tone,
-  kg,
-  maxKg,
-  grown,
+  figure,
+  caption,
+  children,
 }: {
   label: string;
-  tone: Tone;
-  kg: number;
-  maxKg: number;
-  /** False until the card is in view; the fill grows from nothing when it flips. */
-  grown: boolean;
+  figure: string;
+  caption: string;
+  children: ReactNode;
 }) {
-  const share = maxKg > 0 ? Math.min(100, (kg / maxKg) * 100) : 0;
   return (
-    <div className="flex items-center gap-3">
-      <span className="w-24 shrink-0 text-xs font-semibold text-muted-foreground">{label}</span>
-      <span className="h-3 min-w-0 flex-1 overflow-hidden rounded-full bg-secondary" aria-hidden>
-        <span
-          className={cn('block h-full rounded-full transition-[width] duration-slow ease-out', TONE[tone].bar)}
-          style={{ width: grown ? `${Math.max(share, kg > 0 ? 1 : 0)}%` : '0%', transitionDuration: '800ms' }}
-        />
-      </span>
-      <span className="w-44 shrink-0 text-right text-sm font-bold tabular-nums text-foreground">{co2Label(kg)}</span>
+    <div className="min-w-0 rounded-lg border-2 border-dashed border-border-strong p-3 sm:p-4">
+      <div className="mb-3 flex items-baseline justify-between gap-4">
+        <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{label}</span>
+        <span className="text-sm font-bold tabular-nums text-foreground">{figure}</span>
+      </div>
+      {children}
+      <p className="mt-3 text-xs font-semibold tabular-nums text-muted-foreground">{caption}</p>
     </div>
   );
 }
 
 /**
- * The road with Fleetin, as one bar in two colours: yellow for the carbon
- * generated, green for the carbon that was not, laid end to end on the
- * baseline's scale so together they reach the grey bar above.
+ * The hundred cells, sized by the width they are given. Counted from the
+ * top-left, so the saving is the first thing read; the entrance runs the
+ * other way, from the bottom-right up, so the green cells are the last to
+ * land.
  */
-function WithFleetinBar({ generatedKg, savedKg, grown }: { generatedKg: number; savedKg: number; grown: boolean }) {
-  const total = generatedKg + savedKg;
-  const generatedShare = total > 0 ? (generatedKg / total) * 100 : 0;
-  const savedShare = total > 0 ? (savedKg / total) * 100 : 0;
+function UnitGrid({ savedShare, inView }: { savedShare: number; inView: boolean }) {
+  const savedCells = (savedShare / 100) * CELLS;
+  const whole = Math.floor(savedCells);
+  const fraction = savedCells - whole;
   return (
-    <div className="flex items-center gap-3">
-      <span className="w-24 shrink-0 text-xs font-semibold text-muted-foreground">With Fleetin</span>
-      <span className="flex h-3 min-w-0 flex-1 overflow-hidden rounded-full bg-secondary" aria-hidden>
-        <span
-          className={cn('block h-full transition-[width] ease-out', TONE.generated.bar)}
-          style={{ width: grown ? `${generatedShare}%` : '0%', transitionDuration: '800ms' }}
-        />
-        {/* The green grows in after the yellow has landed. */}
-        <span
-          className={cn('block h-full transition-[width] ease-out', TONE.saved.bar)}
-          style={{
-            width: grown ? `${Math.max(savedShare, savedKg > 0 ? 1 : 0)}%` : '0%',
-            transitionDuration: '600ms',
-            transitionDelay: '500ms',
-          }}
-        />
-      </span>
-      <span className="flex w-44 shrink-0 flex-wrap items-baseline justify-end gap-x-1.5 text-right tabular-nums">
-        <span className="text-sm font-bold text-foreground">{co2Label(generatedKg)}</span>
-        {savedKg > 0 && (
-          <span className="text-xs font-semibold text-success-subtle-foreground">+ {co2Label(savedKg)} saved</span>
-        )}
-      </span>
+    <div
+      className="grid gap-1 @[40rem]/page:gap-1.5"
+      style={{ gridTemplateColumns: `repeat(${COLUMNS}, minmax(0, 1fr))` }}
+      role="img"
+      aria-label={`Of every 100 kg of carbon expected, ${savedShare.toFixed(1)} kg were saved`}
+    >
+      {Array.from({ length: CELLS }, (_, index) => {
+        const saved = index < whole;
+        const part = index === whole && fraction >= 0.05 ? fraction : 0;
+        return (
+          <span
+            key={index}
+            className={cn(
+              'aspect-square w-full rounded-[18%] transition-[transform,opacity] duration-normal ease-out',
+              saved ? 'bg-success' : 'bg-impact/75',
+              inView ? 'scale-100 opacity-100' : 'scale-50 opacity-0',
+            )}
+            style={{
+              transitionDelay: `${(CELLS - 1 - index) * 6}ms`,
+              ...(part > 0 && {
+                backgroundImage: `linear-gradient(to right, var(--success) ${part * 100}%, transparent ${part * 100}%)`,
+              }),
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+/** One figure of the key: the swatch the cells wear, the name, the amount. */
+function KeyFigure({ swatch, label, value }: { swatch: string; label: string; value: string }) {
+  return (
+    <div>
+      <dt className="flex items-center justify-center gap-2 text-xs font-semibold text-muted-foreground @[64rem]/page:justify-start">
+        <span className={cn('h-3 w-3 shrink-0 rounded-[3px]', swatch)} aria-hidden />
+        {label}
+      </dt>
+      <dd className="mt-1 text-2xl font-bold tabular-nums text-foreground">{value}</dd>
     </div>
   );
 }

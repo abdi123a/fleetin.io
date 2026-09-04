@@ -100,6 +100,16 @@ export interface DriveFolder {
   icon: 'company' | 'folder' | 'vehicle' | 'driver';
   /** Set on a company folder, for `CompanyMark`. */
   company?: { id: string; name: string };
+  /**
+   * Which side of the book this folder belongs to, on a company folder.
+   *
+   * The two are mixed in one grid and owe completely different papers — a
+   * transporter's dossier reaches down to its trucks and drivers, a shipper's
+   * is one business licence — so the tile has to say which it is before it is
+   * opened. Absent on everything below the company level, where the answer is
+   * whatever the folder above already said.
+   */
+  party?: DriveCompany['kind'];
   tally: ComplianceTally;
   papers: FolderPaper[];
 }
@@ -220,6 +230,7 @@ export function listDrive(
       sublabel: describeFleet(company),
       icon: 'company',
       company: { id: company.id, name: company.name },
+      party: company.kind,
       ...summarise(ownersUnder(company), docs, now),
     }));
     return {
@@ -380,6 +391,8 @@ export interface DriveMatch {
   /** "Massida Logistics · Vehicles" — where it lives. */
   where: string;
   icon: DriveFolder['icon'];
+  /** Set on a company hit, so a search result wears the same mark the grid does. */
+  party?: DriveCompany['kind'];
   path: DriveSegment[];
   tally: ComplianceTally;
   papers: FolderPaper[];
@@ -402,8 +415,13 @@ export function searchDrive(
       matches.push({
         key: `company:${company.id}`,
         label: company.name,
-        where: company.kind === 'PARTNER' ? 'Transporter' : 'Shipper',
+        /* A company is top-level, so it has no "where" — and the side of the
+           book it is on now rides on the tile's own chip. This line used to
+           carry "Transporter"/"Shipper"; saying it twice on one tile is worse
+           than leaving the line blank. */
+        where: '',
         icon: 'company',
+        party: company.kind,
         path: [{ kind: 'company', id: company.id }],
         ...summarise(ownersUnder(company), docs, now),
       });
@@ -467,6 +485,11 @@ function countLabel(count: number, noun: string): string {
 }
 
 function describeFleet(company: DriveCompany): string {
-  if (company.kind === 'SHIPPER') return 'Shipper';
+  /* Empty for a shipper, not "Shipper": the tile's own chip says which side of
+     the book this is, and this line is for what the folder REACHES — a
+     transporter's trucks and drivers. A shipper is a leaf, so it reaches
+     nothing, and repeating its type here says the same word twice on one
+     tile. */
+  if (company.kind === 'SHIPPER') return '';
   return `${countLabel(company.vehicles.length, 'truck')} · ${countLabel(company.drivers.length, 'driver')}`;
 }

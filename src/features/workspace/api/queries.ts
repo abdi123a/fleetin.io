@@ -7,7 +7,7 @@ import {
   assignMessage, createTask, editMessage, fetchInbox, fetchMessages, fetchNotifications,
   fetchRecordCounts, fetchTask, fetchTasks, fetchTaskSummary, fetchUnread, markNotificationsRead, postMessage,
   searchRecords, setMessageResolved, setTaskLinks, updateTask, withdrawMessage,
-  createChannel, fetchChannel, fetchChannelMessages, fetchConversations, fetchThread,
+  createChannel, deleteChannel, fetchChannel, fetchChannelMessages, fetchConversations, fetchThread,
   markChannelRead, openDirectMessage, searchMessages, setChannelMembers, updateChannel, bulkUpdateTasks, fetchWorkload, setChecklist,
   setFollowers, setOwnFollow, toggleChecklistItem, type BulkPayload, type ChecklistDraft, type CreateChannelPayload, type CreateTaskPayload, type MessageSearchFilters, type PostMessagePayload, type TaskFilters } from './workspaceService';
 
@@ -289,6 +289,11 @@ export function useUpdateChannel() {
       updateChannel(id, patch),
     onSuccess: invalidate,
   });
+}
+
+export function useDeleteChannel() {
+  const invalidate = useInvalidateWorkspace();
+  return useMutation({ mutationFn: (id: string) => deleteChannel(id), onSuccess: invalidate });
 }
 
 export function useSetChannelMembers() {

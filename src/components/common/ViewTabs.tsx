@@ -8,6 +8,15 @@ export interface ViewTab<K extends string> {
   /** Four words of similar length are hard to re-find; the shape is what the
       eye returns to. Same reasoning as `DataTable`'s column headings. */
   icon?: ComponentType<{ className?: string }>;
+  /**
+   * How many rows are behind this view.
+   *
+   * Optional, because most switches are between two shapes of the same page
+   * and a count would mean nothing. Where the views are two *populations* —
+   * chains and the containers not in one — the size is half of what the reader
+   * is choosing between, and putting it in the tab saves showing it twice.
+   */
+  count?: number;
 }
 
 export interface ViewTabsProps<K extends string> {
@@ -88,7 +97,7 @@ export function ViewTabs<K extends string>({
         aria-label={label}
         className="relative flex min-w-0 items-center gap-1 overflow-x-auto"
       >
-        {tabs.map(({ key, label: text, icon: Icon }) => {
+        {tabs.map(({ key, label: text, icon: Icon, count }) => {
           const live = value === key;
           return (
             <button
@@ -108,6 +117,13 @@ export function ViewTabs<K extends string>({
             >
               {Icon ? <Icon className="size-4" /> : null}
               {text}
+              {/* Quieter than the label in both states — a count is what the
+                  view holds, never what the view is. */}
+              {count !== undefined ? (
+                <span className={cn('tabular-nums', live ? 'text-muted-foreground' : 'opacity-70')}>
+                  {count}
+                </span>
+              ) : null}
               {live && indicator === null ? (
                 <span
                   className={cn('absolute inset-x-2 -bottom-px h-0.5 rounded-full', accent === 'success' ? 'bg-success' : 'bg-primary')}

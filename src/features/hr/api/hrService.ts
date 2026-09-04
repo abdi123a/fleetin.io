@@ -1,5 +1,6 @@
 import { apiClient } from '@/services/api.client';
 import { useAuthStore } from '@/stores/auth.store';
+import { openBlobInNewTab } from '@/utils';
 
 /**
  * The HR & Payroll API surface.
@@ -395,28 +396,11 @@ export async function issuedDocumentFile(issuedId: string) {
 /**
  * Opens a document the user just asked for.
  *
- * The bytes are fetched rather than linked because the API authenticates on a
- * bearer header, which a plain `window.open` cannot carry — that is why the
- * old links landed on the dev server's 404 instead of the file. An object URL
- * with a real `download` name gives the browser both the viewer and the right
- * filename, and it is revoked on the next tick so nothing leaks.
+ * Kept as an HR-named re-export of the shared helper: the technique is a
+ * browser one (bearer-authenticated bytes cannot be `window.open`ed), and it
+ * is now used by the expense book's receipts too.
  */
-export async function openDocumentBlob(
-  fetcher: () => Promise<{ blob: Blob; filename: string | null }>,
-  fallbackName: string,
-) {
-  const { blob, filename } = await fetcher();
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.target = '_blank';
-  anchor.rel = 'noopener noreferrer';
-  anchor.download = filename ?? fallbackName;
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
-}
+export const openDocumentBlob = openBlobInNewTab;
 
 export async function deleteEmployeeDocument(documentId: string) {
   const res = await apiClient.delete<{ id: string; archived: boolean }>(

@@ -100,13 +100,14 @@ export async function updateProject(id: string, payload: UpdateProjectPayload): 
 }
 
 /**
- * Marks the project completed, billing every priced shipment that has no
- * invoice yet on the way out. Unpriced shipments are skipped, never billed at
- * zero — `skippedUnpriced` is how many, so the screen can say so rather than
- * report a silent no-op.
+ * Marks the project completed.
+ *
+ * REFUSED by the server while any priced shipment is uninvoiced, or any of the
+ * project's invoices is unpaid — a closed project must be a settled one.
+ * Invoicing is its own action; closing no longer raises documents.
  */
 export interface CloseProjectResult extends ProjectRecord {
-  issued: number;
+  /** Shipments that closed without ever being billed, because they carry no price. */
   skippedUnpriced: number;
 }
 

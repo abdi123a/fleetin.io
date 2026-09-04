@@ -20,7 +20,7 @@ export const ROUTES = {
   employees: '/employees',
   documents: '/documents',
   /*
-   * Billing. Five routes, down from twelve — the working-capital module
+   * Billing. Six routes, down from twelve — the working-capital module
    * (accounts, funding, ledger, payout vouchers, per-booking finance pages)
    * was removed on 2026-09-03. Old links land on `/finance` via the redirects
    * in the router rather than 404ing.
@@ -34,6 +34,11 @@ export const ROUTES = {
   /** The grouping over a shipper's shipments. */
   financeProjects: '/finance/projects',
   financeProjectDetail: '/finance/projects/:projectId',
+  /**
+   * What it costs to run Fleetin — the one finance screen that is not about a
+   * shipment, and the one every employee can reach.
+   */
+  financeExpenses: '/finance/expenses',
   /**
    * HR & Payroll. `employees` above stays where it is — it is the operational
    * staff directory in the fleet sense; these are the payroll records.

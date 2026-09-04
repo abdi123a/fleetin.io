@@ -4,3 +4,4 @@ export { InvoicesPage } from './InvoicesPage';
 export { ProjectsPage } from './ProjectsPage';
 export { ProjectPage } from './ProjectPage';
 export { InvoiceDocumentPage, InvoiceSheet } from './InvoiceDocumentPage';
+export { ExpensesPage } from './ExpensesPage';

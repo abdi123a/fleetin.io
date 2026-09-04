@@ -10,7 +10,7 @@ import type { InvoiceRecord } from '@/features/finance';
  *   Sent      — with the client        → **blue**, out in the world
  *   Paid      — money in               → **green**
  *   Overdue   — past its date, unpaid  → **red**, the loud one
- *   Withdrawn — raised in error        → **grey**, settled, stop asking
+ *   Cancelled — raised in error        → **grey**, settled, stop asking
  *
  * `Overdue` is DERIVED, never stored: it is `Sent` plus a date that has passed,
  * and storing it would mean a nightly job to flip rows and a window in which
@@ -19,11 +19,20 @@ import type { InvoiceRecord } from '@/features/finance';
 export type InvoiceStatusKey = 'Draft' | 'Sent' | 'Paid' | 'Overdue' | 'Cancelled';
 
 export const INVOICE_STATUS_OPTIONS: ReadonlyArray<RecordStatusOption<InvoiceStatusKey>> = [
-  { value: 'Paid', label: 'Paid', tone: 'ok' },
+  /*
+   * `Paid` carries an explicit glyph so the badge prints its WORD.
+   *
+   * `RecordStatusBadge` collapses an `ok` tone with no icon into the bare
+   * verification tick — right for a shipper, where "verified" is the only
+   * thing green can mean, and wrong here: a green tick alone in a money column
+   * could as easily read as "approved" or "sent". A bill either says Paid or
+   * it says nothing useful.
+   */
+  { value: 'Paid', label: 'Paid', tone: 'ok', icon: CheckCircle },
   { value: 'Overdue', label: 'Overdue', tone: 'stopped' },
   { value: 'Sent', label: 'Sent', tone: 'busy', icon: Send },
   { value: 'Draft', label: 'Draft', tone: 'waiting', icon: Clock },
-  { value: 'Cancelled', label: 'Withdrawn', tone: 'closed', icon: Ban },
+  { value: 'Cancelled', label: 'Cancelled', tone: 'closed', icon: Ban },
 ];
 
 export function invoiceStatusOption(key: InvoiceStatusKey): RecordStatusOption<InvoiceStatusKey> {

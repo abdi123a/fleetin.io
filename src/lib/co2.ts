@@ -173,6 +173,18 @@ export function treeYearEquivalent(kg: number | null | undefined): string | null
   return `${printed} trees for a year`;
 }
 
+/**
+ * The same equivalence in the four words the user asked for — "17 trees
+ * planted" (2026-09-04: "only say trees planted, make it easy"). Whole trees,
+ * because a planted tree is a whole thing; "a tree planted" below one and a
+ * half rather than a decimal nobody would plant.
+ */
+export function treesPlantedLabel(kg: number | null | undefined): string | null {
+  if (kg === null || kg === undefined || !Number.isFinite(kg) || kg <= 0) return null;
+  const trees = Math.max(1, Math.round(kg / KG_CO2_PER_TREE_YEAR));
+  return `${trees.toLocaleString()} tree${trees === 1 ? '' : 's'} planted`;
+}
+
 /** The same figure as one string, for a tooltip or a sentence. */
 export function co2Label(kg: number | null | undefined): string {
   const { value, unit } = formatCo2(kg);

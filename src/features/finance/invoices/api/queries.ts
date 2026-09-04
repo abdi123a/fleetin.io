@@ -7,6 +7,7 @@ import {
   fetchInvoices,
   fetchInvoicesForShipment,
   issueInvoice,
+  issueProjectInvoice,
   markInvoicePaid,
   markInvoiceSent,
   type CreateProformaPayload,
@@ -60,6 +61,14 @@ export function useIssueInvoice() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (shipmentId: string) => issueInvoice(shipmentId),
+    onSuccess: () => invalidate(queryClient),
+  });
+}
+
+export function useIssueProjectInvoice() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (projectId: string) => issueProjectInvoice(projectId),
     onSuccess: () => invalidate(queryClient),
   });
 }

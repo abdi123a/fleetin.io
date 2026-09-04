@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 import { COMPANY } from '@/config/company';
 import { useBankAccounts } from '@/features/bank-accounts';
 import { useLetterhead, useSystemSettings } from '@/features/settings';
@@ -49,30 +51,31 @@ export function useRemittanceAccount() {
   };
 }
 
-/** Letterhead: logo, legal name, address block. */
+/**
+ * Letterhead: the logo, and nothing else.
+ *
+ * It used to print a tagline and a four-line address beside the mark. Those
+ * are seeded placeholders — "Rue de Venise, Heron", "Djibouti Port free zone"
+ * — not Fleetin's real details, and a client-facing document that states an
+ * address nobody verified is worse than one that states none: an invoice is a
+ * legal instrument, and wrong particulars on it are wrong in a way a reader
+ * will act on.
+ *
+ * The mark carries the name, and the footer carries the contact and
+ * registration lines the operator actually configured. When real particulars
+ * are entered under Settings → Documents they belong there, in one place,
+ * rather than being duplicated at the top of every sheet.
+ */
 export function DocumentLetterhead() {
   const letterhead = useLetterhead();
 
   return (
-    <div className="flex items-start gap-4">
-      <img
-        src={letterhead.logoSrc}
-        alt={letterhead.tradingName}
-        style={{ height: `${letterhead.logoHeightMm}mm` }}
-        className="w-auto object-contain"
-      />
-      <div className="text-[9pt] leading-[1.5]">
-        <p className="text-[11pt] font-extrabold tracking-tight text-[var(--invoice-ink)]">
-          {letterhead.legalName}
-        </p>
-        {letterhead.tagline ? <p className="text-[var(--invoice-muted)]">{letterhead.tagline}</p> : null}
-        {letterhead.addressLines.map((line) => (
-          <p key={line} className="text-[var(--invoice-muted)]">
-            {line}
-          </p>
-        ))}
-      </div>
-    </div>
+    <img
+      src={letterhead.logoSrc}
+      alt={letterhead.tradingName}
+      style={{ height: `${letterhead.logoHeightMm}mm` }}
+      className="w-auto object-contain"
+    />
   );
 }
 
@@ -82,97 +85,125 @@ export function DocumentLetterhead() {
  * `note` is the small print under the rule. The invoice's disclaimer and the
  * voucher's terms are different sentences, so each passes its own.
  */
+export function DocumentFooter() {
+  const letterhead = useLetterhead();
+
+  /*
+   * Contact lines are free text in settings, so each is sorted by what it
+   * looks like rather than by position — an address stays an address when
+   * somebody reorders the list.
+   */
+  const contacts = letterhead.contactLines.map((value) => ({
+    value,
+    kind: (value.includes('@') ? 'email' : /^[+\d(]/.test(value.trim()) ? 'phone' : 'web') as GlyphKind,
+  }));
+
+  /* No margin and no trailing note: the band IS the bottom of the sheet. The
+     electronic-signature disclaimer that used to sit under it left a strip of
+     white below the only element that closes the page, which read as the
+     document having run out rather than ended. */
+  return (
+    <footer>
+      <div className="bg-[var(--invoice-brand)] px-[14mm] py-[5mm] text-white">
+        {/*
+          Each detail with its own glyph, on one line, evenly spaced.
+
+          The labelled-column version was legible but static — four grey
+          headings a reader had to parse before finding the phone number. A
+          glyph is recognised without reading, which is the whole job of a
+          footer: somebody scanning for the email finds the envelope.
+
+          The circular mark that used to sit at the end is gone. It repeated
+          the logo already at the top of the sheet and, inverted onto the band,
+          read as a white blob.
+        */}
+        {/* ONE line, never wrapping. `min-w-0` + `truncate` on the registration
+            text is what holds it: the contact details are fixed-width facts and
+            the registration string is the only one that can give. */}
+        <div className="flex flex-nowrap items-center gap-x-[6mm]">
+          {contacts.map((contact) => (
+            <span key={contact.value} className="flex shrink-0 items-center gap-[2mm]">
+              <FooterGlyph kind={contact.kind} />
+              <span className="whitespace-nowrap text-[8pt] font-semibold leading-none text-white">
+                {contact.value}
+              </span>
+            </span>
+          ))}
+
+          {letterhead.registrationLines.length > 0 ? (
+            <span className="flex min-w-0 items-center gap-[2mm]">
+              <FooterGlyph kind="registration" />
+              <span className="truncate text-[8pt] leading-none text-white/85">
+                {letterhead.registrationLines.join('  ·  ')}
+              </span>
+            </span>
+          ) : null}
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+type GlyphKind = 'phone' | 'email' | 'web' | 'registration';
+
 /**
- * The round mark that opens each footer item.
- *
- * Inline SVG rather than the app's icon registry: this footer prints, and the
- * HR renderer draws the identical discs server-side from its own inline paths.
- * Two implementations of one mark is how the two document sets drift apart.
+ * The footer's marks — drawn inline rather than pulled from the icon set,
+ * because this sheet prints and a lucide stroke at 3mm loses its shape. These
+ * are solid at the size they are actually used.
  */
-function FooterDisc({ glyph }: { glyph: 'mail' | 'globe' | 'phone' | 'whatsapp' }) {
-  const paths: Record<typeof glyph, JSX.Element> = {
-    mail: (
-      <>
-        <path d="M2 5.5h20v13H2z" fill="none" stroke="#fff" strokeWidth={2.2} strokeLinejoin="round" />
-        <path d="m3 6.5 9 6 9-6" fill="none" stroke="#fff" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
-      </>
-    ),
-    globe: (
-      <>
-        <circle cx={12} cy={12} r={9.5} fill="none" stroke="#fff" strokeWidth={2.2} />
-        <path d="M2.5 12h19M12 2.5a15 15 0 0 1 0 19 15 15 0 0 1 0-19Z" fill="none" stroke="#fff" strokeWidth={2.2} />
-      </>
-    ),
+function FooterGlyph({ kind }: { kind: GlyphKind }) {
+  const paths: Record<GlyphKind, ReactNode> = {
     phone: (
       <path
         d="M21.5 16.9v2a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 1.6 3.2 2 2 0 0 1 3.6 1h2a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L6.6 8.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z"
-        fill="#fff"
+        fill="currentColor"
       />
     ),
-    whatsapp: (
-      <path
-        d="M12 2a10 10 0 0 0-8.6 15L2 22l5.2-1.4A10 10 0 1 0 12 2Zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .1-1.7-.1a13 13 0 0 1-5.6-4.9c-.4-.6-.9-1.5-.9-2.4 0-.9.5-1.4.7-1.6.2-.2.4-.3.6-.3h.5c.2 0 .4 0 .6.4l.8 1.9c.1.2 0 .4-.1.5l-.4.5c-.1.2-.3.3-.1.6.2.3.7 1.1 1.4 1.8.9.8 1.6 1 1.9 1.2.2.1.4.1.5-.1l.7-.8c.2-.2.3-.2.6-.1l1.8.9c.3.1.4.2.5.3v1Z"
-        fill="#fff"
-      />
+    email: (
+      <>
+        <path d="M2.5 5.5h19v13h-19z" fill="none" stroke="currentColor" strokeWidth="2.2" />
+        <path
+          d="m3.5 6.5 8.5 6 8.5-6"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+        />
+      </>
+    ),
+    web: (
+      <>
+        <circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" strokeWidth="2.2" />
+        <path
+          d="M2.5 12h19M12 2.5c2.6 2.8 4 6 4 9.5s-1.4 6.7-4 9.5c-2.6-2.8-4-6-4-9.5s1.4-6.7 4-9.5Z"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+        />
+      </>
+    ),
+    registration: (
+      <>
+        <path d="M4.5 21.5V4a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 16.5 4v17.5" fill="none" stroke="currentColor" strokeWidth="2.2" />
+        <path d="M16.5 9.5h2A1.5 1.5 0 0 1 20 11v10.5M2.5 21.5h19M8.5 7h4M8.5 11h4M8.5 15h4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+      </>
     ),
   };
 
   return (
-    <span className="flex size-[6.5mm] shrink-0 items-center justify-center rounded-full bg-[var(--invoice-accent)]">
-      <svg viewBox="0 0 24 24" className="size-[3.4mm]" aria-hidden>
-        {paths[glyph]}
+    /* Brand YELLOW disc, WHITE glyph.
+       The glyph was the band's own teal first, which is the house pairing on
+       paper but disappears at 3mm — teal on amber is a mid-tone on a mid-tone,
+       and the mark read as a plain yellow dot. White carries the shape at this
+       size, which is the only thing the glyph has to do. */
+    <span
+      className="flex size-[5.8mm] shrink-0 items-center justify-center rounded-full bg-[var(--invoice-accent)] text-white"
+      aria-hidden
+    >
+      <svg viewBox="0 0 24 24" className="size-[3.2mm]">
+        {paths[kind]}
       </svg>
     </span>
-  );
-}
-
-export function DocumentFooter({ note }: { note?: string }) {
-  const letterhead = useLetterhead();
-  const { documents } = useSystemSettings();
-
-  /*
-   * Contact lines are free text in settings, so the disc is chosen by what the
-   * line looks like rather than by position — an address stays an address when
-   * someone reorders the list.
-   */
-  const items = letterhead.contactLines.map((line) => ({
-    line,
-    glyph: line.includes('@')
-      ? ('mail' as const)
-      : /^[+\d(]/.test(line.trim())
-        ? ('phone' as const)
-        : ('globe' as const),
-  }));
-
-  return (
-    <footer className="mt-[8mm] border-t-2 border-[var(--invoice-brand)] px-[14mm] pb-[6mm] pt-[4mm]">
-      <div className="flex items-center gap-[6mm]">
-        <div className="flex flex-1 flex-wrap items-center gap-x-[5mm] gap-y-[2mm]">
-          {items.map((item) => (
-            <span key={item.line} className="flex items-center gap-[2.4mm]">
-              <FooterDisc glyph={item.glyph} />
-              {item.glyph === 'phone' ? <FooterDisc glyph="whatsapp" /> : null}
-              <span className="text-[8.5pt] font-semibold text-[var(--invoice-ink)]">{item.line}</span>
-            </span>
-          ))}
-          {letterhead.registrationLines.map((line) => (
-            <span key={line} className="text-[8pt] text-[var(--invoice-muted)]">
-              {line}
-            </span>
-          ))}
-        </div>
-        {documents.showFooterMark ? (
-          <img src={letterhead.markSrc} alt="" className="h-[6mm] w-auto shrink-0 object-contain" />
-        ) : (
-          <span className="flex size-[9mm] shrink-0 items-center justify-center rounded-full bg-[var(--invoice-brand)] text-[8.5pt] font-bold text-white">
-            1
-          </span>
-        )}
-      </div>
-      {note ? (
-        <p className="mt-[3mm] text-center text-[7.5pt] text-[var(--invoice-faint)]">{note}</p>
-      ) : null}
-    </footer>
   );
 }
 

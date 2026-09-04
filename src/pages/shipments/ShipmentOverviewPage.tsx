@@ -21,6 +21,7 @@ import {
   Tooltip,
   VerificationBadge,
 } from '@/design-system';
+import { ReturnLink, useReturnTo } from '@/components/common/ReturnLink';
 import { ROUTES } from '@/config/routes';
 import { useEmptyReturnStore } from '@/stores/emptyReturn.store';
 import { cn, isDriverVerified } from '@/utils';
@@ -465,6 +466,8 @@ export function ShipmentOverviewPage() {
     return [...seen.values()];
   }, [mission?.transporters, bookingRecords]);
 
+  const returnTo = useReturnTo();
+
   if (isLoading) {
     return <div className="py-16 text-center text-sm text-muted-foreground">Loading shipment…</div>;
   }
@@ -623,6 +626,13 @@ export function ShipmentOverviewPage() {
        around it — the print stylesheet hides every child of this element that
        does not contain the report sheet. */
     <div className="@container/page report-host space-y-4 px-0 pb-12 sm:space-y-6">
+      {/*
+       * The way back to the worklist that sent the reader here — Billing's
+       * open items link straight to a shipment, and this page carries no back
+       * control of its own. Renders nothing for a reader who arrived the
+       * ordinary way, through the directory or the sidebar.
+       */}
+      {returnTo ? <ReturnLink fallback={returnTo} className="print:hidden" /> : null}
 
       {/*
        * ── MASTHEAD ──

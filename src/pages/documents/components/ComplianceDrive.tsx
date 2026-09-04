@@ -464,6 +464,7 @@ export function ComplianceDrive({ onSection }: { onSection: (next: DriveSection)
             label: match.label,
             sublabel: match.where,
             icon: match.icon,
+            party: match.party,
             tone: toneOf(match.tally),
             papers: match.papers,
             state: <FolderState tally={match.tally} />,
@@ -498,6 +499,7 @@ export function ComplianceDrive({ onSection }: { onSection: (next: DriveSection)
                   sublabel: tile.folder.sublabel,
                   icon: tile.folder.icon,
                   company: tile.folder.company,
+                  party: tile.folder.party,
                   tone: toneOf(tile.folder.tally),
                   papers: tile.folder.papers,
                   state: <FolderState tally={tile.folder.tally} />,
@@ -577,8 +579,12 @@ function TallyTiles({ tally }: { tally: ComplianceTally }) {
         variant="blue"
         icon={<ShieldCheck className="h-5 w-5" />}
       />
+      {/* "Valid", the word the tally field itself uses — and the only one of
+          the four that is not a state of decay. "In Force" was legal-register
+          for the same idea and did not read as the opposite of Expired, which
+          is the comparison the row is making. */}
       <StatisticCard
-        title="In Force"
+        title="Valid"
         value={tally.valid}
         variant="teal"
         icon={<ShieldCheck className="h-5 w-5" />}

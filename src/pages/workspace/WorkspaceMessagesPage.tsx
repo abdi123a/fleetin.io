@@ -8,7 +8,7 @@ import {
   ChannelHeader, ChannelMembersDialog, ChannelMessageList, ConversationRail,
   CreateChannelDialog, StartDirectDialog, ThreadPanel,
   Composer, MessageBody,
-  useAssignMessage, useChannelMessages, useConversations, useEditMessage,
+  useAssignMessage, useChannelMessages, useConversations, useDeleteChannel, useEditMessage,
   useMarkChannelReadOnView, useMessageSearch, usePostMessage, useWithdrawMessage,
   type ChannelMessage, type Conversation,
 } from '@/features/workspace';
@@ -41,6 +41,7 @@ export function WorkspaceMessagesPage() {
   const edit = useEditMessage();
   const withdraw = useWithdrawMessage();
   const assign = useAssignMessage();
+  const removeChannel = useDeleteChannel();
   const { confirm, confirmDialog } = useConfirm();
   const { data: hits = [], isFetching: searchBusy } = useMessageSearch({ q: query, limit: 40 }, searching);
 
@@ -69,6 +70,30 @@ export function WorkspaceMessagesPage() {
     post.mutate({ body, channelId }, { onSuccess: () => setDraft('') });
   }
 
+  /**
+   * Deleting a channel takes every message in it with them, for everybody —
+   * so the confirm names the room and says so plainly, and the button carries
+   * the name too, because a dialog read at a glance is answered on the button.
+   *
+   * If the room being deleted is the one on screen, the reader is returned to
+   * the rail rather than left looking at a conversation that no longer exists.
+   */
+  async function handleDeleteChannel(conversation: Conversation) {
+    const ok = await confirm({
+      title: `Delete #${conversation.name}?`,
+      description:
+        'Every message in this channel is deleted for everyone in it. This cannot be undone.',
+      confirmLabel: `Delete #${conversation.name}`,
+      destructive: true,
+    });
+    if (!ok) return;
+    removeChannel.mutate(conversation.id, {
+      onSuccess: () => {
+        if (conversation.id === channelId) navigate(ROUTES.workspaceMessages);
+      },
+    });
+  }
+
   async function handleWithdraw(id: string) {
     const ok = await confirm({
       title: 'Withdraw this message?',
@@ -88,6 +113,7 @@ export function WorkspaceMessagesPage() {
         onSelect={open}
         onCreateChannel={() => setCreating(true)}
         onStartDirect={() => setStarting(true)}
+        onDelete={handleDeleteChannel}
         className={cn('w-full shrink-0 lg:w-64', channelId && 'hidden lg:flex')}
       />
 

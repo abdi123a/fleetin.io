@@ -6,6 +6,7 @@ import {
   Building2,
   CalendarDays,
   Clock,
+  Coins,
   Compass,
   Container,
   FileText,
@@ -109,6 +110,31 @@ export const NAVIGATION: NavSection[] = [
         /* Every conversation lives under this one row. */
         matchNested: true,
       },
+      {
+        /*
+         * The compliance register and the shared file tree: what is expired,
+         * what is expiring, what was never filed, and the folders the team
+         * keeps for itself.
+         *
+         * It sat under Partners while it was only the four dossiers, on the
+         * grounds that three of the papers it watches belong to a transporter,
+         * its trucks or its drivers. The Files half broke that — those folders
+         * are the team's, not a partner's — and Drive is somewhere you go
+         * every day rather than a subsection of one directory. Last in
+         * Workspace: the other three rows are work waiting on you, this is
+         * where you go to look something up.
+         *
+         * Named "Fleetin Drive" rather than "Documents" — HR has its own
+         * Documents entry (it issues contracts and payslips), and two
+         * unrelated items reading the same word in one sidebar is a coin-toss
+         * for anybody looking for either.
+         */
+        id: 'documents',
+        label: 'Fleetin Drive',
+        path: ROUTES.documents,
+        icon: Folder,
+        matchNested: true,
+      },
     ],
   },
   {
@@ -209,21 +235,6 @@ export const NAVIGATION: NavSection[] = [
             icon: UserRound,
             matchNested: true,
           },
-          {
-            /* The register that reads across all four dossiers: what is
-               expired, what is expiring, and what was never filed. Sits under
-               Partners because three of the four papers it watches belong to a
-               transporter, its trucks or its drivers.
-
-               Named "Fleetin Drive" rather than "Documents" — HR has its own
-               Documents entry (it issues contracts and payslips), and two
-               unrelated items reading the same word in one sidebar is a
-               coin-toss for anybody looking for either. */
-            id: 'documents',
-            label: 'Fleetin Drive',
-            path: ROUTES.documents,
-            icon: Folder,
-          },
         ],
       },
     ],
@@ -254,10 +265,13 @@ export const NAVIGATION: NavSection[] = [
   },
   {
     /*
-     * Finance is two views: the working-capital overview, and the shipment
-     * book — client → project → booking — split by origination channel. Its
-     * own section rather than a collapsible group because both are daily
-     * destinations that should cost one click each.
+     * Finance is the money, both ways. Billing, invoices and projects are what
+     * a shipment earns; Expenses is what the company spends running itself.
+     *
+     * Its own section rather than a collapsible group because each is a daily
+     * destination that should cost one click — and because Expenses is the one
+     * row here a driver or a warehouse hand will see, the section filter
+     * (which reads `permissionsForPath`) has to be able to show it alone.
      */
     id: 'finance',
     label: 'Finance',
@@ -282,6 +296,12 @@ export const NAVIGATION: NavSection[] = [
         path: ROUTES.financeProjects,
         icon: Folder,
         matchNested: true,
+      },
+      {
+        id: 'finance-expenses',
+        label: 'Expenses',
+        path: ROUTES.financeExpenses,
+        icon: Coins,
       },
     ],
   },

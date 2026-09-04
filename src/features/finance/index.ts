@@ -5,10 +5,15 @@
  * shipments, a **proforma** quotes one shipment, an **invoice** bills it, and a
  * **commission percentage** says what Fleetin keeps out of the total.
  *
+ * Beside them sits the one thing here that is NOT about a shipment: the
+ * **expense book** — what it costs to run Fleetin. Rent, salaries, the diesel
+ * somebody bought with their own card. Nothing in it is ever allocated to a
+ * job or reaches an invoice.
+ *
  * The working-capital module this replaced — ledgers, credit facilities,
- * drawdowns, payout orders, holds, bank movements, expenses, monthly
- * statements — was removed on 2026-09-03. If you are about to add a second
- * money concept here, that is the thing that was taken out.
+ * drawdowns, payout orders, holds, bank movements, monthly statements — was
+ * removed on 2026-09-03. If you are about to add a second money concept here,
+ * that is the thing that was taken out.
  */
 
 export type {
@@ -18,6 +23,7 @@ export type {
   InvoiceRecord,
   InvoiceFilters,
   ProformaLineInput,
+  ProjectInvoiceResult,
 } from './invoices/api/invoicesService';
 export {
   invoiceQueryKeys,
@@ -27,6 +33,7 @@ export {
   useInvoices,
   useInvoicesForShipment,
   useIssueInvoice,
+  useIssueProjectInvoice,
   useMarkInvoicePaid,
   useMarkInvoiceSent,
 } from './invoices/api/queries';
@@ -50,6 +57,7 @@ export {
 
 export {
   COMMISSION_SOURCE_LABEL,
+  cargoLabel,
   commissionOf,
   describeCommission,
   documentStateOf,
@@ -62,3 +70,34 @@ export {
 } from './model/commission';
 
 export { CommissionFields, type CommissionValue } from './components/CommissionFields';
+
+export type {
+  CreateExpensePayload,
+  CreateRecurringExpensePayload,
+  ExpenseCategory,
+  ExpenseFilters,
+  ExpenseFrequency,
+  ExpenseMethod,
+  ExpenseRecord,
+  ExpenseStatus,
+  RecurringExpenseRecord,
+  UpdateExpensePayload,
+  UpdateRecurringExpensePayload,
+} from './expenses/api/expensesService';
+export { fetchExpenseReceipt, openExpenseReceipt } from './expenses/api/expensesService';
+export {
+  expenseQueryKeys,
+  useApproveExpense,
+  useCreateExpense,
+  useCreateRecurringExpense,
+  useDeleteRecurringExpense,
+  useExpense,
+  useExpenses,
+  usePayExpense,
+  usePostRecurringExpense,
+  useRecurringExpenses,
+  useRejectExpense,
+  useUpdateExpense,
+  useUpdateRecurringExpense,
+  useWithdrawExpense,
+} from './expenses/api/queries';

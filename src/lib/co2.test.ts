@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import {
-  CO2_FIXTURES,
+import { CO2_FIXTURES,
   co2Label,
   co2Number,
   formatCo2,
   formatFactor,
   normaliseFuelType,
   previewVehicleCo2Factor,
- treeYearEquivalent } from './co2';
+ treeYearEquivalent, treesPlantedLabel } from './co2';
 
 describe('previewVehicleCo2Factor', () => {
   /*
@@ -90,5 +89,14 @@ describe('treeYearEquivalent', () => {
   it('has no picture for nothing saved', () => {
     expect(treeYearEquivalent(0)).toBeNull();
     expect(treeYearEquivalent(null)).toBeNull();
+  });
+});
+
+describe('treesPlantedLabel', () => {
+  it('says it in four words, in whole trees', () => {
+    expect(treesPlantedLabel(382)).toBe('17 trees planted');
+    expect(treesPlantedLabel(22)).toBe('1 tree planted');
+    expect(treesPlantedLabel(5)).toBe('1 tree planted');
+    expect(treesPlantedLabel(0)).toBeNull();
   });
 });

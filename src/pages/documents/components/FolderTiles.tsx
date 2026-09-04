@@ -1,11 +1,12 @@
 import { useEffect, useState, type ReactNode, type RefObject } from 'react';
 
 import { Badge } from '@/design-system';
-import { Building2, Folder, Truck, User } from '@/design-system/icons';
+import { Building2, Check, Folder, Truck, User } from '@/design-system/icons';
 import { CompanyMark } from '@/features/transporter-bi/cards/CompanyLabel';
 import type { ComplianceTally } from '@/features/documents/compliance';
 import { FolderShape, type FolderTone } from '@/features/documents/components/FolderShape';
 import type { FolderPaper } from '@/features/documents/drive';
+import { cn } from '@/utils';
 
 /**
  * A folder on the drive, drawn as a folder — shared by both halves of it.
@@ -26,9 +27,28 @@ export interface FolderItem {
   tone: FolderTone;
   /** What the folder fans out when it opens — see `FolderShape`. */
   papers: FolderPaper[];
+  /**
+   * Which side of the book a company folder belongs to.
+   *
+   * Transporters and shippers sit in one grid and owe entirely different
+   * papers, and the only thing separating them was a fleet count that a
+   * shipper simply does not have — "8 trucks · 8 drivers" against a blank.
+   * A named, coloured chip says it outright.
+   */
+  party?: 'PARTNER' | 'SHIPPER';
   /** The bottom band: what is wrong inside, or how much is inside. */
   state?: ReactNode;
   onOpen: () => void;
+  /**
+   * Ticking this folder for a bulk action.
+   *
+   * Absent on the compliance tree, which has nothing to act on in bulk — a
+   * truck's dossier is not something you delete a handful of. Present in Files,
+   * where the whole point is to rename or clear out several at once without
+   * opening each one first.
+   */
+  selected?: boolean;
+  onSelect?: () => void;
 }
 
 const FOLDER_GLYPH = {
@@ -37,6 +57,23 @@ const FOLDER_GLYPH = {
   vehicle: Truck,
   driver: User,
 } as const;
+
+/**
+ * The two sides of the book, named and coloured.
+ *
+ * Teal for the transporter and blue for the shipper — two hues that are not
+ * already spoken for on this tile. The folder's TAB carries compliance state
+ * (grey clean, amber expiring, red at fault), so the party mark cannot use
+ * red, amber or grey without saying something about the papers it does not
+ * mean. Both are `-subtle` washes so a grid of them reads as a sorting of the
+ * same thing, rather than as a row of alerts.
+ *
+ * "Transporter", never "Carrier" — the app has one word for this party.
+ */
+const PARTY: Record<'PARTNER' | 'SHIPPER', { label: string; className: string }> = {
+  PARTNER: { label: 'Transporter', className: 'bg-primary-subtle text-primary-subtle-foreground' },
+  SHIPPER: { label: 'Shipper', className: 'bg-info-subtle text-info-subtle-foreground' },
+};
 
 /**
  * The tile track, as the grid actually lays it out.
@@ -119,17 +156,44 @@ export function FolderTile({ item }: { item: FolderItem }) {
      users get the same preview as pointer users because both land on the same
      button. */
   const [peeking, setPeeking] = useState(false);
+  const selectable = item.onSelect !== undefined;
 
   return (
+    /* The tick is a SIBLING of the tile button, not a child: a button inside a
+       button is invalid markup, and it keeps the two jobs apart — the tile
+       opens the folder, the tick puts it in the selection. Anything else makes
+       one of the two unreachable. */
+    <div
+      className={cn('group/tile relative rounded-lg', item.selected && 'bg-primary-subtle')}
+      onPointerEnter={() => setPeeking(true)}
+      onPointerLeave={() => setPeeking(false)}
+    >
+      {selectable ? (
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={Boolean(item.selected)}
+          aria-label={`Select ${item.label}`}
+          onClick={item.onSelect}
+          className={cn(
+            'absolute left-2 top-2 z-10 flex size-5 items-center justify-center rounded border transition',
+            'focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring',
+            item.selected
+              ? 'border-primary bg-primary text-primary-foreground opacity-100'
+              : 'border-border-strong bg-card text-transparent opacity-0 group-hover/tile:opacity-100',
+          )}
+        >
+          <Check className="size-3.5" aria-hidden />
+        </button>
+      ) : null}
+
     <button
       type="button"
       onClick={item.onOpen}
-      onPointerEnter={() => setPeeking(true)}
-      onPointerLeave={() => setPeeking(false)}
       onFocus={() => setPeeking(true)}
       onBlur={() => setPeeking(false)}
       title={item.sublabel ? `${item.label} — ${item.sublabel}` : item.label}
-      className="group flex flex-col items-center rounded-lg border border-transparent p-3 text-center transition-colors hover:border-border/80 hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      className="group flex w-full flex-col items-center rounded-lg border border-transparent p-3 text-center transition-colors hover:border-border/80 hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
     >
       {/* Every tile is the same four bands at the same heights — folder, name,
           detail, state — so a grid of them lines up on all four however long
@@ -168,6 +232,19 @@ export function FolderTile({ item }: { item: FolderItem }) {
         {item.label}
       </span>
 
+      {/* Above the detail line, not in it: the detail is what the folder holds
+          and changes as papers are filed, while this is what the folder IS. */}
+      {item.party ? (
+        <span
+          className={cn(
+            'mt-1.5 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide',
+            PARTY[item.party].className,
+          )}
+        >
+          {PARTY[item.party].label}
+        </span>
+      ) : null}
+
       <span className="mt-0.5 block h-4 w-full truncate text-[11px] leading-4 text-muted-foreground">
         {item.sublabel}
       </span>
@@ -176,6 +253,7 @@ export function FolderTile({ item }: { item: FolderItem }) {
         {item.state}
       </span>
     </button>
+    </div>
   );
 }
 

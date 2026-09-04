@@ -232,6 +232,8 @@
   --color-stage-loaded-subtle: var(--stage-loaded-subtle);
   --color-stage-loaded-subtle-foreground: var(--stage-loaded-subtle-foreground);
   --color-stage-loaded-border: var(--stage-loaded-border);
+  --color-stage-loaded-on-fill: var(--stage-loaded-on-fill);
+  --color-stage-loaded-on-fill-foreground: var(--stage-loaded-on-fill-foreground);
   --color-stage-available: var(--stage-available);
   --color-stage-available-foreground: var(--stage-available-foreground);
   --color-stage-available-subtle: var(--stage-available-subtle);

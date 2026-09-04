@@ -269,6 +269,20 @@ export async function updateChannel(
   return res.data;
 }
 
+/**
+ * Delete a channel and everything said in it.
+ *
+ * The server allows it only for the channel's creator, or a holder of
+ * `workspace.manage`, and refuses outright on a direct message — so a caller
+ * that guesses wrong gets a 403 rather than quietly removing somebody else's
+ * room. `deletableByMe` on the conversation is the same rule computed for the
+ * rail, so the control is only offered where it will work.
+ */
+export async function deleteChannel(id: string): Promise<{ ok: boolean; id: string }> {
+  const res = await apiClient.delete<{ ok: boolean; id: string }>(`/workspace/channels/${id}`, token());
+  return res.data;
+}
+
 export async function setChannelMembers(id: string, memberIds: string[]): Promise<WorkspaceChannel> {
   const res = await apiClient.put<WorkspaceChannel>(`/workspace/channels/${id}/members`, { memberIds }, token());
   return res.data;

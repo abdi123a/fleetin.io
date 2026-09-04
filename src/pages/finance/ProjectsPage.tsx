@@ -131,6 +131,19 @@ function ProjectCard({ project, onOpen }: { project: ProjectRecord; onOpen: () =
   );
 }
 
+/**
+ * Setting a project up.
+ *
+ * Three things and a note, in the order somebody says them out loud: what the
+ * agreement is called, who it is with, and when it starts. The estimate is
+ * last and clearly optional, because it is the only field here that changes
+ * nothing.
+ *
+ * The dialog has real structure — a titled header with a line of context, a
+ * padded body, a footer that names what is missing — because the first version
+ * was four labels stacked flush against four inputs with the header's rule
+ * running through them, and it read as a form somebody had not finished.
+ */
 function NewProjectDialog({
   open,
   onOpenChange,
@@ -141,12 +154,20 @@ function NewProjectDialog({
   const create = useCreateProject();
   const { data: shipperPage } = useShippers({ limit: 200 });
   const shippers = shipperPage?.items ?? [];
+
   const [name, setName] = useState('');
   const [shipperId, setShipperId] = useState('');
   const [startedAt, setStartedAt] = useState(() => new Date().toISOString().slice(0, 10));
   const [estimate, setEstimate] = useState('');
 
   const canSubmit = name.trim().length > 0 && shipperId.length > 0 && !create.isPending;
+
+  function close() {
+    setName('');
+    setShipperId('');
+    setEstimate('');
+    onOpenChange(false);
+  }
 
   function submit() {
     if (!canSubmit) return;
@@ -157,88 +178,120 @@ function NewProjectDialog({
         startedAt: new Date(startedAt).toISOString(),
         monthlyEstimate: estimate ? Number(estimate) : undefined,
       },
-      {
-        onSuccess: () => {
-          setName('');
-          setShipperId('');
-          setEstimate('');
-          onOpenChange(false);
-        },
-      },
+      { onSuccess: close },
     );
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader title="New project" />
+    <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
+      <DialogContent className="flex flex-col overflow-hidden p-0 sm:max-w-lg">
+        <DialogHeader title="New project" className="shrink-0">
+          <p className="text-sm text-muted-foreground">
+            A commercial agreement with one client. Shipments are added to it afterwards.
+          </p>
+        </DialogHeader>
 
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="project-name">Name</Label>
+        <div className="flex flex-col gap-4 px-5 py-4 sm:px-6">
+          <Field label="Project name" htmlFor="project-name">
             <Input
               id="project-name"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="Q4 cement contract"
+              placeholder="Doraleh container haulage agreement"
+              autoFocus
             />
+          </Field>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Client" htmlFor="project-shipper">
+              <Select
+                id="project-shipper"
+                value={shipperId}
+                onChange={(event) => setShipperId(event.target.value)}
+                placeholder="Choose a shipper"
+                options={shippers.map((shipper) => ({
+                  value: shipper.id,
+                  label: shipper.companyLegalName,
+                }))}
+              />
+            </Field>
+
+            <Field label="Starts" htmlFor="project-start">
+              <Input
+                id="project-start"
+                type="date"
+                value={startedAt}
+                onChange={(event) => setStartedAt(event.target.value)}
+              />
+            </Field>
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="project-shipper">Client</Label>
-            <Select
-              id="project-shipper"
-              value={shipperId}
-              onChange={(event) => setShipperId(event.target.value)}
-              placeholder="Choose a shipper"
-              options={shippers.map((shipper) => ({
-                value: shipper.id,
-                label: shipper.companyLegalName,
-              }))}
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="project-start">Starts</Label>
-            <Input
-              id="project-start"
-              type="date"
-              value={startedAt}
-              onChange={(event) => setStartedAt(event.target.value)}
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="project-estimate">Expected a month (DJF)</Label>
+          <Field
+            label="Expected a month"
+            htmlFor="project-estimate"
+            optional
+            /* Said out loud because the field looks exactly like a budget and
+               is not one: nothing is ever refused for exceeding it. */
+            hint="A planning figure only. No shipment is ever blocked or warned against it."
+          >
             <Input
               id="project-estimate"
               type="number"
               inputMode="numeric"
+              min={0}
               value={estimate}
               onChange={(event) => setEstimate(event.target.value)}
-              placeholder="Optional"
+              placeholder="e.g. 2,000,000 DJF"
             />
-            {/* Said out loud because the field looks exactly like a budget and
-                is not one: nothing is ever refused for exceeding it. */}
-            <p className="text-xs text-muted-foreground">
-              A planning figure. Shipments are never blocked or warned against it.
-            </p>
-          </div>
+          </Field>
         </div>
 
         {create.isError ? (
-          <p className="text-sm text-destructive">{(create.error as Error).message}</p>
+          <p className="shrink-0 px-5 pb-2 text-sm text-destructive sm:px-6">
+            {(create.error as Error).message}
+          </p>
         ) : null}
 
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+        <DialogFooter className="shrink-0 border-t border-border-subtle">
+          {!canSubmit && !create.isPending ? (
+            <span className="mr-auto text-sm text-muted-foreground">
+              {name.trim().length === 0 ? 'Give the project a name' : 'Choose a client'}
+            </span>
+          ) : null}
+          <Button variant="ghost" onClick={close}>
             Cancel
           </Button>
           <Button disabled={!canSubmit} onClick={submit}>
-            Create project
+            {create.isPending ? 'Creating…' : 'Create project'}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** A label, its control, and an optional line under it — one spacing rule for the form. */
+function Field({
+  label,
+  htmlFor,
+  optional,
+  hint,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  optional?: boolean;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline gap-2">
+        <Label htmlFor={htmlFor}>{label}</Label>
+        {optional ? <span className="text-xs text-muted-foreground">optional</span> : null}
+      </div>
+      {children}
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+    </div>
   );
 }

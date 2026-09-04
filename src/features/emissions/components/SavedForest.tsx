@@ -12,15 +12,17 @@ import { cn } from '@/utils';
  * sway. The leftover fraction is a sapling scaled to it, so the row is exact
  * rather than rounded.
  *
- * Drawn in the tones of whatever it sits on: on the green Saved card the
- * crowns are white and the trunks a dark wash, so the trees read as part of
- * the card rather than as icons pasted on it. A picture beside the measured
- * figure, never in a total.
+ * One kind of tree, drawn in the tones of whatever it sits on: on the green
+ * Saved card the crowns are white and the trunks a paler white, so the row
+ * reads as part of the card rather than as icons pasted on it, and nothing
+ * on it is black. A picture beside the measured figure, never in a total.
  */
 export function SavedForest({
   co2Kg,
   onGreen = false,
   startDelayMs = 0,
+  treeScale = 1,
+  ground = true,
   className,
 }: {
   co2Kg: number;
@@ -28,6 +30,10 @@ export function SavedForest({
   onGreen?: boolean;
   /** Hold the growth until the card it sits in has entered and counted. */
   startDelayMs?: number;
+  /** Bigger trees where the row has the room — the hero card gives it the floor. */
+  treeScale?: number;
+  /** The line the trees stand on. Off when the card draws its own ground. */
+  ground?: boolean;
   className?: string;
 }) {
   if (!(co2Kg > 0)) return null;
@@ -46,18 +52,25 @@ export function SavedForest({
     <div
       key={`${drawn}-${sapling ? fraction.toFixed(2) : 0}`}
       className={cn(
-        'flex flex-wrap items-end gap-x-1 gap-y-2 border-b-2 pb-1',
-        onGreen ? 'border-success-foreground/35' : 'border-success/30',
+        'flex flex-wrap items-end gap-x-1.5 gap-y-2',
+        ground && 'border-b-2 pb-1',
+        ground && (onGreen ? 'border-success-foreground/35' : 'border-success/30'),
         className,
       )}
       role="img"
       aria-label={`${trees.toFixed(1)} trees' worth of CO₂ absorbed in a year`}
     >
       {Array.from({ length: drawn }, (_, index) => (
-        <Tree key={index} index={index} onGreen={onGreen} startDelayMs={startDelayMs} />
+        <Tree key={index} index={index} scale={treeScale} onGreen={onGreen} startDelayMs={startDelayMs} />
       ))}
       {sapling && (
-        <Tree index={drawn} scale={0.35 + fraction * 0.55} sapling onGreen={onGreen} startDelayMs={startDelayMs} />
+        <Tree
+          index={drawn}
+          scale={(0.35 + fraction * 0.55) * treeScale}
+          sapling
+          onGreen={onGreen}
+          startDelayMs={startDelayMs}
+        />
       )}
       {hidden > 0 && (
         <span
@@ -80,10 +93,16 @@ const MAX_DRAWN = 200;
 const STAGGER_MS = 65;
 
 /**
- * One tree. Pines and round crowns alternate, and heights vary a little by
- * position, so twenty of them look planted rather than stamped. Two nested
- * elements because growth and sway are both transforms: the outer one
- * rises, the inner one sways.
+ * One tree — the ordinary kind, a round crown on a trunk.
+ *
+ * The row has been pines and round crowns, then four Horn-of-Africa
+ * silhouettes (acacia, doum palm, dragon tree, baobab); the user's ruling
+ * on 2026-09-05 was "one type of tree, and a normal tree — these are not
+ * good." So: one shape, a full crown built from overlapping lobes with its
+ * underside in the deeper tone, on a trunk that flares a little at the
+ * ground. Heights vary by position, so twenty of them look planted rather
+ * than stamped. Two nested elements because growth and sway are both
+ * transforms: the outer one rises, the inner one sways.
  */
 function Tree({
   index,
@@ -98,12 +117,11 @@ function Tree({
   onGreen: boolean;
   startDelayMs: number;
 }) {
-  const pine = index % 2 === 0;
   const height = (42 + ((index * 7) % 12)) * scale;
   const growDelay = startDelayMs + Math.min(index, 40) * STAGGER_MS;
   const crown = onGreen ? 'rgba(255,255,255,0.92)' : 'var(--success)';
   const crownDeep = onGreen ? 'rgba(255,255,255,0.68)' : 'var(--success-deep)';
-  const trunk = onGreen ? 'rgba(0,0,0,0.28)' : 'var(--fl-neutral-600)';
+  const trunk = onGreen ? 'rgba(255,255,255,0.55)' : 'var(--fl-neutral-600)';
   return (
     <span
       className="inline-block origin-bottom animate-tree-grow transition-transform duration-fast hover:scale-110"
@@ -116,21 +134,14 @@ function Tree({
         style={{ animationDelay: `${growDelay + 720 + (index % 5) * 300}ms` }}
         aria-hidden
       >
-        {pine ? (
-          <>
-            <path d="M20 3 L31 20 H9 Z" fill={crown} />
-            <path d="M20 12 L34 32 H6 Z" fill={crown} />
-            <path d="M20 22 L38 45 H2 Z" fill={crownDeep} />
-          </>
-        ) : (
-          <>
-            <circle cx="20" cy="20" r="14" fill={crown} />
-            <circle cx="12" cy="27" r="10" fill={crownDeep} />
-            <circle cx="28" cy="27" r="10" fill={crownDeep} />
-            <circle cx="20" cy="30" r="9" fill={crown} />
-          </>
-        )}
-        <rect x="17.5" y={pine ? 44 : 37} width="5" height={pine ? 12 : 19} rx="1" fill={trunk} />
+        <path d="M17.6 56 C18.3 50 18.7 44 18.9 34 H21.1 C21.3 44 21.7 50 22.4 56 Z" fill={trunk} />
+        {/* The shaded underside first, the lit top over it. */}
+        <circle cx="11" cy="27" r="9" fill={crownDeep} />
+        <circle cx="29" cy="27" r="9" fill={crownDeep} />
+        <circle cx="20" cy="30" r="9.5" fill={crownDeep} />
+        <circle cx="12" cy="20" r="8" fill={crown} />
+        <circle cx="28" cy="20" r="8" fill={crown} />
+        <circle cx="20" cy="18" r="13" fill={crown} />
       </svg>
     </span>
   );

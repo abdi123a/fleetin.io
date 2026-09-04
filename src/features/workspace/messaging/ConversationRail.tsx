@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 
 import { Avatar, Spinner, Tooltip } from '@/design-system';
-import { Lock, Plus, Search, UserRound } from '@/design-system/icons';
+import { Lock, Plus, Search, Trash2, UserRound } from '@/design-system/icons';
 import { resolveAssetUrl } from '@/services/api.client';
 import { cn } from '@/utils';
 
@@ -14,6 +14,12 @@ export interface ConversationRailProps {
   onSelect: (conversation: Conversation) => void;
   onCreateChannel: () => void;
   onStartDirect: () => void;
+  /**
+   * Delete a channel. Offered only on rows the server marked
+   * `deletableByMe` — the creator's own rooms, or any of them for a holder of
+   * `workspace.manage` — and never on a direct message.
+   */
+  onDelete?: (conversation: Conversation) => void;
   className?: string;
 }
 
@@ -45,13 +51,23 @@ function UnreadPill({ unread, mentions }: { unread: number; mentions: number }) 
 }
 
 function ConversationRow({
-  conversation, active, onSelect,
-}: { conversation: Conversation; active: boolean; onSelect: () => void }) {
+  conversation, active, onSelect, onDelete,
+}: {
+  conversation: Conversation;
+  active: boolean;
+  onSelect: () => void;
+  onDelete?: () => void;
+}) {
   const isDirect = conversation.kind === 'DIRECT';
   const unread = conversation.unread > 0;
+  const deletable = Boolean(onDelete && conversation.deletableByMe);
 
   return (
-    <li>
+    /* The delete control is a sibling of the row button, not a child of it:
+       a button inside a button is invalid, and the browser's own hit-testing
+       of the nested pair is undefined. `group` lets it reveal on hover of the
+       whole row while staying its own tab stop. */
+    <li className="group/row relative">
       <button
         type="button"
         onClick={onSelect}
@@ -60,6 +76,8 @@ function ConversationRow({
           'relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-fast',
           'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring',
           active ? 'bg-primary-subtle' : 'hover:bg-surface-sunken',
+          /* Room for the control, so a long name is not overprinted by it. */
+          deletable && 'group-hover/row:pr-8 group-focus-within/row:pr-8',
         )}
       >
         {/* The selected room gets a rule, not just a wash — on a list of
@@ -107,6 +125,27 @@ function ConversationRow({
 
         <UnreadPill unread={conversation.unread} mentions={conversation.mentions} />
       </button>
+
+      {/* Hidden until the row is hovered or something in it has focus, so the
+          rail is not a column of trash cans — but always reachable by keyboard,
+          which is why it is `opacity`/`focus-visible` rather than `hidden`. */}
+      {deletable ? (
+        <Tooltip content={`Delete #${conversation.name}`}>
+          <button
+            type="button"
+            onClick={onDelete}
+            aria-label={`Delete channel ${conversation.name}`}
+            className={cn(
+              'absolute right-1 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground opacity-0 transition',
+              'hover:bg-destructive-subtle hover:text-destructive',
+              'focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring',
+              'group-hover/row:opacity-100 group-focus-within/row:opacity-100',
+            )}
+          >
+            <Trash2 className="size-3.5" aria-hidden />
+          </button>
+        </Tooltip>
+      ) : null}
     </li>
   );
 }
@@ -142,7 +181,7 @@ function Section({
  * for the same thing.
  */
 export function ConversationRail({
-  conversations, activeId, loading, onSelect, onCreateChannel, onStartDirect, className,
+  conversations, activeId, loading, onSelect, onCreateChannel, onStartDirect, onDelete, className,
 }: ConversationRailProps) {
   const [filter, setFilter] = useState('');
   const [unreadsOnly, setUnreadsOnly] = useState(false);
@@ -199,7 +238,13 @@ export function ConversationRail({
                 <li className="px-2 py-1.5 text-xs text-muted-foreground">No channels</li>
               ) : (
                 channels.map((c) => (
-                  <ConversationRow key={c.id} conversation={c} active={c.id === activeId} onSelect={() => onSelect(c)} />
+                  <ConversationRow
+                    key={c.id}
+                    conversation={c}
+                    active={c.id === activeId}
+                    onSelect={() => onSelect(c)}
+                    onDelete={onDelete ? () => onDelete(c) : undefined}
+                  />
                 ))
               )}
             </Section>

@@ -13,6 +13,11 @@ export interface DocumentLine {
   qty: number;
   unitMinorUnits: string;
   totalMinorUnits: string;
+  /**
+   * The containers under a PROJECT invoice's shipment line. Only a project
+   * bill sets this — a single-shipment invoice's lines ARE the containers.
+   */
+  children?: { reference: string; containerNo: string | null; route: string | null }[];
 }
 
 /**
@@ -118,11 +123,30 @@ export async function issueInvoice(shipmentId: string): Promise<InvoiceRecord> {
   return normalise(res.data);
 }
 
+/**
+ * Bills a whole project as ONE invoice, one line per shipment.
+ *
+ * The result carries `shipmentsBilled` and `skippedUnpriced` so the screen can
+ * say what went on the document and what was left off, rather than reporting a
+ * silent partial.
+ */
+export interface ProjectInvoiceResult extends InvoiceRecord {
+  shipmentsBilled: number;
+  skippedUnpriced: number;
+}
+
+export async function issueProjectInvoice(projectId: string): Promise<ProjectInvoiceResult> {
+  const res = await apiClient.post<ProjectInvoiceResult>(`/invoices/project/${projectId}`, {}, token());
+  return { ...normalise(res.data), shipmentsBilled: res.data.shipmentsBilled, skippedUnpriced: res.data.skippedUnpriced };
+}
+
 /** One hand-typed line on a quotation. `unitAmount` is whole DJF for ONE unit. */
 export interface ProformaLineInput {
   description: string;
   qty: number;
   unitAmount: number;
+  /** The shipment vocabulary — `containerized`, `bulk`, `machinery`. */
+  category?: string;
 }
 
 export interface CreateProformaPayload {

@@ -308,8 +308,34 @@ export function MatchingPage() {
           )}
         </div>
 
-        {/* ── The opportunities ────────────────────────────────────────────── */}
-        <div className={cn('min-w-0 space-y-2 lg:col-span-3', !hasPicked && 'hidden lg:block')}>
+        {/*
+          ── The opportunities ──────────────────────────────────────────────
+
+          Pinned to the top of the viewport on a wide screen, so it is beside
+          whichever empty the reader is looking at rather than beside the top of
+          the pile.
+
+          The pile is a full page of cards — eight of them is already about a
+          screen, and the reader can ask for sixty-four. Without this, picking
+          the last container on the page meant scrolling back to the top to read
+          the answer, and then down again for the next one: the whole job is
+          "pick one, read the match, pick the next", and the layout made every
+          lap of that a round trip.
+
+          It scrolls inside itself rather than being clipped, because a match
+          with several shipment opportunities is taller than the window — the
+          cap is the viewport less the app header and this page's own padding.
+          `self-start` because the grid stretches its cells by default, and a
+          sticky element that has been stretched to the row's height has nothing
+          left to stick with.
+        */}
+        <div
+          className={cn(
+            'min-w-0 space-y-2 lg:col-span-3',
+            'lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-var(--fl-header-height)-2rem)] lg:overflow-y-auto',
+            !hasPicked && 'hidden lg:block',
+          )}
+        >
           {/* Step two's way back. Only where there are steps — on a wide screen
               the pile never left, so a "back" would point at nothing. */}
           {selected && (

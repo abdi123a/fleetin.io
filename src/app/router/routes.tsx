@@ -50,6 +50,7 @@ const BillingPage = lazyWithRetry(() => import('@/pages/finance'), 'BillingPage'
 const InvoicesPage = lazyWithRetry(() => import('@/pages/finance'), 'InvoicesPage');
 const ProjectsPage = lazyWithRetry(() => import('@/pages/finance'), 'ProjectsPage');
 const ProjectPage = lazyWithRetry(() => import('@/pages/finance'), 'ProjectPage');
+const ExpensesPage = lazyWithRetry(() => import('@/pages/finance'), 'ExpensesPage');
 const InvoiceDocumentPage = lazyWithRetry(() => import('@/pages/finance'), 'InvoiceDocumentPage');
 const HrModuleChrome = lazyWithRetry(() => import('@/pages/hr'), 'HrModuleChrome');
 const HrDashboardPage = lazyWithRetry(() => import('@/pages/hr'), 'HrDashboardPage');
@@ -184,8 +185,9 @@ export const routes: RouteObject[] = [
       { path: ROUTES.employees, element: <Navigate to={ROUTES.hrEmployees} replace /> },
       { path: ROUTES.documents, element: <DocumentsPage /> },
       /*
-       * Billing. Five views under one chrome, down from twelve — the
-       * working-capital module was removed on 2026-09-03.
+       * Billing. Six views under one chrome, down from twelve — the
+       * working-capital module was removed on 2026-09-03. Expenses is the odd
+       * one out and gated differently: see `ROUTE_PERMISSIONS`.
        *
        * The old deep links are kept as redirects rather than deleted. People
        * bookmark a finance screen and mail each other links to one; a 404 on a
@@ -200,6 +202,7 @@ export const routes: RouteObject[] = [
           { path: ROUTES.financeInvoiceDetail, element: <InvoiceDocumentPage /> },
           { path: ROUTES.financeProjects, element: <ProjectsPage /> },
           { path: ROUTES.financeProjectDetail, element: <ProjectPage /> },
+          { path: ROUTES.financeExpenses, element: <ExpensesPage /> },
         ],
       },
       { path: '/finance/shipments/*', element: <Navigate to={ROUTES.finance} replace /> },

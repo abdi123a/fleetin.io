@@ -56,6 +56,9 @@ export type IdKind =
   | 'draw'
   | 'repayment'
   | 'costLine'
+  // ── What the company spends on itself ─────────────────────────────────
+  | 'expense'
+  | 'recurringExpense'
   // ── Operations ────────────────────────────────────────────────────────
   | 'mission'
   // ── Workspace ─────────────────────────────────────────────────────────
@@ -79,6 +82,14 @@ export const ID_PREFIX: Record<IdKind, string> = {
   repayment: 'RPY',
   /** One cost line on one booking. Internal — never shown as a headline. */
   costLine: 'LEG',
+  /**
+   * One thing Fleetin paid for itself — fuel, rent, a licence. Deliberately
+   * outside the money hierarchy above: an expense is never allocated to a
+   * shipment and never reaches an invoice.
+   */
+  expense: 'EXP',
+  /** A standing obligation that mints those — the lease, the payroll line. */
+  recurringExpense: 'REX',
   /**
    * One operational trip in the Shipments module. Kept distinct from `BKG`
    * on purpose: finance's bookings and operations' missions are separate
@@ -112,6 +123,8 @@ export const ID_LABEL: Record<IdKind, string> = {
   draw: 'Draw',
   repayment: 'Repayment',
   costLine: 'Cost line',
+  expense: 'Expense',
+  recurringExpense: 'Recurring cost',
   mission: 'Mission',
   task: 'Task',
   vehicle: 'Vehicle',

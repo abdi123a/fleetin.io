@@ -133,3 +133,37 @@ export function documentStateOf(
   if (live.some((doc) => doc.kind === 'proforma')) return 'quoted';
   return 'nothing';
 }
+
+/**
+ * A cargo category in the words a client reads.
+ *
+ * The server writes this label onto a document's lines at issue, so a document
+ * raised today already carries "40ft container". Documents issued before that
+ * change snapshotted the raw slug — `container_40`, `bulky_goods` — and a
+ * snapshot must not be rewritten in the database, so those are translated here
+ * at render instead. Anything unrecognised is passed through: it is the
+ * operator's own free-text cargo description, not a slug.
+ */
+export function cargoLabel(category: string | null | undefined): string | null {
+  if (!category) return null;
+  switch (category) {
+    case 'container_20':
+      return '20ft container';
+    case 'container_40':
+      return '40ft container';
+    case 'container_40hc':
+      return '40ft high-cube';
+    case 'containerized':
+      return 'Containerized';
+    case 'bulk':
+      return 'Bulk';
+    case 'bulky_goods':
+      return 'Bulky goods';
+    case 'machinery':
+      return 'Machinery';
+    case 'special':
+      return 'Special cargo';
+    default:
+      return category;
+  }
+}
