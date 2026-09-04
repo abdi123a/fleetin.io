@@ -43,8 +43,11 @@ export class ProjectsController {
 
   @Patch(':id/close')
   @RequirePermissions(PERMISSIONS.projects.update)
-  @ApiOperation({ summary: 'Close the project — issues invoices for any unbilled shipments, then marks it completed' })
-  close(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.projectsService.close(id, user.id, `${user.firstName} ${user.lastName}`.trim());
+  @ApiOperation({
+    summary:
+      'Close the project. Refused while any priced shipment is uninvoiced or any invoice is unpaid — a closed project must be a settled one.',
+  })
+  close(@Param('id') id: string) {
+    return this.projectsService.close(id);
   }
 }

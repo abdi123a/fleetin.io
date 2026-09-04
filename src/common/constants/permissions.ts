@@ -95,6 +95,33 @@ export const PERMISSIONS = {
     update: 'finance.update',
     approve: 'finance.approve',
   },
+  /*
+   * Internal expenses — what it costs to run Fleetin, as opposed to what a
+   * shipment costs.
+   *
+   * `create` is the odd one out and deliberately so: it is granted to DRIVER
+   * and EMPLOYEE as well as to every desk, because an expense the person who
+   * spent the money cannot file is an expense that reaches finance a month
+   * late in a shoebox. An account holding `create` without `view` sees only
+   * its own claims — that scope lives in `ExpensesService.findAll`, not in a
+   * second permission string, because "mine" is a row filter and not a
+   * different capability.
+   *
+   * `manage` owns the recurring book (rent, salaries, the insurance premium):
+   * a standing obligation is a commitment on the company, which is a
+   * different act from approving a fuel receipt.
+   *
+   * Note for whoever adds the next one: `Role.permissions` is a JSON column,
+   * so a new string here reaches nobody until a data migration writes it into
+   * the existing role rows. See `..._expenses_permissions`.
+   */
+  expenses: {
+    view: 'expenses.view',
+    create: 'expenses.create',
+    approve: 'expenses.approve',
+    pay: 'expenses.pay',
+    manage: 'expenses.manage',
+  },
   projects: {
     view: 'projects.view',
     create: 'projects.create',

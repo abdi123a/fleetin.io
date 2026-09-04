@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PERMISSIONS } from '../../common/constants/permissions';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -23,7 +23,7 @@ export class WorkspaceChannelsController {
   @ApiOperation({ summary: 'The rail — my rooms with unread, mention counts and last message' })
   async list(@CurrentUser() user: AuthenticatedUser) {
     assertInternal(user);
-    return this.channels.listForUser(user.id);
+    return this.channels.listForUser(user);
   }
 
   /* Declared before `:id` so the literal is not read as a channel id. */
@@ -55,6 +55,14 @@ export class WorkspaceChannelsController {
   async update(@Param('id') id: string, @Body() dto: UpdateChannelDto, @CurrentUser() user: AuthenticatedUser) {
     assertInternal(user);
     return this.channels.update(id, dto, user);
+  }
+
+  @Delete(':id')
+  @RequirePermissions(PERMISSIONS.workspace.create)
+  @ApiOperation({ summary: 'Delete a channel you created, and everything in it' })
+  async remove(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    assertInternal(user);
+    return this.channels.remove(id, user);
   }
 
   @Put(':id/members')

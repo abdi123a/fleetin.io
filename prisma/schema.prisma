@@ -538,53 +538,139 @@ model Drawdown {
 
 // ─── 7. Internal Expenses & Recurring Templates ──────────────────────────────
 
+/// What it costs to run Fleetin — and the ONLY money model in the system that
+/// is not about a shipment.
+///
+/// Everything else in the finance module is a job: a shipper pays for haulage,
+/// a transporter is paid for driving it. This is the other side of the
+/// business — the rent, the salaries, the diesel somebody bought at a pump
+/// with their own card. It is deliberately not a ledger and not a
+/// cost-of-goods model: nothing here is allocated to a shipment, and no
+/// figure on this table ever reaches an invoice.
+///
+/// **Anybody who logs in may raise one.** That is the point of the record: an
+/// expense the person who spent the money cannot file is an expense that gets
+/// filed a month later from a shoebox. What is gated is what happens next —
+/// approving it, and paying it — and the row-level scope in
+/// `ExpensesService.findAll` means somebody without `expenses.view` sees only
+/// their own claims rather than the company's whole cost base.
+///
+/// The receipt is REQUIRED for a hand-raised claim (see `receiptKey`), and it
+/// is stored the way every other file in the system is: through
+/// `StorageService`, keyed, streamed back on request. A URL typed into a text
+/// column is not evidence of anything.
 model ExpenseEntry {
-  id                   String                    @id @default(uuid())
-  number               String                    @unique @db.VarChar(32)
-  category             String                    @db.VarChar(32) // SALARY | RENT | UTILITIES | FUEL | TECHNOLOGY | ...
-  description          String                    @db.Text
+  id            String  @id @default(uuid())
+  /// `EXP-#####`, minted through `nextReferenceField`. See `reference.util.ts`.
+  number        String  @unique @db.VarChar(32)
+  /// One of `EXPENSE_CATEGORIES` — validated at the service, an open column
+  /// here for the same reason `Document.category` is.
+  category      String  @db.VarChar(32)
+  description   String  @db.Text
+  /// Who was paid: the landlord, the pump, the insurer, the employee.
+  vendorOrPayee String? @db.VarChar(255)
+
   amountMinorUnits     BigInt
-  currency             String                    @db.VarChar(8)
-  fxRate               Float                     @default(1.0)
+  currency             String @db.VarChar(8)
+  fxRate               Float  @default(1.0)
   baseAmountMinorUnits BigInt
-  incurredAt           DateTime
-  paidById             String
-  paidByName           String                    @db.VarChar(255)
-  method               String                    @db.VarChar(32)
-  receiptUrl           String?                   @db.Text
-  status               String                    @default("Pending") @db.VarChar(16)
-  isRecurring          Boolean                   @default(false)
-  recurringTemplateId  String?
-  template             RecurringExpenseTemplate? @relation(fields: [recurringTemplateId], references: [id])
-  createdById          String
-  createdByName        String                    @db.VarChar(255)
-  approvedById         String?
-  approvedByName       String?                   @db.VarChar(255)
-  approvedAt           DateTime?
-  paidAt               DateTime?
-  notes                String?                   @db.Text
-  createdAt            DateTime                  @default(now())
-  updatedAt            DateTime                  @updatedAt
+
+  /// When the money was actually spent — NOT when the claim was filed. A fuel
+  /// receipt handed in three weeks late still dates from the day at the pump,
+  /// and `createdAt` says nothing about that.
+  incurredAt DateTime
+  /// How it left the company: CASH | BANK_TRANSFER | MOBILE_MONEY | CARD | PETTY_CASH.
+  method     String   @db.VarChar(32)
+
+  /// Who actually put the money down. Defaults to whoever raised the claim,
+  /// because that is who it usually is.
+  paidById     String
+  paidByName   String  @db.VarChar(255)
+  /// True when a person spent their OWN money and Fleetin owes it back. It
+  /// changes what `Paid` means on the row — settled with a supplier, or
+  /// reimbursed to a colleague — so the badge alone is not enough.
+  reimbursable Boolean @default(false)
+
+  /// The receipt, through `StorageService`. Null only on an entry posted from
+  /// a recurring template, where the bank slip arrives after the standing
+  /// order does.
+  receiptKey       String? @db.VarChar(512)
+  receiptName      String? @db.VarChar(255)
+  receiptMime      String? @db.VarChar(120)
+  receiptSizeBytes Int?
+
+  /// Submitted | Approved | Paid | Rejected. See `EXPENSE_STATUSES`.
+  status String @default("Submitted") @db.VarChar(16)
+
+  isRecurring         Boolean                   @default(false)
+  recurringTemplateId String?
+  template            RecurringExpenseTemplate? @relation(fields: [recurringTemplateId], references: [id])
+  /// Which period a posted recurring entry covers, e.g. `2026-09`. Null on a
+  /// one-off. Unique per template at the service, so pressing Post twice on
+  /// September's rent cannot book it twice.
+  periodLabel         String?                   @db.VarChar(32)
+
+  createdById     String
+  createdByName   String    @db.VarChar(255)
+  approvedById    String?
+  approvedByName  String?   @db.VarChar(255)
+  approvedAt      DateTime?
+  paidAt          DateTime?
+  rejectionReason String?   @db.Text
+  notes           String?   @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@index([category])
   @@index([status])
+  @@index([createdById])
+  @@index([incurredAt])
+  @@index([recurringTemplateId, periodLabel])
   @@map("expense_entries")
 }
 
+/// A cost that comes back every month whether anybody files it or not — the
+/// rent, the payroll, the insurance premium, the internet line.
+///
+/// The template is the STANDING OBLIGATION, never the money itself. Nothing
+/// on this table is counted as spent: pressing Post on a due template writes a
+/// real `ExpenseEntry` for that period and moves `nextDueAt` on. That keeps
+/// one rule true across the module — every figure in the expense book is a
+/// payment somebody recorded, not a payment somebody predicted.
+///
+/// Posting is deliberately manual. A cron that books rent on the 1st books it
+/// in the month nobody paid it too, and the correction is worse than the
+/// keystroke it saved.
 model RecurringExpenseTemplate {
-  id               String   @id @default(uuid())
-  category         String   @db.VarChar(32)
-  description      String   @db.Text
+  id            String @id @default(uuid())
+  /// `REX-#####`.
+  reference     String @unique @db.VarChar(32)
+  category      String @db.VarChar(32)
+  description   String @db.Text
+  vendorOrPayee String @db.VarChar(255)
+
   amountMinorUnits BigInt
-  currency         String   @db.VarChar(8)
-  frequency        String   @db.VarChar(16) // MONTHLY | WEEKLY | QUARTERLY | ANNUAL
-  nextDueAt        DateTime
-  isActive         Boolean  @default(true)
-  vendorOrPayee    String   @db.VarChar(255)
-  createdAt        DateTime @default(now())
+  currency         String @db.VarChar(8)
+  method           String @default("BANK_TRANSFER") @db.VarChar(32)
+  /// WEEKLY | MONTHLY | QUARTERLY | ANNUAL.
+  frequency        String @db.VarChar(16)
+
+  nextDueAt    DateTime
+  lastPostedAt DateTime?
+  /// The obligation's own end — a lease that runs out, a contract that ends.
+  /// Past it the template stops asking to be posted.
+  endsAt       DateTime?
+  isActive     Boolean   @default(true)
+
+  notes         String?  @db.Text
+  createdById   String?
+  createdByName String?  @db.VarChar(255)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
 
   entries ExpenseEntry[]
 
+  @@index([isActive, nextDueAt])
   @@map("recurring_expense_templates")
 }
 
@@ -1288,10 +1374,10 @@ model Shipment {
   ///
   /// Null is the normal state for work still running, and for delivered work
   /// nobody has paid yet — which is exactly the queue the Billing page shows.
-  transporterPaidAt            DateTime?
-  transporterPaidMinorUnits    BigInt?
-  transporterPaidById          String?
-  transporterPaidByName        String?   @db.VarChar(255)
+  transporterPaidAt         DateTime?
+  transporterPaidMinorUnits BigInt?
+  transporterPaidById       String?
+  transporterPaidByName     String?   @db.VarChar(255)
 
   /// A commercial-agreement grouping over shipments for one shipper — see
   /// `Project`'s own doc comment. Null is a normal, common state.

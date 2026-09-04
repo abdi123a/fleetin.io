@@ -60,6 +60,7 @@ const DEFAULT_ROLES = [
       'documents.*',
       'finance.*',
       'projects.*',
+      'expenses.*',
       PERMISSIONS.analytics.view,
       PERMISSIONS.roles.view,
       /* Own team only, and deliberately without `hr.view-salary` or
@@ -92,6 +93,7 @@ const DEFAULT_ROLES = [
       'hr-documents.*',
       'leave.*',
       'workspace.*',
+      'expenses.*',
       PERMISSIONS.settings.view,
     ],
   },
@@ -100,6 +102,7 @@ const DEFAULT_ROLES = [
     description: 'Finance — payroll figures and bank transfers, no personal identity documents',
     permissions: [
       'finance.*',
+      'expenses.*',
       PERMISSIONS.hr.view,
       PERMISSIONS.hr.viewSalary,
       PERMISSIONS.payroll.view,
@@ -127,6 +130,10 @@ const DEFAULT_ROLES = [
        * edit work they did not raise. */
       PERMISSIONS.workspace.view,
       PERMISSIONS.workspace.create,
+      /* Files an expense and sees their own claims — never the company's cost
+       * base, which is the row scope in `ExpensesService.findAll` rather than
+       * a second grant. */
+      PERMISSIONS.expenses.create,
     ],
   },
   {
@@ -145,6 +152,7 @@ const DEFAULT_ROLES = [
       PERMISSIONS.documents.view,
       PERMISSIONS.documents.upload,
       'workspace.*',
+      'expenses.*',
     ],
   },
   {
@@ -155,6 +163,9 @@ const DEFAULT_ROLES = [
       PERMISSIONS.shipments.update,
       PERMISSIONS.documents.view,
       PERMISSIONS.documents.upload,
+      /* Diesel, road tolls, a tyre bought on the way back. The people who
+       * spend the most cash off-site had the least ability to record it. */
+      PERMISSIONS.expenses.create,
     ],
   },
   {

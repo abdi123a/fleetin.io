@@ -26,6 +26,7 @@ import { EmissionsModule } from './modules/emissions/emissions.module';
 import { BankAccountsModule } from './modules/bank-accounts/bank-accounts.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { ProjectsModule } from './modules/projects/projects.module';
+import { ExpensesModule } from './modules/expenses/expenses.module';
 import { HrModule } from './modules/hr/hr.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -82,6 +83,7 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     BankAccountsModule,
     InvoicesModule,
     ProjectsModule,
+    ExpensesModule,
     SettingsModule,
     HrModule,
     WorkspaceModule,

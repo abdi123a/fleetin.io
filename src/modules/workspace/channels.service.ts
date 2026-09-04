@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, WorkspaceChannelKind, WorkspaceChannelRole } from '@prisma/client';
+import { PERMISSIONS, WILDCARD_ALL } from '../../common/constants/permissions';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/jwt.strategy';
 import { CreateChannelDto, SetChannelMembersDto, UpdateChannelDto } from './dto/channel.dto';
@@ -34,7 +35,14 @@ export class ChannelsService {
    * SQL. With twenty channels the N+1 version would be sixty round trips on
    * every poll of the rail.
    */
-  async listForUser(userId: string) {
+  async listForUser(user: AuthenticatedUser) {
+    const userId = user.id;
+    /* Computed once for the whole rail rather than per row — the answer is the
+       same for every channel, and it decides whether each one offers a delete. */
+    const canManage =
+      user.permissions?.includes(WILDCARD_ALL) ||
+      user.permissions?.includes(PERMISSIONS.workspace.manage);
+
     const memberships = await this.prisma.workspaceChannelMember.findMany({
       where: { userId, channel: { archivedAt: null } },
       include: {
@@ -102,6 +110,12 @@ export class ChannelsService {
           unread: unread.get(channel.id) ?? 0,
           mentions: mentions.get(channel.id) ?? 0,
           lastMessage: lastMessages.get(channel.id) ?? null,
+          /* Whether THIS reader may delete the room, decided by the same rule
+             `remove` enforces. Sent from the server so the rail never offers a
+             control that would 403, and never has to re-implement the rule. */
+          deletableByMe:
+            channel.kind !== WorkspaceChannelKind.DIRECT &&
+            (channel.createdById === userId || Boolean(canManage)),
         };
       })
       /* Rooms with something in them first, then most recent. An empty channel
@@ -211,6 +225,43 @@ export class ChannelsService {
       },
       include: { members: { include: { user: { select: PERSON } } } },
     });
+  }
+
+  /**
+   * Delete a channel and everything said in it.
+   *
+   * Only the person who opened it, or somebody holding `workspace.manage`, may
+   * do this — a channel is a shared room, and a member who merely joined it
+   * cannot take the room away from the rest. The seeded channels have no
+   * creator (`createdById` is null once that user is removed, and the seed
+   * writes none), so they can only be removed by a manager, which is the right
+   * answer for Operations or General.
+   *
+   * A DM is refused outright. It is not "yours" to delete — the other person's
+   * half of the conversation would go with it, and there is nothing to
+   * re-create it from.
+   *
+   * The messages and the memberships go with the row: both relations are
+   * `onDelete: Cascade` in the schema, so this is one statement rather than a
+   * hand-rolled sweep that could half-succeed.
+   */
+  async remove(channelId: string, user: AuthenticatedUser) {
+    const { channel } = await this.assertMember(channelId, user.id);
+
+    if (channel.kind === WorkspaceChannelKind.DIRECT) {
+      throw new BadRequestException('A direct message cannot be deleted');
+    }
+
+    const canManage =
+      user.permissions?.includes(WILDCARD_ALL) ||
+      user.permissions?.includes(PERMISSIONS.workspace.manage);
+
+    if (channel.createdById !== user.id && !canManage) {
+      throw new ForbiddenException('Only the person who created this channel can delete it');
+    }
+
+    await this.prisma.workspaceChannel.delete({ where: { id: channelId } });
+    return { ok: true, id: channelId };
   }
 
   async update(channelId: string, dto: UpdateChannelDto, user: AuthenticatedUser) {

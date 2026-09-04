@@ -28,6 +28,16 @@ export class ProformaLineDto {
   @IsInt()
   @Min(0)
   unitAmount: number;
+
+  /**
+   * What kind of cargo this line prices — the same vocabulary a shipment uses
+   * (`containerized`, `bulk`, `machinery`…). Carried so a quotation says
+   * whether it is quoting boxes or bulk, exactly as an invoice does.
+   */
+  @ApiPropertyOptional({ example: 'containerized' })
+  @IsOptional()
+  @IsString()
+  category?: string;
 }
 
 /**

@@ -13,6 +13,36 @@ interface FindAllParams {
   limit: number;
 }
 
+/**
+ * The stored category, in the words a client uses.
+ *
+ * `shipmentCategory` is a slug written for the matching engine
+ * (`container_20`, `bulky_goods`…). A bill is read by somebody outside this
+ * system, and "container_40" on an invoice line is our vocabulary leaking onto
+ * their paperwork. Falls back to the free-text `cargoType` — which the
+ * operator typed — and to nothing at all rather than printing a slug.
+ */
+function cargoLabel(category: string | null, cargoType: string | null): string | null {
+  switch (category) {
+    case 'container_20':
+      return '20ft container';
+    case 'container_40':
+      return '40ft container';
+    case 'containerized':
+      return 'Containerized';
+    case 'bulk':
+      return 'Bulk';
+    case 'bulky_goods':
+      return 'Bulky goods';
+    case 'machinery':
+      return 'Machinery';
+    case 'special':
+      return 'Special cargo';
+    default:
+      return cargoType?.trim() || null;
+  }
+}
+
 /** One printed line: a container the shipper is being charged for. */
 interface DocumentLine {
   reference: string;
@@ -56,7 +86,12 @@ export class InvoicesService {
       ...(shipperId ? { shipperId } : {}),
       ...(kind && kind !== 'all' ? { kind } : {}),
       ...(status && status !== 'all' ? { status } : {}),
-      ...(projectId ? { shipment: { projectId } } : {}),
+      /* Either the document is the project's own (a project invoice carries
+         `projectId` and no shipment), or it bills one of the project's
+         shipments. Matching only through the shipment relation — as this did —
+         hid every project-level invoice from the project's own screen, which
+         then reported its billed work as "not billed". */
+      ...(projectId ? { OR: [{ projectId }, { shipment: { projectId } }] } : {}),
     };
     const skip = (page - 1) * limit;
 
@@ -101,7 +136,12 @@ export class InvoicesService {
    * booked, which is exactly when a client wants a quote.
    */
   private buildLines(
-    bookings: Array<{ reference: string; containerNumber: string | null; shipmentCategory: string | null }>,
+    bookings: Array<{
+      reference: string;
+      containerNumber: string | null;
+      shipmentCategory: string | null;
+      cargoType: string | null;
+    }>,
     totalMinorUnits: bigint,
     shipmentReference: string,
   ): DocumentLine[] {
@@ -127,7 +167,7 @@ export class InvoicesService {
       return {
         reference: booking.reference,
         containerNo: booking.containerNumber,
-        category: booking.shipmentCategory,
+        category: cargoLabel(booking.shipmentCategory, booking.cargoType),
         description: booking.containerNumber
           ? `Container ${booking.containerNumber}`
           : `Container — ${booking.reference}`,
@@ -136,6 +176,153 @@ export class InvoicesService {
         totalMinorUnits: line.toString(),
       };
     });
+  }
+
+  /**
+   * Bills a whole PROJECT as one invoice.
+   *
+   * This is what a project is for. A project groups a client's shipments under
+   * one agreement, and an agreement is settled once — the client wants a
+   * single document listing the month's work, not fourteen envelopes. So the
+   * lines here are SHIPMENTS, one each, where a single-shipment invoice's
+   * lines are containers.
+   *
+   * Only priced shipments that are not already on a live invoice are taken:
+   * unpriced work cannot be billed at all, and re-billing a shipment that
+   * already has its own invoice would charge the client twice for it. Both are
+   * counted in the result so the screen can say what was left out rather than
+   * quietly billing less than the operator expected.
+   *
+   * Not idempotent by itself — a project runs for months and is legitimately
+   * billed more than once — but it cannot double-bill, because a shipment that
+   * reached an invoice is excluded from the next one by the check above.
+   */
+  async issueForProject(projectId: string, actorId: string, actorName: string) {
+    const project = await this.prisma.project.findFirst({
+      where: { OR: [{ id: projectId }, { reference: projectId }], deletedAt: null },
+      include: {
+        shipper: true,
+        shipments: {
+          where: { deletedAt: null, status: { notIn: ['Cancelled', 'Failed'] } },
+          include: { bookings: { where: { deletedAt: null } } },
+          orderBy: { scheduledPickupTime: 'asc' },
+        },
+      },
+    });
+    if (!project) throw new NotFoundException(`Project with ID "${projectId}" not found`);
+
+    const alreadyBilled = await this.prisma.invoice.findMany({
+      where: {
+        kind: 'invoice',
+        status: { not: 'Cancelled' },
+        shipmentId: { in: project.shipments.map((shipment) => shipment.id) },
+      },
+      select: { shipmentId: true },
+    });
+    const billedIds = new Set(alreadyBilled.map((row) => row.shipmentId));
+
+    /* Shipments already covered by an EARLIER project invoice are excluded the
+       same way — those carry the ids in `missionIds` rather than `shipmentId`. */
+    const priorProjectInvoices = await this.prisma.invoice.findMany({
+      where: { kind: 'invoice', status: { not: 'Cancelled' }, projectId: project.id },
+      select: { missionIds: true },
+    });
+    for (const row of priorProjectInvoices) {
+      const ids = Array.isArray(row.missionIds) ? (row.missionIds as string[]) : [];
+      for (const id of ids) billedIds.add(id);
+    }
+
+    const unpriced = project.shipments.filter((shipment) => shipment.clientRateMinorUnits == null);
+    const billable = project.shipments.filter(
+      (shipment) => shipment.clientRateMinorUnits != null && !billedIds.has(shipment.id),
+    );
+
+    if (billable.length === 0) {
+      throw new BadRequestException(
+        unpriced.length > 0
+          ? `Nothing to bill on "${project.name}" — every priced shipment is already invoiced, and ${unpriced.length} carr${unpriced.length === 1 ? 'ies' : 'y'} no price.`
+          : `Nothing to bill on "${project.name}" — every shipment is already invoiced.`,
+      );
+    }
+
+    /* One line per shipment: the job, its route, and how many boxes it moved.
+       `qty` is containers so the client can check the count, and `unit` is the
+       per-container rate that produces the line total exactly. */
+    const lines: DocumentLine[] = billable.map((shipment) => {
+      const total = shipment.clientRateMinorUnits as bigint;
+      const boxes = shipment.bookings.length || 1;
+      return {
+        reference: shipment.reference,
+        containerNo: null,
+        /* The lane, in full. A project invoice is checked line by line against
+           the client's own paperwork, and "Doraleh → UKAB" is what they filed
+           it under. */
+        description: `${shipment.pickupLocationName} → ${shipment.deliveryLocationName}`,
+        /* What kind of cargo the job moved. A client reconciling a project
+           bill needs to tell a containerized run from a bulk one — the
+           container COUNT alone reads the same for both. */
+        category: cargoLabel(shipment.shipmentCategory, shipment.cargoType),
+        qty: boxes,
+        unitMinorUnits: (total / BigInt(boxes)).toString(),
+        totalMinorUnits: total.toString(),
+        /* Every container the shipment moved, so the client can tick them off.
+           Snapshotted with the rest of the document. */
+        children: shipment.bookings.map((booking) => ({
+          reference: booking.reference,
+          containerNo: booking.containerNumber,
+          route: null,
+        })),
+      };
+    });
+
+    const total = billable.reduce((sum, shipment) => sum + (shipment.clientRateMinorUnits as bigint), 0n);
+    const containers = billable.reduce((sum, shipment) => sum + (shipment.bookings.length || 1), 0);
+    const commission = await resolveCommission(this.prisma, { shipperId: project.shipperId });
+    const split = splitCommission(total, commission, containers);
+
+    const number = await nextReferenceField(this.prisma.invoice, 'number', 'INV');
+    const issueDate = new Date();
+    const contractDeadline = new Date(issueDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    const invoice = await this.prisma.invoice.create({
+      data: {
+        number,
+        kind: 'invoice',
+        /* No `shipmentId`: this document belongs to the project, and pinning it
+           to one of its shipments would make that shipment look individually
+           billed to every other screen. The set lives in `missionIds`. */
+        shipmentId: null,
+        projectId: project.id,
+        shipperId: project.shipperId,
+        shipperName: billable[0]!.customerName,
+        shipperCompany: project.shipper.companyLegalName,
+        missionIds: billable.map((shipment) => shipment.id),
+        /* Just the agreement's name. The count belongs to the sentence the
+           document composes around it — carrying it here too printed
+           "… — 3 shipments — 3 shipments covering 11 containers". */
+        description: project.name,
+        lines: lines as unknown as object,
+        subtotalMinorUnits: total,
+        taxMinorUnits: 0n,
+        totalMinorUnits: total,
+        commissionMode: commission.mode,
+        commissionSource: commission.source,
+        commissionPct: commission.pct,
+        commissionFixedMinorUnits: commission.fixedMinorUnits,
+        commissionMinorUnits: split.fleetinMinorUnits,
+        currency: 'FDJ',
+        fxRate: 1.0,
+        baseAmountMinorUnits: total,
+        contractDeadline,
+        issueDate,
+        status: 'Draft',
+        remainingMinorUnits: total,
+        issuedById: actorId,
+        issuedByName: actorName,
+      },
+    });
+
+    return { ...invoice, shipmentsBilled: billable.length, skippedUnpriced: unpriced.length };
   }
 
   /**
@@ -165,7 +352,9 @@ export class InvoicesService {
       return {
         reference: `L${index + 1}`,
         containerNo: null,
-        category: null,
+        /* Same label pipeline as an invoice's lines, so a quote and the bill
+           that follows it describe the cargo identically. */
+        category: cargoLabel(line.category ?? null, null),
         description: line.description,
         qty: line.qty,
         unitMinorUnits: BigInt(Math.round(line.unitAmount)).toString(),

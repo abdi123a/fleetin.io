@@ -5,6 +5,7 @@ import { UploadDocumentDto } from './dto/upload-document.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { VerifyDocumentDto } from './dto/verify-document.dto';
 import { BOOKING_PROOFS } from './document-owner-type';
+import { decodeMulterFilename } from '../../common/helpers/multipart-filename.util';
 
 /** A booking whose record is settled — see `remove` below. */
 const CLOSED_BOOKING_STATUSES = ['Completed', 'Cancelled', 'Failed'];
@@ -310,19 +311,4 @@ export class DocumentsService {
     await this.storage.delete(document.storageKey);
     return this.prisma.document.delete({ where: { id } });
   }
-}
-
-/**
- * The filename as the person who made the file sees it.
- *
- * Busboy (under Multer) decodes multipart field values as latin1, which is
- * lossless at the byte level but wrong for every non-ASCII name. Re-encoding
- * those bytes and decoding them as UTF-8 recovers the original. A name that is
- * actually latin1 will not survive that round trip — the re-decode produces
- * U+FFFD — so the original is kept in that case rather than replacing a
- * readable name with question marks.
- */
-function decodeMulterFilename(name: string): string {
-  const decoded = Buffer.from(name, 'latin1').toString('utf8');
-  return decoded.includes('\uFFFD') ? name : decoded;
 }

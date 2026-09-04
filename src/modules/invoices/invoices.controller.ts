@@ -58,6 +58,16 @@ export class InvoicesController {
     return this.invoicesService.createProforma(dto, user.id, `${user.firstName} ${user.lastName}`.trim());
   }
 
+  @Post('project/:projectId')
+  @RequirePermissions(PERMISSIONS.finance.create)
+  @ApiOperation({
+    summary:
+      "Bill a whole project as ONE invoice — one line per shipment. Shipments already invoiced are excluded, so it cannot double-bill; unpriced ones are skipped and counted.",
+  })
+  issueForProject(@Param('projectId') projectId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.invoicesService.issueForProject(projectId, user.id, `${user.firstName} ${user.lastName}`.trim());
+  }
+
   @Post('issue-for-shipment/:shipmentId')
   @RequirePermissions(PERMISSIONS.finance.create)
   @ApiOperation({ summary: "Raise a shipment's invoice. Idempotent per shipment; refuses an unpriced shipment." })
