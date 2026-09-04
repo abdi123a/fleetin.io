@@ -1412,6 +1412,12 @@ model Shipment {
   @@index([projectId])
   @@index([pickupLocationId])
   @@index([deliveryLocationId])
+  /// Declared because `20260903170000_transporter_payment` already created it.
+  /// The migration added the column AND the index; the model was given only the
+  /// column, so the schema and every database disagreed by one index — and the
+  /// next `migrate dev` would have "resolved" that by writing a migration that
+  /// DROPS it. A schema that under-declares reality does not stay a no-op.
+  @@index([transporterPaidAt])
   @@map("shipments")
 }
 
