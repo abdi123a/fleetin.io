@@ -346,7 +346,19 @@ export function MatchingPage() {
               a scroll container clips it — and gives the same breathing space
               at the top of the box as at the bottom, without narrowing the
               cards. */}
-          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-1 -m-1 lg:pr-2">
+          {/* `shrink` and not `flex-1`.
+              
+              The grid stretches this column to the height of the panel beside
+              it, which is what gives the scroller a bound to scroll against.
+              But `flex-1` also makes it GROW into that whole height, and with
+              three boxes in the yard it grew to 486px around 190px of cards —
+              pushing the rule and the pager to the floor of the column and
+              opening a lake of white between the last card and the count.
+              
+              Shrink-only keeps both halves: short content sits at its natural
+              height with the pager tucked under it, and a full yard still
+              shrinks to the cap and scrolls. */}
+          <div className="min-h-0 shrink space-y-2 overflow-y-auto p-1 -m-1 lg:pr-2">
           {pagedAwaiting.rows.map((record) => {
             const risk = riskOf(record, now);
             const active = selected?.id === record.id;
