@@ -358,7 +358,23 @@ export function MatchingPage() {
               Shrink-only keeps both halves: short content sits at its natural
               height with the pager tucked under it, and a full yard still
               shrinks to the cap and scrolls. */}
-          <div className="min-h-0 shrink space-y-2 overflow-y-auto p-1 -m-1 lg:pr-2">
+          {/* `flex flex-wrap gap-2`, not `space-y-2`.
+              
+              A ContainerCard is deliberately an EXACT width — the box's own
+              length, 24rem for a 40-footer and 18rem for a 20-footer — and it
+              renders as a `button`, so it is `inline-block`. Two of those flow
+              side by side the moment the column is wide enough, which is what
+              happens on a tablet. `space-y-*` only sets margin-top on siblings:
+              it does nothing between two cards sharing a line, so they sat
+              flush against each other with only the whitespace between two JSX
+              nodes to separate them, and the rows they wrapped into were ragged.
+              
+              A wrapping flex row gives a real gutter in BOTH axes and keeps the
+              cards at their true widths, which is the whole point of the skin —
+              a 40-footer must look longer than a 20-footer wherever it is.
+              `content-start` packs the wrapped lines to the top instead of
+              spreading them down a tall column. */}
+          <div className="flex min-h-0 shrink flex-wrap content-start gap-2 overflow-y-auto p-1 -m-1 lg:pr-2">
           {pagedAwaiting.rows.map((record) => {
             const risk = riskOf(record, now);
             const active = selected?.id === record.id;
