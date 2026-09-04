@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import confetti from 'canvas-confetti';
 
 import { Dialog, DialogContent } from '@/design-system';
@@ -72,12 +72,29 @@ const CANNON_TOKENS: [string, string][] = [
   ['--stage-paired', '#836ae7'],
 ];
 
+/**
+ * Fires once when the pairing lands, and runs its full three seconds.
+ *
+ * It is deliberately NOT tied to the dialog being open. It used to be — the
+ * cleanup cancelled the loop and cleared the canvas the moment the dialog
+ * closed, on the reasoning that confetti raining over the pile somebody is
+ * trying to work is in the way. In practice that meant the operator pressed
+ * "Keep matching", which is the natural thing to do as soon as the number has
+ * been read, and cut off the one moment in the product that acknowledges
+ * having prevented a cost. The burst is short, it is behind `motion-reduce`,
+ * and it never loops — so letting it land is the right trade.
+ *
+ * The loop still has to stop when the PAGE goes, or it keeps requesting frames
+ * and painting over whatever the operator navigated to. That is the second
+ * effect: unmount only, never on close.
+ */
 function useSideCannons(open: boolean) {
+  const frameRef = useRef(0);
+
   useEffect(() => {
     if (!open) return;
 
     const endsAt = Date.now() + CANNON_MS;
-    let frameId = 0;
 
     const shot = {
       /* Bigger than the stock recipe on all three axes that read as "size":
@@ -97,21 +114,28 @@ function useSideCannons(open: boolean) {
     };
 
     const frame = () => {
+      /* Self-terminating, which is what lets this outlive the dialog safely:
+         nothing has to cancel it for it to end. */
       if (Date.now() > endsAt) return;
       void confetti({ ...shot, angle: 60, origin: { x: 0, y: 0.5 } });
       void confetti({ ...shot, angle: 120, origin: { x: 1, y: 0.5 } });
-      frameId = requestAnimationFrame(frame);
+      frameRef.current = requestAnimationFrame(frame);
     };
     frame();
 
-    /* Closing the dialog has to take the sky with it. Without this, an operator
-       who dismisses at 300ms watches confetti rain over the pile they are
-       trying to work, and the loop outlives the component. */
-    return () => {
-      cancelAnimationFrame(frameId);
-      confetti.reset();
-    };
+    /* No cleanup on `open` changing — that is the whole point. A pairing
+       confirmed twice inside three seconds simply starts a second run; the
+       first still stops itself on its own deadline. */
   }, [open]);
+
+  /* Leaving the page does take the sky with it. */
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(frameRef.current);
+      confetti.reset();
+    },
+    [],
+  );
 }
 
 export interface PairingCelebrationProps {

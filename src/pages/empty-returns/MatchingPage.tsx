@@ -55,6 +55,79 @@ import { PairingCelebration } from './components/PairingCelebration';
  */
 
 
+/**
+ * How much room is left between the top of an element and the bottom of the
+ * window.
+ *
+ * The workbench has to END at the bottom of the window, so that the page
+ * itself never scrolls and the two columns move only within themselves. What
+ * sits ABOVE it — the app header, the module's title, whatever that title
+ * wraps to at this width — is not a number this file can know.
+ *
+ * It was guessed first, as `calc(100vh - header - 2rem)`, and came out 155px
+ * too tall: the module's own heading, the grid's gap and the page's bottom
+ * padding are all above or below the workbench and none of them were in the
+ * sum. The page kept scrolling, and because the right-hand panel never
+ * travelled far enough to reach its sticky offset it simply moved with it —
+ * which is the whole thing this was meant to stop.
+ *
+ * So it is measured. `+ scrollY` reads the element's position in the DOCUMENT
+ * rather than the viewport, which is what keeps this stable: shrinking the
+ * column changes the page height, and a viewport-relative reading would feed
+ * that change back in as a new answer.
+ */
+function useRoomBelow(): [(node: HTMLDivElement | null) => void, number | null] {
+  /* A CALLBACK ref, held in state, rather than `useRef`.
+     
+     The bench is not mounted on the first renders — the yard is still loading
+     and the page returns its empty state instead — so a ref object is still
+     null when the effect runs, and because a ref's identity never changes the
+     effect would never run again once the bench appeared. The measurement
+     stayed null for the life of the page and nothing was ever capped. Storing
+     the node in state re-runs the effect the moment it attaches. */
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const [room, setRoom] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!element) return;
+
+    const measure = () => {
+      /* Below `lg` there is no bench — the pile IS the screen and the matches
+         are a second step — so nothing is capped and the page scrolls as it
+         always did. `null` says "leave it alone". */
+      if (window.innerWidth < 1024) {
+        setRoom(null);
+        return;
+      }
+      const top = element.getBoundingClientRect().top + window.scrollY;
+
+      /* Everything the layout reserves BELOW the bench — the module chrome's
+         `pb-12` and the app shell's own bottom padding. The bench is the last
+         child of each of those, so their bottom padding is exactly the space
+         the document still wants under it, and leaving it out left the page
+         64px taller than the window: enough to scroll, which moved both
+         columns together and undid the point of the exercise.
+
+         A floor, so a short window collapses the column to something usable
+         rather than to nothing. */
+      let below = 0;
+      for (let node = element.parentElement; node && node !== document.body; node = node.parentElement) {
+        below += Number.parseFloat(window.getComputedStyle(node).paddingBottom) || 0;
+      }
+      setRoom(Math.max(320, window.innerHeight - top - below));
+    };
+
+    measure();
+    /* Resize only. Observing the body would watch the very height this sets
+       and re-fire on its own output. The element's document position moves
+       when the header wraps, and the header wraps on resize. */
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [element]);
+
+  return [setElement, room];
+}
+
 export function MatchingPage() {
   /* `awaiting`, not `onBoard`.
    *
@@ -129,6 +202,11 @@ export function MatchingPage() {
     next.delete('plan');
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams, onBoard]);
+
+  /* The workbench measures itself so it ends at the window's bottom edge.
+     Above the empty-yard return below: hooks cannot sit after a branch that
+     returns, and putting them next to the markup they serve cost a render. */
+  const [benchRef, benchHeight] = useRoomBelow();
 
   if (onBoard.length === 0) {
     return (
@@ -210,10 +288,39 @@ export function MatchingPage() {
           panels, one of them hidden. The desktop arrangement is untouched, and
           because the switch is pure CSS there is no width state to disagree
           with what is actually on screen. */}
-      <div className="grid min-w-0 grid-cols-1 items-start gap-5 lg:grid-cols-5">
-        {/* ── The pile ─────────────────────────────────────────────────────── */}
-        <div className={cn('min-w-0 space-y-2 lg:col-span-2', hasPicked && 'hidden lg:block')}>
-          <div className="flex items-baseline justify-between gap-2">
+      {/* The bench is exactly as tall as the room under it, so its bottom edge
+          is the window's and neither column runs past the screen. The columns
+          stretch into that height and each scrolls inside itself — which is
+          what stops one side moving when the other is scrolled. */}
+      <div
+        ref={benchRef}
+        style={benchHeight === null ? undefined : { height: benchHeight }}
+        className="grid min-w-0 grid-cols-1 items-start gap-5 lg:grid-cols-5 lg:items-stretch"
+      >
+        {/*
+          ── The pile ───────────────────────────────────────────────────────
+
+          The yard scrolls INSIDE its own column rather than growing the page.
+
+          Whichever way the pile is sized — eight cards or sixty-four — it is
+          taller than the window, and while it drove the document's height the
+          whole screen moved with it: reaching the last container pushed the
+          panel that answers the question off the top, so every pick was a
+          round trip up and back. Capped to the window, the two halves scroll
+          independently and the matches never leave.
+
+          The cap and the overflow are `lg:` only. Below that the pile IS the
+          screen — the matches are a second step, hidden — and a short inner
+          scroll box inside a phone screen is worse than the page's own.
+
+          The heading and the pager sit OUTSIDE the scroller: they say what the
+          column is and how far into it you are, which are the two things that
+          must not scroll away.
+        */}
+        <div
+          className={cn('flex min-w-0 flex-col gap-2 lg:col-span-2 lg:min-h-0', hasPicked && 'hidden lg:flex')}
+        >
+          <div className="flex shrink-0 items-baseline justify-between gap-2">
             <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
               Select an empty container
             </h3>
@@ -221,6 +328,25 @@ export function MatchingPage() {
               {onBoard.length}
             </span>
           </div>
+
+          {/* `min-h-0` is load-bearing: a flex child defaults to `min-height:
+              auto`, which refuses to shrink below its content, and the column
+              would grow past its own cap instead of scrolling.
+
+              `px-1 -mx-1` gives the selected card's `ring-offset` somewhere to
+              draw — a scroll container clips it — without narrowing the cards. */}
+          {/* A plain scroll box. Snapping was tried here to stop a card being
+              cut by the bottom edge and had to come out: `proximity` snapping
+              re-runs on every scroll event, so the list kept tugging itself
+              back to the nearest card while the reader was still moving. A
+              partly visible card at the edge is the ordinary way a list says
+              there is more below; a list that moves on its own is not.
+
+              `p-1 -m-1` gives the selected card's `ring-offset` room to draw —
+              a scroll container clips it — and gives the same breathing space
+              at the top of the box as at the bottom, without narrowing the
+              cards. */}
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-1 -m-1 lg:pr-2">
           {pagedAwaiting.rows.map((record) => {
             const risk = riskOf(record, now);
             const active = selected?.id === record.id;
@@ -294,17 +420,22 @@ export function MatchingPage() {
             );
           })}
 
-          {/* The yard is not a scroll. Paged like every other long list in the
-              app, so the column has an end and the pager says how far in you
-              are. */}
+          </div>
+
+          {/* Still paged, as every long list in the app is — the scroll is how
+              you cross one page of the yard, not a replacement for having
+              pages. Pinned under the scroller so the count is readable from
+              anywhere in it. */}
           {onBoard.length > 0 && (
-            <TablePager
-              paged={pagedAwaiting}
-              noun="empties"
-              pageSize={emptiesPageSize}
-              onPageSizeChange={setEmptiesPageSize}
-              pageSizeOptions={[8, 16, 32, 64]}
-            />
+            <div className="shrink-0">
+              <TablePager
+                paged={pagedAwaiting}
+                noun="empties"
+                pageSize={emptiesPageSize}
+                onPageSizeChange={setEmptiesPageSize}
+                pageSizeOptions={[8, 16, 32, 64]}
+              />
+            </div>
           )}
         </div>
 
@@ -331,8 +462,7 @@ export function MatchingPage() {
         */}
         <div
           className={cn(
-            'min-w-0 space-y-2 lg:col-span-3',
-            'lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-var(--fl-header-height)-2rem)] lg:overflow-y-auto',
+            'min-w-0 space-y-2 lg:col-span-3 lg:min-h-0 lg:overflow-y-auto lg:pr-1',
             !hasPicked && 'hidden lg:block',
           )}
         >
